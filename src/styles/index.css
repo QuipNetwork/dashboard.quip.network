@@ -1,9 +1,58 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@source "../../.ladle";
+
+@theme {
+  /* Grays */
+  --color-brand-gray-0: #1A1A1A;
+  --color-brand-gray-1: #282828;
+  --color-brand-gray-2: #525252;
+  --color-brand-gray-3: #A9A9A9;
+  --color-brand-gray-4: #DCDCDC;
+  --color-brand-gray-5: #F2F2F2;
+  --color-brand-gray-6: #FFFFFF;
+
+  /* Greens */
+  --color-brand-green-0: #67E347;
+  --color-brand-green-1: #EEFF64;
+  --color-brand-green-2: #EEFDCA;
+
+  /* Yellows */
+  --color-brand-yellow-0: #FFDE53;
+  --color-brand-yellow-1: #FEF278;
+  --color-brand-yellow-2: #FFFCDA;
+
+  /* Reds */
+  --color-brand-red-0: #FF6C78;
+  --color-brand-red-1: #FFE2DA;
+  --color-brand-red-2: #FFEDEE;
+
+  /* Pinks */
+  --color-brand-pink-0: #FF92D5;
+  --color-brand-pink-1: #FFCDE4;
+  --color-brand-pink-2: #FFE7FB;
+
+  /* Magenta */
+  --color-brand-magenta-0: #A5C3D4;
+  --color-brand-magenta-1: #C4E4FC;
+  --color-brand-magenta-2: #E6D7FF;
+
+  /* Blues */
+  --color-brand-blue-0: #4CE0FF;
+  --color-brand-blue-1: #C2F8FD;
+  --color-brand-blue-2: #F3FEFF;
+
+  /* Fonts */
+  --font-heading: "ABC Gaisyr", serif;
+  --font-accent: "ABC Favotit Mono", monospace;
+  --font-body: "ABC Favotit", sans-serif;
+}
 
 @layer base {
   body {
-    @apply bg-brand-gray-0 text-brand-gray-4 antialiased;
+    background-color: var(--color-brand-gray-0);
+    color: var(--color-brand-gray-4);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
