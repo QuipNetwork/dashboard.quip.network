@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_NAME="quip-dashboard"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Build image if it doesn't exist or Containerfile changed
+if ! podman image exists "$IMAGE_NAME" || \
+   [ "$PROJECT_DIR/Containerfile" -nt "$(podman image inspect "$IMAGE_NAME" --format '{{.Created}}' 2>/dev/null || echo 0)" ]; then
+  podman build -t "$IMAGE_NAME" "$PROJECT_DIR"
+fi
+
+CMD="${1:-sh}"
+shift 2>/dev/null || true
+
+case "$CMD" in
+  dev)
+    exec podman run --rm -it \
+      -v "$PROJECT_DIR:/app:Z" \
+      -p 5173:5173 \
+      "$IMAGE_NAME" \
+      bun run dev -- --host 0.0.0.0 "$@"
+    ;;
+  build)
+    exec podman run --rm \
+      -v "$PROJECT_DIR:/app:Z" \
+      "$IMAGE_NAME" \
+      bun run build "$@"
+    ;;
+  sh)
+    exec podman run --rm -it \
+      -v "$PROJECT_DIR:/app:Z" \
+      -p 5173:5173 \
+      "$IMAGE_NAME" \
+      bash "$@"
+    ;;
+  bun)
+    exec podman run --rm -it \
+      -v "$PROJECT_DIR:/app:Z" \
+      "$IMAGE_NAME" \
+      bun "$@"
+    ;;
+  *)
+    exec podman run --rm -it \
+      -v "$PROJECT_DIR:/app:Z" \
+      -p 5173:5173 \
+      "$IMAGE_NAME" \
+      bun "$CMD" "$@"
+    ;;
+esac

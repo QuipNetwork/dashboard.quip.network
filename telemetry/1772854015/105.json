@@ -1,0 +1,25 @@
+{
+  "block_index": 105,
+  "block_hash": "b95ede1fe12147b4d340c258ed7bd6e86f047f9fc0bfe3b2bf3614110bc26ba3",
+  "timestamp": 1773155108,
+  "previous_hash": "c391c5336860922d50f90e7162dca8abd445aaa577043c32225ef8a898bcfbc7",
+  "miner": {
+    "miner_id": "47ba0f9c85ec",
+    "miner_type": "{\"cpu\": {\"num_cpus\": 28}, \"gpu\": null, \"qpu\": null}",
+    "ecdsa_public_key": "04386fd63be8b4f54df7b81a3cb5493f20b127114324e7709c1f3a4a0adef7914207ced2375ac858c40a9a5311f64bc5d613fbd48a178f7899f0c035289f324cbe"
+  },
+  "quantum_proof": {
+    "energy": -14931.0,
+    "diversity": 0.2124454148471616,
+    "num_valid_solutions": 5,
+    "mining_time": 958.0,
+    "nonce": 1557906095,
+    "num_nodes": 4580,
+    "num_edges": 41567
+  },
+  "requirements": {
+    "difficulty_energy": -14962.162902543698,
+    "min_diversity": 0.2,
+    "min_solutions": 5
+  }
+}

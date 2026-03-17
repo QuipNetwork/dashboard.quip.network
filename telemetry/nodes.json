@@ -1,0 +1,27 @@
+{
+  "updated_at": "2026-03-16T13:29:00.963799+00:00",
+  "node_count": 2,
+  "active_count": 0,
+  "nodes": {
+    "gpu-1.quip.carback.us:20049": {
+      "address": "gpu-1.quip.carback.us:20049",
+      "miner_id": null,
+      "miner_type": null,
+      "ecdsa_public_key_hex": null,
+      "status": "initial_peer",
+      "last_heartbeat": null,
+      "first_seen": 1773667740.963715,
+      "last_seen": 1773667740.963715
+    },
+    "gpu-2.quip.carback.us:20050": {
+      "address": "gpu-2.quip.carback.us:20050",
+      "miner_id": null,
+      "miner_type": null,
+      "ecdsa_public_key_hex": null,
+      "status": "initial_peer",
+      "last_heartbeat": null,
+      "first_seen": 1773667740.963715,
+      "last_seen": 1773667740.963715
+    }
+  }
+}

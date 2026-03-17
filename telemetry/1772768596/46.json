@@ -1,0 +1,25 @@
+{
+  "block_index": 46,
+  "block_hash": "f2e4bff21d1b11c2bd2ce225ad9dcad79986b3ece2c0b57ad166647f2d0f9f16",
+  "timestamp": 1772811728,
+  "previous_hash": "315f2a554253384a603242248dac8ac8b8e08ddbb3c7e49109f56c3669f0988e",
+  "miner": {
+    "miner_id": "qpu1.quip",
+    "miner_type": "{\"cpu\": {\"num_cpus\": 1}, \"gpu\": null, \"qpu\": {\"dwave_api_key\": \"SYg9-ac23fc937c62a5f55ae2e6120ff91b0d18e525d8\", \"dwave_api_solver\": \"Advantage2_system1.12\", \"dwave_region_url\": \"https://na-west-1.cloud.dwavesys.com/sapi/v2/\", \"qpu_daily_budget\": \"720s\"}}",
+    "ecdsa_public_key": "04ba698a074dbb849acf4fff1caa6544aa833128bc4e094ef954b7905d86f3f20ba45f3a113f1012e63b8af5c2677d9499a55b4b85d43a4d2707b2f410623f8c9e"
+  },
+  "quantum_proof": {
+    "energy": -14884.0,
+    "diversity": 0.204410480349345,
+    "num_valid_solutions": 5,
+    "mining_time": 63,
+    "nonce": 1210703553,
+    "num_nodes": 4580,
+    "num_edges": 41567
+  },
+  "requirements": {
+    "difficulty_energy": -15035.023618217749,
+    "min_diversity": 0.2,
+    "min_solutions": 5
+  }
+}
