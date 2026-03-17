@@ -16,7 +16,7 @@ export function useMiningTime(): MiningTimeSeries[] {
     const grouped: Partial<Record<MinerCategory, Array<{ x: number; y: number }>>> = {};
 
     for (const block of filtered) {
-      const arr = grouped[block.minerCategory] ??= [];
+      const arr = (grouped[block.minerCategory] ??= []);
       arr.push({ x: block.blockIndex, y: block.miningTime });
     }
 

@@ -19,10 +19,7 @@ export function Dashboard() {
             <BlocksOverTimeChart />
           </ChartCard>
 
-          <ChartCard
-            title="Mining Time per Block"
-            subtitle="Time to solution by processor type"
-          >
+          <ChartCard title="Mining Time per Block" subtitle="Time to solution by processor type">
             <MiningTimeChart />
           </ChartCard>
 
@@ -33,10 +30,7 @@ export function Dashboard() {
             <ComputeUsedChart />
           </ChartCard>
 
-          <ChartCard
-            title="Mining Nodes by Type"
-            subtitle="Distinct miners observed on network"
-          >
+          <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
             <ActiveNodesChart />
           </ChartCard>
         </div>

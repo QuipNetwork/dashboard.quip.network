@@ -1,0 +1,5 @@
+dist
+node_modules
+bun.lock
+src/data/stub-telemetry.ts
+telemetry

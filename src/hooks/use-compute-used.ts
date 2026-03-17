@@ -8,8 +8,12 @@ export interface ComputeUsedEntry {
   compute: number;
 }
 
-function getUnitCount(block: { minerCategory: MinerCategory; minerConfig: { cpu: { num_cpus: number } | null; gpu: { devices: string[] } | null } }): number {
-  if (block.minerCategory === "GPU" && block.minerConfig.gpu) return block.minerConfig.gpu.devices.length;
+function getUnitCount(block: {
+  minerCategory: MinerCategory;
+  minerConfig: { cpu: { num_cpus: number } | null; gpu: { devices: string[] } | null };
+}): number {
+  if (block.minerCategory === "GPU" && block.minerConfig.gpu)
+    return block.minerConfig.gpu.devices.length;
   if (block.minerCategory === "CPU" && block.minerConfig.cpu) return block.minerConfig.cpu.num_cpus;
   return 1;
 }

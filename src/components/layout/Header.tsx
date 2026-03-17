@@ -12,12 +12,8 @@ export function Header() {
     <header className="border-b border-brand-gray-1 bg-gradient-to-r from-brand-gray-0 via-brand-gray-1 to-brand-gray-0 px-6 py-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-heading text-3xl tracking-tight text-brand-gray-6">
-            Quip
-          </h1>
-          <p className="font-accent text-sm text-brand-gray-3">
-            Post-Quantum Mining Telemetry
-          </p>
+          <h1 className="font-heading text-3xl tracking-tight text-brand-gray-6">Quip</h1>
+          <p className="font-accent text-sm text-brand-gray-3">Post-Quantum Mining Telemetry</p>
         </div>
         <div className="flex gap-2">
           {TYPES.map((type) => {

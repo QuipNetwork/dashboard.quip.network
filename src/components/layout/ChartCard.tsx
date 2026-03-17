@@ -14,9 +14,7 @@ export function ChartCard({ title, subtitle, children, className = "" }: ChartCa
     >
       <div className="mb-4">
         <h2 className="font-heading text-lg text-brand-gray-5">{title}</h2>
-        {subtitle && (
-          <p className="font-accent text-xs text-brand-gray-3">{subtitle}</p>
-        )}
+        {subtitle && <p className="font-accent text-xs text-brand-gray-3">{subtitle}</p>}
       </div>
       <div className="h-72">{children}</div>
     </div>

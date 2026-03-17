@@ -1,6 +1,11 @@
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import type { BlockRecord, MinerCategory, MinerConfig, NodesSnapshot } from "../src/types/telemetry";
+import type {
+  BlockRecord,
+  MinerCategory,
+  MinerConfig,
+  NodesSnapshot,
+} from "../src/types/telemetry";
 
 const TELEMETRY_DIR = join(import.meta.dir, "../telemetry");
 const OUTPUT_FILE = join(import.meta.dir, "../src/data/stub-telemetry.ts");
@@ -78,7 +83,11 @@ const nodesSnapshot: NodesSnapshot = {
 };
 
 // Compute unique miners per category
-const minersByCategory: Record<MinerCategory, Set<string>> = { CPU: new Set(), GPU: new Set(), QPU: new Set() };
+const minersByCategory: Record<MinerCategory, Set<string>> = {
+  CPU: new Set(),
+  GPU: new Set(),
+  QPU: new Set(),
+};
 for (const block of blocks) {
   minersByCategory[block.minerCategory].add(block.minerId);
 }
@@ -107,5 +116,9 @@ export const totalComputeByCategory = ${JSON.stringify(computeByCategory)} as co
 
 writeFileSync(OUTPUT_FILE, output);
 console.log(`Wrote ${blocks.length} blocks to ${OUTPUT_FILE}`);
-console.log(`Miners: CPU=${minersByCategory.CPU.size}, GPU=${minersByCategory.GPU.size}, QPU=${minersByCategory.QPU.size}`);
-console.log(`Compute: CPU=${computeByCategory.CPU.toFixed(1)}s, GPU=${computeByCategory.GPU.toFixed(1)}s, QPU=${computeByCategory.QPU.toFixed(1)}s`);
+console.log(
+  `Miners: CPU=${minersByCategory.CPU.size}, GPU=${minersByCategory.GPU.size}, QPU=${minersByCategory.QPU.size}`,
+);
+console.log(
+  `Compute: CPU=${computeByCategory.CPU.toFixed(1)}s, GPU=${computeByCategory.GPU.toFixed(1)}s, QPU=${computeByCategory.QPU.toFixed(1)}s`,
+);
