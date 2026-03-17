@@ -27,6 +27,13 @@ case "$CMD" in
       "$IMAGE_NAME" \
       bun run build "$@"
     ;;
+  ladle)
+    exec podman run --rm -it \
+      -v "$PROJECT_DIR:/app:Z" \
+      -p 61000:61000 \
+      "$IMAGE_NAME" \
+      bun run ladle -- --host 0.0.0.0 "$@"
+    ;;
   sh)
     exec podman run --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
