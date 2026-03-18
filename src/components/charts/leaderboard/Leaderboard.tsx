@@ -1,5 +1,6 @@
 import { SERIES_COLORS } from "../../../lib/colors";
 import { formatSeconds, formatNumber } from "../../../lib/format";
+import { useMinerColors } from "../../../store/miner-colors";
 import type { LeaderboardEntry } from "./use-leaderboard";
 
 const RANK_STYLES: Record<number, string> = {
@@ -74,7 +75,8 @@ export function Leaderboard({ data }: LeaderboardProps) {
         </thead>
         <tbody>
           {data.map((entry) => {
-            const color = SERIES_COLORS[entry.minerCategory];
+            const typeColor = SERIES_COLORS[entry.minerCategory];
+            const minerColor = useMinerColors.getState().getColor(entry.minerId);
             return (
               <tr
                 key={entry.minerId}
@@ -84,17 +86,23 @@ export function Leaderboard({ data }: LeaderboardProps) {
                   <RankBadge rank={entry.rank} />
                 </td>
                 <td className="py-2 pr-3">
-                  <span className="font-accent text-sm text-brand-gray-5 group-hover:text-white">
-                    {entry.minerId}
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: minerColor, boxShadow: `0 0 6px ${minerColor}66` }}
+                    />
+                    <span className="font-accent text-sm text-brand-gray-5 group-hover:text-white">
+                      {entry.minerId}
+                    </span>
                   </span>
                 </td>
                 <td className="py-2 pr-3">
                   <span
                     className="inline-block rounded-md px-1.5 py-0.5 font-accent text-[10px] font-bold uppercase tracking-wider"
                     style={{
-                      color,
-                      backgroundColor: `${color}18`,
-                      border: `1px solid ${color}33`,
+                      color: typeColor,
+                      backgroundColor: `${typeColor}18`,
+                      border: `1px solid ${typeColor}33`,
                     }}
                   >
                     {entry.minerCategory}
@@ -110,7 +118,7 @@ export function Leaderboard({ data }: LeaderboardProps) {
                   {formatNumber(entry.bestEnergy)}
                 </td>
                 <td className="w-28 py-2 pr-1 sm:w-36">
-                  <ShareBar share={entry.share} color={color} />
+                  <ShareBar share={entry.share} color={minerColor} />
                 </td>
               </tr>
             );
