@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Dashboard } from "./components/layout/Dashboard";
+import { Dashboard } from "./pages/Dashboard";
 import { useTelemetryStore } from "./store/telemetry-store";
 
 export default function App() {

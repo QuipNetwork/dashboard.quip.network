@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { useTelemetryStore } from "../store/telemetry-store";
-import type { MinerCategory } from "../types/telemetry";
+import { useTelemetryStore } from "../../../store/telemetry-store";
+import type { MinerCategory } from "../../../types/telemetry";
 
 export interface BlocksOverTimeSeries {
   id: MinerCategory;

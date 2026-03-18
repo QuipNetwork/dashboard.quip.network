@@ -1,19 +1,19 @@
 import { ResponsiveBar } from "@nivo/bar";
-import { nivoTheme } from "../../theme/nivo-theme";
-import { SERIES_COLORS } from "../../lib/colors";
-import { OverlappingBarsLayer } from "./OverlappingBarsLayer";
-import type { MinerCategory } from "../../types/telemetry";
-import type { HistogramData } from "../../lib/histogram";
+import { nivoTheme } from "../../../theme/nivo-theme";
+import { SERIES_COLORS } from "../../../lib/colors";
+import { OverlappingBarsLayer } from "../common/OverlappingBarsLayer";
+import type { MinerCategory } from "../../../types/telemetry";
+import type { HistogramData } from "../../../lib/histogram";
 
-export interface EnergyDistributionChartProps {
+export interface TimeToSolutionChartProps {
   data: HistogramData;
 }
 
-export function EnergyDistributionChart({ data }: EnergyDistributionChartProps) {
+export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
   if (data.data.length === 0) return null;
 
   return (
-    <div data-qa="chart-energy-distribution" style={{ width: "100%", height: "100%" }}>
+    <div data-qa="chart-time-to-solution" style={{ width: "100%", height: "100%" }}>
       <ResponsiveBar
         data={data.data}
         keys={data.keys}
@@ -28,7 +28,7 @@ export function EnergyDistributionChart({ data }: EnergyDistributionChartProps) 
         enableGridY={true}
         layers={["grid", "axes", OverlappingBarsLayer, "markers", "legends"]}
         axisBottom={{
-          legend: "Energy",
+          legend: "Time (seconds)",
           legendOffset: 40,
           legendPosition: "middle",
           tickRotation: -45,

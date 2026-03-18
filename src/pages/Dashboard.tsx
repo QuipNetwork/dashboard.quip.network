@@ -1,18 +1,18 @@
-import { Header } from "./Header";
-import { ChartCard } from "./ChartCard";
-import { BlocksOverTimeChart } from "../charts/BlocksOverTimeChart";
-import { MiningTimeChart } from "../charts/MiningTimeChart";
-import { ComputeUsedChart } from "../charts/ComputeUsedChart";
-import { ActiveNodesChart } from "../charts/ActiveNodesChart";
-import { EnergyDistributionChart } from "../charts/EnergyDistributionChart";
-import { TimeToSolutionChart } from "../charts/TimeToSolutionChart";
-import { useBlocksOverTime } from "../../hooks/use-blocks-over-time";
-import { useMiningTime } from "../../hooks/use-mining-time";
-import { useComputeUsed } from "../../hooks/use-compute-used";
-import { useActiveNodes } from "../../hooks/use-active-nodes";
-import { useEnergyDistribution } from "../../hooks/use-energy-distribution";
-import { useTimeToSolution } from "../../hooks/use-time-to-solution";
-import { useTelemetryStore } from "../../store/telemetry-store";
+import { Header } from "../components/layout/Header";
+import { ChartCard } from "../components/layout/ChartCard";
+import { BlocksOverTimeChart } from "../components/charts/blocks-over-time/BlocksOverTimeChart";
+import { MiningTimeChart } from "../components/charts/mining-time/MiningTimeChart";
+import { ComputeUsedChart } from "../components/charts/compute-used/ComputeUsedChart";
+import { ActiveNodesChart } from "../components/charts/active-nodes/ActiveNodesChart";
+import { EnergyDistributionChart } from "../components/charts/energy-distribution/EnergyDistributionChart";
+import { TimeToSolutionChart } from "../components/charts/time-to-solution/TimeToSolutionChart";
+import { useBlocksOverTime } from "../components/charts/blocks-over-time/use-blocks-over-time";
+import { useMiningTime } from "../components/charts/mining-time/use-mining-time";
+import { useComputeUsed } from "../components/charts/compute-used/use-compute-used";
+import { useActiveNodes } from "../components/charts/active-nodes/use-active-nodes";
+import { useEnergyDistribution } from "../components/charts/energy-distribution/use-energy-distribution";
+import { useTimeToSolution } from "../components/charts/time-to-solution/use-time-to-solution";
+import { useTelemetryStore } from "../store/telemetry-store";
 
 export function Dashboard() {
   const loading = useTelemetryStore((s) => s.loading);

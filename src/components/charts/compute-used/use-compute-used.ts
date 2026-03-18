@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { useTelemetryStore } from "../store/telemetry-store";
-import { getUnitCount } from "../lib/units";
-import type { MinerCategory } from "../types/telemetry";
+import { useTelemetryStore } from "../../../store/telemetry-store";
+import { getUnitCount } from "../../../lib/units";
+import type { MinerCategory } from "../../../types/telemetry";
 
 export interface ComputeUsedEntry {
   [key: string]: string | number;

@@ -1,6 +1,6 @@
 import type { Story } from "@ladle/react";
 import { ComputeUsedChart } from "./ComputeUsedChart";
-import type { ComputeUsedEntry } from "../../hooks/use-compute-used";
+import type { ComputeUsedEntry } from "./use-compute-used";
 
 const sampleData: ComputeUsedEntry[] = [
   { minerType: "CPU", compute: 4520 },

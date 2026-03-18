@@ -1,6 +1,6 @@
 import type { Story } from "@ladle/react";
 import { MiningTimeChart } from "./MiningTimeChart";
-import type { MiningTimeSeries } from "../../hooks/use-mining-time";
+import type { MiningTimeSeries } from "./use-mining-time";
 
 const sampleData: MiningTimeSeries[] = [
   {

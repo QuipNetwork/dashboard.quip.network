@@ -1,6 +1,6 @@
 import type { Story } from "@ladle/react";
 import { ActiveNodesChart } from "./ActiveNodesChart";
-import type { ActiveNodesEntry } from "../../hooks/use-active-nodes";
+import type { ActiveNodesEntry } from "./use-active-nodes";
 
 const sampleData: ActiveNodesEntry[] = [
   { minerType: "CPU", count: 42 },

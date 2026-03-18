@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { useTelemetryStore } from "../store/telemetry-store";
-import { getUnitCount } from "../lib/units";
-import { buildHistogram, type HistogramData } from "../lib/histogram";
+import { useTelemetryStore } from "../../../store/telemetry-store";
+import { getUnitCount } from "../../../lib/units";
+import { buildHistogram, type HistogramData } from "../../../lib/histogram";
 
 export function useTimeToSolution(): HistogramData {
   const blocks = useTelemetryStore((s) => s.blocks);

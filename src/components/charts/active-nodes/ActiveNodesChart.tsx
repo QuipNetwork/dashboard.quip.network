@@ -1,10 +1,9 @@
 import { ResponsivePie } from "@nivo/pie";
-import { nivoTheme } from "../../theme/nivo-theme";
-import { SERIES_COLORS, SERIES_GRADIENT } from "../../lib/colors";
-import { createPieGradientProps } from "../GradientPie";
-import { formatSeconds } from "../../lib/format";
-import type { ComputeUsedEntry } from "../../hooks/use-compute-used";
-import type { MinerCategory } from "../../types/telemetry";
+import { nivoTheme } from "../../../theme/nivo-theme";
+import { SERIES_COLORS, SERIES_GRADIENT } from "../../../lib/colors";
+import { createPieGradientProps } from "../common/GradientPie";
+import type { ActiveNodesEntry } from "./use-active-nodes";
+import type { MinerCategory } from "../../../types/telemetry";
 
 const pieGradient = createPieGradientProps(
   Object.fromEntries(
@@ -18,21 +17,21 @@ const pieGradient = createPieGradientProps(
   ),
 );
 
-export interface ComputeUsedChartProps {
-  data: ComputeUsedEntry[];
+export interface ActiveNodesChartProps {
+  data: ActiveNodesEntry[];
 }
 
-export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
+export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
   if (data.length === 0) return null;
 
   const pieData = data.map((d) => ({
     id: d.minerType,
     label: d.minerType,
-    value: d.compute,
+    value: d.count,
   }));
 
   return (
-    <div data-qa="chart-compute-used" style={{ width: "100%", height: "100%" }}>
+    <div data-qa="chart-active-nodes" style={{ width: "100%", height: "100%" }}>
     <ResponsivePie
       data={pieData}
       theme={nivoTheme}
@@ -47,7 +46,6 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
       arcLinkLabelsTextColor="#DCDCDC"
       arcLinkLabelsThickness={2}
       arcLabelsTextColor="#1A1A1A"
-      valueFormat={(v) => formatSeconds(v)}
       activeOuterRadiusOffset={8}
       defs={pieGradient.defs}
       fill={pieGradient.fill}

@@ -1,12 +1,8 @@
 import { ResponsiveLine } from "@nivo/line";
-import { nivoTheme } from "../../theme/nivo-theme";
-import { SERIES_COLORS, SERIES_GRADIENT } from "../../lib/colors";
-import { createGradientLines } from "../GradientLines";
-import type { BlocksOverTimeSeries } from "../../hooks/use-blocks-over-time";
-
-export interface BlocksOverTimeChartProps {
-  data: BlocksOverTimeSeries[];
-}
+import { nivoTheme } from "../../../theme/nivo-theme";
+import { SERIES_COLORS, SERIES_GRADIENT } from "../../../lib/colors";
+import { createGradientLines } from "../common/GradientLines";
+import type { MiningTimeSeries } from "./use-mining-time";
 
 const gradientLines = createGradientLines(
   Object.fromEntries(
@@ -20,11 +16,15 @@ const gradientLines = createGradientLines(
   ),
 );
 
-export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
+export interface MiningTimeChartProps {
+  data: MiningTimeSeries[];
+}
+
+export function MiningTimeChart({ data }: MiningTimeChartProps) {
   if (data.length === 0) return null;
 
   return (
-    <div data-qa="chart-blocks-over-time" style={{ width: "100%", height: "100%" }}>
+    <div data-qa="chart-mining-time" style={{ width: "100%", height: "100%" }}>
     <ResponsiveLine
       data={data}
       theme={nivoTheme}
@@ -33,15 +33,16 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
       xScale={{ type: "linear" }}
       yScale={{ type: "linear", min: 0, stacked: false }}
       curve="monotoneX"
-      enableArea={true}
-      areaOpacity={0.08}
-      enablePoints={false}
+      enablePoints={true}
+      pointSize={4}
+      pointBorderWidth={1}
+      pointBorderColor={{ from: "serieColor" }}
+      pointColor="#1A1A1A"
       lineWidth={2}
       layers={[
         "grid",
         "markers",
         "axes",
-        "areas",
         "crosshair",
         gradientLines,
         "slices",
@@ -50,12 +51,12 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
         "legends",
       ]}
       axisBottom={{
-        legend: "Time (minutes)",
+        legend: "Block Index",
         legendOffset: 40,
         legendPosition: "middle",
       }}
       axisLeft={{
-        legend: "Cumulative Blocks",
+        legend: "Mining Time (seconds)",
         legendOffset: -50,
         legendPosition: "middle",
       }}

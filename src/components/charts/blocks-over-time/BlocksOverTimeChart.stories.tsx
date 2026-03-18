@@ -1,6 +1,6 @@
 import type { Story } from "@ladle/react";
 import { BlocksOverTimeChart } from "./BlocksOverTimeChart";
-import type { BlocksOverTimeSeries } from "../../hooks/use-blocks-over-time";
+import type { BlocksOverTimeSeries } from "./use-blocks-over-time";
 
 const sampleData: BlocksOverTimeSeries[] = [
   {
