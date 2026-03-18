@@ -25,16 +25,12 @@ export function Dashboard() {
         <Header />
         <main className="mx-auto max-w-7xl p-6">
           {loading && (
-            <p className="py-20 text-center font-accent text-brand-gray-3">
-              Loading telemetry…
-            </p>
+            <p className="py-20 text-center font-accent text-brand-gray-3">Loading telemetry…</p>
           )}
-          {error && (
-            <p className="py-20 text-center font-accent text-brand-red-0">
-              {error}
-            </p>
-          )}
-          <div className={`grid grid-cols-1 gap-5 lg:grid-cols-2${loading || error ? " hidden" : ""}`}>
+          {error && <p className="py-20 text-center font-accent text-brand-red-0">{error}</p>}
+          <div
+            className={`grid grid-cols-1 gap-5 lg:grid-cols-2${loading || error ? " hidden" : ""}`}
+          >
             <ChartCard
               title="Blocks Mined Over Time"
               subtitle="Cumulative blocks per unit type"

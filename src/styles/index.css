@@ -5,43 +5,43 @@
 
 @theme {
   /* Grays */
-  --color-brand-gray-0: #1A1A1A;
+  --color-brand-gray-0: #1a1a1a;
   --color-brand-gray-1: #282828;
   --color-brand-gray-2: #525252;
-  --color-brand-gray-3: #A9A9A9;
-  --color-brand-gray-4: #DCDCDC;
-  --color-brand-gray-5: #F2F2F2;
-  --color-brand-gray-6: #FFFFFF;
+  --color-brand-gray-3: #a9a9a9;
+  --color-brand-gray-4: #dcdcdc;
+  --color-brand-gray-5: #f2f2f2;
+  --color-brand-gray-6: #ffffff;
 
   /* Greens */
-  --color-brand-green-0: #67E347;
-  --color-brand-green-1: #EEFF64;
-  --color-brand-green-2: #EEFDCA;
+  --color-brand-green-0: #67e347;
+  --color-brand-green-1: #eeff64;
+  --color-brand-green-2: #eefdca;
 
   /* Yellows */
-  --color-brand-yellow-0: #FFDE53;
-  --color-brand-yellow-1: #FEF278;
-  --color-brand-yellow-2: #FFFCDA;
+  --color-brand-yellow-0: #ffde53;
+  --color-brand-yellow-1: #fef278;
+  --color-brand-yellow-2: #fffcda;
 
   /* Reds */
-  --color-brand-red-0: #FF6C78;
-  --color-brand-red-1: #FFE2DA;
-  --color-brand-red-2: #FFEDEE;
+  --color-brand-red-0: #ff6c78;
+  --color-brand-red-1: #ffe2da;
+  --color-brand-red-2: #ffedee;
 
   /* Pinks */
-  --color-brand-pink-0: #FF92D5;
-  --color-brand-pink-1: #FFCDE4;
-  --color-brand-pink-2: #FFE7FB;
+  --color-brand-pink-0: #ff92d5;
+  --color-brand-pink-1: #ffcde4;
+  --color-brand-pink-2: #ffe7fb;
 
   /* Magenta */
-  --color-brand-magenta-0: #A5C3D4;
-  --color-brand-magenta-1: #C4E4FC;
-  --color-brand-magenta-2: #E6D7FF;
+  --color-brand-magenta-0: #a5c3d4;
+  --color-brand-magenta-1: #c4e4fc;
+  --color-brand-magenta-2: #e6d7ff;
 
   /* Blues */
-  --color-brand-blue-0: #4CE0FF;
-  --color-brand-blue-1: #C2F8FD;
-  --color-brand-blue-2: #F3FEFF;
+  --color-brand-blue-0: #4ce0ff;
+  --color-brand-blue-1: #c2f8fd;
+  --color-brand-blue-2: #f3feff;
 
   /* Fonts */
   --font-heading: "ABC Gaisyr", serif;

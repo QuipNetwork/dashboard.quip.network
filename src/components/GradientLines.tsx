@@ -8,15 +8,8 @@ export interface GradientStop {
 
 export type SeriesGradientStops = Record<string, GradientStop[]>;
 
-export function createGradientLines(
-  stops: SeriesGradientStops,
-  strokeWidth = 2,
-) {
-  return function GradientLines({
-    series,
-    lineGenerator,
-    innerWidth,
-  }: CustomLayerProps) {
+export function createGradientLines(stops: SeriesGradientStops, strokeWidth = 2) {
+  return function GradientLines({ series, lineGenerator, innerWidth }: CustomLayerProps) {
     return (
       <>
         <defs>
