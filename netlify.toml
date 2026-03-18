@@ -1,3 +1,11 @@
 [build]
   command = "bun run build"
   publish = "dist"
+
+[dev]
+  command = "vite --host 0.0.0.0"
+  targetPort = 5173
+
+[functions]
+  directory = "netlify/functions"
+  included_files = ["telemetry/**"]

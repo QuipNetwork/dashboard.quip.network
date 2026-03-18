@@ -19,7 +19,7 @@ case "$CMD" in
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \
-      bun run dev -- --host 0.0.0.0 "$@"
+      node node_modules/.bin/netlify dev --port 8888 --offline "$@"
     ;;
   build)
     exec podman run \
@@ -30,7 +30,7 @@ case "$CMD" in
   ladle)
     exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
-      -p 8888:8888 \
+      --network host \
       "$IMAGE_NAME" \
       bun run ladle -- --host 0.0.0.0 "$@"
     ;;

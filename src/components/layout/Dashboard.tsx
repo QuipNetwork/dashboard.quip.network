@@ -8,8 +8,11 @@ import { useBlocksOverTime } from "../../hooks/use-blocks-over-time";
 import { useMiningTime } from "../../hooks/use-mining-time";
 import { useComputeUsed } from "../../hooks/use-compute-used";
 import { useActiveNodes } from "../../hooks/use-active-nodes";
+import { useTelemetryStore } from "../../store/telemetry-store";
 
 export function Dashboard() {
+  const loading = useTelemetryStore((s) => s.loading);
+  const error = useTelemetryStore((s) => s.error);
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();
   const computeUsed = useComputeUsed();
@@ -21,7 +24,17 @@ export function Dashboard() {
       <div className="relative">
         <Header />
         <main className="mx-auto max-w-7xl p-6">
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {loading && (
+            <p className="py-20 text-center font-accent text-brand-gray-3">
+              Loading telemetry…
+            </p>
+          )}
+          {error && (
+            <p className="py-20 text-center font-accent text-brand-red-0">
+              {error}
+            </p>
+          )}
+          <div className={`grid grid-cols-1 gap-5 lg:grid-cols-2${loading || error ? " hidden" : ""}`}>
             <ChartCard
               title="Blocks Mined Over Time"
               subtitle="Cumulative blocks per unit type"
