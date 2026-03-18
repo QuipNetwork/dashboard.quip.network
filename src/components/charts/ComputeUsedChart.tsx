@@ -32,6 +32,7 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
   }));
 
   return (
+    <div data-qa="chart-compute-used" style={{ width: "100%", height: "100%" }}>
     <ResponsivePie
       data={pieData}
       theme={nivoTheme}
@@ -51,5 +52,6 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
       defs={pieGradient.defs}
       fill={pieGradient.fill}
     />
+    </div>
   );
 }

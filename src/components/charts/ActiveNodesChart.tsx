@@ -31,6 +31,7 @@ export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
   }));
 
   return (
+    <div data-qa="chart-active-nodes" style={{ width: "100%", height: "100%" }}>
     <ResponsivePie
       data={pieData}
       theme={nivoTheme}
@@ -49,5 +50,6 @@ export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
       defs={pieGradient.defs}
       fill={pieGradient.fill}
     />
+    </div>
   );
 }

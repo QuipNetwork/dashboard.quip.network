@@ -24,6 +24,7 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
   if (data.length === 0) return null;
 
   return (
+    <div data-qa="chart-mining-time" style={{ width: "100%", height: "100%" }}>
     <ResponsiveLine
       data={data}
       theme={nivoTheme}
@@ -73,5 +74,6 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
         },
       ]}
     />
+    </div>
   );
 }

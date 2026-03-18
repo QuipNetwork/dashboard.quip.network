@@ -24,6 +24,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
   if (data.length === 0) return null;
 
   return (
+    <div data-qa="chart-blocks-over-time" style={{ width: "100%", height: "100%" }}>
     <ResponsiveLine
       data={data}
       theme={nivoTheme}
@@ -72,5 +73,6 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
         },
       ]}
     />
+    </div>
   );
 }
