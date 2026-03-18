@@ -17,7 +17,7 @@ case "$CMD" in
   dev)
     exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
-      -p 5173:5173 \
+      -p 8888:8888 \
       "$IMAGE_NAME" \
       bun run dev -- --host 0.0.0.0 "$@"
     ;;
@@ -30,14 +30,14 @@ case "$CMD" in
   ladle)
     exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
-      -p 61000:61000 \
+      -p 8888:8888 \
       "$IMAGE_NAME" \
       bun run ladle -- --host 0.0.0.0 "$@"
     ;;
   sh)
     exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
-      -p 5173:5173 \
+      -p 8888:8888 \
       "$IMAGE_NAME" \
       bash "$@"
     ;;
@@ -50,7 +50,7 @@ case "$CMD" in
   *)
     exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
-      -p 5173:5173 \
+      -p 8888:8888 \
       "$IMAGE_NAME" \
       bun "$CMD" "$@"
     ;;
