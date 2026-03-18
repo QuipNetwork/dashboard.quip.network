@@ -3,7 +3,14 @@ import { nivoTheme } from "../../../theme/nivo-theme";
 import { SERIES_GRADIENT } from "../../../lib/colors";
 import { getSeriesColor } from "../../../lib/chart-colors";
 import { createGradientLines } from "../common/GradientLines";
+import { createLineTooltip } from "../common/LineTooltip";
 import type { EnergyCdfResult } from "./use-energy-cdf";
+
+const tooltip = createLineTooltip({
+  xLabel: "Energy Threshold",
+  yLabel: "Probability",
+  yFormat: (v) => `${v.toFixed(1)}%`,
+});
 
 const gradientLines = createGradientLines(
   Object.fromEntries(
@@ -61,6 +68,7 @@ export function EnergyCdfChart({ data }: EnergyCdfChartProps) {
           legendOffset: -50,
           legendPosition: "middle",
         }}
+        tooltip={tooltip}
         useMesh={true}
         enableCrosshair={true}
         legends={series.length <= 5 ? [

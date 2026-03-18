@@ -3,7 +3,14 @@ import { nivoTheme } from "../../../theme/nivo-theme";
 import { SERIES_GRADIENT } from "../../../lib/colors";
 import { getSeriesColor } from "../../../lib/chart-colors";
 import { createGradientLines } from "../common/GradientLines";
+import { createLineTooltip } from "../common/LineTooltip";
 import type { WinRateByDifficultyResult } from "./use-win-rate-by-difficulty";
+
+const tooltip = createLineTooltip({
+  xLabel: "Difficulty",
+  yLabel: "Win Rate",
+  yFormat: (v) => `${v.toFixed(1)}%`,
+});
 
 const gradientLines = createGradientLines(
   Object.fromEntries(
@@ -65,6 +72,7 @@ export function WinRateByDifficultyChart({ data }: WinRateByDifficultyChartProps
           legendOffset: -50,
           legendPosition: "middle",
         }}
+        tooltip={tooltip}
         useMesh={true}
         enableCrosshair={true}
         legends={[

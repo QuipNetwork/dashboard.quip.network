@@ -3,7 +3,14 @@ import { nivoTheme } from "../../../theme/nivo-theme";
 import { SERIES_GRADIENT } from "../../../lib/colors";
 import { getSeriesColor } from "../../../lib/chart-colors";
 import { createGradientLines } from "../common/GradientLines";
+import { createLineTooltip } from "../common/LineTooltip";
 import type { MiningTimeSeries } from "./use-mining-time";
+
+const tooltip = createLineTooltip({
+  xLabel: "Block",
+  yLabel: "Mining Time",
+  yFormat: (v) => `${v.toFixed(1)}s`,
+});
 
 const gradientLines = createGradientLines(
   Object.fromEntries(
@@ -61,6 +68,7 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
         legendOffset: -50,
         legendPosition: "middle",
       }}
+      tooltip={tooltip}
       useMesh={true}
       enableCrosshair={true}
       legends={data.length <= 5 ? [

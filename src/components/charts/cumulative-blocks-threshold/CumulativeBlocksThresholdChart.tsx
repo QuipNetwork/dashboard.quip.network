@@ -3,7 +3,13 @@ import { nivoTheme } from "../../../theme/nivo-theme";
 import { SERIES_GRADIENT } from "../../../lib/colors";
 import { getSeriesColor } from "../../../lib/chart-colors";
 import { createGradientLines } from "../common/GradientLines";
+import { createLineTooltip } from "../common/LineTooltip";
 import type { CumulativeBlocksThresholdResult } from "./use-cumulative-blocks-threshold";
+
+const tooltip = createLineTooltip({
+  xLabel: "Energy Threshold",
+  yLabel: "Blocks / Unit",
+});
 
 const gradientLines = createGradientLines(
   Object.fromEntries(
@@ -61,6 +67,7 @@ export function CumulativeBlocksThresholdChart({ data }: CumulativeBlocksThresho
           legendOffset: -50,
           legendPosition: "middle",
         }}
+        tooltip={tooltip}
         useMesh={true}
         enableCrosshair={true}
         legends={series.length <= 5 ? [

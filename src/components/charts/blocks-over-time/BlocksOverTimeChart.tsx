@@ -3,7 +3,13 @@ import { nivoTheme } from "../../../theme/nivo-theme";
 import { SERIES_GRADIENT } from "../../../lib/colors";
 import { getSeriesColor } from "../../../lib/chart-colors";
 import { createGradientLines } from "../common/GradientLines";
+import { createLineTooltip } from "../common/LineTooltip";
 import type { BlocksOverTimeSeries } from "./use-blocks-over-time";
+
+const tooltip = createLineTooltip({
+  xLabel: "Time (min)",
+  yLabel: "Blocks",
+});
 
 export interface BlocksOverTimeChartProps {
   data: BlocksOverTimeSeries[];
@@ -60,6 +66,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
         legendOffset: -50,
         legendPosition: "middle",
       }}
+      tooltip={tooltip}
       useMesh={true}
       enableCrosshair={true}
       legends={data.length <= 5 ? [
