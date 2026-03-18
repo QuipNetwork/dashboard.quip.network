@@ -1,11 +1,13 @@
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "../../theme/nivo-theme";
 import { SERIES_COLORS } from "../../lib/colors";
-import { useBlocksOverTime } from "../../hooks/use-blocks-over-time";
+import type { BlocksOverTimeSeries } from "../../hooks/use-blocks-over-time";
 
-export function BlocksOverTimeChart() {
-  const data = useBlocksOverTime();
+export interface BlocksOverTimeChartProps {
+  data: BlocksOverTimeSeries[];
+}
 
+export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
   if (data.length === 0) return null;
 
   return (

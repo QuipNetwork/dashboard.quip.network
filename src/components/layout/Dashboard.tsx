@@ -4,8 +4,17 @@ import { BlocksOverTimeChart } from "../charts/BlocksOverTimeChart";
 import { MiningTimeChart } from "../charts/MiningTimeChart";
 import { ComputeUsedChart } from "../charts/ComputeUsedChart";
 import { ActiveNodesChart } from "../charts/ActiveNodesChart";
+import { useBlocksOverTime } from "../../hooks/use-blocks-over-time";
+import { useMiningTime } from "../../hooks/use-mining-time";
+import { useComputeUsed } from "../../hooks/use-compute-used";
+import { useActiveNodes } from "../../hooks/use-active-nodes";
 
 export function Dashboard() {
+  const blocksOverTime = useBlocksOverTime();
+  const miningTime = useMiningTime();
+  const computeUsed = useComputeUsed();
+  const activeNodes = useActiveNodes();
+
   return (
     <div className="min-h-screen bg-brand-gray-0">
       <Header />
@@ -16,22 +25,22 @@ export function Dashboard() {
             subtitle="Cumulative blocks per unit type"
             className="lg:col-span-2"
           >
-            <BlocksOverTimeChart />
+            <BlocksOverTimeChart data={blocksOverTime} />
           </ChartCard>
 
           <ChartCard title="Mining Time per Block" subtitle="Time to solution by processor type">
-            <MiningTimeChart />
+            <MiningTimeChart data={miningTime} />
           </ChartCard>
 
           <ChartCard
             title="Total Compute Used"
             subtitle="Wall clock × units (CPU/GPU) or raw QPU time"
           >
-            <ComputeUsedChart />
+            <ComputeUsedChart data={computeUsed} />
           </ChartCard>
 
           <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
-            <ActiveNodesChart />
+            <ActiveNodesChart data={activeNodes} />
           </ChartCard>
         </div>
       </main>

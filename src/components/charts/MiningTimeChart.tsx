@@ -1,11 +1,13 @@
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "../../theme/nivo-theme";
 import { SERIES_COLORS } from "../../lib/colors";
-import { useMiningTime } from "../../hooks/use-mining-time";
+import type { MiningTimeSeries } from "../../hooks/use-mining-time";
 
-export function MiningTimeChart() {
-  const data = useMiningTime();
+export interface MiningTimeChartProps {
+  data: MiningTimeSeries[];
+}
 
+export function MiningTimeChart({ data }: MiningTimeChartProps) {
   if (data.length === 0) return null;
 
   return (

@@ -1,13 +1,15 @@
 import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "../../theme/nivo-theme";
 import { SERIES_COLORS } from "../../lib/colors";
-import { useComputeUsed } from "../../hooks/use-compute-used";
 import { formatSeconds } from "../../lib/format";
+import type { ComputeUsedEntry } from "../../hooks/use-compute-used";
 import type { MinerCategory } from "../../types/telemetry";
 
-export function ComputeUsedChart() {
-  const data = useComputeUsed();
+export interface ComputeUsedChartProps {
+  data: ComputeUsedEntry[];
+}
 
+export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
   if (data.length === 0) return null;
 
   return (

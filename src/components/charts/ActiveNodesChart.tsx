@@ -1,12 +1,14 @@
 import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "../../theme/nivo-theme";
 import { SERIES_COLORS } from "../../lib/colors";
-import { useActiveNodes } from "../../hooks/use-active-nodes";
+import type { ActiveNodesEntry } from "../../hooks/use-active-nodes";
 import type { MinerCategory } from "../../types/telemetry";
 
-export function ActiveNodesChart() {
-  const data = useActiveNodes();
+export interface ActiveNodesChartProps {
+  data: ActiveNodesEntry[];
+}
 
+export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
   if (data.length === 0) return null;
 
   return (

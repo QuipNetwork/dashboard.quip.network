@@ -15,40 +15,40 @@ shift 2>/dev/null || true
 
 case "$CMD" in
   dev)
-    exec podman run --rm -it \
+    exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 5173:5173 \
       "$IMAGE_NAME" \
       bun run dev -- --host 0.0.0.0 "$@"
     ;;
   build)
-    exec podman run --rm \
+    exec podman run \
       -v "$PROJECT_DIR:/app:Z" \
       "$IMAGE_NAME" \
       bun run build "$@"
     ;;
   ladle)
-    exec podman run --rm -it \
+    exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 61000:61000 \
       "$IMAGE_NAME" \
       bun run ladle -- --host 0.0.0.0 "$@"
     ;;
   sh)
-    exec podman run --rm -it \
+    exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 5173:5173 \
       "$IMAGE_NAME" \
       bash "$@"
     ;;
   bun)
-    exec podman run --rm -it \
+    exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
       "$IMAGE_NAME" \
       bun "$@"
     ;;
   *)
-    exec podman run --rm -it \
+    exec podman run -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 5173:5173 \
       "$IMAGE_NAME" \
