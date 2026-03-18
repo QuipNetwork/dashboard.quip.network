@@ -20,6 +20,8 @@ import { useEnergyCdf } from "../components/charts/energy-cdf/use-energy-cdf";
 import { useWinRateByDifficulty } from "../components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
 import { useMiningTimeByDifficulty } from "../components/charts/mining-time-by-difficulty/use-mining-time-by-difficulty";
 import { useCumulativeBlocksThreshold } from "../components/charts/cumulative-blocks-threshold/use-cumulative-blocks-threshold";
+import { Leaderboard } from "../components/charts/leaderboard/Leaderboard";
+import { useLeaderboard } from "../components/charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "../store/telemetry-store";
 
 export function Dashboard() {
@@ -35,6 +37,7 @@ export function Dashboard() {
   const winRate = useWinRateByDifficulty();
   const miningTimeByDifficulty = useMiningTimeByDifficulty();
   const cumulativeBlocks = useCumulativeBlocksThreshold();
+  const leaderboard = useLeaderboard();
 
   return (
     <div className="relative min-h-screen bg-brand-gray-0">
@@ -46,6 +49,15 @@ export function Dashboard() {
             <p className="py-20 text-center font-accent text-brand-gray-3">Loading telemetry…</p>
           )}
           {error && <p className="py-20 text-center font-accent text-brand-red-0">{error}</p>}
+          <div className={loading || error ? "hidden" : ""}>
+            <ChartCard
+              title="Mining Leaderboard"
+              subtitle="Top performing nodes by blocks mined"
+              className="mb-5"
+            >
+              <Leaderboard data={leaderboard} />
+            </ChartCard>
+          </div>
           <div
             className={`grid grid-cols-1 gap-5 lg:grid-cols-2${loading || error ? " hidden" : ""}`}
           >
