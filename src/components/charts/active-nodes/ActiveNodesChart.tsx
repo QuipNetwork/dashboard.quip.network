@@ -1,9 +1,9 @@
 import { ResponsivePie } from "@nivo/pie";
 import { nivoTheme } from "../../../theme/nivo-theme";
-import { SERIES_COLORS, SERIES_GRADIENT } from "../../../lib/colors";
+import { SERIES_GRADIENT } from "../../../lib/colors";
+import { getSeriesColor } from "../../../lib/chart-colors";
 import { createPieGradientProps } from "../common/GradientPie";
 import type { ActiveNodesEntry } from "./use-active-nodes";
-import type { MinerCategory } from "../../../types/telemetry";
 
 const pieGradient = createPieGradientProps(
   Object.fromEntries(
@@ -35,7 +35,7 @@ export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
     <ResponsivePie
       data={pieData}
       theme={nivoTheme}
-      colors={(d) => SERIES_COLORS[d.id as MinerCategory] ?? "#999"}
+      colors={(d) => getSeriesColor(String(d.id))}
       margin={{ top: 30, right: 80, bottom: 30, left: 80 }}
       innerRadius={0.5}
       padAngle={2}

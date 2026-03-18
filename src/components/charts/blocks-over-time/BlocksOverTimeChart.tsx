@@ -1,6 +1,7 @@
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "../../../theme/nivo-theme";
-import { SERIES_COLORS, SERIES_GRADIENT } from "../../../lib/colors";
+import { SERIES_GRADIENT } from "../../../lib/colors";
+import { getSeriesColor } from "../../../lib/chart-colors";
 import { createGradientLines } from "../common/GradientLines";
 import type { BlocksOverTimeSeries } from "./use-blocks-over-time";
 
@@ -28,7 +29,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
     <ResponsiveLine
       data={data}
       theme={nivoTheme}
-      colors={(series) => SERIES_COLORS[series.id as keyof typeof SERIES_COLORS] ?? "#999"}
+      colors={(series) => getSeriesColor(String(series.id))}
       margin={{ top: 20, right: 20, bottom: 50, left: 60 }}
       xScale={{ type: "linear" }}
       yScale={{ type: "linear", min: 0, stacked: false }}
@@ -61,7 +62,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
       }}
       useMesh={true}
       enableCrosshair={true}
-      legends={[
+      legends={data.length <= 5 ? [
         {
           anchor: "top-left",
           direction: "row",
@@ -71,7 +72,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
           symbolShape: "circle",
           translateY: -15,
         },
-      ]}
+      ] : []}
     />
     </div>
   );

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useUIStore } from "../../../store/ui-store";
 import type { MinerCategory } from "../../../types/telemetry";
 
 export interface ActiveNodesEntry {
@@ -10,7 +11,7 @@ export interface ActiveNodesEntry {
 
 export function useActiveNodes(): ActiveNodesEntry[] {
   const blocks = useTelemetryStore((s) => s.blocks);
-  const selectedTypes = useTelemetryStore((s) => s.selectedTypes);
+  const selectedTypes = useUIStore((s) => s.selectedTypes);
 
   return useMemo(() => {
     const miners: Record<MinerCategory, Set<string>> = {

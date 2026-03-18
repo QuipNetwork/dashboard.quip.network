@@ -76,7 +76,6 @@ beforeEach(() => {
     nodes: null,
     loading: true,
     error: null,
-    selectedTypes: ["CPU", "GPU", "QPU"],
   });
 });
 

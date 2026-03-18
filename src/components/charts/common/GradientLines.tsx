@@ -1,4 +1,5 @@
 import type { CustomLayerProps } from "@nivo/line";
+import { getSeriesGradient } from "../../../lib/chart-colors";
 
 export interface GradientStop {
   offset: string;
@@ -14,10 +15,13 @@ export function createGradientLines(stops: SeriesGradientStops, strokeWidth = 2)
       <>
         <defs>
           {series.map((s) => {
-            const seriesStops = stops[s.id] ?? [
-              { offset: "0%", color: "#999" },
-              { offset: "100%", color: "#999" },
-            ];
+            const seriesStops: GradientStop[] = stops[s.id] ?? (() => {
+              const [from, to] = getSeriesGradient(String(s.id));
+              return [
+                { offset: "0%", color: from },
+                { offset: "100%", color: to },
+              ];
+            })();
             return (
               <linearGradient
                 key={s.id}

@@ -1,6 +1,7 @@
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "../../../theme/nivo-theme";
-import { SERIES_COLORS, SERIES_GRADIENT } from "../../../lib/colors";
+import { SERIES_GRADIENT } from "../../../lib/colors";
+import { getSeriesColor } from "../../../lib/chart-colors";
 import { createGradientLines } from "../common/GradientLines";
 import type { CumulativeBlocksThresholdResult } from "./use-cumulative-blocks-threshold";
 
@@ -29,7 +30,7 @@ export function CumulativeBlocksThresholdChart({ data }: CumulativeBlocksThresho
       <ResponsiveLine
         data={series}
         theme={nivoTheme}
-        colors={(s) => SERIES_COLORS[s.id as keyof typeof SERIES_COLORS] ?? "#999"}
+        colors={(s) => getSeriesColor(String(s.id))}
         margin={{ top: 20, right: 20, bottom: 50, left: 60 }}
         xScale={{ type: "linear", min: xMin, max: xMax }}
         yScale={{ type: "linear", min: 0, stacked: false }}
@@ -62,7 +63,7 @@ export function CumulativeBlocksThresholdChart({ data }: CumulativeBlocksThresho
         }}
         useMesh={true}
         enableCrosshair={true}
-        legends={[
+        legends={series.length <= 5 ? [
           {
             anchor: "top-left",
             direction: "row",
@@ -72,7 +73,7 @@ export function CumulativeBlocksThresholdChart({ data }: CumulativeBlocksThresho
             symbolShape: "circle",
             translateY: -15,
           },
-        ]}
+        ] : []}
       />
     </div>
   );

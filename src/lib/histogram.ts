@@ -1,13 +1,11 @@
-import type { MinerCategory } from "../types/telemetry";
-
 export interface HistogramData {
   data: Array<Record<string, string | number>>;
-  keys: MinerCategory[];
+  keys: string[];
 }
 
 export function buildHistogram(
-  values: Array<{ value: number; minerCategory: MinerCategory; unitCount: number }>,
-  selectedTypes: MinerCategory[],
+  values: Array<{ value: number; group: string; unitCount: number }>,
+  keys: string[],
   options?: { binCount?: number; precision?: number },
 ): HistogramData {
   const empty: HistogramData = { data: [], keys: [] };
@@ -20,11 +18,11 @@ export function buildHistogram(
   if (min === max) {
     const label = min.toPrecision(3);
     const row: Record<string, string | number> = { bin: label };
-    for (const t of selectedTypes) row[t] = 0;
+    for (const k of keys) row[k] = 0;
     for (const v of values) {
-      row[v.minerCategory] = (row[v.minerCategory] as number) + 1 / v.unitCount;
+      row[v.group] = (row[v.group] as number) + 1 / v.unitCount;
     }
-    return { data: [row], keys: [...selectedTypes] };
+    return { data: [row], keys: [...keys] };
   }
 
   const binCount =
@@ -42,7 +40,7 @@ export function buildHistogram(
   // Initialize rows
   const rows: Array<Record<string, string | number>> = bins.map((b) => {
     const row: Record<string, string | number> = { bin: b.label };
-    for (const t of selectedTypes) row[t] = 0;
+    for (const k of keys) row[k] = 0;
     return row;
   });
 
@@ -53,16 +51,16 @@ export function buildHistogram(
     if (idx < 0) idx = 0;
     const row = rows[idx];
     if (row) {
-      row[v.minerCategory] = (row[v.minerCategory] as number) + 1 / v.unitCount;
+      row[v.group] = (row[v.group] as number) + 1 / v.unitCount;
     }
   }
 
   // Round values for display
   for (const row of rows) {
-    for (const t of selectedTypes) {
-      row[t] = Math.round((row[t] as number) * 1000) / 1000;
+    for (const k of keys) {
+      row[k] = Math.round((row[k] as number) * 1000) / 1000;
     }
   }
 
-  return { data: rows, keys: [...selectedTypes] };
+  return { data: rows, keys: [...keys] };
 }

@@ -1,45 +1,47 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { MinerCategory } from "../../../types/telemetry";
+import { useUIStore } from "../../../store/ui-store";
 
 export interface BlocksOverTimeSeries {
-  id: MinerCategory;
+  id: string;
   data: Array<{ x: number; y: number }>;
 }
 
 export function useBlocksOverTime(): BlocksOverTimeSeries[] {
   const blocks = useTelemetryStore((s) => s.blocks);
-  const selectedTypes = useTelemetryStore((s) => s.selectedTypes);
+  const selectedTypes = useUIStore((s) => s.selectedTypes);
+  const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const filtered = blocks.filter((b) => selectedTypes.includes(b.minerCategory));
+    const filtered =
+      mode === "byType"
+        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory))
+        : blocks;
     if (filtered.length === 0) return [];
 
     const minTimestamp = filtered[0]!.timestamp;
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? b.minerCategory : b.minerId;
+
+    const keys = mode === "byType" ? [...selectedTypes] : [...new Set(filtered.map(getKey))];
     const grouped: Record<string, Array<{ x: number; y: number }>> = {};
-
-    for (const type of selectedTypes) {
-      grouped[type] = [];
-    }
-
     const counts: Record<string, number> = {};
-    for (const type of selectedTypes) {
-      counts[type] = 0;
+    for (const k of keys) {
+      grouped[k] = [];
+      counts[k] = 0;
     }
 
     for (const block of filtered) {
-      counts[block.minerCategory] = (counts[block.minerCategory] ?? 0) + 1;
-      grouped[block.minerCategory]!.push({
+      const key = getKey(block);
+      counts[key] = (counts[key] ?? 0) + 1;
+      (grouped[key] ??= []).push({
         x: Math.round((block.timestamp - minTimestamp) / 60),
-        y: counts[block.minerCategory]!,
+        y: counts[key]!,
       });
     }
 
-    return selectedTypes
-      .filter((type) => (grouped[type]?.length ?? 0) > 0)
-      .map((type) => ({
-        id: type,
-        data: grouped[type]!,
-      }));
-  }, [blocks, selectedTypes]);
+    return keys
+      .filter((k) => (grouped[k]?.length ?? 0) > 0)
+      .map((k) => ({ id: k, data: grouped[k]! }));
+  }, [blocks, selectedTypes, mode]);
 }

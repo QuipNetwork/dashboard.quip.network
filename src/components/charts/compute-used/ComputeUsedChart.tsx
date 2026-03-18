@@ -1,22 +1,10 @@
+import { useMemo } from "react";
 import { ResponsivePie } from "@nivo/pie";
 import { nivoTheme } from "../../../theme/nivo-theme";
-import { SERIES_COLORS, SERIES_GRADIENT } from "../../../lib/colors";
+import { getSeriesColor, getSeriesGradient } from "../../../lib/chart-colors";
 import { createPieGradientProps } from "../common/GradientPie";
 import { formatSeconds } from "../../../lib/format";
 import type { ComputeUsedEntry } from "./use-compute-used";
-import type { MinerCategory } from "../../../types/telemetry";
-
-const pieGradient = createPieGradientProps(
-  Object.fromEntries(
-    Object.entries(SERIES_GRADIENT).map(([id, [from, to]]) => [
-      id,
-      [
-        { offset: "0%", color: from },
-        { offset: "100%", color: to },
-      ],
-    ]),
-  ),
-);
 
 export interface ComputeUsedChartProps {
   data: ComputeUsedEntry[];
@@ -31,12 +19,22 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
     value: d.compute,
   }));
 
+  const pieGradient = useMemo(() => {
+    const stops = Object.fromEntries(
+      data.map((d) => {
+        const [from, to] = getSeriesGradient(d.minerType);
+        return [d.minerType, [{ offset: "0%", color: from }, { offset: "100%", color: to }]];
+      }),
+    );
+    return createPieGradientProps(stops);
+  }, [data]);
+
   return (
     <div data-qa="chart-compute-used" style={{ width: "100%", height: "100%" }}>
     <ResponsivePie
       data={pieData}
       theme={nivoTheme}
-      colors={(d) => SERIES_COLORS[d.id as MinerCategory] ?? "#999"}
+      colors={(d) => getSeriesColor(String(d.id))}
       margin={{ top: 30, right: 80, bottom: 30, left: 80 }}
       innerRadius={0.5}
       padAngle={2}

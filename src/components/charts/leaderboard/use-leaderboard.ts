@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useUIStore } from "../../../store/ui-store";
 import type { MinerCategory } from "../../../types/telemetry";
 
 export interface LeaderboardEntry {
@@ -17,7 +18,8 @@ export interface LeaderboardEntry {
 
 export function useLeaderboard(): LeaderboardEntry[] {
   const blocks = useTelemetryStore((s) => s.blocks);
-  const selectedTypes = useTelemetryStore((s) => s.selectedTypes);
+  const selectedTypes = useUIStore((s) => s.selectedTypes);
+  const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
     const stats = new Map<
@@ -31,7 +33,7 @@ export function useLeaderboard(): LeaderboardEntry[] {
     >();
 
     for (const block of blocks) {
-      if (!selectedTypes.includes(block.minerCategory)) continue;
+      if (mode === "byType" && !selectedTypes.includes(block.minerCategory)) continue;
 
       const existing = stats.get(block.minerId);
       if (existing) {
@@ -61,5 +63,5 @@ export function useLeaderboard(): LeaderboardEntry[] {
         avgMiningTime: s.totalMiningTime / s.blockCount,
         bestEnergy: s.bestEnergy,
       }));
-  }, [blocks, selectedTypes]);
+  }, [blocks, selectedTypes, mode]);
 }

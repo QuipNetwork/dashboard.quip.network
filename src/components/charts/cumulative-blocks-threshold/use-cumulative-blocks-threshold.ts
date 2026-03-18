@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useUIStore } from "../../../store/ui-store";
 import { getUnitCount } from "../../../lib/units";
-import type { MinerCategory } from "../../../types/telemetry";
 
 export interface CumulativeBlocksThresholdSeries {
-  id: MinerCategory;
+  id: string;
   data: Array<{ x: number; y: number }>;
 }
 
@@ -18,11 +18,18 @@ const NUM_POINTS = 50;
 
 export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult {
   const blocks = useTelemetryStore((s) => s.blocks);
-  const selectedTypes = useTelemetryStore((s) => s.selectedTypes);
+  const selectedTypes = useUIStore((s) => s.selectedTypes);
+  const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const filtered = blocks.filter((b) => selectedTypes.includes(b.minerCategory));
+    const filtered =
+      mode === "byType"
+        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory))
+        : blocks;
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
+
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? b.minerCategory : b.minerId;
 
     // Sort energies and remove outliers via IQR
     const sortedEnergies = filtered.map((b) => b.energy).sort((a, b) => a - b);
@@ -39,21 +46,25 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
     const min = Math.min(...cleanedEnergies);
     const max = Math.max(...cleanedEnergies);
 
-    // Group blocks by type with their energy and unit count
-    const byType: Partial<
-      Record<MinerCategory, Array<{ energy: number; units: number }>>
-    > = {};
-    const totalUnits: Partial<Record<MinerCategory, number>> = {};
+    // Group blocks by key with their energy and unit count
+    const byKey: Record<string, Array<{ energy: number; units: number }>> = {};
+    const totalUnits: Record<string, number> = {};
 
     for (const b of cleaned) {
+      const key = getKey(b);
       const units = getUnitCount(b);
-      (byType[b.minerCategory] ??= []).push({ energy: b.energy, units });
-      totalUnits[b.minerCategory] = (totalUnits[b.minerCategory] ?? 0) + units;
+      (byKey[key] ??= []).push({ energy: b.energy, units });
+      totalUnits[key] = (totalUnits[key] ?? 0) + units;
     }
 
-    // Sort each type's blocks by energy
-    for (const type of selectedTypes) {
-      byType[type]?.sort((a, b) => a.energy - b.energy);
+    const keys =
+      mode === "byType"
+        ? selectedTypes.filter((t) => byKey[t]?.length)
+        : Object.keys(byKey);
+
+    // Sort each key's blocks by energy
+    for (const k of keys) {
+      byKey[k]?.sort((a, b) => a.energy - b.energy);
     }
 
     // Generate threshold sweep
@@ -63,29 +74,26 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
       thresholds.push(min + i * step);
     }
 
-    const series = selectedTypes
-      .filter((type) => byType[type] && byType[type]!.length > 0)
-      .map((type) => {
-        const entries = byType[type]!;
-        const units = totalUnits[type]!;
+    const series = keys.map((key) => {
+      const entries = byKey[key]!;
+      const units = totalUnits[key]!;
 
-        return {
-          id: type,
-          data: thresholds.map((t) => {
-            // Count blocks meeting threshold, normalized by total units
-            let count = 0;
-            for (const entry of entries) {
-              if (entry.energy <= t) count++;
-              else break; // sorted, so we can stop
-            }
-            return {
-              x: Math.round(t),
-              y: Math.round((count / units) * 1000) / 1000,
-            };
-          }),
-        };
-      });
+      return {
+        id: key,
+        data: thresholds.map((t) => {
+          let count = 0;
+          for (const entry of entries) {
+            if (entry.energy <= t) count++;
+            else break;
+          }
+          return {
+            x: Math.round(t),
+            y: Math.round((count / units) * 1000) / 1000,
+          };
+        }),
+      };
+    });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, selectedTypes]);
+  }, [blocks, selectedTypes, mode]);
 }

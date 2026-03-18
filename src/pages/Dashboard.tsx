@@ -23,10 +23,14 @@ import { useCumulativeBlocksThreshold } from "../components/charts/cumulative-bl
 import { Leaderboard } from "../components/charts/leaderboard/Leaderboard";
 import { useLeaderboard } from "../components/charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "../store/telemetry-store";
+import { useUIStore } from "../store/ui-store";
 
 export function Dashboard() {
   const loading = useTelemetryStore((s) => s.loading);
   const error = useTelemetryStore((s) => s.error);
+  const mode = useUIStore((s) => s.aggregationMode);
+  const byType = mode === "byType";
+
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();
   const computeUsed = useComputeUsed();
@@ -61,63 +65,73 @@ export function Dashboard() {
           <div
             className={`grid grid-cols-1 gap-5 lg:grid-cols-2${loading || error ? " hidden" : ""}`}
           >
-            <ChartCard title="Blocks Mined Over Time" subtitle="Cumulative blocks per unit type">
+            <ChartCard
+              title="Blocks Mined Over Time"
+              subtitle={byType ? "Cumulative blocks per unit type" : "Cumulative blocks per miner"}
+            >
               <BlocksOverTimeChart data={blocksOverTime} />
             </ChartCard>
 
-            <ChartCard title="Mining Time per Block" subtitle="Time to solution by processor type">
+            <ChartCard
+              title="Mining Time per Block"
+              subtitle={byType ? "Time to solution by processor type" : "Time to solution by miner"}
+            >
               <MiningTimeChart data={miningTime} />
             </ChartCard>
 
             <ChartCard
               title="Total Compute Used"
-              subtitle="Wall clock × units (CPU/GPU) or raw QPU time"
+              subtitle={byType ? "Wall clock × units (CPU/GPU) or raw QPU time" : "Wall clock × units per miner"}
             >
               <ComputeUsedChart data={computeUsed} />
             </ChartCard>
 
-            <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
-              <ActiveNodesChart data={activeNodes} />
-            </ChartCard>
+            {byType && (
+              <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
+                <ActiveNodesChart data={activeNodes} />
+              </ChartCard>
+            )}
 
             <ChartCard
               title="Energy Distribution"
-              subtitle="Normalised frequency per unit by energy"
+              subtitle={byType ? "Normalised frequency per unit by energy" : "Normalised frequency per miner by energy"}
             >
               <EnergyDistributionChart data={energyDistribution} />
             </ChartCard>
 
             <ChartCard
               title="Time to Solution"
-              subtitle="Normalised frequency per unit by mining time"
+              subtitle={byType ? "Normalised frequency per unit by mining time" : "Normalised frequency per miner by mining time"}
             >
               <TimeToSolutionChart data={timeToSolution} />
             </ChartCard>
 
             <ChartCard
               title="Probability of Meeting Difficulty"
-              subtitle="Empirical CDF of achieved energy by threshold"
+              subtitle={byType ? "Empirical CDF of achieved energy by threshold" : "Empirical CDF per miner by threshold"}
             >
               <EnergyCdfChart data={energyCdf} />
             </ChartCard>
 
-            <ChartCard
-              title="Win Rate by Difficulty"
-              subtitle="Mining race win rate per processor type"
-            >
-              <WinRateByDifficultyChart data={winRate} />
-            </ChartCard>
+            {byType && (
+              <ChartCard
+                title="Win Rate by Difficulty"
+                subtitle="Mining race win rate per processor type"
+              >
+                <WinRateByDifficultyChart data={winRate} />
+              </ChartCard>
+            )}
 
             <ChartCard
               title="Expected Mining Time by Difficulty"
-              subtitle="Mean time to solution per difficulty band"
+              subtitle={byType ? "Mean time to solution per difficulty band" : "Mean time to solution per miner by difficulty"}
             >
               <MiningTimeByDifficultyChart data={miningTimeByDifficulty} />
             </ChartCard>
 
             <ChartCard
               title="Cumulative Blocks by Threshold"
-              subtitle="Blocks meeting energy threshold per unit"
+              subtitle={byType ? "Blocks meeting energy threshold per unit" : "Blocks meeting energy threshold per miner"}
             >
               <CumulativeBlocksThresholdChart data={cumulativeBlocks} />
             </ChartCard>

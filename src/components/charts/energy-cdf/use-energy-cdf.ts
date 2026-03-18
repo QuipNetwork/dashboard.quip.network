@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { MinerCategory } from "../../../types/telemetry";
+import { useUIStore } from "../../../store/ui-store";
 
 export interface EnergyCdfSeries {
-  id: MinerCategory;
+  id: string;
   data: Array<{ x: number; y: number }>;
 }
 
@@ -17,11 +17,18 @@ const NUM_POINTS = 50;
 
 export function useEnergyCdf(): EnergyCdfResult {
   const blocks = useTelemetryStore((s) => s.blocks);
-  const selectedTypes = useTelemetryStore((s) => s.selectedTypes);
+  const selectedTypes = useUIStore((s) => s.selectedTypes);
+  const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const filtered = blocks.filter((b) => selectedTypes.includes(b.minerCategory));
+    const filtered =
+      mode === "byType"
+        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory))
+        : blocks;
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
+
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? b.minerCategory : b.minerId;
 
     // Sort energies and remove outliers via IQR
     const sortedEnergies = filtered.map((b) => b.energy).sort((a, b) => a - b);
@@ -38,10 +45,10 @@ export function useEnergyCdf(): EnergyCdfResult {
     const min = Math.min(...cleanedEnergies);
     const max = Math.max(...cleanedEnergies);
 
-    // Group energies by miner type
-    const byType: Partial<Record<MinerCategory, number[]>> = {};
+    // Group energies by key
+    const byKey: Record<string, number[]> = {};
     for (const b of cleaned) {
-      (byType[b.minerCategory] ??= []).push(b.energy);
+      (byKey[getKey(b)] ??= []).push(b.energy);
     }
 
     // Generate threshold sweep points
@@ -51,32 +58,34 @@ export function useEnergyCdf(): EnergyCdfResult {
       thresholds.push(min + i * step);
     }
 
-    const series = selectedTypes
-      .filter((type) => byType[type] && byType[type]!.length > 0)
-      .map((type) => {
-        const energies = byType[type]!;
-        const sorted = [...energies].sort((a, b) => a - b);
-        const total = sorted.length;
+    const keys =
+      mode === "byType"
+        ? selectedTypes.filter((t) => byKey[t]?.length)
+        : Object.keys(byKey);
 
-        return {
-          id: type,
-          data: thresholds.map((t) => {
-            // Binary search for count of energies <= t
-            let lo = 0;
-            let hi = total;
-            while (lo < hi) {
-              const mid = (lo + hi) >>> 1;
-              if (sorted[mid]! <= t) lo = mid + 1;
-              else hi = mid;
-            }
-            return {
-              x: Math.round(t),
-              y: Math.round((lo / total) * 1000) / 10, // percentage
-            };
-          }),
-        };
-      });
+    const series = keys.map((key) => {
+      const energies = byKey[key]!;
+      const sorted = [...energies].sort((a, b) => a - b);
+      const total = sorted.length;
+
+      return {
+        id: key,
+        data: thresholds.map((t) => {
+          let lo = 0;
+          let hi = total;
+          while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            if (sorted[mid]! <= t) lo = mid + 1;
+            else hi = mid;
+          }
+          return {
+            x: Math.round(t),
+            y: Math.round((lo / total) * 1000) / 10,
+          };
+        }),
+      };
+    });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, selectedTypes]);
+  }, [blocks, selectedTypes, mode]);
 }

@@ -1,8 +1,7 @@
 import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "../../../theme/nivo-theme";
-import { SERIES_COLORS } from "../../../lib/colors";
+import { getSeriesColor } from "../../../lib/chart-colors";
 import { OverlappingBarsLayer } from "../common/OverlappingBarsLayer";
-import type { MinerCategory } from "../../../types/telemetry";
 import type { HistogramData } from "../../../lib/histogram";
 
 export interface EnergyDistributionChartProps {
@@ -19,7 +18,7 @@ export function EnergyDistributionChart({ data }: EnergyDistributionChartProps) 
         keys={data.keys}
         indexBy="bin"
         theme={nivoTheme}
-        colors={(bar) => SERIES_COLORS[bar.id as MinerCategory] ?? "#999"}
+        colors={(bar) => getSeriesColor(String(bar.id))}
         groupMode="grouped"
         margin={{ top: 10, right: 20, bottom: 50, left: 60 }}
         padding={0.15}

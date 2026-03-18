@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { MinerCategory } from "../../../types/telemetry";
+import { useUIStore } from "../../../store/ui-store";
 
 export interface WinRateSeries {
-  id: MinerCategory;
+  id: string;
   data: Array<{ x: number; y: number }>;
 }
 
@@ -17,7 +17,7 @@ const NUM_BANDS = 12;
 
 export function useWinRateByDifficulty(): WinRateByDifficultyResult {
   const blocks = useTelemetryStore((s) => s.blocks);
-  const selectedTypes = useTelemetryStore((s) => s.selectedTypes);
+  const selectedTypes = useUIStore((s) => s.selectedTypes);
 
   return useMemo(() => {
     const filtered = blocks.filter((b) => selectedTypes.includes(b.minerCategory));
@@ -38,7 +38,7 @@ export function useWinRateByDifficulty(): WinRateByDifficultyResult {
 
     const bandSize = Math.max(1, Math.floor(cleaned.length / NUM_BANDS));
 
-    const series: Partial<Record<MinerCategory, Array<{ x: number; y: number }>>> = {};
+    const series: Record<string, Array<{ x: number; y: number }>> = {};
     for (const type of selectedTypes) {
       series[type] = [];
     }
@@ -53,7 +53,7 @@ export function useWinRateByDifficulty(): WinRateByDifficultyResult {
       );
 
       // Count wins per type
-      const wins: Partial<Record<MinerCategory, number>> = {};
+      const wins: Record<string, number> = {};
       for (const b of band) {
         wins[b.minerCategory] = (wins[b.minerCategory] ?? 0) + 1;
       }

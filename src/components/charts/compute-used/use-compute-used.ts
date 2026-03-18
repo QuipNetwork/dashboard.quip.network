@@ -1,32 +1,34 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useUIStore } from "../../../store/ui-store";
 import { getUnitCount } from "../../../lib/units";
-import type { MinerCategory } from "../../../types/telemetry";
 
 export interface ComputeUsedEntry {
   [key: string]: string | number;
-  minerType: MinerCategory;
+  minerType: string;
   compute: number;
 }
 
 export function useComputeUsed(): ComputeUsedEntry[] {
   const blocks = useTelemetryStore((s) => s.blocks);
-  const selectedTypes = useTelemetryStore((s) => s.selectedTypes);
+  const selectedTypes = useUIStore((s) => s.selectedTypes);
+  const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const totals: Partial<Record<MinerCategory, number>> = {};
+    const totals: Record<string, number> = {};
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? b.minerCategory : b.minerId;
 
     for (const block of blocks) {
-      if (!selectedTypes.includes(block.minerCategory)) continue;
+      if (mode === "byType" && !selectedTypes.includes(block.minerCategory)) continue;
+      const key = getKey(block);
       const units = getUnitCount(block);
-      totals[block.minerCategory] = (totals[block.minerCategory] ?? 0) + block.miningTime * units;
+      totals[key] = (totals[key] ?? 0) + block.miningTime * units;
     }
 
-    return selectedTypes
-      .filter((type) => totals[type] !== undefined)
-      .map((type) => ({
-        minerType: type,
-        compute: totals[type]!,
-      }));
-  }, [blocks, selectedTypes]);
+    const keys = mode === "byType" ? [...selectedTypes] : Object.keys(totals);
+    return keys
+      .filter((k) => totals[k] !== undefined)
+      .map((k) => ({ minerType: k, compute: totals[k]! }));
+  }, [blocks, selectedTypes, mode]);
 }
