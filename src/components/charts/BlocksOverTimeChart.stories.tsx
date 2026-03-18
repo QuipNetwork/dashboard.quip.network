@@ -21,6 +21,15 @@ const sampleData: BlocksOverTimeSeries[] = [
       { x: 15, y: 18 },
     ],
   },
+  {
+    id: "QPU",
+    data: [
+      { x: 0, y: 3 },
+      { x: 5, y: 10 },
+      { x: 10, y: 19 },
+      { x: 15, y: 30 },
+    ],
+  },
 ];
 
 export const Default: Story = () => (

@@ -1,11 +1,24 @@
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "../../theme/nivo-theme";
-import { SERIES_COLORS } from "../../lib/colors";
+import { SERIES_COLORS, SERIES_GRADIENT } from "../../lib/colors";
+import { createGradientLines } from "../GradientLines";
 import type { BlocksOverTimeSeries } from "../../hooks/use-blocks-over-time";
 
 export interface BlocksOverTimeChartProps {
   data: BlocksOverTimeSeries[];
 }
+
+const gradientLines = createGradientLines(
+  Object.fromEntries(
+    Object.entries(SERIES_GRADIENT).map(([id, [from, to]]) => [
+      id,
+      [
+        { offset: "0%", color: from },
+        { offset: "100%", color: to },
+      ],
+    ]),
+  ),
+);
 
 export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
   if (data.length === 0) return null;
@@ -23,6 +36,18 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
       areaOpacity={0.08}
       enablePoints={false}
       lineWidth={2}
+      layers={[
+        "grid",
+        "markers",
+        "axes",
+        "areas",
+        "crosshair",
+        gradientLines,
+        "slices",
+        "points",
+        "mesh",
+        "legends",
+      ]}
       axisBottom={{
         legend: "Time (minutes)",
         legendOffset: 40,

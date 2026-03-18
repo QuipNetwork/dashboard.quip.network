@@ -1,4 +1,4 @@
-import { ResponsiveBar } from "@nivo/bar";
+import { ResponsivePie } from "@nivo/pie";
 import { nivoTheme } from "../../theme/nivo-theme";
 import { SERIES_COLORS } from "../../lib/colors";
 import type { ActiveNodesEntry } from "../../hooks/use-active-nodes";
@@ -11,28 +11,28 @@ export interface ActiveNodesChartProps {
 export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
   if (data.length === 0) return null;
 
+  const pieData = data.map((d) => ({
+    id: d.minerType,
+    label: d.minerType,
+    value: d.count,
+  }));
+
   return (
-    <ResponsiveBar
-      data={data}
-      keys={["count"]}
-      indexBy="minerType"
+    <ResponsivePie
+      data={pieData}
       theme={nivoTheme}
-      colors={(bar) => SERIES_COLORS[bar.data.minerType as MinerCategory] ?? "#999"}
-      margin={{ top: 20, right: 20, bottom: 50, left: 50 }}
-      padding={0.4}
-      borderRadius={4}
-      axisBottom={{
-        legend: "Miner Type",
-        legendOffset: 40,
-        legendPosition: "middle",
-      }}
-      axisLeft={{
-        legend: "Node Count",
-        legendOffset: -40,
-        legendPosition: "middle",
-      }}
-      labelTextColor="#1A1A1A"
-      enableGridY={true}
+      colors={(d) => SERIES_COLORS[d.id as MinerCategory] ?? "#999"}
+      margin={{ top: 30, right: 80, bottom: 30, left: 80 }}
+      innerRadius={0.5}
+      padAngle={2}
+      cornerRadius={4}
+      borderWidth={1}
+      borderColor={{ from: "color", modifiers: [["darker", 0.6]] }}
+      arcLinkLabelsColor={{ from: "color" }}
+      arcLinkLabelsTextColor="#DCDCDC"
+      arcLinkLabelsThickness={2}
+      arcLabelsTextColor="#1A1A1A"
+      activeOuterRadiusOffset={8}
     />
   );
 }

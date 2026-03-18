@@ -1,7 +1,20 @@
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "../../theme/nivo-theme";
-import { SERIES_COLORS } from "../../lib/colors";
+import { SERIES_COLORS, SERIES_GRADIENT } from "../../lib/colors";
+import { createGradientLines } from "../GradientLines";
 import type { MiningTimeSeries } from "../../hooks/use-mining-time";
+
+const gradientLines = createGradientLines(
+  Object.fromEntries(
+    Object.entries(SERIES_GRADIENT).map(([id, [from, to]]) => [
+      id,
+      [
+        { offset: "0%", color: from },
+        { offset: "100%", color: to },
+      ],
+    ]),
+  ),
+);
 
 export interface MiningTimeChartProps {
   data: MiningTimeSeries[];
@@ -25,6 +38,17 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
       pointBorderColor={{ from: "serieColor" }}
       pointColor="#1A1A1A"
       lineWidth={2}
+      layers={[
+        "grid",
+        "markers",
+        "axes",
+        "crosshair",
+        gradientLines,
+        "slices",
+        "points",
+        "mesh",
+        "legends",
+      ]}
       axisBottom={{
         legend: "Block Index",
         legendOffset: 40,

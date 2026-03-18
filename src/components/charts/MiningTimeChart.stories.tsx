@@ -19,6 +19,14 @@ const sampleData: MiningTimeSeries[] = [
       { x: 3, y: 4.1 },
     ],
   },
+  {
+    id: "QPU",
+    data: [
+      { x: 1, y: 1.1 },
+      { x: 2, y: 0.9 },
+      { x: 3, y: 1.4 },
+    ],
+  },
 ];
 
 export const Default: Story = () => (
