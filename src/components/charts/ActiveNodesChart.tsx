@@ -1,8 +1,21 @@
 import { ResponsivePie } from "@nivo/pie";
 import { nivoTheme } from "../../theme/nivo-theme";
-import { SERIES_COLORS } from "../../lib/colors";
+import { SERIES_COLORS, SERIES_GRADIENT } from "../../lib/colors";
+import { createPieGradientProps } from "../GradientPie";
 import type { ActiveNodesEntry } from "../../hooks/use-active-nodes";
 import type { MinerCategory } from "../../types/telemetry";
+
+const pieGradient = createPieGradientProps(
+  Object.fromEntries(
+    Object.entries(SERIES_GRADIENT).map(([id, [from, to]]) => [
+      id,
+      [
+        { offset: "0%", color: from },
+        { offset: "100%", color: to },
+      ],
+    ]),
+  ),
+);
 
 export interface ActiveNodesChartProps {
   data: ActiveNodesEntry[];
@@ -33,6 +46,8 @@ export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
       arcLinkLabelsThickness={2}
       arcLabelsTextColor="#1A1A1A"
       activeOuterRadiusOffset={8}
+      defs={pieGradient.defs}
+      fill={pieGradient.fill}
     />
   );
 }

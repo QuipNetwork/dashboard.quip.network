@@ -1,9 +1,22 @@
 import { ResponsivePie } from "@nivo/pie";
 import { nivoTheme } from "../../theme/nivo-theme";
-import { SERIES_COLORS } from "../../lib/colors";
+import { SERIES_COLORS, SERIES_GRADIENT } from "../../lib/colors";
+import { createPieGradientProps } from "../GradientPie";
 import { formatSeconds } from "../../lib/format";
 import type { ComputeUsedEntry } from "../../hooks/use-compute-used";
 import type { MinerCategory } from "../../types/telemetry";
+
+const pieGradient = createPieGradientProps(
+  Object.fromEntries(
+    Object.entries(SERIES_GRADIENT).map(([id, [from, to]]) => [
+      id,
+      [
+        { offset: "0%", color: from },
+        { offset: "100%", color: to },
+      ],
+    ]),
+  ),
+);
 
 export interface ComputeUsedChartProps {
   data: ComputeUsedEntry[];
@@ -35,6 +48,8 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
       arcLabelsTextColor="#1A1A1A"
       valueFormat={(v) => formatSeconds(v)}
       activeOuterRadiusOffset={8}
+      defs={pieGradient.defs}
+      fill={pieGradient.fill}
     />
   );
 }
