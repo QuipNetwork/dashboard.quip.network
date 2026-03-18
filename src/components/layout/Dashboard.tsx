@@ -4,10 +4,14 @@ import { BlocksOverTimeChart } from "../charts/BlocksOverTimeChart";
 import { MiningTimeChart } from "../charts/MiningTimeChart";
 import { ComputeUsedChart } from "../charts/ComputeUsedChart";
 import { ActiveNodesChart } from "../charts/ActiveNodesChart";
+import { EnergyDistributionChart } from "../charts/EnergyDistributionChart";
+import { TimeToSolutionChart } from "../charts/TimeToSolutionChart";
 import { useBlocksOverTime } from "../../hooks/use-blocks-over-time";
 import { useMiningTime } from "../../hooks/use-mining-time";
 import { useComputeUsed } from "../../hooks/use-compute-used";
 import { useActiveNodes } from "../../hooks/use-active-nodes";
+import { useEnergyDistribution } from "../../hooks/use-energy-distribution";
+import { useTimeToSolution } from "../../hooks/use-time-to-solution";
 import { useTelemetryStore } from "../../store/telemetry-store";
 
 export function Dashboard() {
@@ -17,6 +21,8 @@ export function Dashboard() {
   const miningTime = useMiningTime();
   const computeUsed = useComputeUsed();
   const activeNodes = useActiveNodes();
+  const energyDistribution = useEnergyDistribution();
+  const timeToSolution = useTimeToSolution();
 
   return (
     <div className="relative min-h-screen bg-brand-gray-0">
@@ -31,11 +37,7 @@ export function Dashboard() {
           <div
             className={`grid grid-cols-1 gap-5 lg:grid-cols-2${loading || error ? " hidden" : ""}`}
           >
-            <ChartCard
-              title="Blocks Mined Over Time"
-              subtitle="Cumulative blocks per unit type"
-              className="lg:col-span-2"
-            >
+            <ChartCard title="Blocks Mined Over Time" subtitle="Cumulative blocks per unit type">
               <BlocksOverTimeChart data={blocksOverTime} />
             </ChartCard>
 
@@ -52,6 +54,20 @@ export function Dashboard() {
 
             <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
               <ActiveNodesChart data={activeNodes} />
+            </ChartCard>
+
+            <ChartCard
+              title="Energy Distribution"
+              subtitle="Normalised frequency per unit by energy"
+            >
+              <EnergyDistributionChart data={energyDistribution} />
+            </ChartCard>
+
+            <ChartCard
+              title="Time to Solution"
+              subtitle="Normalised frequency per unit by mining time"
+            >
+              <TimeToSolutionChart data={timeToSolution} />
             </ChartCard>
           </div>
         </main>
