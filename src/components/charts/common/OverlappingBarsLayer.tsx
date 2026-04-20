@@ -7,7 +7,9 @@ type Bar = ComputedBarDatum<Record<string, string | number>>;
  * rather than side-by-side (grouped) or stacked. Tallest bars render
  * first so shorter bars are always visible on top.
  */
-export function OverlappingBarsLayer({ bars }: BarCustomLayerProps<Record<string, string | number>>) {
+export function OverlappingBarsLayer({
+  bars,
+}: BarCustomLayerProps<Record<string, string | number>>) {
   // Group bars by their bin (indexValue)
   const groups = new Map<string, Bar[]>();
   for (const bar of bars) {

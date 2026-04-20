@@ -8,4 +8,8 @@
 
 [functions]
   directory = "netlify/functions"
-  included_files = ["telemetry/**"]
+
+[[redirects]]
+  from = "/api/telemetry*"
+  to = "/.netlify/functions/telemetry/:splat"
+  status = 200

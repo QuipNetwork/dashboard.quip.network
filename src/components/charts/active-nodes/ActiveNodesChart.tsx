@@ -32,24 +32,24 @@ export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
 
   return (
     <div data-qa="chart-active-nodes" style={{ width: "100%", height: "100%" }}>
-    <ResponsivePie
-      data={pieData}
-      theme={nivoTheme}
-      colors={(d) => getSeriesColor(String(d.id))}
-      margin={{ top: 30, right: 80, bottom: 30, left: 80 }}
-      innerRadius={0.5}
-      padAngle={2}
-      cornerRadius={4}
-      borderWidth={1}
-      borderColor={{ from: "color", modifiers: [["darker", 0.6]] }}
-      arcLinkLabelsColor={{ from: "color" }}
-      arcLinkLabelsTextColor="#DCDCDC"
-      arcLinkLabelsThickness={2}
-      arcLabelsTextColor="#1A1A1A"
-      activeOuterRadiusOffset={8}
-      defs={pieGradient.defs}
-      fill={pieGradient.fill}
-    />
+      <ResponsivePie
+        data={pieData}
+        theme={nivoTheme}
+        colors={(d) => getSeriesColor(String(d.id))}
+        margin={{ top: 30, right: 80, bottom: 30, left: 80 }}
+        innerRadius={0.5}
+        padAngle={2}
+        cornerRadius={4}
+        borderWidth={1}
+        borderColor={{ from: "color", modifiers: [["darker", 0.6]] }}
+        arcLinkLabelsColor={{ from: "color" }}
+        arcLinkLabelsTextColor="#DCDCDC"
+        arcLinkLabelsThickness={2}
+        arcLabelsTextColor="#1A1A1A"
+        activeOuterRadiusOffset={8}
+        defs={pieGradient.defs}
+        fill={pieGradient.fill}
+      />
     </div>
   );
 }

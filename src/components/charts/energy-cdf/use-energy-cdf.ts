@@ -22,13 +22,10 @@ export function useEnergyCdf(): EnergyCdfResult {
 
   return useMemo(() => {
     const filtered =
-      mode === "byType"
-        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory))
-        : blocks;
+      mode === "byType" ? blocks.filter((b) => selectedTypes.includes(b.minerCategory)) : blocks;
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const getKey = (b: (typeof blocks)[0]) =>
-      mode === "byType" ? b.minerCategory : b.minerId;
+    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
 
     // Sort energies and remove outliers via IQR
     const sortedEnergies = filtered.map((b) => b.energy).sort((a, b) => a - b);
@@ -59,9 +56,7 @@ export function useEnergyCdf(): EnergyCdfResult {
     }
 
     const keys =
-      mode === "byType"
-        ? selectedTypes.filter((t) => byKey[t]?.length)
-        : Object.keys(byKey);
+      mode === "byType" ? selectedTypes.filter((t) => byKey[t]?.length) : Object.keys(byKey);
 
     const series = keys.map((key) => {
       const energies = byKey[key]!;
