@@ -14,11 +14,8 @@ export function useMiningTime(): MiningTimeSeries[] {
 
   return useMemo(() => {
     const filtered =
-      mode === "byType"
-        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory))
-        : blocks;
-    const getKey = (b: (typeof blocks)[0]) =>
-      mode === "byType" ? b.minerCategory : b.minerId;
+      mode === "byType" ? blocks.filter((b) => selectedTypes.includes(b.minerCategory)) : blocks;
+    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
 
     const grouped: Record<string, Array<{ x: number; y: number }>> = {};
 
@@ -28,8 +25,6 @@ export function useMiningTime(): MiningTimeSeries[] {
     }
 
     const keys = mode === "byType" ? [...selectedTypes] : Object.keys(grouped);
-    return keys
-      .filter((k) => grouped[k]?.length)
-      .map((k) => ({ id: k, data: grouped[k]! }));
+    return keys.filter((k) => grouped[k]?.length).map((k) => ({ id: k, data: grouped[k]! }));
   }, [blocks, selectedTypes, mode]);
 }

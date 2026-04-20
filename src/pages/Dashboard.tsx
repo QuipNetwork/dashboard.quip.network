@@ -81,34 +81,53 @@ export function Dashboard() {
 
             <ChartCard
               title="Total Compute Used"
-              subtitle={byType ? "Wall clock × units (CPU/GPU) or raw QPU time" : "Wall clock × units per miner"}
+              subtitle={
+                byType
+                  ? "Wall clock × units (CPU/GPU) or raw QPU time"
+                  : "Wall clock × units per miner"
+              }
             >
               <ComputeUsedChart data={computeUsed} />
             </ChartCard>
 
             {byType && (
-              <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
+              <ChartCard
+                title="Mining Nodes by Type"
+                subtitle="Distinct miners observed on network"
+              >
                 <ActiveNodesChart data={activeNodes} />
               </ChartCard>
             )}
 
             <ChartCard
               title="Energy Distribution"
-              subtitle={byType ? "Normalised frequency per unit by energy" : "Normalised frequency per miner by energy"}
+              subtitle={
+                byType
+                  ? "Normalised frequency per unit by energy"
+                  : "Normalised frequency per miner by energy"
+              }
             >
               <EnergyDistributionChart data={energyDistribution} />
             </ChartCard>
 
             <ChartCard
               title="Time to Solution"
-              subtitle={byType ? "Normalised frequency per unit by mining time" : "Normalised frequency per miner by mining time"}
+              subtitle={
+                byType
+                  ? "Normalised frequency per unit by mining time"
+                  : "Normalised frequency per miner by mining time"
+              }
             >
               <TimeToSolutionChart data={timeToSolution} />
             </ChartCard>
 
             <ChartCard
               title="Probability of Meeting Difficulty"
-              subtitle={byType ? "Empirical CDF of achieved energy by threshold" : "Empirical CDF per miner by threshold"}
+              subtitle={
+                byType
+                  ? "Empirical CDF of achieved energy by threshold"
+                  : "Empirical CDF per miner by threshold"
+              }
             >
               <EnergyCdfChart data={energyCdf} />
             </ChartCard>
@@ -124,14 +143,22 @@ export function Dashboard() {
 
             <ChartCard
               title="Expected Mining Time by Difficulty"
-              subtitle={byType ? "Mean time to solution per difficulty band" : "Mean time to solution per miner by difficulty"}
+              subtitle={
+                byType
+                  ? "Mean time to solution per difficulty band"
+                  : "Mean time to solution per miner by difficulty"
+              }
             >
               <MiningTimeByDifficultyChart data={miningTimeByDifficulty} />
             </ChartCard>
 
             <ChartCard
               title="Cumulative Blocks by Threshold"
-              subtitle={byType ? "Blocks meeting energy threshold per unit" : "Blocks meeting energy threshold per miner"}
+              subtitle={
+                byType
+                  ? "Blocks meeting energy threshold per unit"
+                  : "Blocks meeting energy threshold per miner"
+              }
             >
               <CumulativeBlocksThresholdChart data={cumulativeBlocks} />
             </ChartCard>

@@ -27,8 +27,7 @@ export function useMiningTimeByDifficulty(): MiningTimeByDifficultyResult {
         : blocks.filter((b) => b.miningTime > 0);
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const getKey = (b: (typeof blocks)[0]) =>
-      mode === "byType" ? b.minerCategory : b.minerId;
+    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
 
     const sorted = [...filtered].sort((a, b) => a.difficultyEnergy - b.difficultyEnergy);
 
@@ -43,8 +42,7 @@ export function useMiningTimeByDifficulty(): MiningTimeByDifficultyResult {
     );
     if (cleaned.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const allKeys =
-      mode === "byType" ? [...selectedTypes] : [...new Set(cleaned.map(getKey))];
+    const allKeys = mode === "byType" ? [...selectedTypes] : [...new Set(cleaned.map(getKey))];
 
     const bandSize = Math.max(1, Math.floor(cleaned.length / NUM_BANDS));
 

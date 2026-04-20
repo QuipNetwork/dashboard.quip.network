@@ -14,14 +14,11 @@ export function useBlocksOverTime(): BlocksOverTimeSeries[] {
 
   return useMemo(() => {
     const filtered =
-      mode === "byType"
-        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory))
-        : blocks;
+      mode === "byType" ? blocks.filter((b) => selectedTypes.includes(b.minerCategory)) : blocks;
     if (filtered.length === 0) return [];
 
     const minTimestamp = filtered[0]!.timestamp;
-    const getKey = (b: (typeof blocks)[0]) =>
-      mode === "byType" ? b.minerCategory : b.minerId;
+    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
 
     const keys = mode === "byType" ? [...selectedTypes] : [...new Set(filtered.map(getKey))];
     const grouped: Record<string, Array<{ x: number; y: number }>> = {};

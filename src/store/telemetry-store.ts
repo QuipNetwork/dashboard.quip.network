@@ -19,7 +19,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   fetchTelemetry: async () => {
     if (!get().loading) set({ loading: true });
     try {
-      const res = await fetch("/.netlify/functions/telemetry");
+      const res = await fetch("/api/telemetry");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       set({ blocks: data.blocks, nodes: data.nodes, loading: false, error: null });

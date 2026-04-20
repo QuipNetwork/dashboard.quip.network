@@ -71,17 +71,21 @@ export function EnergyCdfChart({ data }: EnergyCdfChartProps) {
         tooltip={tooltip}
         useMesh={true}
         enableCrosshair={true}
-        legends={series.length <= 5 ? [
-          {
-            anchor: "top-left",
-            direction: "row",
-            itemWidth: 70,
-            itemHeight: 20,
-            symbolSize: 10,
-            symbolShape: "circle",
-            translateY: -15,
-          },
-        ] : []}
+        legends={
+          series.length <= 5
+            ? [
+                {
+                  anchor: "top-left",
+                  direction: "row",
+                  itemWidth: 70,
+                  itemHeight: 20,
+                  symbolSize: 10,
+                  symbolShape: "circle",
+                  translateY: -15,
+                },
+              ]
+            : []
+        }
       />
     </div>
   );

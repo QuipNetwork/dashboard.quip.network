@@ -60,7 +60,10 @@ export function Leaderboard({ data }: LeaderboardProps) {
   }
 
   return (
-    <div className="h-full overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "#525252 transparent" }}>
+    <div
+      className="h-full overflow-y-auto"
+      style={{ scrollbarWidth: "thin", scrollbarColor: "#525252 transparent" }}
+    >
       <table className="w-full">
         <thead>
           <tr className="sticky top-0 bg-brand-gray-1/80 text-left font-accent text-[10px] uppercase tracking-wider text-brand-gray-3 backdrop-blur-sm">

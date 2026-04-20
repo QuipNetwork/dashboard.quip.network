@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
-import { getUnitCount } from "../../../lib/units";
+import { buildUnitCountIndex, getUnitCount } from "../../../lib/units";
 
 export interface CumulativeBlocksThresholdSeries {
   id: string;
@@ -18,18 +18,17 @@ const NUM_POINTS = 50;
 
 export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult {
   const blocks = useTelemetryStore((s) => s.blocks);
+  const nodes = useTelemetryStore((s) => s.nodes);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
+    const unitIndex = buildUnitCountIndex(nodes);
     const filtered =
-      mode === "byType"
-        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory))
-        : blocks;
+      mode === "byType" ? blocks.filter((b) => selectedTypes.includes(b.minerCategory)) : blocks;
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const getKey = (b: (typeof blocks)[0]) =>
-      mode === "byType" ? b.minerCategory : b.minerId;
+    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
 
     // Sort energies and remove outliers via IQR
     const sortedEnergies = filtered.map((b) => b.energy).sort((a, b) => a - b);
@@ -52,15 +51,13 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
 
     for (const b of cleaned) {
       const key = getKey(b);
-      const units = getUnitCount(b);
+      const units = getUnitCount(b, unitIndex);
       (byKey[key] ??= []).push({ energy: b.energy, units });
       totalUnits[key] = (totalUnits[key] ?? 0) + units;
     }
 
     const keys =
-      mode === "byType"
-        ? selectedTypes.filter((t) => byKey[t]?.length)
-        : Object.keys(byKey);
+      mode === "byType" ? selectedTypes.filter((t) => byKey[t]?.length) : Object.keys(byKey);
 
     // Sort each key's blocks by energy
     for (const k of keys) {
@@ -95,5 +92,5 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
     });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, selectedTypes, mode]);
+  }, [blocks, nodes, selectedTypes, mode]);
 }

@@ -15,13 +15,15 @@ export function createGradientLines(stops: SeriesGradientStops, strokeWidth = 2)
       <>
         <defs>
           {series.map((s) => {
-            const seriesStops: GradientStop[] = stops[s.id] ?? (() => {
-              const [from, to] = getSeriesGradient(String(s.id));
-              return [
-                { offset: "0%", color: from },
-                { offset: "100%", color: to },
-              ];
-            })();
+            const seriesStops: GradientStop[] =
+              stops[s.id] ??
+              (() => {
+                const [from, to] = getSeriesGradient(String(s.id));
+                return [
+                  { offset: "0%", color: from },
+                  { offset: "100%", color: to },
+                ];
+              })();
             return (
               <linearGradient
                 key={s.id}

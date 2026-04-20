@@ -1,0 +1,353 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { describe, expect, it } from "bun:test";
+
+import type {
+  BlockRecord,
+  IndexerCursor,
+  NodesSnapshot,
+  TelemetryIndex,
+} from "../src/types/telemetry";
+import type { DatabaseAdapter } from "../api/db/adapter";
+
+import { QuipClient } from "./client";
+import type { IndexerConfig } from "./config";
+import { runIteration } from "./loop";
+import { IndexerState } from "./state";
+
+class FakeDb implements DatabaseAdapter {
+  connected = false;
+  migrated = false;
+  inserted: BlockRecord[] = [];
+  upserted: NodesSnapshot[] = [];
+  savedCursors: Array<{
+    cursor: IndexerCursor;
+    etags: { status?: string | null; nodes?: string | null };
+  }> = [];
+  cursor: IndexerCursor = { epoch: null, blockIndex: 0 };
+  etags: { status: string | null; nodes: string | null } = {
+    status: null,
+    nodes: null,
+  };
+
+  async connect() {
+    this.connected = true;
+  }
+  async disconnect() {
+    this.connected = false;
+  }
+  async migrate() {
+    this.migrated = true;
+  }
+
+  async insertBlock(b: BlockRecord): Promise<boolean> {
+    this.inserted.push(b);
+    return true;
+  }
+  async getAllBlocks(): Promise<BlockRecord[]> {
+    return [...this.inserted];
+  }
+  async getBlocksByEpoch(epoch: number): Promise<BlockRecord[]> {
+    return this.inserted.filter((b) => b.epoch === epoch);
+  }
+  async getIndex(): Promise<TelemetryIndex> {
+    return { epochs: [], lastUpdated: new Date().toISOString() };
+  }
+
+  async upsertNodes(snapshot: NodesSnapshot): Promise<number> {
+    this.upserted.push(snapshot);
+    return Object.keys(snapshot.nodes).length;
+  }
+  async getNodes(): Promise<NodesSnapshot | null> {
+    return this.upserted.at(-1) ?? null;
+  }
+
+  async getCursor(): Promise<IndexerCursor> {
+    return { ...this.cursor };
+  }
+  async saveCursor(
+    cursor: IndexerCursor,
+    etags: { status?: string | null; nodes?: string | null },
+  ): Promise<void> {
+    this.savedCursors.push({ cursor: { ...cursor }, etags: { ...etags } });
+    this.cursor = { ...cursor };
+    if (etags.status !== undefined) this.etags.status = etags.status ?? null;
+    if (etags.nodes !== undefined) this.etags.nodes = etags.nodes ?? null;
+  }
+  async getEtags() {
+    return { ...this.etags };
+  }
+}
+
+interface FakeResponseSpec {
+  status: number;
+  etag?: string | null;
+  body?: unknown;
+  // raw body text that bypasses JSON.stringify (used to inject big-int literals)
+  rawText?: string;
+}
+
+type Router = (url: string, init: RequestInit | undefined) => FakeResponseSpec;
+
+function makeFetch(router: Router): typeof fetch {
+  const fn = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const spec = router(url, init);
+    const text =
+      spec.rawText !== undefined
+        ? spec.rawText
+        : spec.body !== undefined
+          ? JSON.stringify({ success: true, data: spec.body })
+          : "";
+    const headers = new Headers();
+    if (spec.etag) headers.set("etag", spec.etag);
+    const res = new Response(spec.status === 304 ? null : text, {
+      status: spec.status,
+      headers,
+    });
+    // jsdom/undici responses normally expose url, but fetch()'s Response
+    // doesn't carry it; we stash it so error messages in the client show
+    // something useful. Not strictly required for tests.
+    Object.defineProperty(res, "url", { value: url, configurable: true });
+    return res;
+  };
+  return fn as typeof fetch;
+}
+
+function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
+  return {
+    nodeUrl: "https://node.example.com",
+    token: undefined,
+    pollIntervalSec: 8,
+    nodesRefreshSec: 45,
+    backfillFromEpoch: undefined,
+    once: false,
+    verbose: false,
+    ...overrides,
+  };
+}
+
+function buildBlockPayload(
+  epoch: number,
+  index: number,
+  nonce: number | string = 123,
+): Record<string, unknown> {
+  return {
+    block_index: index,
+    block_hash: `hash-${epoch}-${index}`,
+    timestamp: 1_700_000_000 + index,
+    previous_hash: `prev-${index}`,
+    miner: {
+      miner_id: "miner-a",
+      miner_type: "QPU",
+      ecdsa_public_key: "pk",
+    },
+    quantum_proof: {
+      energy: -1.5,
+      diversity: 0.5,
+      num_valid_solutions: 2,
+      mining_time: 3.14,
+      nonce,
+      num_nodes: 4,
+      num_edges: 5,
+    },
+    requirements: {
+      difficulty_energy: -2.0,
+      min_diversity: 0.1,
+      min_solutions: 1,
+    },
+  };
+}
+
+function statusBody(
+  latestEpoch: string,
+  latestBlockIndex: number,
+  totalBlocks = latestBlockIndex,
+): Record<string, unknown> {
+  return {
+    epochs: [latestEpoch],
+    latest_epoch: latestEpoch,
+    latest_block_index: latestBlockIndex,
+    total_blocks: totalBlocks,
+    node_count: 0,
+    active_node_count: 0,
+    nodes_updated_at: null,
+  };
+}
+
+describe("runIteration", () => {
+  it("indexes all pending blocks on fresh boot", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:3:3", body: statusBody("1000", 3) };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) {
+        return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig(), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    expect(r.fetchedStatus).toBe(true);
+    expect(r.blocksIndexed).toBe(3);
+    expect(db.inserted).toHaveLength(3);
+    expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2, 3]);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 3 });
+    expect(state.etags.status).toBe("1000:3:3");
+    expect(db.savedCursors.at(-1)?.cursor).toEqual({
+      epoch: 1000,
+      blockIndex: 3,
+    });
+  });
+
+  it("no-ops on a 304 status response", async () => {
+    const db = new FakeDb();
+    db.cursor = { epoch: 1000, blockIndex: 2 };
+    db.etags.status = "cached-etag";
+    const state = new IndexerState(db);
+    await state.load();
+
+    let blockFetches = 0;
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) return { status: 304 };
+      if (/\/blocks\//.test(url)) {
+        blockFetches += 1;
+        return { status: 200, body: {} };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig(), client, db, state, now: () => 0 },
+      { value: Date.now() },
+    );
+
+    expect(r.fetchedStatus).toBe(true);
+    expect(r.blocksIndexed).toBe(0);
+    expect(blockFetches).toBe(0);
+    expect(db.inserted).toHaveLength(0);
+  });
+
+  it("resets cursor on epoch transition", async () => {
+    const db = new FakeDb();
+    db.cursor = { epoch: 1000, blockIndex: 5 };
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "2000:2:2", body: statusBody("2000", 2) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [
+              { epoch: 1000, block_count: 5, first_block: 1, last_block: 5 },
+              { epoch: 2000, block_count: 0, first_block: 0, last_block: 0 },
+            ],
+          },
+        };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) {
+        return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig(), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    expect(r.blocksIndexed).toBe(2);
+    expect(state.cursor).toEqual({ epoch: 2000, blockIndex: 2 });
+    expect(db.inserted.map((b) => b.epoch)).toEqual([2000, 2000]);
+  });
+
+  it("preserves big-int nonce as an exact string", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const nonceDigits = "14191405648832262461";
+    // Raw JSON envelope with a bare integer nonce (above 2^53).
+    const rawBlockJson = JSON.stringify({
+      success: true,
+      data: buildBlockPayload(1000, 1, 0),
+    }).replace(/"nonce":0/, `"nonce":${nonceDigits}`);
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:1:1", body: statusBody("1000", 1) };
+      }
+      if (/\/blocks\/1$/.test(url)) {
+        return { status: 200, rawText: rawBlockJson };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
+
+    expect(db.inserted).toHaveLength(1);
+    expect(db.inserted[0]!.nonce).toBe(nonceDigits);
+  });
+
+  it("advances cursor and skips on 404 blocks", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:2:2", body: statusBody("1000", 2) };
+      }
+      if (/\/blocks\/1$/.test(url)) return { status: 404 };
+      if (/\/blocks\/2$/.test(url)) {
+        return { status: 200, body: buildBlockPayload(1000, 2) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig(), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    expect(r.blocksIndexed).toBe(1);
+    expect(r.blocksSkipped).toBe(1);
+    expect(db.inserted).toHaveLength(1);
+    expect(db.inserted[0]!.blockIndex).toBe(2);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 2 });
+  });
+});
