@@ -450,21 +450,21 @@ describe("runIteration backfill", () => {
       { value: 0 },
     );
 
-    // Indexed both blocks of epoch 900, then advanced cursor to epoch 901.
-    // Subsequent iterations will drain 901, 902, ... until we reach 1000.
+    // Indexed both blocks of epoch 900, then advanced cursor directly to the
+    // next known epoch 1000 — not 901, which doesn't exist in /epochs.
     expect(r.blocksIndexed).toBe(2);
     expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
       [900, 1],
       [900, 2],
     ]);
-    expect(state.cursor).toEqual({ epoch: 901, blockIndex: 0 });
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
   });
 
   it("does NOT skip old epochs when backfill is configured", async () => {
     // Regression guard: before the fix, once cursor.epoch was persisted the
     // loop would reset to status.latestEpoch on the next iteration, dropping
     // everything between backfillFromEpoch and latestEpoch. With the fix the
-    // cursor advances one epoch at a time until it catches up to latestEpoch.
+    // cursor walks known epochs in order until it catches up to latestEpoch.
     const db = new FakeDb();
     db.cursor = { epoch: 900, blockIndex: 2 }; // epoch 900 already drained
     const state = new IndexerState(db);
@@ -501,11 +501,14 @@ describe("runIteration backfill", () => {
     );
 
     // Without backfill-awareness, cursor would have jumped straight to 1000.
-    // With the fix, it advances to 901 — the next epoch.
+    // With the fix, it advances to 901 — the next known epoch.
     expect(state.cursor).toEqual({ epoch: 901, blockIndex: 0 });
   });
 
-  it("skips to next epoch when backfill cursor points at a missing epoch", async () => {
+  it("jumps directly to next known epoch when cursor lands in a gap", async () => {
+    // Regression guard: epoch numbers are timestamps with arbitrary gaps.
+    // A cursor + 1 walk takes thousands of no-op iterations per hop; the
+    // /epochs list is authoritative and already fetched in this path.
     const db = new FakeDb();
     db.cursor = { epoch: 910, blockIndex: 0 }; // 910 is not in /epochs
     const state = new IndexerState(db);
@@ -539,7 +542,43 @@ describe("runIteration backfill", () => {
     );
 
     expect(r.blocksIndexed).toBe(0);
-    expect(state.cursor).toEqual({ epoch: 911, blockIndex: 0 });
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
+  });
+
+  it("waits when cursor is past the last known epoch", async () => {
+    // No newer epoch exists in /epochs. Don't advance — wait for the chain.
+    const db = new FakeDb();
+    db.cursor = { epoch: 1100, blockIndex: 0 };
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1200", 1) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [{ epoch: 1000, block_count: 1, first_block: 1, last_block: 1 }],
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig({ backfillFromEpoch: 900 }), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    expect(r.blocksIndexed).toBe(0);
+    // Cursor stays put — we'll re-check on the next iteration.
+    expect(state.cursor).toEqual({ epoch: 1100, blockIndex: 0 });
   });
 });
 

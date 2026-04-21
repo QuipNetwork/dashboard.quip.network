@@ -92,15 +92,46 @@ interface RawNodesPayload {
 
 // --- Converters: raw (snake_case) → internal (camelCase) ---
 
-// Block payloads report the miner's self-identifier, which can be compound
-// like "GPU-LOCAL:0" (category-variant:deviceIndex). The /nodes endpoint
-// returns bare categories ("CPU"/"GPU"/"QPU"). Accept both by taking the
-// prefix before any variant separator.
+// miner.miner_type has drifted across node versions. Three observed shapes,
+// all arriving as strings:
+//   1. Current:    "CPU" | "GPU-LOCAL:0" | "QPU-DWAVE:0"  (category[-variant[:idx]])
+//   2. Old:        '{"cpu": {...}, "gpu": null, "qpu": null}'       (capability map)
+//   3. Middle:     '{"genesis_config": ..., "gpu": {...}, "cuda": {...}}'
+//                  (whole node config accidentally dumped into the field)
+// For (2) and (3) we JSON-parse and look for capability keys. Priority is
+// QPU > GPU > CPU: when a miner advertises multiple capabilities we pick
+// the highest since block payloads don't record which backend produced it.
+const GPU_HINT_KEYS = ["gpu", "cuda", "metal"] as const;
+const QPU_HINT_KEYS = ["qpu", "dwave"] as const;
+
+function hasCapability(obj: Record<string, unknown>, key: string): boolean {
+  return key in obj && obj[key] !== null && obj[key] !== undefined;
+}
+
 export function toMinerCategory(s: unknown): "CPU" | "GPU" | "QPU" {
   if (typeof s !== "string") throw new Error(`Unknown miner category: ${String(s)}`);
-  const prefix = s.split(/[-:]/, 1)[0]?.toUpperCase();
-  if (prefix === "CPU" || prefix === "GPU" || prefix === "QPU") return prefix;
-  throw new Error(`Unknown miner category: ${String(s)}`);
+  if (s.startsWith("{")) {
+    try {
+      const obj = JSON.parse(s) as Record<string, unknown>;
+      if (QPU_HINT_KEYS.some((k) => hasCapability(obj, k))) return "QPU";
+      if (GPU_HINT_KEYS.some((k) => hasCapability(obj, k))) return "GPU";
+      if (hasCapability(obj, "cpu")) return "CPU";
+    } catch {
+      // fall through to the segment scan
+    }
+  }
+  // Scan every alphabetic segment. Compound strings like "CPU[1]+EXTERNAL[2]"
+  // or "GPU-CUDA:0" describe multi-backend miners; when multiple backends are
+  // present we prefer the highest-capability one since the block payload does
+  // not record which backend actually produced this block.
+  const segments = s
+    .toUpperCase()
+    .split(/[^A-Z]+/)
+    .filter(Boolean);
+  if (segments.includes("QPU")) return "QPU";
+  if (segments.includes("GPU")) return "GPU";
+  if (segments.includes("CPU")) return "CPU";
+  throw new Error(`Unknown miner category: ${s.slice(0, 80)}`);
 }
 
 export function rawBlockToRecord(raw: RawBlockPayload, epoch: number): BlockRecord {

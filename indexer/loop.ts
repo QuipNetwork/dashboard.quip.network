@@ -100,14 +100,24 @@ export async function runIteration(
   // During backfill (cursorEpoch < latestEpoch) we fetch /epochs to find the
   // final block of the epoch we are currently draining.
   let epochLastBlock: number;
+  // When backfilling, we also use the epoch list to jump directly to the next
+  // known epoch on drain. Epoch numbers are timestamps with arbitrary gaps, so
+  // a cursor + 1 walk would no-op through thousands of empty epochs per hop.
+  let knownEpochs: Array<{ epoch: number; lastBlock: number }> | null = null;
   if (cursorEpoch === status.latestEpoch) {
     epochLastBlock = status.latestBlockIndex;
   } else {
     const epochs = await client.getEpochs();
-    const match = epochs.epochs.find((e) => e.epoch === cursorEpoch);
+    knownEpochs = [...epochs.epochs].sort((a, b) => a.epoch - b.epoch);
+    const match = knownEpochs.find((e) => e.epoch === cursorEpoch);
     if (!match) {
-      warn(`backfill: epoch ${cursorEpoch} not present in /epochs; skipping to next epoch`);
-      state.cursor = { epoch: cursorEpoch + 1, blockIndex: 0 };
+      const next = knownEpochs.find((e) => e.epoch > cursorEpoch);
+      if (!next) {
+        warn(`backfill: cursor epoch ${cursorEpoch} past last known epoch; waiting`);
+        return result;
+      }
+      log(`backfill: epoch ${cursorEpoch} missing, jumping to next known epoch ${next.epoch}`);
+      state.cursor = { epoch: next.epoch, blockIndex: 0 };
       await state.save();
       return result;
     }
@@ -166,12 +176,16 @@ export async function runIteration(
     result.blocksIndexed += 1;
   }
 
-  // If we just finished an older epoch, advance to the next one so the next
-  // iteration picks up where we left off. We only advance when we actually
-  // reached the end of the epoch (not on an error-break above).
+  // If we just finished an older epoch, advance to the next known epoch so
+  // the next iteration picks up where we left off. We only advance when we
+  // actually reached the end of the epoch (not on an error-break above).
   if (cursorEpoch < status.latestEpoch && state.cursor.blockIndex >= epochLastBlock) {
-    log(`backfill: epoch ${cursorEpoch} complete (${epochLastBlock} blocks), advancing`);
-    state.cursor = { epoch: cursorEpoch + 1, blockIndex: 0 };
+    const nextKnown = knownEpochs?.find((e) => e.epoch > cursorEpoch);
+    const nextEpoch = nextKnown?.epoch ?? cursorEpoch + 1;
+    log(
+      `backfill: epoch ${cursorEpoch} complete (${epochLastBlock} blocks), advancing to ${nextEpoch}`,
+    );
+    state.cursor = { epoch: nextEpoch, blockIndex: 0 };
   }
 
   // Refresh node snapshot on its own cadence.
