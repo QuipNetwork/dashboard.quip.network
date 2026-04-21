@@ -351,6 +351,36 @@ describe("runIteration", () => {
     expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 2 });
   });
 
+  it("rethrows RateLimitError from getBlock and persists cursor at last successful insert", async () => {
+    // Without this, block-level 429s got swallowed by `break` and never
+    // reached runLoop's exponential backoff — the indexer just retried every
+    // pollIntervalSec and hammered the upstream.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:5:5", body: statusBody("1000", 5) };
+      }
+      if (/\/blocks\/3$/.test(url)) return { status: 429 };
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(
+      runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 }),
+    ).rejects.toBeInstanceOf(RateLimitError);
+
+    expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2]);
+    expect(db.savedCursors.at(-1)?.cursor).toEqual({ epoch: 1000, blockIndex: 2 });
+  });
+
   it("throws and persists cursor up to last successful insert on db error", async () => {
     const db = new FakeDb();
     // Fail on the 2nd insert.
@@ -600,9 +630,6 @@ describe("runLoop", () => {
       ),
     ).rejects.toThrow(/500/);
   });
-
-  // Silence "unused" warning; classes are only used in type positions above.
-  void RateLimitError;
 });
 
 describe("QuipClient error handling", () => {

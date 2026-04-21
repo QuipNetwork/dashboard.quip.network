@@ -128,6 +128,16 @@ export async function runIteration(
     try {
       raw = await client.getBlock(cursorEpoch, nextIndex);
     } catch (e) {
+      if (e instanceof RateLimitError) {
+        // Persist progress through the previous block so backoff in runLoop
+        // does not cause us to re-fetch what we already indexed.
+        try {
+          await state.save();
+        } catch (saveErr) {
+          error(`state.save failed after rate limit: ${formatErr(saveErr)}`);
+        }
+        throw e;
+      }
       error(`block fetch failed at epoch=${cursorEpoch} index=${nextIndex}: ${formatErr(e)}`);
       break;
     }
@@ -183,6 +193,14 @@ export async function runIteration(
         }
       }
     } catch (e) {
+      if (e instanceof RateLimitError) {
+        try {
+          await state.save();
+        } catch (saveErr) {
+          error(`state.save failed after rate limit: ${formatErr(saveErr)}`);
+        }
+        throw e;
+      }
       warn(`nodes fetch failed: ${formatErr(e)}`);
     }
     lastNodesFetchMs.value = now();
