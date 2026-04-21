@@ -92,8 +92,14 @@ interface RawNodesPayload {
 
 // --- Converters: raw (snake_case) → internal (camelCase) ---
 
-function toMinerCategory(s: unknown): "CPU" | "GPU" | "QPU" {
-  if (s === "CPU" || s === "GPU" || s === "QPU") return s;
+// Block payloads report the miner's self-identifier, which can be compound
+// like "GPU-LOCAL:0" (category-variant:deviceIndex). The /nodes endpoint
+// returns bare categories ("CPU"/"GPU"/"QPU"). Accept both by taking the
+// prefix before any variant separator.
+export function toMinerCategory(s: unknown): "CPU" | "GPU" | "QPU" {
+  if (typeof s !== "string") throw new Error(`Unknown miner category: ${String(s)}`);
+  const prefix = s.split(/[-:]/, 1)[0]?.toUpperCase();
+  if (prefix === "CPU" || prefix === "GPU" || prefix === "QPU") return prefix;
   throw new Error(`Unknown miner category: ${String(s)}`);
 }
 
