@@ -119,10 +119,21 @@ export class SQLiteAdapter implements DatabaseAdapter {
     this.db = new Database(this.dbPath, { create: true });
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA foreign_keys = ON");
+    // Avoid SQLITE_BUSY when indexer writes contend with server reads.
+    this.db.run("PRAGMA busy_timeout = 5000");
   }
 
   async disconnect(): Promise<void> {
-    this.db?.close();
+    const db = this.db;
+    if (db) {
+      // Keep the .wal file from growing unbounded between restarts.
+      try {
+        db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch (e) {
+        console.warn("[db] wal_checkpoint failed on close:", e);
+      }
+      db.close();
+    }
     this.db = null;
   }
 
@@ -214,8 +225,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
     if (!row) return null;
     try {
       return JSON.parse(row.payload) as NodesSnapshot;
-    } catch {
-      return null;
+    } catch (e) {
+      // Surface corruption loudly instead of silently returning an empty
+      // snapshot (which would make /api/health lie about sync state).
+      const head = row.payload.slice(0, 80);
+      throw new Error(
+        `[db] corrupt nodes_snapshot payload (${row.payload.length} bytes, starts with ${JSON.stringify(head)}): ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 

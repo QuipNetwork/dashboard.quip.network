@@ -173,9 +173,13 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async upsertNodes(snapshot: NodesSnapshot): Promise<number> {
     const sql = this.requireSql();
+    // postgres-js's sql.json expects a plain JSONValue-indexable object;
+    // NodesSnapshot's structural type lacks the required index signature
+    // but every field is JSON-serializable at runtime.
+    const payload = snapshot as unknown as Parameters<typeof sql.json>[0];
     await sql`
       INSERT INTO nodes_snapshot (id, payload)
-      VALUES (1, ${sql.json(JSON.parse(JSON.stringify(snapshot)))})
+      VALUES (1, ${sql.json(payload)})
       ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload
     `;
     return Object.keys(snapshot.nodes).length;

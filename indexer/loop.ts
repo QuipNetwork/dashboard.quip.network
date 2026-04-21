@@ -66,9 +66,16 @@ export async function runIteration(
   result.status = status;
   if (statusRes.etag) state.etags.status = statusRes.etag;
 
-  // New chain head or fresh boot: jump to latest epoch, reset block cursor.
-  // Backfill: if BACKFILL_FROM_EPOCH is set and we're fresh, start there
-  // (indexing forward through all epochs ≥ that one).
+  // Decide the cursor epoch for this iteration.
+  //
+  // - Fresh boot (cursor.epoch === null):
+  //     - backfill configured: start at BACKFILL_FROM_EPOCH
+  //     - otherwise: start at the node's latest epoch
+  // - Cursor ahead of the node (epoch rolled back): reset to latest
+  // - Cursor behind the node:
+  //     - backfill configured: keep the current epoch; we will advance
+  //       through epochs one at a time
+  //     - otherwise: jump to the latest epoch (natural epoch transition)
   if (state.cursor.epoch === null) {
     if (config.backfillFromEpoch !== undefined && config.backfillFromEpoch <= status.latestEpoch) {
       state.cursor = { epoch: config.backfillFromEpoch, blockIndex: 0 };
@@ -77,34 +84,51 @@ export async function runIteration(
       state.cursor = { epoch: status.latestEpoch, blockIndex: 0 };
       log(`fresh boot: starting at epoch ${status.latestEpoch}`);
     }
-  } else if (state.cursor.epoch !== status.latestEpoch) {
-    // Epoch transition. Fetch /epochs for visibility, but we only index the
-    // latest epoch going forward (unless backfilling through prior epochs).
-    try {
-      const epochs = await client.getEpochs();
-      if (config.verbose) {
-        log(`epoch list: ${epochs.epochs.map((e) => e.epoch).join(", ")}`);
-      }
-    } catch (e) {
-      warn("failed to fetch /epochs during transition:", formatErr(e));
-    }
+  } else if (state.cursor.epoch > status.latestEpoch) {
+    warn(
+      `cursor epoch ${state.cursor.epoch} > latestEpoch ${status.latestEpoch}; node rolled back, resetting`,
+    );
+    state.cursor = { epoch: status.latestEpoch, blockIndex: 0 };
+  } else if (state.cursor.epoch < status.latestEpoch && config.backfillFromEpoch === undefined) {
     log(`epoch transition: ${state.cursor.epoch} -> ${status.latestEpoch}, resetting cursor`);
     state.cursor = { epoch: status.latestEpoch, blockIndex: 0 };
   }
 
-  // Catch up on blocks in the current epoch.
-  // The status.latestBlockIndex is the highest indexed block; we fetch
-  // cursor.blockIndex + 1 up to and including latestBlockIndex.
   const cursorEpoch = state.cursor.epoch;
   if (cursorEpoch === null) return result;
 
-  while (state.cursor.blockIndex < status.latestBlockIndex) {
+  // Work out the last block index for the current iteration's epoch.
+  // In the common case we index the tip epoch and use status.latestBlockIndex.
+  // During backfill (cursorEpoch < latestEpoch) we fetch /epochs to find the
+  // final block of the epoch we are currently draining.
+  let epochLastBlock: number;
+  if (cursorEpoch === status.latestEpoch) {
+    epochLastBlock = status.latestBlockIndex;
+  } else {
+    const epochs = await client.getEpochs();
+    const match = epochs.epochs.find((e) => e.epoch === cursorEpoch);
+    if (!match) {
+      warn(`backfill: epoch ${cursorEpoch} not present in /epochs; skipping to next epoch`);
+      state.cursor = { epoch: cursorEpoch + 1, blockIndex: 0 };
+      await state.save();
+      return result;
+    }
+    epochLastBlock = match.lastBlock;
+    if (config.verbose) {
+      log(`backfill: epoch ${cursorEpoch} lastBlock=${epochLastBlock}`);
+    }
+  }
+
+  // Catch up on blocks in the current epoch. insertBlock failures break the
+  // loop and persist the cursor up to the last successful insert so the next
+  // iteration resumes from the right place.
+  while (state.cursor.blockIndex < epochLastBlock) {
     const nextIndex = state.cursor.blockIndex + 1;
     let raw: Record<string, unknown> | null;
     try {
       raw = await client.getBlock(cursorEpoch, nextIndex);
     } catch (e) {
-      warn(`block fetch failed at epoch=${cursorEpoch} index=${nextIndex}: ${formatErr(e)}`);
+      error(`block fetch failed at epoch=${cursorEpoch} index=${nextIndex}: ${formatErr(e)}`);
       break;
     }
     if (raw === null) {
@@ -117,9 +141,29 @@ export async function runIteration(
       raw as unknown as Parameters<typeof rawBlockToRecord>[0],
       cursorEpoch,
     );
-    await db.insertBlock(record);
+    try {
+      await db.insertBlock(record);
+    } catch (e) {
+      error(`insertBlock failed at epoch=${cursorEpoch} index=${nextIndex}: ${formatErr(e)}`);
+      // Persist whatever progress we made before bailing so the next
+      // iteration does not re-fetch already-committed blocks.
+      try {
+        await state.save();
+      } catch (saveErr) {
+        error(`state.save failed after insertBlock error: ${formatErr(saveErr)}`);
+      }
+      throw e;
+    }
     state.cursor.blockIndex = nextIndex;
     result.blocksIndexed += 1;
+  }
+
+  // If we just finished an older epoch, advance to the next one so the next
+  // iteration picks up where we left off. We only advance when we actually
+  // reached the end of the epoch (not on an error-break above).
+  if (cursorEpoch < status.latestEpoch && state.cursor.blockIndex >= epochLastBlock) {
+    log(`backfill: epoch ${cursorEpoch} complete (${epochLastBlock} blocks), advancing`);
+    state.cursor = { epoch: cursorEpoch + 1, blockIndex: 0 };
   }
 
   // Refresh node snapshot on its own cadence.
@@ -149,7 +193,7 @@ export async function runIteration(
 }
 
 function formatErr(e: unknown): string {
-  if (e instanceof Error) return e.message;
+  if (e instanceof Error) return e.stack ?? e.message;
   return String(e);
 }
 
@@ -175,18 +219,19 @@ export async function runLoop(deps: LoopDeps, shouldStop: () => boolean): Promis
       if (config.once) return;
     } catch (e) {
       if (e instanceof AuthError) {
+        // Surface to main.ts so cleanup (db.disconnect) runs before exit.
         error(e.message);
-        process.exit(1);
+        throw e;
       }
       if (e instanceof RateLimitError) {
         backoffMs = backoffMs === 0 ? 5000 : Math.min(backoffMs * 2, 60000);
         warn(`rate limited, backing off ${backoffMs}ms`);
         await sleep(backoffMs);
-        if (config.once) return;
+        if (config.once) throw e;
         continue;
       }
-      warn(`iteration failed: ${formatErr(e)}`);
-      if (config.once) return;
+      error(`iteration failed: ${formatErr(e)}`);
+      if (config.once) throw e;
     }
     await sleep(config.pollIntervalSec * 1000);
   }
