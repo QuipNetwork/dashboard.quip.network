@@ -4,7 +4,6 @@ import type { IndexerCursor } from "../src/types/telemetry";
 import type { DatabaseAdapter } from "../api/db/adapter";
 
 export interface EtagState {
-  status: string | null;
   nodes: string | null;
 }
 
@@ -15,7 +14,7 @@ export interface EtagState {
  */
 export class IndexerState {
   cursor: IndexerCursor = { epoch: null, blockIndex: 0 };
-  etags: EtagState = { status: null, nodes: null };
+  etags: EtagState = { nodes: null };
 
   constructor(private readonly db: DatabaseAdapter) {}
 
@@ -25,9 +24,6 @@ export class IndexerState {
   }
 
   async save(): Promise<void> {
-    await this.db.saveCursor(this.cursor, {
-      status: this.etags.status,
-      nodes: this.etags.nodes,
-    });
+    await this.db.saveCursor(this.cursor, { nodes: this.etags.nodes });
   }
 }

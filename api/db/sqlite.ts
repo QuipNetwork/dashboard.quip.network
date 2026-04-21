@@ -44,7 +44,6 @@ const SCHEMA_STATEMENTS: string[] = [
      id                 INTEGER PRIMARY KEY CHECK (id = 1),
      cursor_epoch       INTEGER,
      cursor_block       INTEGER NOT NULL DEFAULT 0,
-     last_status_etag   TEXT,
      last_nodes_etag    TEXT,
      updated_at         TEXT NOT NULL
    )`,
@@ -79,7 +78,6 @@ interface EpochCountRow {
 interface StateRow {
   cursor_epoch: number | null;
   cursor_block: number;
-  last_status_etag: string | null;
   last_nodes_etag: string | null;
 }
 
@@ -240,7 +238,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       .query<
         StateRow,
         []
-      >("SELECT cursor_epoch, cursor_block, last_status_etag, last_nodes_etag FROM indexer_state WHERE id = 1")
+      >("SELECT cursor_epoch, cursor_block, last_nodes_etag FROM indexer_state WHERE id = 1")
       .get();
     return {
       epoch: row?.cursor_epoch ?? null,
@@ -248,40 +246,34 @@ export class SQLiteAdapter implements DatabaseAdapter {
     };
   }
 
-  async saveCursor(
-    cursor: IndexerCursor,
-    etags: { status?: string | null; nodes?: string | null },
-  ): Promise<void> {
+  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
     this.requireDb()
       .prepare(
         `INSERT INTO indexer_state (
-           id, cursor_epoch, cursor_block, last_status_etag, last_nodes_etag, updated_at
-         ) VALUES (1, $epoch, $block, $status, $nodes, $updatedAt)
+           id, cursor_epoch, cursor_block, last_nodes_etag, updated_at
+         ) VALUES (1, $epoch, $block, $nodes, $updatedAt)
          ON CONFLICT(id) DO UPDATE SET
            cursor_epoch = excluded.cursor_epoch,
            cursor_block = excluded.cursor_block,
-           last_status_etag = COALESCE(excluded.last_status_etag, indexer_state.last_status_etag),
            last_nodes_etag = COALESCE(excluded.last_nodes_etag, indexer_state.last_nodes_etag),
            updated_at = excluded.updated_at`,
       )
       .run({
         $epoch: cursor.epoch,
         $block: cursor.blockIndex,
-        $status: etags.status ?? null,
         $nodes: etags.nodes ?? null,
         $updatedAt: new Date().toISOString(),
       });
   }
 
-  async getEtags(): Promise<{ status: string | null; nodes: string | null }> {
+  async getEtags(): Promise<{ nodes: string | null }> {
     const row = this.requireDb()
       .query<
         StateRow,
         []
-      >("SELECT cursor_epoch, cursor_block, last_status_etag, last_nodes_etag FROM indexer_state WHERE id = 1")
+      >("SELECT cursor_epoch, cursor_block, last_nodes_etag FROM indexer_state WHERE id = 1")
       .get();
     return {
-      status: row?.last_status_etag ?? null,
       nodes: row?.last_nodes_etag ?? null,
     };
   }

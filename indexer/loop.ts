@@ -55,16 +55,14 @@ export async function runIteration(
     status: null,
   };
 
-  const statusRes = await client.getStatus(state.etags.status);
+  // /status is fetched without ETag so a 304 never prevents catch-up when
+  // we are behind the tip of an unchanged epoch. The body is small.
+  const statusRes = await client.getStatus(null);
   result.fetchedStatus = true;
-  if (statusRes.status === 304 || !statusRes.body) {
-    if (config.verbose) log("status 304, no changes");
-    return result;
-  }
+  if (!statusRes.body) return result;
 
   const status = statusRes.body;
   result.status = status;
-  if (statusRes.etag) state.etags.status = statusRes.etag;
 
   // Decide the cursor epoch for this iteration.
   //

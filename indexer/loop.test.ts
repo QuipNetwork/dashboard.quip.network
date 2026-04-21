@@ -22,13 +22,10 @@ class FakeDb implements DatabaseAdapter {
   upserted: NodesSnapshot[] = [];
   savedCursors: Array<{
     cursor: IndexerCursor;
-    etags: { status?: string | null; nodes?: string | null };
+    etags: { nodes?: string | null };
   }> = [];
   cursor: IndexerCursor = { epoch: null, blockIndex: 0 };
-  etags: { status: string | null; nodes: string | null } = {
-    status: null,
-    nodes: null,
-  };
+  etags: { nodes: string | null } = { nodes: null };
 
   async connect() {
     this.connected = true;
@@ -65,13 +62,9 @@ class FakeDb implements DatabaseAdapter {
   async getCursor(): Promise<IndexerCursor> {
     return { ...this.cursor };
   }
-  async saveCursor(
-    cursor: IndexerCursor,
-    etags: { status?: string | null; nodes?: string | null },
-  ): Promise<void> {
+  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
     this.savedCursors.push({ cursor: { ...cursor }, etags: { ...etags } });
     this.cursor = { ...cursor };
-    if (etags.status !== undefined) this.etags.status = etags.status ?? null;
     if (etags.nodes !== undefined) this.etags.nodes = etags.nodes ?? null;
   }
   async getEtags() {
@@ -206,7 +199,6 @@ describe("runIteration", () => {
     expect(db.inserted).toHaveLength(3);
     expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2, 3]);
     expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 3 });
-    expect(state.etags.status).toBe("1000:3:3");
     expect(db.savedCursors.at(-1)?.cursor).toEqual({
       epoch: 1000,
       blockIndex: 3,
@@ -214,9 +206,11 @@ describe("runIteration", () => {
   });
 
   it("no-ops on a 304 status response", async () => {
+    // Defensive: /status is now fetched without If-None-Match, so a 304 here
+    // is unusual — but the handler should still fail closed and not try any
+    // block fetches without a body.
     const db = new FakeDb();
     db.cursor = { epoch: 1000, blockIndex: 2 };
-    db.etags.status = "cached-etag";
     const state = new IndexerState(db);
     await state.load();
 

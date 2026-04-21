@@ -42,7 +42,6 @@ const SCHEMA_STATEMENTS: string[] = [
      id               INTEGER PRIMARY KEY CHECK (id = 1),
      cursor_epoch     BIGINT,
      cursor_block     INTEGER NOT NULL DEFAULT 0,
-     last_status_etag TEXT,
      last_nodes_etag  TEXT,
      updated_at       TIMESTAMPTZ NOT NULL
    )`,
@@ -203,37 +202,29 @@ export class PostgresAdapter implements DatabaseAdapter {
     };
   }
 
-  async saveCursor(
-    cursor: IndexerCursor,
-    etags: { status?: string | null; nodes?: string | null },
-  ): Promise<void> {
+  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
     const sql = this.requireSql();
-    const statusEtag = etags.status ?? null;
     const nodesEtag = etags.nodes ?? null;
     await sql`
       INSERT INTO indexer_state (
-        id, cursor_epoch, cursor_block, last_status_etag, last_nodes_etag, updated_at
+        id, cursor_epoch, cursor_block, last_nodes_etag, updated_at
       ) VALUES (
-        1, ${cursor.epoch}, ${cursor.blockIndex}, ${statusEtag}, ${nodesEtag}, NOW()
+        1, ${cursor.epoch}, ${cursor.blockIndex}, ${nodesEtag}, NOW()
       )
       ON CONFLICT (id) DO UPDATE SET
         cursor_epoch = EXCLUDED.cursor_epoch,
         cursor_block = EXCLUDED.cursor_block,
-        last_status_etag = COALESCE(EXCLUDED.last_status_etag, indexer_state.last_status_etag),
         last_nodes_etag  = COALESCE(EXCLUDED.last_nodes_etag, indexer_state.last_nodes_etag),
         updated_at = EXCLUDED.updated_at
     `;
   }
 
-  async getEtags(): Promise<{ status: string | null; nodes: string | null }> {
-    const rows = await this.requireSql()<
-      { last_status_etag: string | null; last_nodes_etag: string | null }[]
-    >`
-      SELECT last_status_etag, last_nodes_etag FROM indexer_state WHERE id = 1
+  async getEtags(): Promise<{ nodes: string | null }> {
+    const rows = await this.requireSql()<{ last_nodes_etag: string | null }[]>`
+      SELECT last_nodes_etag FROM indexer_state WHERE id = 1
     `;
     const row = rows[0];
     return {
-      status: row?.last_status_etag ?? null,
       nodes: row?.last_nodes_etag ?? null,
     };
   }

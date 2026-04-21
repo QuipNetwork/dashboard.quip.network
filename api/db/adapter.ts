@@ -26,11 +26,8 @@ export interface DatabaseAdapter {
   getNodes(): Promise<NodesSnapshot | null>;
 
   getCursor(): Promise<IndexerCursor>;
-  saveCursor(
-    cursor: IndexerCursor,
-    etags: { status?: string | null; nodes?: string | null },
-  ): Promise<void>;
-  getEtags(): Promise<{ status: string | null; nodes: string | null }>;
+  saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void>;
+  getEtags(): Promise<{ nodes: string | null }>;
 }
 
 export interface DbConfig {
