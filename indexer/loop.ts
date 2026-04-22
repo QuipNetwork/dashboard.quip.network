@@ -191,10 +191,10 @@ export async function runIteration(
         await db.upsertNodes(snapshot);
         if (nodesRes.etag) state.etags.nodes = nodesRes.etag;
         result.nodesRefreshed = true;
-        // Resolve which node in the snapshot is "us". Honors SELF_ADDRESS
-        // override first, then falls back to publicHost matching. Persists
-        // only on change to keep the meta table quiet.
-        await refreshSelfAddress(db, config, snapshot);
+        // Resolve which node in the snapshot is "us" by asking the node
+        // directly via /api/v1/status. Persists only on change to keep the
+        // meta table quiet.
+        await refreshSelfAddress(db, client, snapshot);
         if (config.verbose) {
           log(`refreshed nodes: ${snapshot.nodeCount} total`);
         }
@@ -224,10 +224,10 @@ function formatErr(e: unknown): string {
 
 async function refreshSelfAddress(
   db: DatabaseAdapter,
-  config: IndexerConfig,
+  client: QuipClient,
   snapshot: NodesSnapshot,
 ): Promise<void> {
-  const matched = resolveSelfAddress(config, snapshot);
+  const matched = await resolveSelfAddress(client, snapshot);
   const current = await db.getSelfAddress();
   if (current !== matched) {
     await db.setSelfAddress(matched);
@@ -235,30 +235,20 @@ async function refreshSelfAddress(
   }
 }
 
-export function resolveSelfAddress(config: IndexerConfig, snapshot: NodesSnapshot): string | null {
-  // Explicit override wins: the operator told us which peer is "us". We still
-  // require the address to exist in the snapshot so downstream lookups don't
-  // dereference into thin air.
-  if (config.selfAddress) {
-    return snapshot.nodes[config.selfAddress] ? config.selfAddress : null;
-  }
-  // Fallback: match the polled node's hostname against two signals per peer —
-  // publicHost (self-reported) and the hostname portion of address itself
-  // (how other peers reach it). Works when the upstream includes itself in
-  // its own peer list under either representation; fails silently (null)
-  // otherwise, and the UI surfaces candidate addresses.
-  let selfHost: string;
-  try {
-    selfHost = new URL(config.nodeUrl).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-  for (const [addr, info] of Object.entries(snapshot.nodes)) {
-    if (info.publicHost && info.publicHost.toLowerCase() === selfHost) return addr;
-    const addrHost = addr.split(":", 1)[0]?.toLowerCase();
-    if (addrHost && addrHost === selfHost) return addr;
-  }
-  return null;
+/**
+ * Ask the node for its own peer-list address via GET /api/v1/status. The
+ * node returns data.host — the exact key it uses for itself in the peer
+ * list — so we can identify "us" with zero config regardless of how the
+ * dashboard reaches it (docker DNS, caddy, direct IP, etc.). Returns null
+ * if the node's identity isn't present in the current snapshot.
+ */
+export async function resolveSelfAddress(
+  client: QuipClient,
+  snapshot: NodesSnapshot,
+): Promise<string | null> {
+  const selfHost = await client.getSelfHost();
+  if (!selfHost) return null;
+  return snapshot.nodes[selfHost] ? selfHost : null;
 }
 
 async function chooseSeedEpoch(
