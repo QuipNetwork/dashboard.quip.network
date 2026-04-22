@@ -830,10 +830,7 @@ describe("runIteration canonical-chain attribution", () => {
     });
 
     // First iteration: walk epoch 900's owned range (1..5), advance cursor.
-    await runIteration(
-      { config: makeConfig(), client, db, state, now: () => 0 },
-      { value: 0 },
-    );
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
     expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
       [900, 1],
       [900, 2],
@@ -846,10 +843,7 @@ describe("runIteration canonical-chain attribution", () => {
     // Second iteration: walk epoch 1000's owned range (6..8). No re-fetch
     // of blocks 1..5 under epoch=1000 even though the node serves them
     // there (they're inherited, not introduced by 1000).
-    await runIteration(
-      { config: makeConfig(), client, db, state, now: () => 0 },
-      { value: 0 },
-    );
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
     expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
       [900, 1],
       [900, 2],

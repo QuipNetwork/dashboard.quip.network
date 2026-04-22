@@ -3,13 +3,7 @@
 import { rawBlockToRecord, rawNodesToSnapshot, type DatabaseAdapter } from "../api/db/adapter";
 import type { NodesSnapshot } from "../src/types/telemetry";
 
-import {
-  AuthError,
-  QuipClient,
-  RateLimitError,
-  type EpochsBody,
-  type StatusBody,
-} from "./client";
+import { AuthError, QuipClient, RateLimitError, type EpochsBody, type StatusBody } from "./client";
 import type { IndexerConfig } from "./config";
 import { IndexerState } from "./state";
 
