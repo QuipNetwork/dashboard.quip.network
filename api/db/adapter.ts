@@ -28,12 +28,42 @@ export interface DatabaseAdapter {
   getCursor(): Promise<IndexerCursor>;
   saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void>;
   getEtags(): Promise<{ nodes: string | null }>;
+
+  // Address of the quip-node this deployment polls. Persisted so the server
+  // can tell the UI which entry in the nodes snapshot is "us" without also
+  // knowing QUIP_NODE_URL. Null until the indexer has matched publicHost.
+  getSelfAddress(): Promise<string | null>;
+  setSelfAddress(address: string | null): Promise<void>;
 }
 
 export interface DbConfig {
   adapter: "sqlite" | "postgres";
   databaseUrl?: string;
   sqlitePath?: string;
+}
+
+// Bump whenever any SCHEMA_STATEMENTS block in sqlite.ts / postgres.ts
+// changes shape (add/drop column, add/drop table, add/drop index). On local
+// deployments the adapter drops and recreates all tables on mismatch; on
+// remote (production) deployments the mismatch is a no-op and the schema
+// is expected to be managed externally.
+export const SCHEMA_VERSION = 1;
+
+// Tables owned by this app. Listed explicitly so a drop-and-recreate can
+// target exactly our data and never touch unrelated tables that may share
+// a Postgres database.
+export const OWNED_TABLES = ["blocks", "nodes_snapshot", "indexer_state", "meta"] as const;
+
+const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres"]);
+
+export function isLocalDeployment(config: DbConfig): boolean {
+  if (config.adapter === "sqlite") return true;
+  if (!config.databaseUrl) return false;
+  try {
+    return LOCAL_POSTGRES_HOSTS.has(new URL(config.databaseUrl).hostname);
+  } catch {
+    return false;
+  }
 }
 
 // --- Raw node-API payloads (snake_case) ---

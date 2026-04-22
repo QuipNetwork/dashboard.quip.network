@@ -10,7 +10,7 @@ import type {
   NodesSnapshot,
   TelemetryIndex,
 } from "../../src/types/telemetry";
-import type { DatabaseAdapter, DbConfig } from "./adapter";
+import { OWNED_TABLES, SCHEMA_VERSION, type DatabaseAdapter, type DbConfig } from "./adapter";
 
 const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS blocks (
@@ -47,7 +47,13 @@ const SCHEMA_STATEMENTS: string[] = [
      last_nodes_etag    TEXT,
      updated_at         TEXT NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS meta (
+     key   TEXT PRIMARY KEY,
+     value TEXT
+   )`,
 ];
+
+const SELF_ADDRESS_KEY = "self_address";
 
 interface BlockRow {
   epoch: number;
@@ -137,7 +143,27 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async migrate(): Promise<void> {
     const db = this.requireDb();
+    // meta must exist before we can read/write schema_version. Created as a
+    // standalone CREATE IF NOT EXISTS so the drift check can run before we
+    // apply the rest of SCHEMA_STATEMENTS.
+    db.run(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
+    const row = db
+      .query<{ value: string | null }, []>(`SELECT value FROM meta WHERE key = 'schema_version'`)
+      .get();
+    const stored = row?.value !== undefined && row.value !== null ? Number(row.value) : null;
+
+    if (stored !== SCHEMA_VERSION) {
+      // sqlite is always a local deployment — we own the file. Drop on drift.
+      console.warn(
+        `[db] SCHEMA DRIFT detected (stored=${stored ?? "none"}, code=${SCHEMA_VERSION}); dropping all owned tables`,
+      );
+      for (const table of OWNED_TABLES) db.run(`DROP TABLE IF EXISTS ${table}`);
+    }
     for (const stmt of SCHEMA_STATEMENTS) db.run(stmt);
+    db.prepare(
+      `INSERT INTO meta (key, value) VALUES ('schema_version', $v)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run({ $v: String(SCHEMA_VERSION) });
   }
 
   async insertBlock(b: BlockRecord): Promise<boolean> {
@@ -276,6 +302,22 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return {
       nodes: row?.last_nodes_etag ?? null,
     };
+  }
+
+  async getSelfAddress(): Promise<string | null> {
+    const row = this.requireDb()
+      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get(SELF_ADDRESS_KEY);
+    return row?.value ?? null;
+  }
+
+  async setSelfAddress(address: string | null): Promise<void> {
+    this.requireDb()
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run({ $k: SELF_ADDRESS_KEY, $v: address });
   }
 
   private requireDb(): Database {

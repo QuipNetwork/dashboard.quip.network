@@ -75,6 +75,21 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  // Run migrate synchronously before children start so schema drift is
+  // resolved deterministically (and so WAL mode is set on the sqlite file
+  // before the server and indexer race to open it).
+  console.log("entrypoint: running migrate");
+  const migrateProc = Bun.spawn({
+    cmd: ["bun", "run", "/app/server/migrate.ts"],
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const migrateExit = (await migrateProc.exited) ?? 1;
+  if (migrateExit !== 0) {
+    console.error(`entrypoint: migrate failed with code ${migrateExit}`);
+    return migrateExit;
+  }
+
   const children: Child[] = [];
   if (runServer) children.push(spawnChild("server", "/app/server/main.ts"));
   if (runIndexer) children.push(spawnChild("indexer", "/app/indexer/main.ts"));

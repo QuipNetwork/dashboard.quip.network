@@ -8,7 +8,13 @@ import type {
   NodesSnapshot,
   TelemetryIndex,
 } from "../../src/types/telemetry";
-import type { DatabaseAdapter, DbConfig } from "./adapter";
+import {
+  OWNED_TABLES,
+  SCHEMA_VERSION,
+  isLocalDeployment,
+  type DatabaseAdapter,
+  type DbConfig,
+} from "./adapter";
 
 const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS blocks (
@@ -45,7 +51,13 @@ const SCHEMA_STATEMENTS: string[] = [
      last_nodes_etag  TEXT,
      updated_at       TIMESTAMPTZ NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS meta (
+     key   TEXT PRIMARY KEY,
+     value TEXT
+   )`,
 ];
+
+const SELF_ADDRESS_KEY = "self_address";
 
 interface BlockRow {
   epoch: string | number;
@@ -94,6 +106,7 @@ function rowToBlock(r: BlockRow): BlockRecord {
 export class PostgresAdapter implements DatabaseAdapter {
   private sql: Sql | null = null;
   private readonly url: string;
+  private readonly config: DbConfig;
 
   constructor(config: DbConfig) {
     const url = config.databaseUrl ?? process.env.DATABASE_URL;
@@ -101,6 +114,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       throw new Error("postgres adapter requires DATABASE_URL or config.databaseUrl");
     }
     this.url = url;
+    this.config = { ...config, databaseUrl: url };
   }
 
   async connect(): Promise<void> {
@@ -116,7 +130,31 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async migrate(): Promise<void> {
     const sql = this.requireSql();
+    await sql.unsafe(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
+    const rows = await sql<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = 'schema_version'
+    `;
+    const stored =
+      rows[0]?.value !== undefined && rows[0].value !== null ? Number(rows[0].value) : null;
+    const local = isLocalDeployment(this.config);
+
+    if (stored !== SCHEMA_VERSION && local) {
+      // Local Postgres (e.g. docker-compose) — drop on drift. Remote Postgres
+      // (Supabase etc.) never drops; schema drift there must be handled out
+      // of band so production data is never wiped by a restart.
+      console.warn(
+        `[db] SCHEMA DRIFT detected (stored=${stored ?? "none"}, code=${SCHEMA_VERSION}); dropping all owned tables on local deployment`,
+      );
+      for (const table of OWNED_TABLES) {
+        await sql.unsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);
+      }
+    }
+
     for (const stmt of SCHEMA_STATEMENTS) await sql.unsafe(stmt);
+    await sql`
+      INSERT INTO meta (key, value) VALUES ('schema_version', ${String(SCHEMA_VERSION)})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `;
   }
 
   async insertBlock(b: BlockRecord): Promise<boolean> {
@@ -227,6 +265,21 @@ export class PostgresAdapter implements DatabaseAdapter {
     return {
       nodes: row?.last_nodes_etag ?? null,
     };
+  }
+
+  async getSelfAddress(): Promise<string | null> {
+    const rows = await this.requireSql()<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = ${SELF_ADDRESS_KEY}
+    `;
+    return rows[0]?.value ?? null;
+  }
+
+  async setSelfAddress(address: string | null): Promise<void> {
+    await this.requireSql()`
+      INSERT INTO meta (key, value)
+      VALUES (${SELF_ADDRESS_KEY}, ${address})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `;
   }
 
   private requireSql(): Sql {
