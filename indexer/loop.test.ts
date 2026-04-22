@@ -122,6 +122,7 @@ function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
     pollIntervalSec: 8,
     nodesRefreshSec: 45,
     backfillFromEpoch: undefined,
+    selfAddress: undefined,
     once: false,
     verbose: false,
     ...overrides,
@@ -247,7 +248,10 @@ describe("runIteration", () => {
     expect(db.inserted).toHaveLength(0);
   });
 
-  it("resets cursor on epoch transition", async () => {
+  it("advances cursor to the next known epoch once the current one is drained", async () => {
+    // With backfill-always-on, an epoch transition no longer means "reset to
+    // tip"; the cursor walks forward through the epoch list one epoch per
+    // iteration. First iteration finishes epoch 1000 and advances.
     const db = new FakeDb();
     db.cursor = { epoch: 1000, blockIndex: 5 };
     const state = new IndexerState(db);
@@ -263,7 +267,7 @@ describe("runIteration", () => {
           body: {
             epochs: [
               { epoch: 1000, block_count: 5, first_block: 1, last_block: 5 },
-              { epoch: 2000, block_count: 0, first_block: 0, last_block: 0 },
+              { epoch: 2000, block_count: 2, first_block: 1, last_block: 2 },
             ],
           },
         };
@@ -284,9 +288,8 @@ describe("runIteration", () => {
       { value: 0 },
     );
 
-    expect(r.blocksIndexed).toBe(2);
-    expect(state.cursor).toEqual({ epoch: 2000, blockIndex: 2 });
-    expect(db.inserted.map((b) => b.epoch)).toEqual([2000, 2000]);
+    expect(r.blocksIndexed).toBe(0);
+    expect(state.cursor).toEqual({ epoch: 2000, blockIndex: 0 });
   });
 
   it("preserves big-int nonce as an exact string", async () => {

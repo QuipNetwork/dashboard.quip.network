@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
 import type { MinerCategory } from "../../../types/telemetry";
 
@@ -10,7 +10,7 @@ export interface ActiveNodesEntry {
 }
 
 export function useActiveNodes(): ActiveNodesEntry[] {
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useFilteredBlocks();
   const selectedTypes = useUIStore((s) => s.selectedTypes);
 
   return useMemo(() => {

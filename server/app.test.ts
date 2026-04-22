@@ -9,11 +9,24 @@ import type { DatabaseAdapter } from "../api/db/adapter";
 import { SQLiteAdapter } from "../api/db/sqlite";
 import type {
   BlockRecord,
+  NodeInfo,
   NodesSnapshot,
   TelemetryIndex,
   TelemetryResponse,
 } from "../src/types/telemetry";
 import { createApp } from "./app";
+import type { GeoIpEnricher } from "./geo-ip";
+
+// Keep tests hermetic: never touch the module-level mmdb singleton.
+const NOOP_GEOIP: GeoIpEnricher = {
+  enabled: false,
+  async enrich(n) {
+    return n;
+  },
+  async enrichSnapshot(n) {
+    return n;
+  },
+};
 
 function makeBlock(
   overrides: Partial<BlockRecord> & Pick<BlockRecord, "blockIndex" | "epoch">,
@@ -77,7 +90,7 @@ beforeEach(async () => {
   await db.upsertNodes(SNAPSHOT);
   await db.saveCursor({ epoch: 1_700_000_060, blockIndex: 0 }, {});
 
-  app = createApp({ db, enableStatic: false });
+  app = createApp({ db, enableStatic: false, geoIp: NOOP_GEOIP });
 });
 
 afterEach(async () => {
@@ -94,6 +107,38 @@ describe("server app", () => {
     expect(body.nodes.nodeCount).toBe(2);
     expect(body.nodes.activeCount).toBe(1);
     expect(body.nodes.nodes["node-a"]?.status).toBe("online");
+    expect(body.selfAddress).toBeNull();
+  });
+
+  test("GET /api/telemetry surfaces the configured self address", async () => {
+    await db.setSelfAddress("node-a");
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(body.selfAddress).toBe("node-a");
+  });
+
+  test("GET /api/telemetry applies geo-IP enrichment when provided", async () => {
+    const stubbed: GeoIpEnricher = {
+      enabled: true,
+      async enrich(n) {
+        return n;
+      },
+      async enrichSnapshot(nodes) {
+        const out: Record<string, NodeInfo> = {};
+        for (const [addr, info] of Object.entries(nodes)) {
+          out[addr] = {
+            ...info,
+            location: { country: "US", city: "New York", lat: 40.7, lng: -74.0 },
+          };
+        }
+        return out;
+      },
+    };
+    const appWithGeo = createApp({ db, enableStatic: false, geoIp: stubbed });
+    const res = await appWithGeo.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(body.nodes.nodes["node-a"]?.location?.country).toBe("US");
+    expect(body.nodes.nodes["node-b"]?.location?.lat).toBe(40.7);
   });
 
   test("GET /api/telemetry/epochs/:epoch filters by epoch", async () => {

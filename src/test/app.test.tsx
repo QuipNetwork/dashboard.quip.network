@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import type { BlockRecord, NodesSnapshot } from "../types/telemetry";
 import { useTelemetryStore } from "../store/telemetry-store";
+import { useUIStore } from "../store/ui-store";
 
 function makeBlock(
   overrides: Partial<BlockRecord> & Pick<BlockRecord, "blockIndex" | "minerCategory" | "minerId">,
@@ -55,9 +56,13 @@ beforeEach(() => {
   useTelemetryStore.setState({
     blocks: [],
     nodes: null,
+    selfAddress: null,
     loading: true,
     error: null,
   });
+  // Smoke test asserts against the Network view's chart grid; the default
+  // viewMode is "my-node" which doesn't render those charts.
+  useUIStore.setState({ viewMode: "network" });
 });
 
 afterEach(() => {
@@ -68,7 +73,7 @@ afterEach(() => {
 describe("App smoke test", () => {
   test("renders all four charts after fetching telemetry", async () => {
     const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ blocks: MOCK_BLOCKS, nodes: MOCK_NODES }), {
+      new Response(JSON.stringify({ blocks: MOCK_BLOCKS, nodes: MOCK_NODES, selfAddress: null }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),

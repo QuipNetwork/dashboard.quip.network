@@ -4,7 +4,8 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { NodesSnapshot, TelemetryResponse } from "../src/types/telemetry";
+import type { NodeInfo, NodesSnapshot, TelemetryResponse } from "../src/types/telemetry";
+import { getGeoIpEnricher, type GeoIpEnricher } from "./geo-ip";
 
 interface StaticOptions {
   root?: string;
@@ -23,6 +24,8 @@ export interface CreateAppOptions {
    * the Netlify runtime (Node) cannot load Bun-only adapters at module scope.
    */
   serveStatic?: ServeStaticFactory;
+  /** Test hook; production callers use the module-level singleton. */
+  geoIp?: GeoIpEnricher;
 }
 
 const emptySnapshot: NodesSnapshot = {
@@ -33,14 +36,24 @@ const emptySnapshot: NodesSnapshot = {
 };
 
 export function createApp(options: CreateAppOptions): Hono {
-  const { db, enableStatic = false, staticDir = "./dist", serveStatic } = options;
+  const { db, enableStatic = false, staticDir = "./dist", serveStatic, geoIp } = options;
   const app = new Hono();
 
   app.get("/api/telemetry", async (c) => {
-    const [blocks, nodes] = await Promise.all([db.getAllBlocks(), db.getNodes()]);
+    const [blocks, nodes, selfAddress] = await Promise.all([
+      db.getAllBlocks(),
+      db.getNodes(),
+      db.getSelfAddress(),
+    ]);
+    const rawSnapshot = nodes ?? emptySnapshot;
+    const enricher = geoIp ?? (await getGeoIpEnricher());
+    const enrichedNodes: Record<string, NodeInfo> = enricher.enabled
+      ? await enricher.enrichSnapshot(rawSnapshot.nodes)
+      : rawSnapshot.nodes;
     const body: TelemetryResponse = {
       blocks,
-      nodes: nodes ?? emptySnapshot,
+      nodes: { ...rawSnapshot, nodes: enrichedNodes },
+      selfAddress,
     };
     return c.json(body);
   });

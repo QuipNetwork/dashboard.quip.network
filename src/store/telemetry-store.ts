@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import type { BlockRecord, NodesSnapshot } from "../types/telemetry";
+import type { BlockRecord, NodesSnapshot, TelemetryResponse } from "../types/telemetry";
 
 interface TelemetryState {
   blocks: BlockRecord[];
   nodes: NodesSnapshot | null;
+  selfAddress: string | null;
   loading: boolean;
   error: string | null;
 
@@ -13,6 +14,7 @@ interface TelemetryState {
 export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   blocks: [],
   nodes: null,
+  selfAddress: null,
   loading: true,
   error: null,
 
@@ -21,8 +23,14 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     try {
       const res = await fetch("/api/telemetry");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      set({ blocks: data.blocks, nodes: data.nodes, loading: false, error: null });
+      const data = (await res.json()) as TelemetryResponse;
+      set({
+        blocks: data.blocks,
+        nodes: data.nodes,
+        selfAddress: data.selfAddress ?? null,
+        loading: false,
+        error: null,
+      });
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : "Failed to load telemetry" });
     }

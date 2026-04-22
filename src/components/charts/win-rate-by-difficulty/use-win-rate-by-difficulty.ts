@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
 
 export interface WinRateSeries {
@@ -16,7 +16,7 @@ export interface WinRateByDifficultyResult {
 const NUM_BANDS = 12;
 
 export function useWinRateByDifficulty(): WinRateByDifficultyResult {
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useFilteredBlocks();
   const selectedTypes = useUIStore((s) => s.selectedTypes);
 
   return useMemo(() => {
