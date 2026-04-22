@@ -28,13 +28,27 @@ bun run server/migrate.ts
 
 ## Env vars
 
-| Name           | Default               | Purpose                 |
-| -------------- | --------------------- | ----------------------- |
-| `PORT`         | `3001`                | Listen port             |
-| `STATIC_DIR`   | `./dist`              | SPA asset directory     |
-| `DB_ADAPTER`   | `sqlite`              | `sqlite` or `postgres`  |
-| `DATABASE_URL` | —                     | Required for `postgres` |
-| `SQLITE_PATH`  | `./data/telemetry.db` | Path for `sqlite`       |
+| Name            | Default               | Purpose                                |
+| --------------- | --------------------- | -------------------------------------- |
+| `PORT`          | `3001`                | Listen port                            |
+| `STATIC_DIR`    | `./dist`              | SPA asset directory                    |
+| `DB_ADAPTER`    | `sqlite`              | `sqlite` or `postgres`                 |
+| `DATABASE_URL`  | —                     | Required for `postgres`                |
+| `SQLITE_PATH`   | `./data/telemetry.db` | Path for `sqlite`                      |
+| `GEOIP_DB_PATH` | —                     | Path to GeoLite2-City.mmdb (see below) |
+
+### Geo-IP
+
+The Compute Available view's world map uses MaxMind GeoLite2 to resolve each
+node's `publicHost` to a latitude/longitude. It's entirely optional — when
+`GEOIP_DB_PATH` is unset or the file can't be opened the map just renders
+without markers.
+
+1. Sign up for a free MaxMind account and create a license key.
+2. Download the `GeoLite2-City.mmdb` database and extract it somewhere on disk.
+3. Set `GEOIP_DB_PATH=/path/to/GeoLite2-City.mmdb` in the server environment.
+
+Lookups are cached in-memory per hostname for one hour.
 
 ## Tests
 

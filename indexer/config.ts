@@ -6,6 +6,11 @@ export interface IndexerConfig {
   pollIntervalSec: number;
   nodesRefreshSec: number;
   backfillFromEpoch: number | undefined;
+  // Explicit override for "which peer in the nodes snapshot is this dashboard's
+  // operator?". Required when the configured quip-node doesn't include itself
+  // in its own peer list (e.g. an aggregator node polling its peers), in which
+  // case publicHost matching can never succeed.
+  selfAddress: string | undefined;
   once: boolean;
   verbose: boolean;
 }
@@ -44,6 +49,7 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
   const pollFlag = takeFlag(argv, "--poll-interval");
   const nodesFlag = takeFlag(argv, "--nodes-refresh");
   const backfillFlag = takeFlag(argv, "--backfill-from-epoch");
+  const selfAddressFlag = takeFlag(argv, "--self-address");
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
 
@@ -76,6 +82,9 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     ? parseIntStrict("--backfill-from-epoch", backfillRaw)
     : undefined;
 
+  const selfAddress =
+    (typeof selfAddressFlag === "string" ? selfAddressFlag : undefined) ?? process.env.SELF_ADDRESS;
+
   const once = onceFlag === true || onceFlag === "true" || onceFlag === "1";
   const verbose =
     verboseFlag === true ||
@@ -89,6 +98,7 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     pollIntervalSec,
     nodesRefreshSec,
     backfillFromEpoch,
+    selfAddress: selfAddress?.trim() ? selfAddress.trim() : undefined,
     once,
     verbose,
   };

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
 
 export interface MiningTimeSeries {
@@ -8,7 +8,7 @@ export interface MiningTimeSeries {
 }
 
 export function useMiningTime(): MiningTimeSeries[] {
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useFilteredBlocks();
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 

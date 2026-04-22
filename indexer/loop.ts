@@ -68,28 +68,18 @@ export async function runIteration(
   // Decide the cursor epoch for this iteration.
   //
   // - Fresh boot (cursor.epoch === null):
-  //     - backfill configured: start at BACKFILL_FROM_EPOCH
-  //     - otherwise: start at the node's latest epoch
+  //     - BACKFILL_FROM_EPOCH configured: start there
+  //     - otherwise: seed from the earliest epoch the node knows about so
+  //       fresh deployments capture full history. /epochs failure falls back
+  //       to latest rather than no-op'ing the boot.
   // - Cursor ahead of the node (epoch rolled back): reset to latest
-  // - Cursor behind the node:
-  //     - backfill configured: keep the current epoch; we will advance
-  //       through epochs one at a time
-  //     - otherwise: jump to the latest epoch (natural epoch transition)
+  // - Cursor behind the node: keep walking forward through epochs
   if (state.cursor.epoch === null) {
-    if (config.backfillFromEpoch !== undefined && config.backfillFromEpoch <= status.latestEpoch) {
-      state.cursor = { epoch: config.backfillFromEpoch, blockIndex: 0 };
-      log(`backfill enabled: starting from epoch ${config.backfillFromEpoch}`);
-    } else {
-      state.cursor = { epoch: status.latestEpoch, blockIndex: 0 };
-      log(`fresh boot: starting at epoch ${status.latestEpoch}`);
-    }
+    state.cursor = { epoch: await chooseSeedEpoch(client, config, status), blockIndex: 0 };
   } else if (state.cursor.epoch > status.latestEpoch) {
     warn(
       `cursor epoch ${state.cursor.epoch} > latestEpoch ${status.latestEpoch}; node rolled back, resetting`,
     );
-    state.cursor = { epoch: status.latestEpoch, blockIndex: 0 };
-  } else if (state.cursor.epoch < status.latestEpoch && config.backfillFromEpoch === undefined) {
-    log(`epoch transition: ${state.cursor.epoch} -> ${status.latestEpoch}, resetting cursor`);
     state.cursor = { epoch: status.latestEpoch, blockIndex: 0 };
   }
 
@@ -201,10 +191,10 @@ export async function runIteration(
         await db.upsertNodes(snapshot);
         if (nodesRes.etag) state.etags.nodes = nodesRes.etag;
         result.nodesRefreshed = true;
-        // Resolve which node in the snapshot is the one we're polling by
-        // matching the configured URL's hostname against publicHost. Persist
+        // Resolve which node in the snapshot is "us". Honors SELF_ADDRESS
+        // override first, then falls back to publicHost matching. Persists
         // only on change to keep the meta table quiet.
-        await refreshSelfAddress(db, config.nodeUrl, snapshot);
+        await refreshSelfAddress(db, config, snapshot);
         if (config.verbose) {
           log(`refreshed nodes: ${snapshot.nodeCount} total`);
         }
@@ -234,29 +224,65 @@ function formatErr(e: unknown): string {
 
 async function refreshSelfAddress(
   db: DatabaseAdapter,
-  nodeUrl: string,
+  config: IndexerConfig,
   snapshot: NodesSnapshot,
 ): Promise<void> {
-  let selfHost: string;
-  try {
-    selfHost = new URL(nodeUrl).hostname.toLowerCase();
-  } catch {
-    // Malformed URL is a config error but not worth crashing the indexer over
-    // — self-address just stays unset and the UI shows its fallback state.
-    return;
-  }
-  let matched: string | null = null;
-  for (const [addr, info] of Object.entries(snapshot.nodes)) {
-    if (info.publicHost && info.publicHost.toLowerCase() === selfHost) {
-      matched = addr;
-      break;
-    }
-  }
+  const matched = resolveSelfAddress(config, snapshot);
   const current = await db.getSelfAddress();
   if (current !== matched) {
     await db.setSelfAddress(matched);
-    if (matched) log(`self address resolved: ${matched} (publicHost=${selfHost})`);
+    if (matched) log(`self address resolved: ${matched}`);
   }
+}
+
+export function resolveSelfAddress(config: IndexerConfig, snapshot: NodesSnapshot): string | null {
+  // Explicit override wins: the operator told us which peer is "us". We still
+  // require the address to exist in the snapshot so downstream lookups don't
+  // dereference into thin air.
+  if (config.selfAddress) {
+    return snapshot.nodes[config.selfAddress] ? config.selfAddress : null;
+  }
+  // Fallback: match the polled node's hostname against publicHost. Works when
+  // the upstream includes itself in its own peer list; fails silently (null)
+  // otherwise, and the UI surfaces candidate addresses.
+  let selfHost: string;
+  try {
+    selfHost = new URL(config.nodeUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  for (const [addr, info] of Object.entries(snapshot.nodes)) {
+    if (info.publicHost && info.publicHost.toLowerCase() === selfHost) {
+      return addr;
+    }
+  }
+  return null;
+}
+
+async function chooseSeedEpoch(
+  client: QuipClient,
+  config: IndexerConfig,
+  status: StatusBody,
+): Promise<number> {
+  if (config.backfillFromEpoch !== undefined && config.backfillFromEpoch <= status.latestEpoch) {
+    log(`backfill from env: starting at epoch ${config.backfillFromEpoch}`);
+    return config.backfillFromEpoch;
+  }
+  try {
+    const epochs = await client.getEpochs();
+    let earliest: number | null = null;
+    for (const e of epochs.epochs) {
+      if (earliest === null || e.epoch < earliest) earliest = e.epoch;
+    }
+    if (earliest !== null) {
+      log(`fresh boot: seeding from earliest known epoch ${earliest}`);
+      return earliest;
+    }
+  } catch (e) {
+    warn(`getEpochs failed on seed; falling back to latest epoch: ${formatErr(e)}`);
+  }
+  log(`fresh boot: no earlier epochs available, starting at ${status.latestEpoch}`);
+  return status.latestEpoch;
 }
 
 /**

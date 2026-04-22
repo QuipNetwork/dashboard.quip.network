@@ -79,6 +79,13 @@ export interface NodeMinerEntry {
   dailyBudget?: string;
 }
 
+export interface NodeLocation {
+  country: string;
+  city?: string;
+  lat: number;
+  lng: number;
+}
+
 export interface NodeInfo {
   address: string;
   status: string;
@@ -94,6 +101,9 @@ export interface NodeInfo {
   runtime?: NodeRuntime;
   miners?: Record<string, NodeMinerEntry>;
   systemInfo?: NodeSystemInfo;
+  // Populated by the server from a GeoLite2 lookup on publicHost; absent when
+  // no database is configured, DNS fails, or the IP is not in the DB.
+  location?: NodeLocation;
 }
 
 export interface NodesSnapshot {
@@ -106,6 +116,11 @@ export interface NodesSnapshot {
 export interface TelemetryResponse {
   blocks: BlockRecord[];
   nodes: NodesSnapshot;
+  // Address of the quip-node this dashboard polls. Resolved either by the
+  // SELF_ADDRESS env var (explicit) or by matching the configured URL's
+  // hostname against NodeInfo.publicHost in the snapshot (fallback). null
+  // until the indexer has synced at least one nodes snapshot.
+  selfAddress: string | null;
 }
 
 export interface TelemetryIndex {

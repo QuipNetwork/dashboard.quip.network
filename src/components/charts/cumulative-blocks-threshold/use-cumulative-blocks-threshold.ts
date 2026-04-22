@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
 import { buildUnitCountIndex, getUnitCount } from "../../../lib/units";
 
@@ -17,7 +18,7 @@ export interface CumulativeBlocksThresholdResult {
 const NUM_POINTS = 50;
 
 export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult {
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useFilteredBlocks();
   const nodes = useTelemetryStore((s) => s.nodes);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
