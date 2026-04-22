@@ -112,7 +112,10 @@ export interface DbConfig {
 // attribution. Pre-v2 data tagged the same block under every epoch that
 // inherited it, so "Apr 22 @ 4:00pm" blocks could have Apr 17 timestamps.
 // The table shape didn't change but the semantics of `blocks.epoch` did.
-export const SCHEMA_VERSION = 2;
+// v3: second re-index — v2 indexed only the canonical chain and dropped
+// dead-chain history on the floor. v3 indexes dead chains alongside the
+// canonical one with per-chain owned ranges. Same table shape.
+export const SCHEMA_VERSION = 3;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
