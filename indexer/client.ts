@@ -66,9 +66,10 @@ export class QuipClient {
   }
 
   async getStatus(etag: string | null): Promise<ClientResponse<StatusBody>> {
-    const res = await this.request("/api/v1/telemetry/status", etag);
+    const path = "/api/v1/telemetry/status";
+    const res = await this.request(path, etag);
     if (res.status === 304) return { status: 304, etag, body: null };
-    const raw = await this.readEnvelope<Record<string, unknown>>(res);
+    const raw = await this.readEnvelope<Record<string, unknown>>(res, path);
     const data = raw ?? {};
     const latestEpochStr = String(data["latest_epoch"] ?? "");
     const body: StatusBody = {
@@ -86,8 +87,9 @@ export class QuipClient {
   }
 
   async getEpochs(): Promise<EpochsBody> {
-    const res = await this.request("/api/v1/telemetry/epochs", null);
-    const data = (await this.readEnvelope<Record<string, unknown>>(res)) ?? {};
+    const path = "/api/v1/telemetry/epochs";
+    const res = await this.request(path, null);
+    const data = (await this.readEnvelope<Record<string, unknown>>(res, path)) ?? {};
     const rawEpochs = Array.isArray(data["epochs"])
       ? (data["epochs"] as Array<Record<string, unknown>>)
       : [];
@@ -116,16 +118,21 @@ export class QuipClient {
     // Preserve nonce precision: quote the bare integer before JSON.parse.
     const safe = text.replace(/"nonce"\s*:\s*(\d+)/g, '"nonce":"$1"');
     const parsed = JSON.parse(safe) as ApiEnvelope<Record<string, unknown>>;
-    if (parsed && typeof parsed === "object" && "data" in parsed) {
-      return (parsed.data ?? null) as Record<string, unknown> | null;
+    if (parsed && typeof parsed === "object" && parsed.success === false) {
+      throw new Error(`[indexer] ${path}: ${parsed.error ?? "envelope reported failure"}`);
     }
-    return parsed as unknown as Record<string, unknown>;
+    const data =
+      parsed && typeof parsed === "object" && "data" in parsed
+        ? ((parsed.data ?? null) as Record<string, unknown> | null)
+        : (parsed as unknown as Record<string, unknown>);
+    if (data) assertNonceShape(data, path);
+    return data;
   }
 
   async getNodes(etag: string | null): Promise<ClientResponse<Record<string, unknown>>> {
     const res = await this.request("/api/v1/telemetry/nodes", etag);
     if (res.status === 304) return { status: 304, etag, body: null };
-    const body = await this.readEnvelope<Record<string, unknown>>(res);
+    const body = await this.readEnvelope<Record<string, unknown>>(res, "/api/v1/telemetry/nodes");
     return { status: res.status, etag: res.headers.get("etag"), body };
   }
 
@@ -149,15 +156,36 @@ export class QuipClient {
     throw new Error(`[indexer] ${status} from ${path}`);
   }
 
-  private async readEnvelope<T>(res: Response): Promise<T | null> {
+  private async readEnvelope<T>(res: Response, path: string): Promise<T | null> {
     if (res.status === 304) return null;
     if (!res.ok) {
-      this.throwForStatus(res.status, res.url);
+      this.throwForStatus(res.status, path);
     }
     const parsed = (await res.json()) as ApiEnvelope<T>;
+    if (parsed && typeof parsed === "object" && parsed.success === false) {
+      throw new Error(`[indexer] ${path}: ${parsed.error ?? "envelope reported failure"}`);
+    }
     if (parsed && typeof parsed === "object" && "data" in parsed) {
       return (parsed.data ?? null) as T | null;
     }
     return parsed as unknown as T;
+  }
+}
+
+/**
+ * Guard that the regex pre-pass actually produced a well-formed string nonce.
+ * A failed substitution (e.g. nonce already quoted non-numerically, or a
+ * decimal literal) would otherwise surface as a generic DB error at insert
+ * time; fail loud at the boundary instead.
+ */
+function assertNonceShape(data: Record<string, unknown>, path: string): void {
+  const qp = data["quantum_proof"];
+  if (qp == null || typeof qp !== "object") return;
+  const nonce = (qp as Record<string, unknown>)["nonce"];
+  if (nonce === undefined) return;
+  if (typeof nonce !== "string" || !/^\d+$/.test(nonce)) {
+    throw new Error(
+      `[indexer] ${path}: malformed nonce (expected digit string, got ${typeof nonce}: ${String(nonce).slice(0, 64)})`,
+    );
   }
 }

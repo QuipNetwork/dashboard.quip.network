@@ -26,17 +26,44 @@ export interface DatabaseAdapter {
   getNodes(): Promise<NodesSnapshot | null>;
 
   getCursor(): Promise<IndexerCursor>;
-  saveCursor(
-    cursor: IndexerCursor,
-    etags: { status?: string | null; nodes?: string | null },
-  ): Promise<void>;
-  getEtags(): Promise<{ status: string | null; nodes: string | null }>;
+  saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void>;
+  getEtags(): Promise<{ nodes: string | null }>;
+
+  // Address of the quip-node this deployment polls. Persisted so the server
+  // can tell the UI which entry in the nodes snapshot is "us" without also
+  // knowing QUIP_NODE_URL. Null until the indexer has matched publicHost.
+  getSelfAddress(): Promise<string | null>;
+  setSelfAddress(address: string | null): Promise<void>;
 }
 
 export interface DbConfig {
   adapter: "sqlite" | "postgres";
   databaseUrl?: string;
   sqlitePath?: string;
+}
+
+// Bump whenever any SCHEMA_STATEMENTS block in sqlite.ts / postgres.ts
+// changes shape (add/drop column, add/drop table, add/drop index). On local
+// deployments the adapter drops and recreates all tables on mismatch; on
+// remote (production) deployments the mismatch is a no-op and the schema
+// is expected to be managed externally.
+export const SCHEMA_VERSION = 1;
+
+// Tables owned by this app. Listed explicitly so a drop-and-recreate can
+// target exactly our data and never touch unrelated tables that may share
+// a Postgres database.
+export const OWNED_TABLES = ["blocks", "nodes_snapshot", "indexer_state", "meta"] as const;
+
+const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres"]);
+
+export function isLocalDeployment(config: DbConfig): boolean {
+  if (config.adapter === "sqlite") return true;
+  if (!config.databaseUrl) return false;
+  try {
+    return LOCAL_POSTGRES_HOSTS.has(new URL(config.databaseUrl).hostname);
+  } catch {
+    return false;
+  }
 }
 
 // --- Raw node-API payloads (snake_case) ---
@@ -95,9 +122,46 @@ interface RawNodesPayload {
 
 // --- Converters: raw (snake_case) → internal (camelCase) ---
 
-function toMinerCategory(s: unknown): "CPU" | "GPU" | "QPU" {
-  if (s === "CPU" || s === "GPU" || s === "QPU") return s;
-  throw new Error(`Unknown miner category: ${String(s)}`);
+// miner.miner_type has drifted across node versions. Three observed shapes,
+// all arriving as strings:
+//   1. Current:    "CPU" | "GPU-LOCAL:0" | "QPU-DWAVE:0"  (category[-variant[:idx]])
+//   2. Old:        '{"cpu": {...}, "gpu": null, "qpu": null}'       (capability map)
+//   3. Middle:     '{"genesis_config": ..., "gpu": {...}, "cuda": {...}}'
+//                  (whole node config accidentally dumped into the field)
+// For (2) and (3) we JSON-parse and look for capability keys. Priority is
+// QPU > GPU > CPU: when a miner advertises multiple capabilities we pick
+// the highest since block payloads don't record which backend produced it.
+const GPU_HINT_KEYS = ["gpu", "cuda", "metal"] as const;
+const QPU_HINT_KEYS = ["qpu", "dwave"] as const;
+
+function hasCapability(obj: Record<string, unknown>, key: string): boolean {
+  return key in obj && obj[key] !== null && obj[key] !== undefined;
+}
+
+export function toMinerCategory(s: unknown): "CPU" | "GPU" | "QPU" {
+  if (typeof s !== "string") throw new Error(`Unknown miner category: ${String(s)}`);
+  if (s.startsWith("{")) {
+    try {
+      const obj = JSON.parse(s) as Record<string, unknown>;
+      if (QPU_HINT_KEYS.some((k) => hasCapability(obj, k))) return "QPU";
+      if (GPU_HINT_KEYS.some((k) => hasCapability(obj, k))) return "GPU";
+      if (hasCapability(obj, "cpu")) return "CPU";
+    } catch {
+      // fall through to the segment scan
+    }
+  }
+  // Scan every alphabetic segment. Compound strings like "CPU[1]+EXTERNAL[2]"
+  // or "GPU-CUDA:0" describe multi-backend miners; when multiple backends are
+  // present we prefer the highest-capability one since the block payload does
+  // not record which backend actually produced this block.
+  const segments = s
+    .toUpperCase()
+    .split(/[^A-Z]+/)
+    .filter(Boolean);
+  if (segments.includes("QPU")) return "QPU";
+  if (segments.includes("GPU")) return "GPU";
+  if (segments.includes("CPU")) return "CPU";
+  throw new Error(`Unknown miner category: ${s.slice(0, 80)}`);
 }
 
 export function rawBlockToRecord(raw: RawBlockPayload, epoch: number): BlockRecord {

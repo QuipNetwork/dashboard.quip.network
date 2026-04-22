@@ -3,6 +3,12 @@ import type { NodesSnapshot } from "../types/telemetry";
 // Under the v0.1 telemetry API, per-miner hardware unit count lives on the
 // nodes snapshot, not the block. Build a miner_id → unit count lookup once
 // per snapshot, then pass it to getUnitCount for each block.
+//
+// Unit semantics:
+//   - CPU miners expose numCpus on a single entry → that many units
+//   - GPU miners appear as one entry *per device* (keyed by deviceIndex)
+//     so each entry is 1 unit; multi-GPU nodes show up as N entries
+//   - QPU miners are 1 unit per entry
 export function buildUnitCountIndex(nodes: NodesSnapshot | null): Map<string, number> {
   const idx = new Map<string, number>();
   if (!nodes) return idx;

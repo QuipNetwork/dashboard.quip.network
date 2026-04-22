@@ -8,7 +8,13 @@ import type {
   NodesSnapshot,
   TelemetryIndex,
 } from "../../src/types/telemetry";
-import type { DatabaseAdapter, DbConfig } from "./adapter";
+import {
+  OWNED_TABLES,
+  SCHEMA_VERSION,
+  isLocalDeployment,
+  type DatabaseAdapter,
+  type DbConfig,
+} from "./adapter";
 
 const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS blocks (
@@ -42,11 +48,16 @@ const SCHEMA_STATEMENTS: string[] = [
      id               INTEGER PRIMARY KEY CHECK (id = 1),
      cursor_epoch     BIGINT,
      cursor_block     INTEGER NOT NULL DEFAULT 0,
-     last_status_etag TEXT,
      last_nodes_etag  TEXT,
      updated_at       TIMESTAMPTZ NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS meta (
+     key   TEXT PRIMARY KEY,
+     value TEXT
+   )`,
 ];
+
+const SELF_ADDRESS_KEY = "self_address";
 
 interface BlockRow {
   epoch: string | number;
@@ -95,6 +106,7 @@ function rowToBlock(r: BlockRow): BlockRecord {
 export class PostgresAdapter implements DatabaseAdapter {
   private sql: Sql | null = null;
   private readonly url: string;
+  private readonly config: DbConfig;
 
   constructor(config: DbConfig) {
     const url = config.databaseUrl ?? process.env.DATABASE_URL;
@@ -102,6 +114,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       throw new Error("postgres adapter requires DATABASE_URL or config.databaseUrl");
     }
     this.url = url;
+    this.config = { ...config, databaseUrl: url };
   }
 
   async connect(): Promise<void> {
@@ -117,7 +130,31 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async migrate(): Promise<void> {
     const sql = this.requireSql();
+    await sql.unsafe(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
+    const rows = await sql<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = 'schema_version'
+    `;
+    const stored =
+      rows[0]?.value !== undefined && rows[0].value !== null ? Number(rows[0].value) : null;
+    const local = isLocalDeployment(this.config);
+
+    if (stored !== SCHEMA_VERSION && local) {
+      // Local Postgres (e.g. docker-compose) — drop on drift. Remote Postgres
+      // (Supabase etc.) never drops; schema drift there must be handled out
+      // of band so production data is never wiped by a restart.
+      console.warn(
+        `[db] SCHEMA DRIFT detected (stored=${stored ?? "none"}, code=${SCHEMA_VERSION}); dropping all owned tables on local deployment`,
+      );
+      for (const table of OWNED_TABLES) {
+        await sql.unsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);
+      }
+    }
+
     for (const stmt of SCHEMA_STATEMENTS) await sql.unsafe(stmt);
+    await sql`
+      INSERT INTO meta (key, value) VALUES ('schema_version', ${String(SCHEMA_VERSION)})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `;
   }
 
   async insertBlock(b: BlockRecord): Promise<boolean> {
@@ -173,9 +210,13 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async upsertNodes(snapshot: NodesSnapshot): Promise<number> {
     const sql = this.requireSql();
+    // postgres-js's sql.json expects a plain JSONValue-indexable object;
+    // NodesSnapshot's structural type lacks the required index signature
+    // but every field is JSON-serializable at runtime.
+    const payload = snapshot as unknown as Parameters<typeof sql.json>[0];
     await sql`
       INSERT INTO nodes_snapshot (id, payload)
-      VALUES (1, ${sql.json(JSON.parse(JSON.stringify(snapshot)))})
+      VALUES (1, ${sql.json(payload)})
       ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload
     `;
     return Object.keys(snapshot.nodes).length;
@@ -199,39 +240,46 @@ export class PostgresAdapter implements DatabaseAdapter {
     };
   }
 
-  async saveCursor(
-    cursor: IndexerCursor,
-    etags: { status?: string | null; nodes?: string | null },
-  ): Promise<void> {
+  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
     const sql = this.requireSql();
-    const statusEtag = etags.status ?? null;
     const nodesEtag = etags.nodes ?? null;
     await sql`
       INSERT INTO indexer_state (
-        id, cursor_epoch, cursor_block, last_status_etag, last_nodes_etag, updated_at
+        id, cursor_epoch, cursor_block, last_nodes_etag, updated_at
       ) VALUES (
-        1, ${cursor.epoch}, ${cursor.blockIndex}, ${statusEtag}, ${nodesEtag}, NOW()
+        1, ${cursor.epoch}, ${cursor.blockIndex}, ${nodesEtag}, NOW()
       )
       ON CONFLICT (id) DO UPDATE SET
         cursor_epoch = EXCLUDED.cursor_epoch,
         cursor_block = EXCLUDED.cursor_block,
-        last_status_etag = COALESCE(EXCLUDED.last_status_etag, indexer_state.last_status_etag),
         last_nodes_etag  = COALESCE(EXCLUDED.last_nodes_etag, indexer_state.last_nodes_etag),
         updated_at = EXCLUDED.updated_at
     `;
   }
 
-  async getEtags(): Promise<{ status: string | null; nodes: string | null }> {
-    const rows = await this.requireSql()<
-      { last_status_etag: string | null; last_nodes_etag: string | null }[]
-    >`
-      SELECT last_status_etag, last_nodes_etag FROM indexer_state WHERE id = 1
+  async getEtags(): Promise<{ nodes: string | null }> {
+    const rows = await this.requireSql()<{ last_nodes_etag: string | null }[]>`
+      SELECT last_nodes_etag FROM indexer_state WHERE id = 1
     `;
     const row = rows[0];
     return {
-      status: row?.last_status_etag ?? null,
       nodes: row?.last_nodes_etag ?? null,
     };
+  }
+
+  async getSelfAddress(): Promise<string | null> {
+    const rows = await this.requireSql()<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = ${SELF_ADDRESS_KEY}
+    `;
+    return rows[0]?.value ?? null;
+  }
+
+  async setSelfAddress(address: string | null): Promise<void> {
+    await this.requireSql()`
+      INSERT INTO meta (key, value)
+      VALUES (${SELF_ADDRESS_KEY}, ${address})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `;
   }
 
   private requireSql(): Sql {

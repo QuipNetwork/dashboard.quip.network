@@ -10,9 +10,9 @@ import type {
 } from "../src/types/telemetry";
 import type { DatabaseAdapter } from "../api/db/adapter";
 
-import { QuipClient } from "./client";
+import { AuthError, QuipClient, RateLimitError } from "./client";
 import type { IndexerConfig } from "./config";
-import { runIteration } from "./loop";
+import { runIteration, runLoop } from "./loop";
 import { IndexerState } from "./state";
 
 class FakeDb implements DatabaseAdapter {
@@ -22,13 +22,11 @@ class FakeDb implements DatabaseAdapter {
   upserted: NodesSnapshot[] = [];
   savedCursors: Array<{
     cursor: IndexerCursor;
-    etags: { status?: string | null; nodes?: string | null };
+    etags: { nodes?: string | null };
   }> = [];
   cursor: IndexerCursor = { epoch: null, blockIndex: 0 };
-  etags: { status: string | null; nodes: string | null } = {
-    status: null,
-    nodes: null,
-  };
+  etags: { nodes: string | null } = { nodes: null };
+  selfAddress: string | null = null;
 
   async connect() {
     this.connected = true;
@@ -65,17 +63,20 @@ class FakeDb implements DatabaseAdapter {
   async getCursor(): Promise<IndexerCursor> {
     return { ...this.cursor };
   }
-  async saveCursor(
-    cursor: IndexerCursor,
-    etags: { status?: string | null; nodes?: string | null },
-  ): Promise<void> {
+  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
     this.savedCursors.push({ cursor: { ...cursor }, etags: { ...etags } });
     this.cursor = { ...cursor };
-    if (etags.status !== undefined) this.etags.status = etags.status ?? null;
     if (etags.nodes !== undefined) this.etags.nodes = etags.nodes ?? null;
   }
   async getEtags() {
     return { ...this.etags };
+  }
+
+  async getSelfAddress(): Promise<string | null> {
+    return this.selfAddress;
+  }
+  async setSelfAddress(address: string | null): Promise<void> {
+    this.selfAddress = address;
   }
 }
 
@@ -206,7 +207,6 @@ describe("runIteration", () => {
     expect(db.inserted).toHaveLength(3);
     expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2, 3]);
     expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 3 });
-    expect(state.etags.status).toBe("1000:3:3");
     expect(db.savedCursors.at(-1)?.cursor).toEqual({
       epoch: 1000,
       blockIndex: 3,
@@ -214,9 +214,11 @@ describe("runIteration", () => {
   });
 
   it("no-ops on a 304 status response", async () => {
+    // Defensive: /status is now fetched without If-None-Match, so a 304 here
+    // is unusual — but the handler should still fail closed and not try any
+    // block fetches without a body.
     const db = new FakeDb();
     db.cursor = { epoch: 1000, blockIndex: 2 };
-    db.etags.status = "cached-etag";
     const state = new IndexerState(db);
     await state.load();
 
@@ -349,5 +351,448 @@ describe("runIteration", () => {
     expect(db.inserted).toHaveLength(1);
     expect(db.inserted[0]!.blockIndex).toBe(2);
     expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 2 });
+  });
+
+  it("rethrows RateLimitError from getBlock and persists cursor at last successful insert", async () => {
+    // Without this, block-level 429s got swallowed by `break` and never
+    // reached runLoop's exponential backoff — the indexer just retried every
+    // pollIntervalSec and hammered the upstream.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:5:5", body: statusBody("1000", 5) };
+      }
+      if (/\/blocks\/3$/.test(url)) return { status: 429 };
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(
+      runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 }),
+    ).rejects.toBeInstanceOf(RateLimitError);
+
+    expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2]);
+    expect(db.savedCursors.at(-1)?.cursor).toEqual({ epoch: 1000, blockIndex: 2 });
+  });
+
+  it("throws and persists cursor up to last successful insert on db error", async () => {
+    const db = new FakeDb();
+    // Fail on the 2nd insert.
+    let inserts = 0;
+    db.insertBlock = async (b: BlockRecord): Promise<boolean> => {
+      inserts += 1;
+      if (inserts === 2) throw new Error("simulated db write error");
+      db.inserted.push(b);
+      return true;
+    };
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:3:3", body: statusBody("1000", 3) };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(
+      runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 }),
+    ).rejects.toThrow(/simulated db write error/);
+
+    // Block 1 was inserted before the failure on block 2.
+    expect(db.inserted).toHaveLength(1);
+    // Cursor was persisted at the last successful insert so the next
+    // iteration resumes from block 2, not block 1.
+    expect(db.savedCursors.at(-1)?.cursor).toEqual({ epoch: 1000, blockIndex: 1 });
+  });
+});
+
+describe("runIteration self-address", () => {
+  it("persists the address whose publicHost matches the configured node URL", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:0:0", body: statusBody("1000", 0) };
+      }
+      if (url.endsWith("/nodes")) {
+        return {
+          status: 200,
+          body: {
+            updated_at: "2025-01-01T00:00:00Z",
+            node_count: 2,
+            active_count: 2,
+            nodes: {
+              "addr-other": {
+                address: "addr-other",
+                status: "online",
+                first_seen: 1,
+                last_seen: 2,
+                last_heartbeat: 2,
+                public_host: "other.example.com",
+              },
+              "addr-self": {
+                address: "addr-self",
+                status: "online",
+                first_seen: 1,
+                last_seen: 2,
+                last_heartbeat: 2,
+                public_host: "node.example.com",
+              },
+            },
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    await runIteration(
+      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => 0 },
+      { value: -1_000_000 },
+    );
+
+    expect(db.selfAddress).toBe("addr-self");
+  });
+
+  it("leaves the address null when no node's publicHost matches", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 0) };
+      }
+      if (url.endsWith("/nodes")) {
+        return {
+          status: 200,
+          body: {
+            updated_at: "2025-01-01T00:00:00Z",
+            node_count: 1,
+            active_count: 1,
+            nodes: {
+              "addr-other": {
+                address: "addr-other",
+                status: "online",
+                first_seen: 1,
+                last_seen: 2,
+                last_heartbeat: 2,
+                public_host: "other.example.com",
+              },
+            },
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    await runIteration(
+      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => 0 },
+      { value: -1_000_000 },
+    );
+
+    expect(db.selfAddress).toBeNull();
+  });
+});
+
+describe("runIteration backfill", () => {
+  it("backfills an older epoch and advances to the next one on completion", async () => {
+    const db = new FakeDb();
+    // Simulate cursor already sitting in an older epoch mid-backfill.
+    db.cursor = { epoch: 900, blockIndex: 0 };
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:5:10", body: statusBody("1000", 5, 10) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [
+              { epoch: 900, block_count: 2, first_block: 1, last_block: 2 },
+              { epoch: 1000, block_count: 5, first_block: 1, last_block: 5 },
+            ],
+          },
+        };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig({ backfillFromEpoch: 900 }), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    // Indexed both blocks of epoch 900, then advanced cursor directly to the
+    // next known epoch 1000 — not 901, which doesn't exist in /epochs.
+    expect(r.blocksIndexed).toBe(2);
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
+      [900, 1],
+      [900, 2],
+    ]);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
+  });
+
+  it("does NOT skip old epochs when backfill is configured", async () => {
+    // Regression guard: before the fix, once cursor.epoch was persisted the
+    // loop would reset to status.latestEpoch on the next iteration, dropping
+    // everything between backfillFromEpoch and latestEpoch. With the fix the
+    // cursor walks known epochs in order until it catches up to latestEpoch.
+    const db = new FakeDb();
+    db.cursor = { epoch: 900, blockIndex: 2 }; // epoch 900 already drained
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 1, 10) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [
+              { epoch: 900, block_count: 2, first_block: 1, last_block: 2 },
+              { epoch: 901, block_count: 3, first_block: 1, last_block: 3 },
+              { epoch: 1000, block_count: 1, first_block: 1, last_block: 1 },
+            ],
+          },
+        };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await runIteration(
+      { config: makeConfig({ backfillFromEpoch: 900 }), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    // Without backfill-awareness, cursor would have jumped straight to 1000.
+    // With the fix, it advances to 901 — the next known epoch.
+    expect(state.cursor).toEqual({ epoch: 901, blockIndex: 0 });
+  });
+
+  it("jumps directly to next known epoch when cursor lands in a gap", async () => {
+    // Regression guard: epoch numbers are timestamps with arbitrary gaps.
+    // A cursor + 1 walk takes thousands of no-op iterations per hop; the
+    // /epochs list is authoritative and already fetched in this path.
+    const db = new FakeDb();
+    db.cursor = { epoch: 910, blockIndex: 0 }; // 910 is not in /epochs
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 1) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [
+              { epoch: 900, block_count: 2, first_block: 1, last_block: 2 },
+              { epoch: 1000, block_count: 1, first_block: 1, last_block: 1 },
+            ],
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig({ backfillFromEpoch: 900 }), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    expect(r.blocksIndexed).toBe(0);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
+  });
+
+  it("waits when cursor is past the last known epoch", async () => {
+    // No newer epoch exists in /epochs. Don't advance — wait for the chain.
+    const db = new FakeDb();
+    db.cursor = { epoch: 1100, blockIndex: 0 };
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1200", 1) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [{ epoch: 1000, block_count: 1, first_block: 1, last_block: 1 }],
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const r = await runIteration(
+      { config: makeConfig({ backfillFromEpoch: 900 }), client, db, state, now: () => 0 },
+      { value: 0 },
+    );
+
+    expect(r.blocksIndexed).toBe(0);
+    // Cursor stays put — we'll re-check on the next iteration.
+    expect(state.cursor).toEqual({ epoch: 1100, blockIndex: 0 });
+  });
+});
+
+describe("runLoop", () => {
+  it("surfaces AuthError to the caller so cleanup can run", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) return { status: 401 };
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(
+      runLoop(
+        { config: makeConfig({ once: true }), client, db, state, sleep: async () => {} },
+        () => false,
+      ),
+    ).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it("applies exponential backoff on repeated 429s and resets after success", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    let statusCalls = 0;
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        statusCalls += 1;
+        // First 3 responses are 429, then a success.
+        if (statusCalls <= 3) return { status: 429 };
+        return { status: 200, etag: "e", body: statusBody("1000", 0) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const sleeps: number[] = [];
+    const sleep = async (ms: number) => {
+      sleeps.push(ms);
+    };
+
+    // Stop once we've observed the successful iteration after 3 backoffs.
+    let done = false;
+    await runLoop({ config: makeConfig({ pollIntervalSec: 1 }), client, db, state, sleep }, () => {
+      if (statusCalls >= 4) done = true;
+      return done;
+    });
+
+    // First three sleeps are the 429 backoffs: 5s → 10s → 20s.
+    expect(sleeps.slice(0, 3)).toEqual([5000, 10000, 20000]);
+    expect(statusCalls).toBeGreaterThanOrEqual(4);
+  });
+
+  it("propagates iteration errors in --once mode as a rejection", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) return { status: 500 };
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(
+      runLoop(
+        { config: makeConfig({ once: true }), client, db, state, sleep: async () => {} },
+        () => false,
+      ),
+    ).rejects.toThrow(/500/);
+  });
+});
+
+describe("QuipClient error handling", () => {
+  it("throws when the envelope reports success:false", async () => {
+    const fetchImpl = makeFetch(() => ({
+      status: 200,
+      rawText: JSON.stringify({ success: false, error: "internal error" }),
+    }));
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(client.getStatus(null)).rejects.toThrow(/internal error/);
+  });
+
+  it("throws when a block response has a non-numeric nonce string", async () => {
+    // If the upstream API ever hands us a nonce that's already a non-numeric
+    // string, the regex pre-pass won't touch it and the raw value lands in
+    // the parsed payload. assertNonceShape should refuse to ingest it rather
+    // than letting a bad row reach the DB.
+    const payload = buildBlockPayload(1000, 1, "abc");
+    const rawBlockJson = JSON.stringify({ success: true, data: payload });
+
+    const fetchImpl = makeFetch(() => ({ status: 200, rawText: rawBlockJson }));
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(client.getBlock(1000, 1)).rejects.toThrow(/malformed nonce/);
   });
 });
