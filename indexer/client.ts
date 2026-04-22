@@ -136,6 +136,22 @@ export class QuipClient {
     return { status: res.status, etag: res.headers.get("etag"), body };
   }
 
+  /**
+   * Fetch the node's own peer-list address via GET /api/v1/status. This is
+   * the authoritative "who am I" signal: the node tells us the exact key it
+   * uses to identify itself to peers, so we can match the self entry in the
+   * nodes snapshot without heuristics. Returns null if the node doesn't
+   * expose this field (older node versions).
+   */
+  async getSelfHost(): Promise<string | null> {
+    const path = "/api/v1/status";
+    const res = await this.request(path, null);
+    if (res.status === 404) return null;
+    const data = (await this.readEnvelope<Record<string, unknown>>(res, path)) ?? {};
+    const host = data["host"];
+    return typeof host === "string" && host.length > 0 ? host : null;
+  }
+
   private async request(path: string, etag: string | null): Promise<Response> {
     const headers: Record<string, string> = { accept: "application/json" };
     if (this.token) headers["authorization"] = `Bearer ${this.token}`;

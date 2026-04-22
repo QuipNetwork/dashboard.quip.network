@@ -116,10 +116,9 @@ export interface NodesSnapshot {
 export interface TelemetryResponse {
   blocks: BlockRecord[];
   nodes: NodesSnapshot;
-  // Address of the quip-node this dashboard polls. Resolved either by the
-  // SELF_ADDRESS env var (explicit) or by matching the configured URL's
-  // hostname against NodeInfo.publicHost in the snapshot (fallback). null
-  // until the indexer has synced at least one nodes snapshot.
+  // Address of the quip-node this dashboard polls. Resolved by asking the
+  // node for its own peer-list key via GET /api/v1/status. null until the
+  // indexer has synced at least one nodes snapshot.
   selfAddress: string | null;
 }
 

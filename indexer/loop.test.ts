@@ -122,7 +122,6 @@ function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
     pollIntervalSec: 8,
     nodesRefreshSec: 45,
     backfillFromEpoch: undefined,
-    selfAddress: undefined,
     once: false,
     verbose: false,
     ...overrides,
@@ -425,88 +424,60 @@ describe("runIteration", () => {
 });
 
 describe("runIteration self-address", () => {
-  it("persists the address whose publicHost matches the configured node URL", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/status")) {
-        return { status: 200, etag: "1000:0:0", body: statusBody("1000", 0) };
-      }
-      if (url.endsWith("/nodes")) {
+  // /api/v1/status is the node's own identity endpoint — it returns the
+  // exact peer-list key the node uses for itself. The telemetry endpoint is
+  // /api/v1/telemetry/status. Router order matters: match the more specific
+  // identity path first, otherwise endsWith("/status") swallows both.
+  function nodesRouter(
+    selfHost: string | null,
+    nodes: Record<string, Record<string, unknown>>,
+  ): Router {
+    return (url) => {
+      if (url.endsWith("/api/v1/status")) {
         return {
           status: 200,
-          body: {
-            updated_at: "2025-01-01T00:00:00Z",
-            node_count: 2,
-            active_count: 2,
-            nodes: {
-              "addr-other": {
-                address: "addr-other",
-                status: "online",
-                first_seen: 1,
-                last_seen: 2,
-                last_heartbeat: 2,
-                public_host: "other.example.com",
-              },
-              "addr-self": {
-                address: "addr-self",
-                status: "online",
-                first_seen: 1,
-                last_seen: 2,
-                last_heartbeat: 2,
-                public_host: "node.example.com",
-              },
-            },
-          },
+          body: selfHost !== null ? { host: selfHost } : {},
         };
       }
-      return { status: 404 };
-    });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
-
-    await runIteration(
-      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => 0 },
-      { value: -1_000_000 },
-    );
-
-    expect(db.selfAddress).toBe("addr-self");
-  });
-
-  it("matches via the hostname portion of the address key when publicHost is null", async () => {
-    // Common shape from the wild: peer's public_host is not self-reported,
-    // but its address encodes the same hostname that the dashboard polls.
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/status")) {
+      if (url.endsWith("/api/v1/telemetry/status")) {
         return { status: 200, etag: "e", body: statusBody("1000", 0) };
       }
-      if (url.endsWith("/nodes")) {
+      if (url.endsWith("/api/v1/telemetry/nodes")) {
         return {
           status: 200,
           body: {
             updated_at: "2025-01-01T00:00:00Z",
-            node_count: 1,
-            active_count: 1,
-            nodes: {
-              "node.example.com:20049": {
-                address: "node.example.com:20049",
-                status: "online",
-                first_seen: 1,
-                last_seen: 2,
-                last_heartbeat: 2,
-                public_host: null,
-              },
-            },
+            node_count: Object.keys(nodes).length,
+            active_count: Object.keys(nodes).length,
+            nodes,
           },
         };
       }
       return { status: 404 };
-    });
+    };
+  }
+
+  function baseNode(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      status: "online",
+      first_seen: 1,
+      last_seen: 2,
+      last_heartbeat: 2,
+      ...overrides,
+    };
+  }
+
+  it("persists the address the node reports as its own in /api/v1/status", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch(
+      nodesRouter("node.example.com:20049", {
+        "other.example.com:20049": baseNode({ address: "other.example.com:20049" }),
+        "node.example.com:20049": baseNode({ address: "node.example.com:20049" }),
+      }),
+    );
     const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
 
     await runIteration(
@@ -517,37 +488,40 @@ describe("runIteration self-address", () => {
     expect(db.selfAddress).toBe("node.example.com:20049");
   });
 
-  it("leaves the address null when no node's publicHost matches", async () => {
+  it("leaves the address null when the node reports a host missing from the snapshot", async () => {
+    // Stale snapshot edge case: node advertises itself but the snapshot
+    // doesn't yet include it.
     const db = new FakeDb();
     const state = new IndexerState(db);
     await state.load();
 
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/status")) {
-        return { status: 200, etag: "e", body: statusBody("1000", 0) };
-      }
-      if (url.endsWith("/nodes")) {
-        return {
-          status: 200,
-          body: {
-            updated_at: "2025-01-01T00:00:00Z",
-            node_count: 1,
-            active_count: 1,
-            nodes: {
-              "addr-other": {
-                address: "addr-other",
-                status: "online",
-                first_seen: 1,
-                last_seen: 2,
-                last_heartbeat: 2,
-                public_host: "other.example.com",
-              },
-            },
-          },
-        };
-      }
-      return { status: 404 };
-    });
+    const fetchImpl = makeFetch(
+      nodesRouter("node.example.com:20049", {
+        "other.example.com:20049": baseNode({ address: "other.example.com:20049" }),
+      }),
+    );
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    await runIteration(
+      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => 0 },
+      { value: -1_000_000 },
+    );
+
+    expect(db.selfAddress).toBeNull();
+  });
+
+  it("leaves the address null when the node lacks /api/v1/status (older version)", async () => {
+    // Older node versions without /api/v1/status — getSelfHost returns null
+    // and there is no fallback. Operator would need to upgrade the node.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch(
+      nodesRouter(null, {
+        "node.example.com:20049": baseNode({ address: "node.example.com:20049" }),
+      }),
+    );
     const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
 
     await runIteration(
