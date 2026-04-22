@@ -22,9 +22,18 @@ const DEFAULTS = {
 };
 
 function parseIntStrict(name: string, raw: string): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || !Number.isInteger(n)) {
-    throw new Error(`[indexer] ${name} must be an integer, got: ${raw}`);
+  // `Number()` accepts whitespace, empty string ("" → 0), hex ("0x10" → 16),
+  // and scientific notation ("1e3" → 1000) — all of which silently succeed
+  // here and can disable features downstream (e.g. `--stall-warn-after=""`
+  // would coerce to 0, turning stall detection off without a loud error).
+  // Require an explicit decimal integer string.
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) {
+    throw new Error(`[indexer] ${name} must be a decimal integer, got: ${JSON.stringify(raw)}`);
+  }
+  const n = Number(trimmed);
+  if (!Number.isSafeInteger(n)) {
+    throw new Error(`[indexer] ${name} out of safe integer range, got: ${raw}`);
   }
   return n;
 }

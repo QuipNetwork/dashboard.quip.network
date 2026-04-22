@@ -13,6 +13,7 @@ import {
   OWNED_TABLES,
   SCHEMA_VERSION,
   isLocalDeployment,
+  parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
 } from "./adapter";
@@ -290,12 +291,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     `;
     const raw = rows[0]?.value;
     if (!raw) return null;
-    try {
-      return JSON.parse(raw) as IndexerObservability;
-    } catch (e) {
-      console.warn("[db] corrupt indexer_observability payload:", e);
-      return null;
-    }
+    return parseIndexerObservability(raw, "postgres");
   }
 
   async setIndexerObservability(obs: IndexerObservability): Promise<void> {

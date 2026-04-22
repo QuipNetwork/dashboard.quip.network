@@ -831,6 +831,73 @@ describe("observability persistence", () => {
     expect(db.observability?.lastBlockInsertAt).toBe(new Date(fakeNowMs).toISOString());
   });
 
+  it("runIteration writes observability on backfill short-circuit (cursor past last known epoch)", async () => {
+    // Regression guard: before the try/finally wrapper, this early-return
+    // path skipped setIndexerObservability entirely — so a deployment stuck
+    // in a backfill gap would stop updating its own heartbeat and the UI's
+    // "indexer alive" banner would fire false positives.
+    const db = new FakeDb();
+    db.cursor = { epoch: 1100, blockIndex: 0 }; // past everything in /epochs
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1200", 1) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: { epochs: [{ epoch: 1000, block_count: 1, first_block: 1, last_block: 1 }] },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    const fakeNowMs = 1_700_000_000_000;
+    await runIteration(
+      { config: makeConfig({ backfillFromEpoch: 900 }), client, db, state, now: () => fakeNowMs },
+      { value: 0 },
+    );
+
+    expect(db.observabilityWrites).toHaveLength(1);
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(fakeNowMs).toISOString());
+    expect(db.observability?.nodeLatestEpoch).toBe(1200);
+    expect(db.observability?.nodeLatestBlockIndex).toBe(1);
+  });
+
+  it("runIteration writes observability even when insertBlock throws", async () => {
+    // Rate-limit and db-error paths rethrow; without try/finally they'd
+    // skip the heartbeat and operators would lose visibility exactly when
+    // they need it most.
+    const db = new FakeDb();
+    db.insertBlock = async (): Promise<boolean> => {
+      throw new Error("simulated db write error");
+    };
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 3) };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    const fakeNowMs = 1_700_000_000_000;
+    await expect(
+      runIteration({ config: makeConfig(), client, db, state, now: () => fakeNowMs }, { value: 0 }),
+    ).rejects.toThrow(/simulated db write error/);
+
+    // Heartbeat still advanced, even though the iteration threw.
+    expect(db.observabilityWrites).toHaveLength(1);
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(fakeNowMs).toISOString());
+  });
+
   it("runIteration carries lastBlockInsertAt across iterations without new inserts", async () => {
     const db = new FakeDb();
     // Prior run persisted this timestamp. A subsequent poll with no new

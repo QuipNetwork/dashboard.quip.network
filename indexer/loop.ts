@@ -48,6 +48,11 @@ export async function runIteration(
 ): Promise<IterationResult> {
   const { client, db, state, config } = deps;
   const now = deps.now ?? Date.now;
+  // One wall-clock read per iteration. All downstream consumers (stall
+  // tracker, warn throttle, observability ISO timestamps) operate on a
+  // single coherent frame; otherwise they can drift by microseconds and
+  // make the bootstrap-grace invariant harder to reason about in tests.
+  const nowMs = now();
   const result: IterationResult = {
     fetchedStatus: false,
     blocksIndexed: 0,
@@ -69,8 +74,48 @@ export async function runIteration(
   // know when the polled node has stopped producing blocks (forked, sync
   // lag, telemetry bug) — otherwise the dashboard just silently falls
   // behind with no hint as to why.
-  updateStallTracker(state, status, now());
-  maybeWarnStalled(state, config, now());
+  updateStallTracker(state, status, nowMs);
+  maybeWarnStalled(state, config, nowMs);
+
+  // Persist the observability heartbeat on every successful /status fetch,
+  // including error/early-return paths below. Without this the UI's
+  // lastStatusFetchAt-based "indexer alive" check goes stale during backfill
+  // bursts and rate-limit retries — exactly the cases operators care about.
+  // The write is best-effort: logging on failure avoids poison-pilling the
+  // iteration if the meta-table write transiently fails.
+  let observabilityWritten = false;
+  const writeObservability = async (): Promise<void> => {
+    if (observabilityWritten) return;
+    observabilityWritten = true;
+    try {
+      await db.setIndexerObservability({
+        nodeLatestEpoch: status.latestEpoch,
+        nodeLatestBlockIndex: status.latestBlockIndex,
+        cursorEpoch: state.cursor.epoch,
+        cursorBlockIndex: state.cursor.blockIndex,
+        lastStatusFetchAt: new Date(nowMs).toISOString(),
+        lastBlockInsertAt: state.observability.lastBlockInsertAt,
+      });
+    } catch (e) {
+      warn(`setIndexerObservability failed: ${formatErr(e)}`);
+    }
+  };
+
+  try {
+    return await runIterationBody(deps, lastNodesFetchMs, result, status, nowMs);
+  } finally {
+    await writeObservability();
+  }
+}
+
+async function runIterationBody(
+  deps: LoopDeps,
+  lastNodesFetchMs: { value: number },
+  result: IterationResult,
+  status: StatusBody,
+  nowMs: number,
+): Promise<IterationResult> {
+  const { client, db, state, config } = deps;
 
   // Decide the cursor epoch for this iteration.
   //
@@ -171,7 +216,7 @@ export async function runIteration(
       throw e;
     }
     state.cursor.blockIndex = nextIndex;
-    state.observability.lastBlockInsertAt = new Date(now()).toISOString();
+    state.observability.lastBlockInsertAt = new Date(nowMs).toISOString();
     result.blocksIndexed += 1;
   }
 
@@ -188,7 +233,7 @@ export async function runIteration(
   }
 
   // Refresh node snapshot on its own cadence.
-  const sinceNodesMs = now() - lastNodesFetchMs.value;
+  const sinceNodesMs = nowMs - lastNodesFetchMs.value;
   if (sinceNodesMs >= config.nodesRefreshSec * 1000) {
     try {
       const nodesRes = await client.getNodes(state.etags.nodes);
@@ -218,18 +263,10 @@ export async function runIteration(
       }
       warn(`nodes fetch failed: ${formatErr(e)}`);
     }
-    lastNodesFetchMs.value = now();
+    lastNodesFetchMs.value = nowMs;
   }
 
   await state.save();
-  await db.setIndexerObservability({
-    nodeLatestEpoch: status.latestEpoch,
-    nodeLatestBlockIndex: status.latestBlockIndex,
-    cursorEpoch: state.cursor.epoch,
-    cursorBlockIndex: state.cursor.blockIndex,
-    lastStatusFetchAt: new Date(now()).toISOString(),
-    lastBlockInsertAt: state.observability.lastBlockInsertAt,
-  });
   return result;
 }
 

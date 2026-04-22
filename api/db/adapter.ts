@@ -13,6 +13,58 @@ import type {
   TelemetryIndex,
 } from "../../src/types/telemetry";
 
+/**
+ * Runtime-validate a raw `indexer_observability` meta payload before casting.
+ * The stored value is opaque TEXT in both adapters; shape drift (field rename,
+ * nullability change, manual DB edit) would otherwise sail past TS's compile-
+ * time types and produce NaN arithmetic downstream in `computeChainHealth`.
+ *
+ * Returns null on any parse or shape failure — the indexer overwrites on the
+ * next poll, so a transient bad row shouldn't break the telemetry endpoint.
+ * `source` is included in the warn so operators can tell sqlite from postgres.
+ */
+export function parseIndexerObservability(
+  raw: string,
+  source: "sqlite" | "postgres",
+): IndexerObservability | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[db/${source}] corrupt indexer_observability (JSON parse): ${msg}`);
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    console.warn(`[db/${source}] corrupt indexer_observability: not an object`);
+    return null;
+  }
+  const p = parsed as Record<string, unknown>;
+  const isFiniteInt = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  const isNullableInt = (v: unknown): v is number | null => v === null || isFiniteInt(v);
+  const isStr = (v: unknown): v is string => typeof v === "string";
+  const isNullableStr = (v: unknown): v is string | null => v === null || isStr(v);
+  if (
+    !isFiniteInt(p.nodeLatestEpoch) ||
+    !isFiniteInt(p.nodeLatestBlockIndex) ||
+    !isNullableInt(p.cursorEpoch) ||
+    !isFiniteInt(p.cursorBlockIndex) ||
+    !isStr(p.lastStatusFetchAt) ||
+    !isNullableStr(p.lastBlockInsertAt)
+  ) {
+    console.warn(`[db/${source}] corrupt indexer_observability: shape mismatch`);
+    return null;
+  }
+  return {
+    nodeLatestEpoch: p.nodeLatestEpoch,
+    nodeLatestBlockIndex: p.nodeLatestBlockIndex,
+    cursorEpoch: p.cursorEpoch,
+    cursorBlockIndex: p.cursorBlockIndex,
+    lastStatusFetchAt: p.lastStatusFetchAt,
+    lastBlockInsertAt: p.lastBlockInsertAt,
+  };
+}
+
 export interface DatabaseAdapter {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
