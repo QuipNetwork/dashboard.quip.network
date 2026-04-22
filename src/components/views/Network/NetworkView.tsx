@@ -27,25 +27,32 @@ import { useCumulativeBlocksThreshold } from "../../charts/cumulative-blocks-thr
 import { useLeaderboard } from "../../charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
+import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { RecentBlocksTable } from "./RecentBlocksTable";
 
 export function NetworkView() {
   const byType = useUIStore((s) => s.aggregationMode) === "byType";
+  const selectedEpoch = useUIStore((s) => s.selectedEpoch);
   const allBlocks = useTelemetryStore((s) => s.blocks);
   const indexer = useTelemetryStore((s) => s.indexer);
+  const filtered = useFilteredBlocks();
 
-  // Canonical chain only: the server's default ORDER BY (timestamp,
-  // block_index) interleaves blocks from abandoned branches that share
-  // timestamps with the winning chain. Filter to the tip block's epoch and
-  // sort by block_index so the "Recent Blocks" table strictly follows the
-  // current version of the chain.
+  // When a specific epoch is selected, show every block in it — a single
+  // epoch is narrow enough that fork interleaving is rare in practice, and
+  // users expect the header control to actually scope this table. When "All"
+  // is selected, fall back to tip-epoch filtering so the server's default
+  // ORDER BY (timestamp, block_index) doesn't interleave abandoned branches
+  // that share timestamps with the winning chain.
   const canonicalChainBlocks = useMemo(() => {
     if (allBlocks.length === 0) return allBlocks;
+    if (selectedEpoch !== "all") {
+      return [...filtered].sort((a, b) => a.blockIndex - b.blockIndex);
+    }
     const tipEpoch = allBlocks[allBlocks.length - 1]!.epoch;
     return allBlocks
       .filter((b) => b.epoch === tipEpoch)
       .sort((a, b) => a.blockIndex - b.blockIndex);
-  }, [allBlocks]);
+  }, [allBlocks, filtered, selectedEpoch]);
 
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();
