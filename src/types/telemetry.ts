@@ -113,6 +113,30 @@ export interface NodesSnapshot {
   nodes: Record<string, NodeInfo>;
 }
 
+/**
+ * Observability snapshot written by the indexer on every successful poll.
+ * Lets the server + UI distinguish "node has no new blocks" from "node has
+ * new blocks but the indexer is behind".
+ *
+ * - nodeLatestEpoch / nodeLatestBlockIndex: tip last reported by the node
+ *   via /api/v1/telemetry/status.
+ * - cursorEpoch / cursorBlockIndex: how far the indexer has actually
+ *   persisted. Equal to the node's tip when caught up.
+ * - lastStatusFetchAt: ISO timestamp of the most recent status response.
+ *   Acts as an "indexer alive" heartbeat — if this is >minutes old, the
+ *   indexer process has stopped or is wedged.
+ * - lastBlockInsertAt: ISO timestamp of the most recent insertBlock. null
+ *   if no block has been inserted since the indexer was last restarted.
+ */
+export interface IndexerObservability {
+  nodeLatestEpoch: number;
+  nodeLatestBlockIndex: number;
+  cursorEpoch: number | null;
+  cursorBlockIndex: number;
+  lastStatusFetchAt: string;
+  lastBlockInsertAt: string | null;
+}
+
 export interface TelemetryResponse {
   blocks: BlockRecord[];
   nodes: NodesSnapshot;
@@ -120,6 +144,9 @@ export interface TelemetryResponse {
   // node for its own peer-list key via GET /api/v1/status. null until the
   // indexer has synced at least one nodes snapshot.
   selfAddress: string | null;
+  // Indexer/node tip observability. null before the indexer has completed
+  // its first successful /status poll after deploy.
+  indexer: IndexerObservability | null;
 }
 
 export interface TelemetryIndex {

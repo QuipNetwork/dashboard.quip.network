@@ -108,6 +108,26 @@ describe("server app", () => {
     expect(body.nodes.activeCount).toBe(1);
     expect(body.nodes.nodes["node-a"]?.status).toBe("online");
     expect(body.selfAddress).toBeNull();
+    // Indexer observability is null until the indexer writes its first
+    // snapshot. The test seed does not invoke the indexer.
+    expect(body.indexer).toBeNull();
+  });
+
+  test("GET /api/telemetry surfaces indexer observability once written", async () => {
+    await db.setIndexerObservability({
+      nodeLatestEpoch: 1_700_000_060,
+      nodeLatestBlockIndex: 42,
+      cursorEpoch: 1_700_000_060,
+      cursorBlockIndex: 40,
+      lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
+      lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
+    });
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(body.indexer).not.toBeNull();
+    expect(body.indexer?.nodeLatestBlockIndex).toBe(42);
+    expect(body.indexer?.cursorBlockIndex).toBe(40);
+    expect(body.indexer?.lastStatusFetchAt).toBe("2026-04-22T12:00:00.000Z");
   });
 
   test("GET /api/telemetry surfaces the configured self address", async () => {

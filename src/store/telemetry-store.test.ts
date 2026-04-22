@@ -34,6 +34,7 @@ function makeState(blocks: BlockRecord[]): TelemetryState {
     blocks,
     nodes: null,
     selfAddress: null,
+    indexer: null,
     loading: false,
     error: null,
     fetchTelemetry: async () => {},

@@ -3,6 +3,7 @@
 import type {
   BlockRecord,
   IndexerCursor,
+  IndexerObservability,
   NodeInfo,
   NodeMinerEntry,
   NodeRuntime,
@@ -34,6 +35,13 @@ export interface DatabaseAdapter {
   // knowing QUIP_NODE_URL. Null until the indexer has matched publicHost.
   getSelfAddress(): Promise<string | null>;
   setSelfAddress(address: string | null): Promise<void>;
+
+  // Indexer/node tip observability. The indexer writes these on every
+  // successful /api/v1/telemetry/status poll; the server reads them on
+  // /api/telemetry so the UI can distinguish "no new blocks" from "indexer
+  // falling behind". Null until the first successful poll after deploy.
+  getIndexerObservability(): Promise<IndexerObservability | null>;
+  setIndexerObservability(obs: IndexerObservability): Promise<void>;
 }
 
 export interface DbConfig {

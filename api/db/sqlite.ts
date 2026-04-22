@@ -7,6 +7,7 @@ import { dirname } from "node:path";
 import type {
   BlockRecord,
   IndexerCursor,
+  IndexerObservability,
   NodesSnapshot,
   TelemetryIndex,
 } from "../../src/types/telemetry";
@@ -54,6 +55,7 @@ const SCHEMA_STATEMENTS: string[] = [
 ];
 
 const SELF_ADDRESS_KEY = "self_address";
+const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
 
 interface BlockRow {
   epoch: number;
@@ -318,6 +320,30 @@ export class SQLiteAdapter implements DatabaseAdapter {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
       .run({ $k: SELF_ADDRESS_KEY, $v: address });
+  }
+
+  async getIndexerObservability(): Promise<IndexerObservability | null> {
+    const row = this.requireDb()
+      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get(INDEXER_OBSERVABILITY_KEY);
+    if (!row?.value) return null;
+    try {
+      return JSON.parse(row.value) as IndexerObservability;
+    } catch (e) {
+      // Corrupt payload shouldn't block the server — surface as null and
+      // log. The indexer will overwrite on the next poll.
+      console.warn("[db] corrupt indexer_observability payload:", e);
+      return null;
+    }
+  }
+
+  async setIndexerObservability(obs: IndexerObservability): Promise<void> {
+    this.requireDb()
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run({ $k: INDEXER_OBSERVABILITY_KEY, $v: JSON.stringify(obs) });
   }
 
   private requireDb(): Database {

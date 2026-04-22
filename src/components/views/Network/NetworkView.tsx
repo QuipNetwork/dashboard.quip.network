@@ -32,6 +32,7 @@ import { RecentBlocksTable } from "./RecentBlocksTable";
 export function NetworkView() {
   const byType = useUIStore((s) => s.aggregationMode) === "byType";
   const allBlocks = useTelemetryStore((s) => s.blocks);
+  const indexer = useTelemetryStore((s) => s.indexer);
 
   // Canonical chain only: the server's default ORDER BY (timestamp,
   // block_index) interleaves blocks from abandoned branches that share
@@ -65,7 +66,7 @@ export function NetworkView() {
         subtitle="Last 10 completed blocks on the current chain tip"
         className="mb-5"
       >
-        <RecentBlocksTable blocks={canonicalChainBlocks} />
+        <RecentBlocksTable blocks={canonicalChainBlocks} indexer={indexer} />
       </ChartCard>
 
       <ChartCard

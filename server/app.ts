@@ -40,10 +40,11 @@ export function createApp(options: CreateAppOptions): Hono {
   const app = new Hono();
 
   app.get("/api/telemetry", async (c) => {
-    const [blocks, nodes, selfAddress] = await Promise.all([
+    const [blocks, nodes, selfAddress, indexer] = await Promise.all([
       db.getAllBlocks(),
       db.getNodes(),
       db.getSelfAddress(),
+      db.getIndexerObservability(),
     ]);
     const rawSnapshot = nodes ?? emptySnapshot;
     const enricher = geoIp ?? (await getGeoIpEnricher());
@@ -54,6 +55,7 @@ export function createApp(options: CreateAppOptions): Hono {
       blocks,
       nodes: { ...rawSnapshot, nodes: enrichedNodes },
       selfAddress,
+      indexer,
     };
     return c.json(body);
   });

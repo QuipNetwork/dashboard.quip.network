@@ -2,10 +2,12 @@
 
 import { SERIES_COLORS } from "../../../lib/colors";
 import { formatDuration } from "../../../lib/format";
-import type { BlockRecord } from "../../../types/telemetry";
+import { computeChainHealth, type ChainHealth } from "../../../lib/staleness";
+import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
 
 interface RecentBlocksTableProps {
   blocks: BlockRecord[];
+  indexer?: IndexerObservability | null;
   limit?: number;
 }
 
@@ -14,9 +16,19 @@ const DEFAULT_LIMIT = 10;
 // Renders the most recent N completed blocks with their winner, solved
 // energy, mining time, and time-since-completion. `blocks` is expected in
 // ascending order (tip last) — matching how the store ships it.
-export function RecentBlocksTable({ blocks, limit = DEFAULT_LIMIT }: RecentBlocksTableProps) {
+export function RecentBlocksTable({
+  blocks,
+  indexer = null,
+  limit = DEFAULT_LIMIT,
+}: RecentBlocksTableProps) {
   const now = Date.now();
   const recent = blocks.slice(-limit).reverse();
+  const tip = blocks.length > 0 ? (blocks[blocks.length - 1] ?? null) : null;
+  const health = computeChainHealth({
+    nowMs: now,
+    tipBlockTimestampMs: tip ? tip.timestamp * 1000 : null,
+    indexer,
+  });
 
   if (recent.length === 0) {
     return (
@@ -28,6 +40,7 @@ export function RecentBlocksTable({ blocks, limit = DEFAULT_LIMIT }: RecentBlock
 
   return (
     <div className="h-full overflow-auto">
+      <HealthBanner health={health} />
       <table className="w-full font-accent text-sm">
         <thead>
           <tr className="border-b border-brand-gray-2 text-left text-[10px] uppercase tracking-wider text-brand-gray-3">
@@ -90,4 +103,28 @@ export function RecentBlocksTable({ blocks, limit = DEFAULT_LIMIT }: RecentBlock
 function truncateMinerId(id: string): string {
   if (id.length <= 28) return id;
   return `${id.slice(0, 22)}…${id.slice(-4)}`;
+}
+
+// Inline banner that surfaces the three-state health from computeChainHealth.
+// "healthy" renders nothing so the feed stays compact during normal operation.
+// Tailwind color tokens are chosen for semantic match with existing usage
+// (amber-ish = warning, red-ish = error) without introducing new palette keys.
+function HealthBanner({ health }: { health: ChainHealth }) {
+  if (health.level === "healthy") return null;
+  const isStalled = health.level === "stalled";
+  return (
+    <div
+      role="status"
+      className={
+        isStalled
+          ? "mb-2 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 font-accent text-xs text-red-300"
+          : "mb-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 font-accent text-xs text-amber-200"
+      }
+    >
+      <span className="mr-1.5" aria-hidden="true">
+        {isStalled ? "■" : "▲"}
+      </span>
+      {health.reason}
+    </div>
+  );
 }

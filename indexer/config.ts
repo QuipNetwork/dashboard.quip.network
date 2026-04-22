@@ -8,12 +8,17 @@ export interface IndexerConfig {
   backfillFromEpoch: number | undefined;
   once: boolean;
   verbose: boolean;
+  // Seconds of no `latestBlockIndex` advance (from /api/v1/telemetry/status)
+  // after which the indexer emits a WARN that the polled node looks stalled.
+  // 0 disables the check.
+  stallWarnAfterSec: number;
 }
 
 const DEFAULTS = {
   nodeUrl: "https://qpu-1.nodes.quip.network",
   pollIntervalSec: 8,
   nodesRefreshSec: 45,
+  stallWarnAfterSec: 600, // 10 minutes — longer than typical QPU block time.
 };
 
 function parseIntStrict(name: string, raw: string): number {
@@ -46,6 +51,7 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
   const backfillFlag = takeFlag(argv, "--backfill-from-epoch");
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
+  const stallFlag = takeFlag(argv, "--stall-warn-after");
 
   const nodeUrl =
     (typeof nodeUrlFlag === "string" ? nodeUrlFlag : undefined) ??
@@ -83,6 +89,16 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     verboseFlag === "1" ||
     process.env.VERBOSE === "1";
 
+  const stallWarnAfterSec =
+    typeof stallFlag === "string"
+      ? parseIntStrict("--stall-warn-after", stallFlag)
+      : process.env.STALL_WARN_AFTER_SEC
+        ? parseIntStrict("STALL_WARN_AFTER_SEC", process.env.STALL_WARN_AFTER_SEC)
+        : DEFAULTS.stallWarnAfterSec;
+  if (stallWarnAfterSec < 0) {
+    throw new Error(`[indexer] --stall-warn-after must be >= 0, got: ${stallWarnAfterSec}`);
+  }
+
   return {
     nodeUrl: nodeUrl.replace(/\/+$/, ""),
     token,
@@ -91,5 +107,6 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     backfillFromEpoch,
     once,
     verbose,
+    stallWarnAfterSec,
   };
 }

@@ -57,6 +57,7 @@ beforeEach(() => {
     blocks: [],
     nodes: null,
     selfAddress: null,
+    indexer: null,
     loading: true,
     error: null,
   });

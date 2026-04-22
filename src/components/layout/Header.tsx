@@ -55,8 +55,12 @@ export function Header() {
           )}
         </div>
 
-        {/* Center: primary view toggle + live mining block indicator */}
-        <div className="justify-self-center">
+        {/* Center: primary view toggle + live mining block indicator.
+            `flex flex-col items-center` so the pill toggle sizes to its
+            buttons regardless of how long the indicator text below is —
+            without it, the p below stretches the column and drags the
+            pill width with it. */}
+        <div className="flex flex-col items-center justify-self-center">
           <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
             {VIEWS.map(({ value, label }) => {
               const active = viewMode === value;

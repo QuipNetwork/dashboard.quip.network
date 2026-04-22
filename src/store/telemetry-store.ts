@@ -1,10 +1,16 @@
 import { create } from "zustand";
-import type { BlockRecord, NodesSnapshot, TelemetryResponse } from "../types/telemetry";
+import type {
+  BlockRecord,
+  IndexerObservability,
+  NodesSnapshot,
+  TelemetryResponse,
+} from "../types/telemetry";
 
 export interface TelemetryState {
   blocks: BlockRecord[];
   nodes: NodesSnapshot | null;
   selfAddress: string | null;
+  indexer: IndexerObservability | null;
   loading: boolean;
   error: string | null;
 
@@ -15,6 +21,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   blocks: [],
   nodes: null,
   selfAddress: null,
+  indexer: null,
   loading: true,
   error: null,
 
@@ -31,6 +38,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         blocks: data.blocks,
         nodes: data.nodes,
         selfAddress: data.selfAddress ?? null,
+        indexer: data.indexer ?? null,
         loading: false,
         error: null,
       });

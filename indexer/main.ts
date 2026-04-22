@@ -11,7 +11,8 @@ async function main(): Promise<number> {
   const config = parseConfig();
   console.log(
     `[indexer] starting node=${config.nodeUrl} poll=${config.pollIntervalSec}s` +
-      ` nodesRefresh=${config.nodesRefreshSec}s once=${config.once}` +
+      ` nodesRefresh=${config.nodesRefreshSec}s stallWarnAfter=${config.stallWarnAfterSec}s` +
+      ` once=${config.once}` +
       (config.backfillFromEpoch !== undefined ? ` backfillFrom=${config.backfillFromEpoch}` : ""),
   );
 

@@ -65,6 +65,13 @@ export async function runIteration(
   const status = statusRes.body;
   result.status = status;
 
+  // Track whether the node's reported tip is advancing. Operators need to
+  // know when the polled node has stopped producing blocks (forked, sync
+  // lag, telemetry bug) — otherwise the dashboard just silently falls
+  // behind with no hint as to why.
+  updateStallTracker(state, status, now());
+  maybeWarnStalled(state, config, now());
+
   // Decide the cursor epoch for this iteration.
   //
   // - Fresh boot (cursor.epoch === null):
@@ -164,6 +171,7 @@ export async function runIteration(
       throw e;
     }
     state.cursor.blockIndex = nextIndex;
+    state.observability.lastBlockInsertAt = new Date(now()).toISOString();
     result.blocksIndexed += 1;
   }
 
@@ -214,12 +222,97 @@ export async function runIteration(
   }
 
   await state.save();
+  await db.setIndexerObservability({
+    nodeLatestEpoch: status.latestEpoch,
+    nodeLatestBlockIndex: status.latestBlockIndex,
+    cursorEpoch: state.cursor.epoch,
+    cursorBlockIndex: state.cursor.blockIndex,
+    lastStatusFetchAt: new Date(now()).toISOString(),
+    lastBlockInsertAt: state.observability.lastBlockInsertAt,
+  });
   return result;
 }
 
 function formatErr(e: unknown): string {
   if (e instanceof Error) return e.stack ?? e.message;
   return String(e);
+}
+
+/**
+ * Update {@link IndexerState.stall} from a fresh status body. Called once
+ * per successful /api/v1/telemetry/status fetch.
+ *
+ * Bootstrapping rule: on the very first observation we set
+ * `lastAdvanceAtMs = nowMs` so `isNodeStalled` can't fire on the first
+ * poll after startup (we have no prior observation to compare against).
+ */
+export function updateStallTracker(state: IndexerState, status: StatusBody, nowMs: number): void {
+  const observed = { epoch: status.latestEpoch, blockIndex: status.latestBlockIndex };
+  const prev = state.stall.lastObserved;
+  if (prev === null) {
+    state.stall.lastObserved = observed;
+    state.stall.lastAdvanceAtMs = nowMs;
+    return;
+  }
+  const advanced = observed.epoch !== prev.epoch || observed.blockIndex !== prev.blockIndex;
+  if (advanced) {
+    state.stall.lastObserved = observed;
+    state.stall.lastAdvanceAtMs = nowMs;
+    // Clear warn throttle so a re-stall immediately re-surfaces the WARN.
+    state.stall.lastWarnAtMs = 0;
+  }
+}
+
+/**
+ * Emit the stall WARN at most once per {@link IndexerConfig.stallWarnAfterSec}
+ * window. Uses {@link isNodeStalled} (D1 decision-point) to decide whether the
+ * node is actually stalled.
+ */
+export function maybeWarnStalled(
+  state: IndexerState,
+  config: IndexerConfig,
+  nowMs: number,
+): boolean {
+  if (config.stallWarnAfterSec <= 0) return false;
+  const stallMs = nowMs - state.stall.lastAdvanceAtMs;
+  const thresholdMs = config.stallWarnAfterSec * 1000;
+  if (!isNodeStalled(stallMs, thresholdMs)) return false;
+  // Re-emit at most once per threshold window while still stalled. Operators
+  // want enough signal to notice, not a fire-hose.
+  const sinceLastWarnMs = nowMs - state.stall.lastWarnAtMs;
+  if (state.stall.lastWarnAtMs !== 0 && sinceLastWarnMs < thresholdMs) return false;
+  const obs = state.stall.lastObserved;
+  warn(
+    `node appears stalled at ${config.nodeUrl}: latestEpoch=${obs?.epoch ?? "?"} ` +
+      `latestBlockIndex=${obs?.blockIndex ?? "?"} unchanged for ` +
+      `${Math.floor(stallMs / 1000)}s (threshold ${config.stallWarnAfterSec}s)`,
+  );
+  state.stall.lastWarnAtMs = nowMs;
+  return true;
+}
+
+/**
+ * D1 (learning-mode decision point): decide whether the polled node is stalled.
+ *
+ * Inputs:
+ *  - stallMs: wall-clock ms since latestBlockIndex last advanced
+ *  - thresholdMs: configured --stall-warn-after (converted to ms)
+ *
+ * Trade-offs to consider:
+ *  - Pure time threshold is simplest; fires on legitimately slow periods
+ *    (a QPU miner alone on the network can take tens of minutes per block).
+ *  - A poll-count threshold would be scale-free but fragile to poll-interval
+ *    tuning.
+ *  - Grace on fresh boot: lastAdvanceAtMs is seeded on first poll so we never
+ *    fire before we've observed one full window — that's already handled in
+ *    updateStallTracker.
+ *
+ * Start simple: "stallMs >= thresholdMs". Iterate once there's real data.
+ *
+ * TODO (learning-mode): replace this one-liner with your preferred logic.
+ */
+export function isNodeStalled(stallMs: number, thresholdMs: number): boolean {
+  return stallMs >= thresholdMs;
 }
 
 async function refreshSelfAddress(
