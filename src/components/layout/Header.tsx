@@ -1,6 +1,7 @@
 import { useUIStore, type AggregationMode, type ViewMode } from "../../store/ui-store";
 import { SERIES_COLORS } from "../../lib/colors";
 import type { MinerCategory } from "../../types/telemetry";
+import { CurrentBlockIndicator } from "./CurrentBlockIndicator";
 import { EpochSelector } from "./EpochSelector";
 
 const TYPES: MinerCategory[] = ["CPU", "GPU", "QPU"];
@@ -54,7 +55,7 @@ export function Header() {
           )}
         </div>
 
-        {/* Center: primary view toggle */}
+        {/* Center: primary view toggle + live mining block indicator */}
         <div className="justify-self-center">
           <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
             {VIEWS.map(({ value, label }) => {
@@ -63,7 +64,10 @@ export function Header() {
                 <button
                   key={value}
                   onClick={() => setViewMode(value)}
-                  className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
+                  // Fixed min-width keeps "Compute" from looking visually
+                  // wider than "Network" / "My Node" — the 'm' glyph would
+                  // otherwise push the third button out by a few pixels.
+                  className="min-w-24 cursor-pointer px-3 py-1.5 text-center font-accent text-sm transition-all"
                   style={{
                     backgroundColor: active ? "#67E34720" : "transparent",
                     color: active ? "#67E347" : "#A9A9A9",
@@ -74,6 +78,7 @@ export function Header() {
               );
             })}
           </div>
+          <CurrentBlockIndicator />
         </div>
 
         {/* Right: epoch filter */}

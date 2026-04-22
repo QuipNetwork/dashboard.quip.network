@@ -3,6 +3,7 @@
 import { ChartCard } from "../../layout/ChartCard";
 import { formatDuration, formatNumber } from "../../../lib/format";
 import { SERIES_COLORS } from "../../../lib/colors";
+import { BlockDetailCard } from "./BlockDetailCard";
 import { useMyNode } from "./use-my-node";
 import { NeighborsList } from "./NeighborsList";
 import { StatTile } from "./StatTile";
@@ -33,9 +34,20 @@ export function MyNodeView() {
     );
   }
 
-  const { node, entry, rank, totalMiners, blocksMined, uptimeMs, neighbors } = stats;
+  const {
+    node,
+    entry,
+    rank,
+    totalMiners,
+    blocksMined,
+    uptimeMs,
+    neighbors,
+    lastWonBlock,
+    currentRequirements,
+  } = stats;
   const nodeLabel = node.nodeName ?? node.publicHost ?? node.address.slice(0, 16);
   const typeColor = entry ? SERIES_COLORS[entry.minerCategory] : "#67E347";
+  const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
 
   return (
     <>
@@ -79,6 +91,58 @@ export function MyNodeView() {
           value={rank != null ? `#${rank}` : "—"}
           sublabel={
             rank != null && totalMiners > 0 ? `of ${totalMiners} miners` : "No blocks mined yet"
+          }
+        />
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <StatTile
+          label="Last Block Won"
+          value={lastWonBlock != null ? `#${lastWonBlock.blockIndex}` : "—"}
+          sublabel={
+            lastWonBlock != null && lastWonAgoMs != null
+              ? `${formatDuration(lastWonAgoMs)} ago · solved in ${formatDuration(lastWonBlock.miningTime * 1000)}`
+              : "No wins yet"
+          }
+          accent={typeColor}
+        />
+        <BlockDetailCard
+          label="Energy Details"
+          accent={typeColor}
+          rows={
+            lastWonBlock != null
+              ? [
+                  { label: "Energy", value: lastWonBlock.energy.toFixed(1) },
+                  { label: "Diversity", value: lastWonBlock.diversity.toFixed(3) },
+                  { label: "Solutions", value: formatNumber(lastWonBlock.numValidSolutions) },
+                  {
+                    label: "Mining Time",
+                    value: formatDuration(lastWonBlock.miningTime * 1000),
+                  },
+                ]
+              : [{ label: "Status", value: "No wins yet" }]
+          }
+          footer={lastWonBlock != null ? `From block #${lastWonBlock.blockIndex}` : undefined}
+        />
+        <BlockDetailCard
+          label="Current Block Requirements"
+          rows={
+            currentRequirements != null
+              ? [
+                  {
+                    label: "Target Energy",
+                    value: `≤ ${currentRequirements.difficultyEnergy.toFixed(1)}`,
+                  },
+                  {
+                    label: "Min Diversity",
+                    value: currentRequirements.minDiversity.toFixed(3),
+                  },
+                  {
+                    label: "Min Solutions",
+                    value: formatNumber(currentRequirements.minSolutions),
+                  },
+                ]
+              : [{ label: "Status", value: "Awaiting first block" }]
           }
         />
       </div>

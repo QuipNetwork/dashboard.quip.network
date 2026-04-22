@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { BlockRecord, NodesSnapshot, TelemetryResponse } from "../types/telemetry";
 
-interface TelemetryState {
+export interface TelemetryState {
   blocks: BlockRecord[];
   nodes: NodesSnapshot | null;
   selfAddress: string | null;
@@ -19,7 +19,10 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   error: null,
 
   fetchTelemetry: async () => {
-    if (!get().loading) set({ loading: true });
+    // Only flash the loading screen on the very first load. Subsequent
+    // polling refreshes leave the current UI visible and swap data in place.
+    const firstLoad = get().blocks.length === 0 && get().nodes === null;
+    if (firstLoad && !get().loading) set({ loading: true });
     try {
       const res = await fetch("/api/telemetry");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -36,3 +39,17 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     }
   },
 }));
+
+// --- Selectors ---
+
+// Blocks arrive sorted ascending by (timestamp, block_index) — see
+// api/db/sqlite.ts:211 and api/db/postgres.ts:181 — so the tip is the last
+// element. Returns null when the store hasn't loaded any blocks yet.
+//
+// Returns a reference that's stable between fetches (same BlockRecord object
+// in the array), so this is safe to pass directly to `useTelemetryStore(...)`.
+// Don't layer a derived-object selector on top: zustand compares by reference
+// and a fresh `{ epoch, blockIndex }` each call would loop forever.
+export function selectTipBlock(s: TelemetryState): BlockRecord | null {
+  return s.blocks.length > 0 ? (s.blocks[s.blocks.length - 1] ?? null) : null;
+}

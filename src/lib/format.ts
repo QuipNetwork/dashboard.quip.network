@@ -1,3 +1,22 @@
+// Epoch numbers in this network are unix timestamps (seconds). Render them as
+// a short date so a value like 1776823245 reads as "Apr 21 18:53" rather than
+// as an opaque 10-digit integer. Values below 1e9 (year ~2001) are treated as
+// raw ordinals and returned as-is.
+export function formatEpochTimestamp(e: number): string {
+  if (e >= 1_000_000_000) {
+    const d = new Date(e * 1000);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+  }
+  return String(e);
+}
+
 export function formatSeconds(s: number): string {
   if (s < 60) return `${s.toFixed(1)}s`;
   if (s < 3600) return `${(s / 60).toFixed(1)}m`;

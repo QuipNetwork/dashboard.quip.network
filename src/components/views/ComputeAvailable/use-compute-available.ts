@@ -3,8 +3,8 @@
 import { useMemo } from "react";
 
 import { estimateNodeFlops, lookupCpu, lookupGpu } from "../../../lib/hardware-flops";
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { NodeInfo } from "../../../types/telemetry";
+import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
+import type { BlockRecord, NodeInfo } from "../../../types/telemetry";
 
 export interface ModelBreakdown {
   model: string;
@@ -41,13 +41,30 @@ export interface ComputeAvailability {
   perNodeTflops: PerNodeTflops[]; // sorted desc by tflops
   topNode: PerNodeTflops | null;
   medianNodeTflops: number;
+  // Sum of theoretical FP32 TFLOPS across every node in the snapshot.
+  // Exposed so the block-ceiling tiles can multiply by mining time.
+  networkTflops: number;
+  // Block the network just completed (tip of chain). Null before first sync.
+  lastBlock: BlockRecord | null;
+  // PFLOP·s poured into the last block (networkTflops × miningTime / 1000).
+  // Null when there is no tip block.
+  lastBlockPflopSeconds: number | null;
+  // PFLOP·s poured into the block currently being mined, based on wall-clock
+  // elapsed since the last tip. Null when there is no tip block. This value
+  // refreshes on each poll cycle (not every second) — it is labeled "and
+  // counting" in the UI to make that cadence explicit.
+  currentBlockPflopSeconds: number | null;
+  // Seconds elapsed since the last tip block closed — companion to
+  // currentBlockPflopSeconds so the UI can render both.
+  currentBlockElapsedSeconds: number | null;
 }
 
 export function useComputeAvailable(): ComputeAvailability {
   const nodes = useTelemetryStore((s) => s.nodes);
+  const lastBlock = useTelemetryStore(selectTipBlock);
 
   return useMemo<ComputeAvailability>(() => {
-    if (!nodes) return EMPTY;
+    if (!nodes) return { ...EMPTY, lastBlock };
 
     let totalCpus = 0;
     let totalGpus = 0;
@@ -104,6 +121,16 @@ export function useComputeAvailable(): ComputeAvailability {
 
     perNode.sort((a, b) => b.tflops - a.tflops);
 
+    // Block-ceiling estimates. "PFLOP-seconds" = TFLOPS × seconds ÷ 1000.
+    // Interprets the network running at full theoretical FP32 throughput for
+    // the block's duration — a ceiling, not a measurement.
+    const lastBlockPflopSeconds =
+      lastBlock != null ? (totalTflops * lastBlock.miningTime) / 1000 : null;
+    const currentBlockElapsedSeconds =
+      lastBlock != null ? Math.max(0, Date.now() / 1000 - lastBlock.timestamp) : null;
+    const currentBlockPflopSeconds =
+      currentBlockElapsedSeconds != null ? (totalTflops * currentBlockElapsedSeconds) / 1000 : null;
+
     return {
       totalNodes: Object.keys(nodes.nodes).length,
       totalCpus,
@@ -117,8 +144,13 @@ export function useComputeAvailable(): ComputeAvailability {
       perNodeTflops: perNode,
       topNode: perNode[0] ?? null,
       medianNodeTflops: median(perNode.map((n) => n.tflops)),
+      networkTflops: totalTflops,
+      lastBlock,
+      lastBlockPflopSeconds,
+      currentBlockPflopSeconds,
+      currentBlockElapsedSeconds,
     };
-  }, [nodes]);
+  }, [nodes, lastBlock]);
 }
 
 const EMPTY: ComputeAvailability = {
@@ -134,6 +166,11 @@ const EMPTY: ComputeAvailability = {
   perNodeTflops: [],
   topNode: null,
   medianNodeTflops: 0,
+  networkTflops: 0,
+  lastBlock: null,
+  lastBlockPflopSeconds: null,
+  currentBlockPflopSeconds: null,
+  currentBlockElapsedSeconds: null,
 };
 
 function countCpus(node: NodeInfo): number {

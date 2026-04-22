@@ -6,9 +6,15 @@ import {
   computeLeaderboard,
   type LeaderboardEntry,
 } from "../../charts/leaderboard/use-leaderboard";
-import { useTelemetryStore } from "../../../store/telemetry-store";
+import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
-import type { NodeInfo } from "../../../types/telemetry";
+import type { BlockRecord, NodeInfo } from "../../../types/telemetry";
+
+export interface CurrentDifficulty {
+  difficultyEnergy: number;
+  minDiversity: number;
+  minSolutions: number;
+}
 
 export interface MyNodeStats {
   // null when we can't identify "us" yet (indexer hasn't synced, or the
@@ -22,6 +28,10 @@ export interface MyNodeStats {
   entry: LeaderboardEntry | null;
   // Ranks rank-1 .. rank+2 in the unfiltered network leaderboard, excluding self.
   neighbors: LeaderboardEntry[];
+  // Most recent block whose minerId matches this node; null if never won.
+  lastWonBlock: BlockRecord | null;
+  // Active mining requirements from the chain tip; null before any block has synced.
+  currentRequirements: CurrentDifficulty | null;
 }
 
 const NEIGHBOR_WINDOW = 2;
@@ -30,8 +40,20 @@ export function useMyNode(): MyNodeStats {
   const blocks = useFilteredBlocks();
   const nodes = useTelemetryStore((s) => s.nodes);
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
+  // Select the tip block itself (stable reference) rather than a derived
+  // object — zustand's default equality is reference-based, and a selector
+  // that builds a fresh object each call would force infinite re-renders.
+  const tipBlock = useTelemetryStore(selectTipBlock);
 
   return useMemo<MyNodeStats>(() => {
+    const currentRequirements: CurrentDifficulty | null = tipBlock
+      ? {
+          difficultyEnergy: tipBlock.difficultyEnergy,
+          minDiversity: tipBlock.minDiversity,
+          minSolutions: tipBlock.minSolutions,
+        }
+      : null;
+
     const node = selfAddress ? (nodes?.nodes[selfAddress] ?? null) : null;
 
     // Canonical (unfiltered) ranking — "my rank" must not flip when the user
@@ -78,6 +100,19 @@ export function useMyNode(): MyNodeStats {
 
     const uptimeMs = node ? Date.now() - node.firstSeen * 1000 : null;
 
+    // Walk blocks from newest to oldest until we hit one this node won.
+    // Blocks arrive sorted ascending by (timestamp, block_index), so iterate
+    // from the end. Using the filtered blocks keeps this consistent with the
+    // "Blocks Mined" count above when an epoch filter is active.
+    let lastWonBlock: BlockRecord | null = null;
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const b = blocks[i]!;
+      if (isMine(b.minerId)) {
+        lastWonBlock = b;
+        break;
+      }
+    }
+
     return {
       node,
       selfAddress,
@@ -87,6 +122,8 @@ export function useMyNode(): MyNodeStats {
       totalMiners: leaderboard.length,
       entry,
       neighbors,
+      lastWonBlock,
+      currentRequirements,
     };
-  }, [blocks, nodes, selfAddress]);
+  }, [blocks, nodes, selfAddress, tipBlock]);
 }
