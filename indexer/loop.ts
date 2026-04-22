@@ -8,21 +8,27 @@ import type { IndexerConfig } from "./config";
 import { IndexerState } from "./state";
 
 /**
- * A canonical-chain epoch annotated with the block range it OWNS — the slice
- * of the chain that was first introduced during this epoch.
+ * An epoch annotated with the block range it OWNS on its chain — the slice
+ * of that chain's history first introduced during this epoch.
  *
- * Quip epochs carry the full chain history up to the epoch's tip, so the
- * same block_index can appear under multiple epoch URLs. Owned ranges
- * disambiguate: each block is attributed to exactly one canonical epoch,
- * the earliest one where it appeared.
+ * Quip epochs carry the full chain history (from block 1) up to the epoch's
+ * tip, so the same block_index can appear under multiple epoch URLs within
+ * the same chain. Owned ranges disambiguate: each block is attributed to
+ * exactly one epoch — the earliest epoch on its chain that contained it.
  *
- *   ownedStart = (previous canonical epoch's lastBlock) + 1  (or 1 for the
- *                first canonical epoch)
+ *   ownedStart = (previous epoch on THIS chain's lastBlock) + 1  (or 1 if
+ *                this is the first epoch on the chain)
  *   ownedEnd   = this epoch's lastBlock (or status.latestBlockIndex for the
- *                tip, which is fresher than /epochs)
+ *                tip epoch, which is fresher than /epochs)
+ *
+ * Dead chains (ones whose block-1 hash doesn't match `status.latestEpoch`'s)
+ * still get indexed — operators want the forensic history of abandoned
+ * branches. Grouping is by block-1 hash so each dead chain has its own
+ * owned-range accounting.
  */
 export interface CanonicalEpoch {
   epoch: number;
+  chainAnchor: string;
   ownedStart: number;
   ownedEnd: number;
 }
@@ -214,13 +220,11 @@ async function walkCanonicalPlan(
     const next = plan.find((e) => e.epoch > (state.cursor.epoch ?? 0));
     if (!next) {
       warn(
-        `cursor epoch ${state.cursor.epoch} is not canonical and has no canonical successor; waiting`,
+        `cursor epoch ${state.cursor.epoch} is not in the index plan and has no successor; waiting`,
       );
       return;
     }
-    warn(
-      `cursor epoch ${state.cursor.epoch} is not on the canonical chain; advancing to ${next.epoch}`,
-    );
+    warn(`cursor epoch ${state.cursor.epoch} is not in the index plan; advancing to ${next.epoch}`);
     state.cursor = { epoch: next.epoch, blockIndex: 0 };
     cursorIdx = plan.findIndex((e) => e.epoch === next.epoch);
   }
@@ -283,15 +287,17 @@ async function walkCanonicalPlan(
     result.blocksIndexed += 1;
   }
 
-  // Drained this canonical epoch — advance to the next. Cursor.blockIndex
-  // stays at current.ownedEnd so the next iteration's clamp bumps it to
-  // the next epoch's (ownedStart - 1) without re-fetching anything.
+  // Drained this epoch — advance to the next in the plan. Carry
+  // blockIndex forward within a chain so inherited blocks aren't re-fetched,
+  // but reset to 0 when crossing into a different chain so the new chain's
+  // owned range starts from its block 1.
   if (state.cursor.blockIndex >= current.ownedEnd && cursorIdx < plan.length - 1) {
     const next = plan[cursorIdx + 1]!;
+    const carryBlock = next.chainAnchor === current.chainAnchor ? current.ownedEnd : 0;
     log(
-      `canonical: epoch ${current.epoch} drained at ${current.ownedEnd}; advancing to ${next.epoch}`,
+      `epoch ${current.epoch} (chain ${current.chainAnchor.slice(0, 8)}…) drained at ${current.ownedEnd}; advancing to ${next.epoch}`,
     );
-    state.cursor = { epoch: next.epoch, blockIndex: current.ownedEnd };
+    state.cursor = { epoch: next.epoch, blockIndex: carryBlock };
   }
 }
 
@@ -431,19 +437,21 @@ async function ensureChainAnchor(
 }
 
 /**
- * Build the ordered list of canonical-chain epochs with owned block ranges.
+ * Build the ordered list of epochs with owned block ranges across every
+ * chain the node exposes (canonical + dead). Each epoch is tagged with its
+ * chain anchor (block-1 hash) so the walker can detect chain transitions
+ * and reset its block cursor.
  *
- * Canonical chain = the chain whose block-1 hash matches that of
- * status.latestEpoch (the tip the node is currently extending). Every other
- * epoch the node knows about is a dead fork and gets skipped — we never
- * index its blocks.
+ * Ownership is computed per chain: within each chain group, sort by epoch
+ * ID ascending and assign (previous epoch's lastBlock + 1) .. this epoch's
+ * lastBlock. Forks on the same chain where a later epoch's lastBlock is
+ * ≤ the previous one (a branch that never extended the tip) get an empty
+ * range and don't index any blocks — their shared prefix is already
+ * covered by an earlier epoch on the same chain.
  *
- * Within the canonical chain, each epoch's owned range is the slice of the
- * chain introduced during that epoch: (previous canonical epoch's lastBlock
- * + 1) through this epoch's lastBlock. The tip epoch uses
- * status.latestBlockIndex instead of /epochs.lastBlock because the former is
- * authoritative for "how far the chain has advanced" while the latter can
- * lag by one poll cycle.
+ * The tip epoch (latestEpoch per /status) uses status.latestBlockIndex
+ * rather than /epochs.lastBlock — the status body is the freshest source
+ * for the tip, /epochs can lag by one poll cycle.
  */
 export async function buildCanonicalPlan(
   client: QuipClient,
@@ -452,43 +460,54 @@ export async function buildCanonicalPlan(
   epochsBody: EpochsBody,
 ): Promise<CanonicalEpoch[]> {
   if (status.latestBlockIndex <= 0) return [];
-  const canonicalAnchor = await ensureChainAnchor(client, state, status.latestEpoch);
-  if (!canonicalAnchor) return [];
 
-  // Include the tip epoch even if /epochs hasn't caught up to it yet — the
-  // node's status body is fresher. Build a union {tip} ∪ /epochs.epochs,
-  // deduplicated, sorted ascending.
+  // Include the tip epoch even if /epochs hasn't caught up to it yet.
   const byEpoch = new Map<number, { epoch: number; lastBlock: number }>();
   for (const e of epochsBody.epochs) {
     byEpoch.set(e.epoch, { epoch: e.epoch, lastBlock: e.lastBlock });
   }
-  // Tip override: use status.latestBlockIndex for the current tip epoch.
   byEpoch.set(status.latestEpoch, {
     epoch: status.latestEpoch,
     lastBlock: status.latestBlockIndex,
   });
-  const sorted = [...byEpoch.values()].sort((a, b) => a.epoch - b.epoch);
 
-  const plan: CanonicalEpoch[] = [];
-  let prevLast = 0;
-  for (const e of sorted) {
+  // Resolve each epoch's chain anchor (block-1 hash). Empty epochs (no
+  // block 1) are dropped — they contribute nothing until blocks arrive.
+  const byChain = new Map<string, Array<{ epoch: number; lastBlock: number }>>();
+  for (const e of byEpoch.values()) {
+    if (e.lastBlock <= 0) continue;
     const anchor = await ensureChainAnchor(client, state, e.epoch);
-    if (anchor !== canonicalAnchor) continue;
-    plan.push({
-      epoch: e.epoch,
-      ownedStart: prevLast + 1,
-      ownedEnd: e.lastBlock,
-    });
-    prevLast = e.lastBlock;
+    if (!anchor) continue;
+    const group = byChain.get(anchor) ?? [];
+    group.push(e);
+    byChain.set(anchor, group);
   }
+
+  // Compute per-chain owned ranges, then flatten and sort by epoch ID so
+  // the walk visits epochs in chronological order across all chains.
+  const plan: CanonicalEpoch[] = [];
+  for (const [chainAnchor, epochs] of byChain) {
+    epochs.sort((a, b) => a.epoch - b.epoch);
+    let prevLast = 0;
+    for (const e of epochs) {
+      plan.push({
+        epoch: e.epoch,
+        chainAnchor,
+        ownedStart: prevLast + 1,
+        ownedEnd: e.lastBlock,
+      });
+      if (e.lastBlock > prevLast) prevLast = e.lastBlock;
+    }
+  }
+  plan.sort((a, b) => a.epoch - b.epoch);
   return plan;
 }
 
 /**
  * Pick the initial cursor epoch for a fresh boot. If
- * `config.backfillFromEpoch` is set and that epoch is canonical, honor it;
- * otherwise start from the earliest canonical epoch so the full chain gets
- * indexed.
+ * `config.backfillFromEpoch` is set and that epoch is in the plan, honor
+ * it; otherwise start from the earliest epoch in the plan so the full
+ * history gets indexed (including dead chains).
  */
 function chooseCanonicalSeed(plan: CanonicalEpoch[], config: IndexerConfig): number {
   const first = plan[0]!;
@@ -496,7 +515,7 @@ function chooseCanonicalSeed(plan: CanonicalEpoch[], config: IndexerConfig): num
   if (configured === undefined) return first.epoch;
   const match = plan.find((e) => e.epoch === configured);
   if (match) return configured;
-  warn(`BACKFILL_FROM_EPOCH=${configured} is not canonical; seeding from ${first.epoch} instead`);
+  warn(`BACKFILL_FROM_EPOCH=${configured} not in index plan; seeding from ${first.epoch} instead`);
   return first.epoch;
 }
 

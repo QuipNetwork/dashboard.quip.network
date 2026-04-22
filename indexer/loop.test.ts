@@ -742,19 +742,18 @@ describe("runIteration backfill", () => {
 });
 
 describe("runIteration canonical-chain attribution", () => {
-  it("skips epochs from a dead chain (block-1 hash differs from canonical)", async () => {
-    // Dashboard bug scenario: the node remembers a short-lived chain it
-    // abandoned (different block_1 hash). Before this fix, the indexer
-    // walked both chains and tagged the same-indexed blocks under every
-    // epoch, so "Apr 22 @ 4:00pm" could list blocks from 5 days ago.
-    // Expectation: dead-chain epoch 900 is entirely skipped.
+  it("indexes dead chains too, each with its own per-chain owned ranges", async () => {
+    // Node exposes an abandoned chain alongside the current canonical one.
+    // Both chains are indexed for forensic completeness — operators want
+    // to see dead-chain history in the dashboard — but each block is
+    // attributed to exactly one (epoch, block_index) pair within its chain.
     const db = new FakeDb();
     const state = new IndexerState(db);
     await state.load();
 
     const fetchImpl = makeFetch((url) => {
       if (url.endsWith("/status")) {
-        return { status: 200, etag: "e", body: statusBody("1000", 3, 3) };
+        return { status: 200, etag: "e", body: statusBody("1000", 3, 5) };
       }
       if (url.endsWith("/epochs")) {
         return {
@@ -771,7 +770,6 @@ describe("runIteration canonical-chain attribution", () => {
       if (m) {
         const e = Number(m[1]);
         const i = Number(m[2]);
-        // Distinct block-1 hashes put 900 and 1000 on different chains.
         const chainId = e === 900 ? "dead-chain" : "canonical";
         return { status: 200, body: buildBlockPayload(e, i, 123, chainId) };
       }
@@ -782,16 +780,26 @@ describe("runIteration canonical-chain attribution", () => {
       fetchImpl,
     });
 
-    const r = await runIteration(
-      { config: makeConfig(), client, db, state, now: () => 0 },
-      { value: 0 },
-    );
+    // First iteration: walk dead-chain epoch 900 (1..2), advance across
+    // chains to canonical epoch 1000 with blockIndex reset to 0.
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
+      [900, 1],
+      [900, 2],
+    ]);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
 
-    // Only the canonical chain (epoch 1000) was indexed — blocks 1..3.
-    // Nothing was stored under epoch 900.
-    expect(r.blocksIndexed).toBe(3);
-    expect(db.inserted.every((b) => b.epoch === 1000)).toBe(true);
-    expect(db.inserted.map((b) => b.blockIndex).sort()).toEqual([1, 2, 3]);
+    // Second iteration: walk canonical epoch 1000 (1..3). Cursor started
+    // at 0 (chain change reset), so the new chain's block 1 is indexed,
+    // not skipped as if inherited.
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
+      [900, 1],
+      [900, 2],
+      [1000, 1],
+      [1000, 2],
+      [1000, 3],
+    ]);
   });
 
   it("does not re-index inherited blocks when advancing to a later canonical epoch", async () => {
