@@ -11,7 +11,13 @@ import type {
   NodesSnapshot,
   TelemetryIndex,
 } from "../../src/types/telemetry";
-import { OWNED_TABLES, SCHEMA_VERSION, type DatabaseAdapter, type DbConfig } from "./adapter";
+import {
+  OWNED_TABLES,
+  SCHEMA_VERSION,
+  parseIndexerObservability,
+  type DatabaseAdapter,
+  type DbConfig,
+} from "./adapter";
 
 const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS blocks (
@@ -327,14 +333,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
       .get(INDEXER_OBSERVABILITY_KEY);
     if (!row?.value) return null;
-    try {
-      return JSON.parse(row.value) as IndexerObservability;
-    } catch (e) {
-      // Corrupt payload shouldn't block the server — surface as null and
-      // log. The indexer will overwrite on the next poll.
-      console.warn("[db] corrupt indexer_observability payload:", e);
-      return null;
-    }
+    return parseIndexerObservability(row.value, "sqlite");
   }
 
   async setIndexerObservability(obs: IndexerObservability): Promise<void> {

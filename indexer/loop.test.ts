@@ -104,7 +104,15 @@ type Router = (url: string, init: RequestInit | undefined) => FakeResponseSpec;
 function makeFetch(router: Router): typeof fetch {
   const fn = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    const spec = router(url, init);
+    let spec = router(url, init);
+    // Since the indexer moved to chain-aware attribution, runIteration fetches
+    // /epochs on every poll (used to be only during backfill). Tests that
+    // don't care about multi-epoch semantics shouldn't be forced to mock it —
+    // synthesize an empty list here and the tip-override in
+    // buildCanonicalPlan still yields a valid plan for the single latest epoch.
+    if (spec.status === 404 && url.endsWith("/api/v1/telemetry/epochs")) {
+      spec = { status: 200, body: { epochs: [] } };
+    }
     const text =
       spec.rawText !== undefined
         ? spec.rawText
@@ -141,13 +149,17 @@ function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
 }
 
 function buildBlockPayload(
-  epoch: number,
+  _epoch: number,
   index: number,
   nonce: number | string = 123,
+  // Defaults to a chain-id-invariant hash so multiple epochs in the same
+  // test share a common block_1 hash and are treated as the same canonical
+  // chain. Tests that exercise fork behavior pass an explicit chainId.
+  chainId: string = "canonical",
 ): Record<string, unknown> {
   return {
     block_index: index,
-    block_hash: `hash-${epoch}-${index}`,
+    block_hash: `hash-${chainId}-${index}`,
     timestamp: 1_700_000_000 + index,
     previous_hash: `prev-${index}`,
     miner: {
@@ -259,10 +271,12 @@ describe("runIteration", () => {
     expect(db.inserted).toHaveLength(0);
   });
 
-  it("advances cursor to the next known epoch once the current one is drained", async () => {
-    // With backfill-always-on, an epoch transition no longer means "reset to
-    // tip"; the cursor walks forward through the epoch list one epoch per
-    // iteration. First iteration finishes epoch 1000 and advances.
+  it("advances cursor to the next canonical epoch once the current one is drained", async () => {
+    // Cursor already at epoch 1000's tip. The tip epoch is now 2000, which
+    // extends the canonical chain with 2 new blocks (ownedStart=6, end=7).
+    // Iteration advances cursor to 2000 without walking (the walk happens
+    // next iteration). Last-block values are cumulative chain tips, per the
+    // node's /epochs semantics.
     const db = new FakeDb();
     db.cursor = { epoch: 1000, blockIndex: 5 };
     const state = new IndexerState(db);
@@ -270,7 +284,7 @@ describe("runIteration", () => {
 
     const fetchImpl = makeFetch((url) => {
       if (url.endsWith("/status")) {
-        return { status: 200, etag: "2000:2:2", body: statusBody("2000", 2) };
+        return { status: 200, etag: "2000:7:7", body: statusBody("2000", 7) };
       }
       if (url.endsWith("/epochs")) {
         return {
@@ -278,7 +292,7 @@ describe("runIteration", () => {
           body: {
             epochs: [
               { epoch: 1000, block_count: 5, first_block: 1, last_block: 5 },
-              { epoch: 2000, block_count: 2, first_block: 1, last_block: 2 },
+              { epoch: 2000, block_count: 7, first_block: 1, last_block: 7 },
             ],
           },
         };
@@ -299,8 +313,10 @@ describe("runIteration", () => {
       { value: 0 },
     );
 
+    // No new walks this iteration — just the epoch advance. blockIndex=5 is
+    // carried forward so the next iteration's clamp picks up at block 6.
     expect(r.blocksIndexed).toBe(0);
-    expect(state.cursor).toEqual({ epoch: 2000, blockIndex: 0 });
+    expect(state.cursor).toEqual({ epoch: 2000, blockIndex: 5 });
   });
 
   it("preserves big-int nonce as an exact string", async () => {
@@ -335,18 +351,22 @@ describe("runIteration", () => {
     expect(db.inserted[0]!.nonce).toBe(nonceDigits);
   });
 
-  it("advances cursor and skips on 404 blocks", async () => {
+  it("advances cursor and skips on 404 blocks in the middle of an epoch", async () => {
+    // Block 1 is always fetched to determine the chain anchor, so the "skip"
+    // scenario targets a middle block. Block 2 is pruned/missing; block 3 is
+    // fine. Expected: 2 blocks indexed (1 and 3), 1 skipped, cursor at 3.
     const db = new FakeDb();
     const state = new IndexerState(db);
     await state.load();
 
     const fetchImpl = makeFetch((url) => {
       if (url.endsWith("/status")) {
-        return { status: 200, etag: "1000:2:2", body: statusBody("1000", 2) };
+        return { status: 200, etag: "1000:3:3", body: statusBody("1000", 3) };
       }
-      if (/\/blocks\/1$/.test(url)) return { status: 404 };
-      if (/\/blocks\/2$/.test(url)) {
-        return { status: 200, body: buildBlockPayload(1000, 2) };
+      if (/\/blocks\/2$/.test(url)) return { status: 404 };
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) {
+        return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
       }
       return { status: 404 };
     });
@@ -360,11 +380,11 @@ describe("runIteration", () => {
       { value: 0 },
     );
 
-    expect(r.blocksIndexed).toBe(1);
+    expect(r.blocksIndexed).toBe(2);
     expect(r.blocksSkipped).toBe(1);
-    expect(db.inserted).toHaveLength(1);
-    expect(db.inserted[0]!.blockIndex).toBe(2);
-    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 2 });
+    expect(db.inserted).toHaveLength(2);
+    expect(db.inserted.map((b) => b.blockIndex).sort()).toEqual([1, 3]);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 3 });
   });
 
   it("rethrows RateLimitError from getBlock and persists cursor at last successful insert", async () => {
@@ -546,16 +566,18 @@ describe("runIteration self-address", () => {
 });
 
 describe("runIteration backfill", () => {
-  it("backfills an older epoch and advances to the next one on completion", async () => {
+  it("backfills an older canonical epoch and advances to the next on completion", async () => {
+    // Cursor at the start of canonical epoch 900; the chain continues into
+    // 1000 with cumulative last_block=5 (3 blocks new there). First iteration
+    // walks 900's owned range (1..2), then advances cursor to 1000.
     const db = new FakeDb();
-    // Simulate cursor already sitting in an older epoch mid-backfill.
     db.cursor = { epoch: 900, blockIndex: 0 };
     const state = new IndexerState(db);
     await state.load();
 
     const fetchImpl = makeFetch((url) => {
       if (url.endsWith("/status")) {
-        return { status: 200, etag: "1000:5:10", body: statusBody("1000", 5, 10) };
+        return { status: 200, etag: "1000:5:5", body: statusBody("1000", 5, 5) };
       }
       if (url.endsWith("/epochs")) {
         return {
@@ -582,29 +604,28 @@ describe("runIteration backfill", () => {
       { value: 0 },
     );
 
-    // Indexed both blocks of epoch 900, then advanced cursor directly to the
-    // next known epoch 1000 — not 901, which doesn't exist in /epochs.
     expect(r.blocksIndexed).toBe(2);
     expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
       [900, 1],
       [900, 2],
     ]);
-    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
+    // Cursor carries the owned-end (2) forward so the next iteration's clamp
+    // picks up at block 3 — inherited blocks from 900 aren't re-fetched.
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 2 });
   });
 
-  it("does NOT skip old epochs when backfill is configured", async () => {
-    // Regression guard: before the fix, once cursor.epoch was persisted the
-    // loop would reset to status.latestEpoch on the next iteration, dropping
-    // everything between backfillFromEpoch and latestEpoch. With the fix the
-    // cursor walks known epochs in order until it catches up to latestEpoch.
+  it("walks through each canonical epoch rather than skipping straight to the tip", async () => {
+    // Regression guard: ensure that when the cursor finishes an older epoch
+    // it advances to the NEXT canonical epoch (not straight to status.latestEpoch)
+    // so historical epochs don't get dropped from the index.
     const db = new FakeDb();
-    db.cursor = { epoch: 900, blockIndex: 2 }; // epoch 900 already drained
+    db.cursor = { epoch: 900, blockIndex: 2 }; // epoch 900's owned range is drained
     const state = new IndexerState(db);
     await state.load();
 
     const fetchImpl = makeFetch((url) => {
       if (url.endsWith("/status")) {
-        return { status: 200, etag: "e", body: statusBody("1000", 1, 10) };
+        return { status: 200, etag: "e", body: statusBody("1000", 6, 6) };
       }
       if (url.endsWith("/epochs")) {
         return {
@@ -612,8 +633,8 @@ describe("runIteration backfill", () => {
           body: {
             epochs: [
               { epoch: 900, block_count: 2, first_block: 1, last_block: 2 },
-              { epoch: 901, block_count: 3, first_block: 1, last_block: 3 },
-              { epoch: 1000, block_count: 1, first_block: 1, last_block: 1 },
+              { epoch: 901, block_count: 3, first_block: 1, last_block: 5 },
+              { epoch: 1000, block_count: 1, first_block: 1, last_block: 6 },
             ],
           },
         };
@@ -632,23 +653,24 @@ describe("runIteration backfill", () => {
       { value: 0 },
     );
 
-    // Without backfill-awareness, cursor would have jumped straight to 1000.
-    // With the fix, it advances to 901 — the next known epoch.
-    expect(state.cursor).toEqual({ epoch: 901, blockIndex: 0 });
+    // Advanced to 901 (the next canonical epoch), not skipping to 1000.
+    // blockIndex=2 is carried forward so the next iteration's clamp starts
+    // at block 3 — the first block owned by 901.
+    expect(state.cursor).toEqual({ epoch: 901, blockIndex: 2 });
   });
 
-  it("jumps directly to next known epoch when cursor lands in a gap", async () => {
+  it("jumps directly to next canonical epoch when cursor lands in a gap", async () => {
     // Regression guard: epoch numbers are timestamps with arbitrary gaps.
-    // A cursor + 1 walk takes thousands of no-op iterations per hop; the
-    // /epochs list is authoritative and already fetched in this path.
+    // Cursor at 910 (not in /epochs) should advance to the next canonical
+    // epoch, not walk one-by-one through every intervening timestamp.
     const db = new FakeDb();
-    db.cursor = { epoch: 910, blockIndex: 0 }; // 910 is not in /epochs
+    db.cursor = { epoch: 910, blockIndex: 0 };
     const state = new IndexerState(db);
     await state.load();
 
     const fetchImpl = makeFetch((url) => {
       if (url.endsWith("/status")) {
-        return { status: 200, etag: "e", body: statusBody("1000", 1) };
+        return { status: 200, etag: "e", body: statusBody("1000", 3, 3) };
       }
       if (url.endsWith("/epochs")) {
         return {
@@ -656,11 +678,13 @@ describe("runIteration backfill", () => {
           body: {
             epochs: [
               { epoch: 900, block_count: 2, first_block: 1, last_block: 2 },
-              { epoch: 1000, block_count: 1, first_block: 1, last_block: 1 },
+              { epoch: 1000, block_count: 1, first_block: 1, last_block: 3 },
             ],
           },
         };
       }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
       return { status: 404 };
     });
     const client = new QuipClient({
@@ -673,8 +697,11 @@ describe("runIteration backfill", () => {
       { value: 0 },
     );
 
-    expect(r.blocksIndexed).toBe(0);
-    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
+    // Advanced to 1000 (skipping the 910 gap), then walked its one owned
+    // block (index 3 — cumulative last_block 3 minus previous epoch's 2).
+    expect(r.blocksIndexed).toBe(1);
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([[1000, 3]]);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 3 });
   });
 
   it("waits when cursor is past the last known epoch", async () => {
@@ -711,6 +738,132 @@ describe("runIteration backfill", () => {
     expect(r.blocksIndexed).toBe(0);
     // Cursor stays put — we'll re-check on the next iteration.
     expect(state.cursor).toEqual({ epoch: 1100, blockIndex: 0 });
+  });
+});
+
+describe("runIteration canonical-chain attribution", () => {
+  it("indexes dead chains too, each with its own per-chain owned ranges", async () => {
+    // Node exposes an abandoned chain alongside the current canonical one.
+    // Both chains are indexed for forensic completeness — operators want
+    // to see dead-chain history in the dashboard — but each block is
+    // attributed to exactly one (epoch, block_index) pair within its chain.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 3, 5) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [
+              { epoch: 900, block_count: 2, first_block: 1, last_block: 2 },
+              { epoch: 1000, block_count: 3, first_block: 1, last_block: 3 },
+            ],
+          },
+        };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) {
+        const e = Number(m[1]);
+        const i = Number(m[2]);
+        const chainId = e === 900 ? "dead-chain" : "canonical";
+        return { status: 200, body: buildBlockPayload(e, i, 123, chainId) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    // First iteration: walk dead-chain epoch 900 (1..2), advance across
+    // chains to canonical epoch 1000 with blockIndex reset to 0.
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
+      [900, 1],
+      [900, 2],
+    ]);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 0 });
+
+    // Second iteration: walk canonical epoch 1000 (1..3). Cursor started
+    // at 0 (chain change reset), so the new chain's block 1 is indexed,
+    // not skipped as if inherited.
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
+      [900, 1],
+      [900, 2],
+      [1000, 1],
+      [1000, 2],
+      [1000, 3],
+    ]);
+  });
+
+  it("does not re-index inherited blocks when advancing to a later canonical epoch", async () => {
+    // Each canonical epoch "owns" only the block range introduced during it.
+    // Blocks 1..5 belong to epoch 900; blocks 6..8 are new in epoch 1000.
+    // The indexer walks through both epochs in one iteration and each block
+    // is stored exactly once, under the epoch that originally introduced it.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 8, 8) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: {
+            epochs: [
+              { epoch: 900, block_count: 5, first_block: 1, last_block: 5 },
+              { epoch: 1000, block_count: 3, first_block: 1, last_block: 8 },
+            ],
+          },
+        };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) {
+        return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    // First iteration: walk epoch 900's owned range (1..5), advance cursor.
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
+      [900, 1],
+      [900, 2],
+      [900, 3],
+      [900, 4],
+      [900, 5],
+    ]);
+    expect(state.cursor).toEqual({ epoch: 1000, blockIndex: 5 });
+
+    // Second iteration: walk epoch 1000's owned range (6..8). No re-fetch
+    // of blocks 1..5 under epoch=1000 even though the node serves them
+    // there (they're inherited, not introduced by 1000).
+    await runIteration({ config: makeConfig(), client, db, state, now: () => 0 }, { value: 0 });
+    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
+      [900, 1],
+      [900, 2],
+      [900, 3],
+      [900, 4],
+      [900, 5],
+      [1000, 6],
+      [1000, 7],
+      [1000, 8],
+    ]);
+    // No block has `epoch=1000 and blockIndex <= 5`.
+    expect(db.inserted.some((b) => b.epoch === 1000 && b.blockIndex <= 5)).toBe(false);
   });
 });
 
@@ -829,6 +982,73 @@ describe("observability persistence", () => {
     // lastBlockInsertAt is bumped by insertBlock; equals the same tick because
     // only one time source was used for the iteration.
     expect(db.observability?.lastBlockInsertAt).toBe(new Date(fakeNowMs).toISOString());
+  });
+
+  it("runIteration writes observability on backfill short-circuit (cursor past last known epoch)", async () => {
+    // Regression guard: before the try/finally wrapper, this early-return
+    // path skipped setIndexerObservability entirely — so a deployment stuck
+    // in a backfill gap would stop updating its own heartbeat and the UI's
+    // "indexer alive" banner would fire false positives.
+    const db = new FakeDb();
+    db.cursor = { epoch: 1100, blockIndex: 0 }; // past everything in /epochs
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1200", 1) };
+      }
+      if (url.endsWith("/epochs")) {
+        return {
+          status: 200,
+          body: { epochs: [{ epoch: 1000, block_count: 1, first_block: 1, last_block: 1 }] },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    const fakeNowMs = 1_700_000_000_000;
+    await runIteration(
+      { config: makeConfig({ backfillFromEpoch: 900 }), client, db, state, now: () => fakeNowMs },
+      { value: 0 },
+    );
+
+    expect(db.observabilityWrites).toHaveLength(1);
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(fakeNowMs).toISOString());
+    expect(db.observability?.nodeLatestEpoch).toBe(1200);
+    expect(db.observability?.nodeLatestBlockIndex).toBe(1);
+  });
+
+  it("runIteration writes observability even when insertBlock throws", async () => {
+    // Rate-limit and db-error paths rethrow; without try/finally they'd
+    // skip the heartbeat and operators would lose visibility exactly when
+    // they need it most.
+    const db = new FakeDb();
+    db.insertBlock = async (): Promise<boolean> => {
+      throw new Error("simulated db write error");
+    };
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 3) };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    const fakeNowMs = 1_700_000_000_000;
+    await expect(
+      runIteration({ config: makeConfig(), client, db, state, now: () => fakeNowMs }, { value: 0 }),
+    ).rejects.toThrow(/simulated db write error/);
+
+    // Heartbeat still advanced, even though the iteration threw.
+    expect(db.observabilityWrites).toHaveLength(1);
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(fakeNowMs).toISOString());
   });
 
   it("runIteration carries lastBlockInsertAt across iterations without new inserts", async () => {

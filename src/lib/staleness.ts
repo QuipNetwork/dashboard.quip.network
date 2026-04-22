@@ -36,6 +36,12 @@ export interface ChainHealthInputs {
 const WARN_BLOCK_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const STALLED_BLOCK_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+// If the indexer's lastStatusFetchAt heartbeat is older than this, the
+// indexer process is wedged or dead. Default poll cadence is 8s, so five
+// minutes is ~37 polls of grace — well past transient hiccups but short
+// enough that operators see the problem before blaming the node.
+const INDEXER_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+
 /**
  * D2 (learning-mode decision point): map observability + tip-block age into
  * a three-state health level for the UI banner.
@@ -71,8 +77,56 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
     return { level: "healthy", reason: "No blocks yet.", blockAgeMs, indexerLagBlocks };
   }
 
-  // If the indexer is lagging the node but the node IS producing blocks,
-  // prefer that framing over "chain is stalled".
+  // Indexer heartbeat. If lastStatusFetchAt hasn't advanced in minutes the
+  // indexer process is wedged/dead and the downstream "node hasn't seen a
+  // block" branch would misattribute the stall to the node. This precedes
+  // the epoch/block-lag checks because a dead indexer can also appear
+  // caught-up (its last-written cursor equals its last-observed nodeLatest*).
+  if (indexer !== null) {
+    const heartbeatMs = Date.parse(indexer.lastStatusFetchAt);
+    if (Number.isFinite(heartbeatMs)) {
+      const heartbeatAgeMs = nowMs - heartbeatMs;
+      if (heartbeatAgeMs >= INDEXER_HEARTBEAT_STALE_MS) {
+        return {
+          level: "stalled",
+          reason: `Dashboard indexer hasn't polled the node in ${formatApproxDuration(heartbeatAgeMs)}.`,
+          blockAgeMs,
+          indexerLagBlocks,
+        };
+      }
+    }
+  }
+
+  // Clock skew / malformed tip timestamps produce negative or non-finite
+  // blockAgeMs. Don't trip "stalled" on those — a future-dated tip is
+  // usually the dashboard's clock drifting, not the node failing.
+  if (!Number.isFinite(blockAgeMs) || blockAgeMs < 0) {
+    return { level: "healthy", reason: "", blockAgeMs, indexerLagBlocks };
+  }
+
+  // Indexer is in an older epoch than the node — it's either still
+  // backfilling, restarted, or wedged. Without this branch we'd fall through
+  // to "stalled" and blame the node for an indexer-side lag: the tip block in
+  // the store is the newest row the indexer has managed to write, not the
+  // newest block the node has produced. A null cursorEpoch means the indexer
+  // hasn't seeded yet; we can't compute a meaningful delta and leave the
+  // banner to the downstream branches.
+  if (
+    indexer !== null &&
+    indexer.cursorEpoch !== null &&
+    indexer.cursorEpoch < indexer.nodeLatestEpoch
+  ) {
+    const behindEpochs = indexer.nodeLatestEpoch - indexer.cursorEpoch;
+    return {
+      level: "warning",
+      reason: `Indexer is ${behindEpochs} epoch${behindEpochs === 1 ? "" : "s"} behind the polled node.`,
+      blockAgeMs,
+      indexerLagBlocks: null,
+    };
+  }
+
+  // Same-epoch lag: the indexer has reached the current epoch but hasn't
+  // picked up every block in it yet.
   if (indexerLagBlocks !== null && indexerLagBlocks > 0) {
     return {
       level: "warning",

@@ -13,6 +13,58 @@ import type {
   TelemetryIndex,
 } from "../../src/types/telemetry";
 
+/**
+ * Runtime-validate a raw `indexer_observability` meta payload before casting.
+ * The stored value is opaque TEXT in both adapters; shape drift (field rename,
+ * nullability change, manual DB edit) would otherwise sail past TS's compile-
+ * time types and produce NaN arithmetic downstream in `computeChainHealth`.
+ *
+ * Returns null on any parse or shape failure — the indexer overwrites on the
+ * next poll, so a transient bad row shouldn't break the telemetry endpoint.
+ * `source` is included in the warn so operators can tell sqlite from postgres.
+ */
+export function parseIndexerObservability(
+  raw: string,
+  source: "sqlite" | "postgres",
+): IndexerObservability | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[db/${source}] corrupt indexer_observability (JSON parse): ${msg}`);
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    console.warn(`[db/${source}] corrupt indexer_observability: not an object`);
+    return null;
+  }
+  const p = parsed as Record<string, unknown>;
+  const isFiniteInt = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  const isNullableInt = (v: unknown): v is number | null => v === null || isFiniteInt(v);
+  const isStr = (v: unknown): v is string => typeof v === "string";
+  const isNullableStr = (v: unknown): v is string | null => v === null || isStr(v);
+  if (
+    !isFiniteInt(p.nodeLatestEpoch) ||
+    !isFiniteInt(p.nodeLatestBlockIndex) ||
+    !isNullableInt(p.cursorEpoch) ||
+    !isFiniteInt(p.cursorBlockIndex) ||
+    !isStr(p.lastStatusFetchAt) ||
+    !isNullableStr(p.lastBlockInsertAt)
+  ) {
+    console.warn(`[db/${source}] corrupt indexer_observability: shape mismatch`);
+    return null;
+  }
+  return {
+    nodeLatestEpoch: p.nodeLatestEpoch,
+    nodeLatestBlockIndex: p.nodeLatestBlockIndex,
+    cursorEpoch: p.cursorEpoch,
+    cursorBlockIndex: p.cursorBlockIndex,
+    lastStatusFetchAt: p.lastStatusFetchAt,
+    lastBlockInsertAt: p.lastBlockInsertAt,
+  };
+}
+
 export interface DatabaseAdapter {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
@@ -55,7 +107,15 @@ export interface DbConfig {
 // deployments the adapter drops and recreates all tables on mismatch; on
 // remote (production) deployments the mismatch is a no-op and the schema
 // is expected to be managed externally.
-export const SCHEMA_VERSION = 1;
+//
+// v2: force local re-index after switching the indexer to chain-aware
+// attribution. Pre-v2 data tagged the same block under every epoch that
+// inherited it, so "Apr 22 @ 4:00pm" blocks could have Apr 17 timestamps.
+// The table shape didn't change but the semantics of `blocks.epoch` did.
+// v3: second re-index — v2 indexed only the canonical chain and dropped
+// dead-chain history on the floor. v3 indexes dead chains alongside the
+// canonical one with per-chain owned ranges. Same table shape.
+export const SCHEMA_VERSION = 3;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

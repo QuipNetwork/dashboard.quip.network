@@ -43,6 +43,11 @@ export class IndexerState {
   etags: EtagState = { nodes: null };
   stall: StallTracker = { lastObserved: null, lastAdvanceAtMs: 0, lastWarnAtMs: 0 };
   observability: ObservabilityCache = { lastBlockInsertAt: null };
+  // Cache of epoch → block_1.block_hash. Used to test chain membership
+  // (epochs sharing a block_1 hash are on the same chain). Not persisted:
+  // rebuilding is cheap (one /block fetch per epoch) and the node is the
+  // source of truth, so staleness across restarts is fine.
+  chainAnchors: Map<number, string> = new Map();
 
   constructor(private readonly db: DatabaseAdapter) {}
 

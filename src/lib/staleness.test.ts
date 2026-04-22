@@ -6,14 +6,20 @@ import type { IndexerObservability } from "../types/telemetry";
 
 import { computeChainHealth } from "./staleness";
 
+// Shared test clock. Pinning a single `nowMs` across tests keeps thresholds
+// deterministic and lets the default heartbeat in `obs()` stay fresh relative
+// to this clock (so the indexer-heartbeat check doesn't fire unless a test
+// opts in by setting lastStatusFetchAt explicitly).
+const NOW_MS = 1_800_000_000_000;
+
 function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservability {
   return {
     nodeLatestEpoch: 1000,
     nodeLatestBlockIndex: 10,
     cursorEpoch: 1000,
     cursorBlockIndex: 10,
-    lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
-    lastBlockInsertAt: "2026-04-22T11:58:00.000Z",
+    lastStatusFetchAt: new Date(NOW_MS - 30_000).toISOString(),
+    lastBlockInsertAt: new Date(NOW_MS - 2 * 60_000).toISOString(),
     ...overrides,
   };
 }
@@ -96,5 +102,129 @@ describe("computeChainHealth", () => {
       indexer: obs({ nodeLatestEpoch: 2000, cursorEpoch: 1000 }),
     });
     expect(h.indexerLagBlocks).toBeNull();
+  });
+
+  it("attributes cross-epoch lag to the indexer, not the node", () => {
+    // User-reported scenario: node is fresh (producing blocks now), but the
+    // indexer is stuck in an older epoch so the newest stored block is days
+    // old. Previously the banner read "Polled node hasn't seen a block in 5d
+    // 2h" — misleading, since the node is fine. Expect the indexer-framed
+    // warning instead.
+    const now = 1_800_000_000_000;
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 5 * 24 * 60 * 60 * 1000, // 5 days — would be "stalled" otherwise
+      indexer: obs({ nodeLatestEpoch: 1005, cursorEpoch: 1000 }),
+    });
+    expect(h.level).toBe("warning");
+    expect(h.reason).toMatch(/5 epochs behind/);
+  });
+
+  it("uses singular 'epoch' when the indexer is exactly 1 epoch behind", () => {
+    const now = 1_800_000_000_000;
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 60_000,
+      indexer: obs({ nodeLatestEpoch: 1001, cursorEpoch: 1000 }),
+    });
+    expect(h.reason).toMatch(/1 epoch behind/);
+  });
+
+  it("does not warn 'N epochs behind' before the cursor has seeded", () => {
+    // Fresh indexer: cursorEpoch is null until the first successful poll.
+    // Computing (nodeLatestEpoch - null) would surface a nonsense delta.
+    const now = 1_800_000_000_000;
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 60_000,
+      indexer: obs({ cursorEpoch: null }),
+    });
+    expect(h.reason).not.toMatch(/epoch.*behind/);
+  });
+
+  it("flags the indexer as wedged when lastStatusFetchAt is stale", () => {
+    // Indexer process died/crashed. cursor matches node (caught up), tip is
+    // recent. Without the heartbeat check we'd miss this entirely — the UI
+    // would keep showing healthy while the dashboard silently freezes.
+    const h = computeChainHealth({
+      nowMs: NOW_MS,
+      tipBlockTimestampMs: NOW_MS - 60_000,
+      indexer: obs({ lastStatusFetchAt: new Date(NOW_MS - 6 * 60_000).toISOString() }),
+    });
+    expect(h.level).toBe("stalled");
+    expect(h.reason).toMatch(/Dashboard indexer hasn't polled/);
+    expect(h.reason).toMatch(/6m/);
+  });
+
+  it("prefers indexer-wedged framing over node-stalled", () => {
+    // Both conditions are true (old tip AND old heartbeat). The indexer is
+    // the likelier culprit — reporting "node stalled" would misdirect the
+    // operator to debug the wrong component.
+    const h = computeChainHealth({
+      nowMs: NOW_MS,
+      tipBlockTimestampMs: NOW_MS - 3 * 60 * 60 * 1000, // 3h
+      indexer: obs({ lastStatusFetchAt: new Date(NOW_MS - 30 * 60_000).toISOString() }),
+    });
+    expect(h.level).toBe("stalled");
+    expect(h.reason).toMatch(/indexer hasn't polled/);
+  });
+
+  it("does not flag the indexer when the heartbeat is just barely under the threshold", () => {
+    // 4m 59s is within the 5m grace window — well above the ~8s poll cadence.
+    const h = computeChainHealth({
+      nowMs: NOW_MS,
+      tipBlockTimestampMs: NOW_MS - 60_000,
+      indexer: obs({
+        lastStatusFetchAt: new Date(NOW_MS - (5 * 60_000 - 1000)).toISOString(),
+      }),
+    });
+    expect(h.level).toBe("healthy");
+  });
+
+  it("tolerates an unparseable lastStatusFetchAt by skipping the heartbeat check", () => {
+    // Defensive: a garbage heartbeat string shouldn't kill the endpoint or
+    // show a confusing banner. Fall through to the other branches.
+    const h = computeChainHealth({
+      nowMs: NOW_MS,
+      tipBlockTimestampMs: NOW_MS - 60_000,
+      indexer: obs({ lastStatusFetchAt: "not a date" }),
+    });
+    expect(h.level).toBe("healthy");
+  });
+
+  it("stalls exactly at the 2h threshold", () => {
+    // Boundary: inverting the >= in the stalled branch would pass tests that
+    // only exercise 3h. Pin the exact threshold behaviour.
+    const h = computeChainHealth({
+      nowMs: NOW_MS,
+      tipBlockTimestampMs: NOW_MS - 2 * 60 * 60 * 1000,
+      indexer: obs(),
+    });
+    expect(h.level).toBe("stalled");
+  });
+
+  it("formats multi-day staleness as '5d 2h'", () => {
+    // Guards the days branch of formatApproxDuration — otherwise covered only
+    // by computed code paths where the test might not inspect the reason.
+    const h = computeChainHealth({
+      nowMs: NOW_MS,
+      tipBlockTimestampMs: NOW_MS - (5 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000),
+      indexer: obs(),
+    });
+    expect(h.level).toBe("stalled");
+    expect(h.reason).toMatch(/5d 2h/);
+  });
+
+  it("is healthy when the tip timestamp is in the future (clock skew)", () => {
+    // blockAgeMs goes negative. Neither "stalled" nor "warning" should fire —
+    // a future-dated tip is almost always a client clock problem, not a node
+    // fault, and the user shouldn't see a scary banner because of it.
+    const h = computeChainHealth({
+      nowMs: NOW_MS,
+      tipBlockTimestampMs: NOW_MS + 60_000,
+      indexer: obs(),
+    });
+    expect(h.level).toBe("healthy");
+    expect(h.blockAgeMs).toBeLessThan(0);
   });
 });
