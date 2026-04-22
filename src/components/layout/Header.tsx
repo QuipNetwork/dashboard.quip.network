@@ -64,10 +64,7 @@ export function Header() {
                 <button
                   key={value}
                   onClick={() => setViewMode(value)}
-                  // Fixed min-width keeps "Compute" from looking visually
-                  // wider than "Network" / "My Node" — the 'm' glyph would
-                  // otherwise push the third button out by a few pixels.
-                  className="min-w-24 cursor-pointer px-3 py-1.5 text-center font-accent text-sm transition-all"
+                  className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
                   style={{
                     backgroundColor: active ? "#67E34720" : "transparent",
                     color: active ? "#67E347" : "#A9A9A9",
