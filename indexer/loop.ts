@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { rawBlockToRecord, rawNodesToSnapshot, type DatabaseAdapter } from "../api/db/adapter";
+import type { NodesSnapshot } from "../src/types/telemetry";
 
 import { AuthError, QuipClient, RateLimitError, type StatusBody } from "./client";
 import type { IndexerConfig } from "./config";
@@ -200,6 +201,10 @@ export async function runIteration(
         await db.upsertNodes(snapshot);
         if (nodesRes.etag) state.etags.nodes = nodesRes.etag;
         result.nodesRefreshed = true;
+        // Resolve which node in the snapshot is the one we're polling by
+        // matching the configured URL's hostname against publicHost. Persist
+        // only on change to keep the meta table quiet.
+        await refreshSelfAddress(db, config.nodeUrl, snapshot);
         if (config.verbose) {
           log(`refreshed nodes: ${snapshot.nodeCount} total`);
         }
@@ -225,6 +230,33 @@ export async function runIteration(
 function formatErr(e: unknown): string {
   if (e instanceof Error) return e.stack ?? e.message;
   return String(e);
+}
+
+async function refreshSelfAddress(
+  db: DatabaseAdapter,
+  nodeUrl: string,
+  snapshot: NodesSnapshot,
+): Promise<void> {
+  let selfHost: string;
+  try {
+    selfHost = new URL(nodeUrl).hostname.toLowerCase();
+  } catch {
+    // Malformed URL is a config error but not worth crashing the indexer over
+    // — self-address just stays unset and the UI shows its fallback state.
+    return;
+  }
+  let matched: string | null = null;
+  for (const [addr, info] of Object.entries(snapshot.nodes)) {
+    if (info.publicHost && info.publicHost.toLowerCase() === selfHost) {
+      matched = addr;
+      break;
+    }
+  }
+  const current = await db.getSelfAddress();
+  if (current !== matched) {
+    await db.setSelfAddress(matched);
+    if (matched) log(`self address resolved: ${matched} (publicHost=${selfHost})`);
+  }
 }
 
 /**

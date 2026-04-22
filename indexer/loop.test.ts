@@ -26,6 +26,7 @@ class FakeDb implements DatabaseAdapter {
   }> = [];
   cursor: IndexerCursor = { epoch: null, blockIndex: 0 };
   etags: { nodes: string | null } = { nodes: null };
+  selfAddress: string | null = null;
 
   async connect() {
     this.connected = true;
@@ -69,6 +70,13 @@ class FakeDb implements DatabaseAdapter {
   }
   async getEtags() {
     return { ...this.etags };
+  }
+
+  async getSelfAddress(): Promise<string | null> {
+    return this.selfAddress;
+  }
+  async setSelfAddress(address: string | null): Promise<void> {
+    this.selfAddress = address;
   }
 }
 
@@ -410,6 +418,98 @@ describe("runIteration", () => {
     // Cursor was persisted at the last successful insert so the next
     // iteration resumes from block 2, not block 1.
     expect(db.savedCursors.at(-1)?.cursor).toEqual({ epoch: 1000, blockIndex: 1 });
+  });
+});
+
+describe("runIteration self-address", () => {
+  it("persists the address whose publicHost matches the configured node URL", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "1000:0:0", body: statusBody("1000", 0) };
+      }
+      if (url.endsWith("/nodes")) {
+        return {
+          status: 200,
+          body: {
+            updated_at: "2025-01-01T00:00:00Z",
+            node_count: 2,
+            active_count: 2,
+            nodes: {
+              "addr-other": {
+                address: "addr-other",
+                status: "online",
+                first_seen: 1,
+                last_seen: 2,
+                last_heartbeat: 2,
+                public_host: "other.example.com",
+              },
+              "addr-self": {
+                address: "addr-self",
+                status: "online",
+                first_seen: 1,
+                last_seen: 2,
+                last_heartbeat: 2,
+                public_host: "node.example.com",
+              },
+            },
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    await runIteration(
+      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => 0 },
+      { value: -1_000_000 },
+    );
+
+    expect(db.selfAddress).toBe("addr-self");
+  });
+
+  it("leaves the address null when no node's publicHost matches", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 0) };
+      }
+      if (url.endsWith("/nodes")) {
+        return {
+          status: 200,
+          body: {
+            updated_at: "2025-01-01T00:00:00Z",
+            node_count: 1,
+            active_count: 1,
+            nodes: {
+              "addr-other": {
+                address: "addr-other",
+                status: "online",
+                first_seen: 1,
+                last_seen: 2,
+                last_heartbeat: 2,
+                public_host: "other.example.com",
+              },
+            },
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    await runIteration(
+      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => 0 },
+      { value: -1_000_000 },
+    );
+
+    expect(db.selfAddress).toBeNull();
   });
 });
 
