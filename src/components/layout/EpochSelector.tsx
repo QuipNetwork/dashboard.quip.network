@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { formatEpochTimestamp } from "../../lib/format";
 import { useTelemetryStore } from "../../store/telemetry-store";
 import { useUIStore, type EpochFilter } from "../../store/ui-store";
 
@@ -36,30 +37,10 @@ export function EpochSelector() {
         <option value="all">All ({epochs.length})</option>
         {epochs.map((e) => (
           <option key={e} value={String(e)}>
-            {formatEpoch(e)}
+            {formatEpochTimestamp(e)}
           </option>
         ))}
       </select>
     </label>
   );
-}
-
-// Epoch numbers in this network are unix timestamps. Render them as a short
-// date so the dropdown reads naturally ("Apr 21 18:53") instead of as a raw
-// 10-digit integer.
-function formatEpoch(e: number): string {
-  // Heuristic: values >1e9 are second-precision timestamps (year ~2001+),
-  // anything smaller is just the raw integer epoch.
-  if (e >= 1_000_000_000) {
-    const d = new Date(e * 1000);
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    }
-  }
-  return String(e);
 }

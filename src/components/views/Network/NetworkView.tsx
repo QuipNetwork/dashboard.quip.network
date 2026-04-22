@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { useMemo } from "react";
+
 import { ChartCard } from "../../layout/ChartCard";
 import { BlocksOverTimeChart } from "../../charts/blocks-over-time/BlocksOverTimeChart";
 import { MiningTimeChart } from "../../charts/mining-time/MiningTimeChart";
@@ -23,10 +25,26 @@ import { useWinRateByDifficulty } from "../../charts/win-rate-by-difficulty/use-
 import { useMiningTimeByDifficulty } from "../../charts/mining-time-by-difficulty/use-mining-time-by-difficulty";
 import { useCumulativeBlocksThreshold } from "../../charts/cumulative-blocks-threshold/use-cumulative-blocks-threshold";
 import { useLeaderboard } from "../../charts/leaderboard/use-leaderboard";
+import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
+import { RecentBlocksTable } from "./RecentBlocksTable";
 
 export function NetworkView() {
   const byType = useUIStore((s) => s.aggregationMode) === "byType";
+  const allBlocks = useTelemetryStore((s) => s.blocks);
+
+  // Canonical chain only: the server's default ORDER BY (timestamp,
+  // block_index) interleaves blocks from abandoned branches that share
+  // timestamps with the winning chain. Filter to the tip block's epoch and
+  // sort by block_index so the "Recent Blocks" table strictly follows the
+  // current version of the chain.
+  const canonicalChainBlocks = useMemo(() => {
+    if (allBlocks.length === 0) return allBlocks;
+    const tipEpoch = allBlocks[allBlocks.length - 1]!.epoch;
+    return allBlocks
+      .filter((b) => b.epoch === tipEpoch)
+      .sort((a, b) => a.blockIndex - b.blockIndex);
+  }, [allBlocks]);
 
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();
@@ -42,6 +60,14 @@ export function NetworkView() {
 
   return (
     <>
+      <ChartCard
+        title="Recent Blocks"
+        subtitle="Last 10 completed blocks on the current chain tip"
+        className="mb-5"
+      >
+        <RecentBlocksTable blocks={canonicalChainBlocks} />
+      </ChartCard>
+
       <ChartCard
         title="Mining Leaderboard"
         subtitle="Top performing nodes by blocks mined"
