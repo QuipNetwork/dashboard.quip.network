@@ -5,6 +5,7 @@ import { describe, expect, it } from "bun:test";
 import type {
   BlockRecord,
   IndexerCursor,
+  IndexerObservability,
   NodesSnapshot,
   TelemetryIndex,
 } from "../src/types/telemetry";
@@ -12,7 +13,7 @@ import type { DatabaseAdapter } from "../api/db/adapter";
 
 import { AuthError, QuipClient, RateLimitError } from "./client";
 import type { IndexerConfig } from "./config";
-import { runIteration, runLoop } from "./loop";
+import { isNodeStalled, maybeWarnStalled, runIteration, runLoop, updateStallTracker } from "./loop";
 import { IndexerState } from "./state";
 
 class FakeDb implements DatabaseAdapter {
@@ -78,6 +79,16 @@ class FakeDb implements DatabaseAdapter {
   async setSelfAddress(address: string | null): Promise<void> {
     this.selfAddress = address;
   }
+
+  observability: IndexerObservability | null = null;
+  observabilityWrites: IndexerObservability[] = [];
+  async getIndexerObservability(): Promise<IndexerObservability | null> {
+    return this.observability;
+  }
+  async setIndexerObservability(obs: IndexerObservability): Promise<void> {
+    this.observability = obs;
+    this.observabilityWrites.push(obs);
+  }
 }
 
 interface FakeResponseSpec {
@@ -124,6 +135,7 @@ function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
     backfillFromEpoch: undefined,
     once: false,
     verbose: false,
+    stallWarnAfterSec: 600,
     ...overrides,
   };
 }
@@ -782,6 +794,194 @@ describe("runLoop", () => {
         () => false,
       ),
     ).rejects.toThrow(/500/);
+  });
+});
+
+describe("observability persistence", () => {
+  it("runIteration writes node tip + cursor + timestamps after each successful poll", async () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 2) };
+      }
+      const m = url.match(/\/epochs\/(\d+)\/blocks\/(\d+)$/);
+      if (m) return { status: 200, body: buildBlockPayload(Number(m[1]), Number(m[2])) };
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    // now=1700000000000 → 2023-11-14T22:13:20.000Z in ISO.
+    const fakeNowMs = 1_700_000_000_000;
+    await runIteration(
+      { config: makeConfig(), client, db, state, now: () => fakeNowMs },
+      { value: 0 },
+    );
+
+    expect(db.observability).not.toBeNull();
+    expect(db.observability?.nodeLatestEpoch).toBe(1000);
+    expect(db.observability?.nodeLatestBlockIndex).toBe(2);
+    expect(db.observability?.cursorEpoch).toBe(1000);
+    expect(db.observability?.cursorBlockIndex).toBe(2);
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(fakeNowMs).toISOString());
+    // lastBlockInsertAt is bumped by insertBlock; equals the same tick because
+    // only one time source was used for the iteration.
+    expect(db.observability?.lastBlockInsertAt).toBe(new Date(fakeNowMs).toISOString());
+  });
+
+  it("runIteration carries lastBlockInsertAt across iterations without new inserts", async () => {
+    const db = new FakeDb();
+    // Prior run persisted this timestamp. A subsequent poll with no new
+    // blocks should not clobber it back to null.
+    db.observability = {
+      nodeLatestEpoch: 1000,
+      nodeLatestBlockIndex: 5,
+      cursorEpoch: 1000,
+      cursorBlockIndex: 5,
+      lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
+      lastBlockInsertAt: "2026-01-01T00:00:00.000Z",
+    };
+    const state = new IndexerState(db);
+    await state.load(); // seeds lastBlockInsertAt from the prior write
+    db.cursor = { epoch: 1000, blockIndex: 5 }; // caught up
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 5) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    await runIteration(
+      { config: makeConfig(), client, db, state, now: () => 1_800_000_000_000 },
+      { value: 0 },
+    );
+
+    // No new blocks inserted this iteration; lastBlockInsertAt is preserved.
+    expect(db.observability?.lastBlockInsertAt).toBe("2026-01-01T00:00:00.000Z");
+    // But lastStatusFetchAt advances to the new poll time.
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(1_800_000_000_000).toISOString());
+  });
+});
+
+describe("stall detection", () => {
+  // Tiny synthetic StatusBody — stall tracking only reads latestEpoch and
+  // latestBlockIndex, so everything else can be zeroed without affecting
+  // behavior.
+  function status(latestBlockIndex: number, latestEpoch = 1000) {
+    return {
+      epochs: [String(latestEpoch)],
+      latestEpoch,
+      latestBlockIndex,
+      totalBlocks: latestBlockIndex,
+      nodeCount: 0,
+      activeNodeCount: 0,
+      nodesUpdatedAt: null,
+    };
+  }
+
+  it("isNodeStalled uses >= on the threshold", () => {
+    expect(isNodeStalled(599_000, 600_000)).toBe(false);
+    expect(isNodeStalled(600_000, 600_000)).toBe(true);
+    expect(isNodeStalled(1_000_000, 600_000)).toBe(true);
+    expect(isNodeStalled(0, 0)).toBe(true); // a 0 threshold is pathological; the caller disables via stallWarnAfterSec<=0
+  });
+
+  it("updateStallTracker seeds state and does not treat first observation as an advance", () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    updateStallTracker(state, status(162), 5_000);
+    expect(state.stall.lastObserved).toEqual({ epoch: 1000, blockIndex: 162 });
+    expect(state.stall.lastAdvanceAtMs).toBe(5_000);
+  });
+
+  it("updateStallTracker bumps lastAdvanceAtMs when latestBlockIndex changes", () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    updateStallTracker(state, status(162), 1_000);
+    updateStallTracker(state, status(162), 2_000); // no advance
+    expect(state.stall.lastAdvanceAtMs).toBe(1_000);
+    updateStallTracker(state, status(163), 3_000); // advance
+    expect(state.stall.lastAdvanceAtMs).toBe(3_000);
+    expect(state.stall.lastObserved).toEqual({ epoch: 1000, blockIndex: 163 });
+  });
+
+  it("updateStallTracker clears the warn throttle so re-stalls surface again", () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    state.stall.lastWarnAtMs = 12_345;
+    updateStallTracker(state, status(162), 0);
+    updateStallTracker(state, status(163), 100); // advance clears warn throttle
+    expect(state.stall.lastWarnAtMs).toBe(0);
+  });
+
+  it("maybeWarnStalled is a no-op before the threshold is crossed", () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    const cfg = makeConfig({ stallWarnAfterSec: 600 });
+    updateStallTracker(state, status(162), 0);
+    expect(maybeWarnStalled(state, cfg, 300_000)).toBe(false); // 5 min elapsed
+    expect(state.stall.lastWarnAtMs).toBe(0);
+  });
+
+  it("maybeWarnStalled fires once past threshold, then throttles until the next window", () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    const cfg = makeConfig({ stallWarnAfterSec: 600 });
+    updateStallTracker(state, status(162), 0);
+    expect(maybeWarnStalled(state, cfg, 600_000)).toBe(true); // exactly at threshold
+    expect(state.stall.lastWarnAtMs).toBe(600_000);
+    // A second poll 1s later is still stalled but throttled.
+    expect(maybeWarnStalled(state, cfg, 601_000)).toBe(false);
+    // 10 minutes after the first warn, we re-emit.
+    expect(maybeWarnStalled(state, cfg, 1_200_000)).toBe(true);
+    expect(state.stall.lastWarnAtMs).toBe(1_200_000);
+  });
+
+  it("maybeWarnStalled is disabled when stallWarnAfterSec=0", () => {
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    const cfg = makeConfig({ stallWarnAfterSec: 0 });
+    updateStallTracker(state, status(162), 0);
+    expect(maybeWarnStalled(state, cfg, 24 * 60 * 60 * 1000)).toBe(false);
+  });
+
+  it("runIteration wires the stall tracker through /status", async () => {
+    // Two back-to-back polls of the same status with the wall clock advanced
+    // past stallWarnAfterSec. The second poll should trip maybeWarnStalled,
+    // observable via state.stall.lastWarnAtMs.
+    //
+    // We verify via state mutation rather than console.warn interception
+    // because logPrefix() in loop.ts binds console.warn at module-load time,
+    // so a per-test console.warn override would not be observed.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    // Seed cursor at the tip so the status fetch doesn't try to index blocks
+    // — isolate the stall-warning path from the block-catchup path.
+    db.cursor = { epoch: 1000, blockIndex: 162 };
+    await state.load();
+
+    let t = 0;
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 162, 162) };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    const cfg = makeConfig({ stallWarnAfterSec: 600 });
+    await runIteration({ config: cfg, client, db, state, now: () => t }, { value: 0 });
+    expect(state.stall.lastObserved).toEqual({ epoch: 1000, blockIndex: 162 });
+    expect(state.stall.lastWarnAtMs).toBe(0); // first observation, no warn
+
+    t = 600_000; // 10 min later, node still at 162
+    await runIteration({ config: cfg, client, db, state, now: () => t }, { value: 0 });
+    expect(state.stall.lastWarnAtMs).toBe(600_000); // warn fired
   });
 });
 

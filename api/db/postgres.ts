@@ -5,6 +5,7 @@ import postgres, { type Sql } from "postgres";
 import type {
   BlockRecord,
   IndexerCursor,
+  IndexerObservability,
   NodesSnapshot,
   TelemetryIndex,
 } from "../../src/types/telemetry";
@@ -58,6 +59,7 @@ const SCHEMA_STATEMENTS: string[] = [
 ];
 
 const SELF_ADDRESS_KEY = "self_address";
+const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
 
 interface BlockRow {
   epoch: string | number;
@@ -278,6 +280,28 @@ export class PostgresAdapter implements DatabaseAdapter {
     await this.requireSql()`
       INSERT INTO meta (key, value)
       VALUES (${SELF_ADDRESS_KEY}, ${address})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `;
+  }
+
+  async getIndexerObservability(): Promise<IndexerObservability | null> {
+    const rows = await this.requireSql()<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = ${INDEXER_OBSERVABILITY_KEY}
+    `;
+    const raw = rows[0]?.value;
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as IndexerObservability;
+    } catch (e) {
+      console.warn("[db] corrupt indexer_observability payload:", e);
+      return null;
+    }
+  }
+
+  async setIndexerObservability(obs: IndexerObservability): Promise<void> {
+    await this.requireSql()`
+      INSERT INTO meta (key, value)
+      VALUES (${INDEXER_OBSERVABILITY_KEY}, ${JSON.stringify(obs)})
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
     `;
   }
