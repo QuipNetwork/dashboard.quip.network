@@ -3,9 +3,35 @@
 import { rawBlockToRecord, rawNodesToSnapshot, type DatabaseAdapter } from "../api/db/adapter";
 import type { NodesSnapshot } from "../src/types/telemetry";
 
-import { AuthError, QuipClient, RateLimitError, type StatusBody } from "./client";
+import {
+  AuthError,
+  QuipClient,
+  RateLimitError,
+  type EpochsBody,
+  type StatusBody,
+} from "./client";
 import type { IndexerConfig } from "./config";
 import { IndexerState } from "./state";
+
+/**
+ * A canonical-chain epoch annotated with the block range it OWNS — the slice
+ * of the chain that was first introduced during this epoch.
+ *
+ * Quip epochs carry the full chain history up to the epoch's tip, so the
+ * same block_index can appear under multiple epoch URLs. Owned ranges
+ * disambiguate: each block is attributed to exactly one canonical epoch,
+ * the earliest one where it appeared.
+ *
+ *   ownedStart = (previous canonical epoch's lastBlock) + 1  (or 1 for the
+ *                first canonical epoch)
+ *   ownedEnd   = this epoch's lastBlock (or status.latestBlockIndex for the
+ *                tip, which is fresher than /epochs)
+ */
+export interface CanonicalEpoch {
+  epoch: number;
+  ownedStart: number;
+  ownedEnd: number;
+}
 
 export interface LoopDeps {
   config: IndexerConfig;
@@ -117,119 +143,18 @@ async function runIterationBody(
 ): Promise<IterationResult> {
   const { client, db, state, config } = deps;
 
-  // Decide the cursor epoch for this iteration.
-  //
-  // - Fresh boot (cursor.epoch === null):
-  //     - BACKFILL_FROM_EPOCH configured: start there
-  //     - otherwise: seed from the earliest epoch the node knows about so
-  //       fresh deployments capture full history. /epochs failure falls back
-  //       to latest rather than no-op'ing the boot.
-  // - Cursor ahead of the node (epoch rolled back): reset to latest
-  // - Cursor behind the node: keep walking forward through epochs
-  if (state.cursor.epoch === null) {
-    state.cursor = { epoch: await chooseSeedEpoch(client, config, status), blockIndex: 0 };
-  } else if (state.cursor.epoch > status.latestEpoch) {
-    warn(
-      `cursor epoch ${state.cursor.epoch} > latestEpoch ${status.latestEpoch}; node rolled back, resetting`,
-    );
-    state.cursor = { epoch: status.latestEpoch, blockIndex: 0 };
-  }
-
-  const cursorEpoch = state.cursor.epoch;
-  if (cursorEpoch === null) return result;
-
-  // Work out the last block index for the current iteration's epoch.
-  // In the common case we index the tip epoch and use status.latestBlockIndex.
-  // During backfill (cursorEpoch < latestEpoch) we fetch /epochs to find the
-  // final block of the epoch we are currently draining.
-  let epochLastBlock: number;
-  // When backfilling, we also use the epoch list to jump directly to the next
-  // known epoch on drain. Epoch numbers are timestamps with arbitrary gaps, so
-  // a cursor + 1 walk would no-op through thousands of empty epochs per hop.
-  let knownEpochs: Array<{ epoch: number; lastBlock: number }> | null = null;
-  if (cursorEpoch === status.latestEpoch) {
-    epochLastBlock = status.latestBlockIndex;
-  } else {
-    const epochs = await client.getEpochs();
-    knownEpochs = [...epochs.epochs].sort((a, b) => a.epoch - b.epoch);
-    const match = knownEpochs.find((e) => e.epoch === cursorEpoch);
-    if (!match) {
-      const next = knownEpochs.find((e) => e.epoch > cursorEpoch);
-      if (!next) {
-        warn(`backfill: cursor epoch ${cursorEpoch} past last known epoch; waiting`);
-        return result;
-      }
-      log(`backfill: epoch ${cursorEpoch} missing, jumping to next known epoch ${next.epoch}`);
-      state.cursor = { epoch: next.epoch, blockIndex: 0 };
-      await state.save();
-      return result;
-    }
-    epochLastBlock = match.lastBlock;
-    if (config.verbose) {
-      log(`backfill: epoch ${cursorEpoch} lastBlock=${epochLastBlock}`);
-    }
-  }
-
-  // Catch up on blocks in the current epoch. insertBlock failures break the
-  // loop and persist the cursor up to the last successful insert so the next
-  // iteration resumes from the right place.
-  while (state.cursor.blockIndex < epochLastBlock) {
-    const nextIndex = state.cursor.blockIndex + 1;
-    let raw: Record<string, unknown> | null;
-    try {
-      raw = await client.getBlock(cursorEpoch, nextIndex);
-    } catch (e) {
-      if (e instanceof RateLimitError) {
-        // Persist progress through the previous block so backoff in runLoop
-        // does not cause us to re-fetch what we already indexed.
-        try {
-          await state.save();
-        } catch (saveErr) {
-          error(`state.save failed after rate limit: ${formatErr(saveErr)}`);
-        }
-        throw e;
-      }
-      error(`block fetch failed at epoch=${cursorEpoch} index=${nextIndex}: ${formatErr(e)}`);
-      break;
-    }
-    if (raw === null) {
-      warn(`block ${cursorEpoch}/${nextIndex} returned 404, skipping (likely pruned)`);
-      state.cursor.blockIndex = nextIndex;
-      result.blocksSkipped += 1;
-      continue;
-    }
-    const record = rawBlockToRecord(
-      raw as unknown as Parameters<typeof rawBlockToRecord>[0],
-      cursorEpoch,
-    );
-    try {
-      await db.insertBlock(record);
-    } catch (e) {
-      error(`insertBlock failed at epoch=${cursorEpoch} index=${nextIndex}: ${formatErr(e)}`);
-      // Persist whatever progress we made before bailing so the next
-      // iteration does not re-fetch already-committed blocks.
-      try {
-        await state.save();
-      } catch (saveErr) {
-        error(`state.save failed after insertBlock error: ${formatErr(saveErr)}`);
-      }
-      throw e;
-    }
-    state.cursor.blockIndex = nextIndex;
-    state.observability.lastBlockInsertAt = new Date(nowMs).toISOString();
-    result.blocksIndexed += 1;
-  }
-
-  // If we just finished an older epoch, advance to the next known epoch so
-  // the next iteration picks up where we left off. We only advance when we
-  // actually reached the end of the epoch (not on an error-break above).
-  if (cursorEpoch < status.latestEpoch && state.cursor.blockIndex >= epochLastBlock) {
-    const nextKnown = knownEpochs?.find((e) => e.epoch > cursorEpoch);
-    const nextEpoch = nextKnown?.epoch ?? cursorEpoch + 1;
-    log(
-      `backfill: epoch ${cursorEpoch} complete (${epochLastBlock} blocks), advancing to ${nextEpoch}`,
-    );
-    state.cursor = { epoch: nextEpoch, blockIndex: 0 };
+  // Canonicalise before indexing anything. The node can maintain multiple
+  // chains simultaneously (forks, solo-mine restarts, reorgs) and exposes
+  // every historical chain through /epochs. Walking all of them would tag
+  // the same physical block under multiple epoch IDs. The plan collapses
+  // that down to just the canonical chain (the one containing
+  // status.latestEpoch) with per-epoch owned ranges. Empty plan means the
+  // node has no block 1 yet (early bootstrap or transient 404) — we still
+  // do the nodes-refresh / observability work below, just no indexing.
+  const epochsBody = await client.getEpochs();
+  const plan = await buildCanonicalPlan(client, state, status, epochsBody);
+  if (plan.length > 0) {
+    await walkCanonicalPlan(deps, result, plan, nowMs);
   }
 
   // Refresh node snapshot on its own cadence.
@@ -268,6 +193,112 @@ async function runIterationBody(
 
   await state.save();
   return result;
+}
+
+/**
+ * Walk the canonical plan: seed the cursor if fresh, skip forward off any
+ * dead-chain position, then index whatever owned blocks remain in the
+ * current canonical epoch. Advances to the next canonical epoch once the
+ * current one's owned range is drained.
+ */
+async function walkCanonicalPlan(
+  deps: LoopDeps,
+  result: IterationResult,
+  plan: CanonicalEpoch[],
+  nowMs: number,
+): Promise<void> {
+  const { client, db, state, config } = deps;
+
+  if (state.cursor.epoch === null) {
+    const seed = chooseCanonicalSeed(plan, config);
+    state.cursor = { epoch: seed, blockIndex: 0 };
+    log(`fresh boot: seeding cursor at canonical epoch ${seed}`);
+  }
+
+  let cursorIdx = plan.findIndex((e) => e.epoch === state.cursor.epoch);
+  if (cursorIdx < 0) {
+    const next = plan.find((e) => e.epoch > (state.cursor.epoch ?? 0));
+    if (!next) {
+      warn(
+        `cursor epoch ${state.cursor.epoch} is not canonical and has no canonical successor; waiting`,
+      );
+      return;
+    }
+    warn(
+      `cursor epoch ${state.cursor.epoch} is not on the canonical chain; advancing to ${next.epoch}`,
+    );
+    state.cursor = { epoch: next.epoch, blockIndex: 0 };
+    cursorIdx = plan.findIndex((e) => e.epoch === next.epoch);
+  }
+
+  const current = plan[cursorIdx]!;
+
+  // Respect the owned range. Cursor starts at (ownedStart - 1) so the first
+  // block fetched is ownedStart. Prevents re-fetching blocks that belong
+  // to an earlier canonical epoch.
+  if (state.cursor.blockIndex < current.ownedStart - 1) {
+    state.cursor.blockIndex = current.ownedStart - 1;
+  }
+
+  if (config.verbose) {
+    log(
+      `canonical: epoch=${current.epoch} owned=[${current.ownedStart}..${current.ownedEnd}] cursor=${state.cursor.blockIndex}`,
+    );
+  }
+
+  while (state.cursor.blockIndex < current.ownedEnd) {
+    const nextIndex = state.cursor.blockIndex + 1;
+    let raw: Record<string, unknown> | null;
+    try {
+      raw = await client.getBlock(current.epoch, nextIndex);
+    } catch (e) {
+      if (e instanceof RateLimitError) {
+        try {
+          await state.save();
+        } catch (saveErr) {
+          error(`state.save failed after rate limit: ${formatErr(saveErr)}`);
+        }
+        throw e;
+      }
+      error(`block fetch failed at epoch=${current.epoch} index=${nextIndex}: ${formatErr(e)}`);
+      break;
+    }
+    if (raw === null) {
+      warn(`block ${current.epoch}/${nextIndex} returned 404, skipping (likely pruned)`);
+      state.cursor.blockIndex = nextIndex;
+      result.blocksSkipped += 1;
+      continue;
+    }
+    const record = rawBlockToRecord(
+      raw as unknown as Parameters<typeof rawBlockToRecord>[0],
+      current.epoch,
+    );
+    try {
+      await db.insertBlock(record);
+    } catch (e) {
+      error(`insertBlock failed at epoch=${current.epoch} index=${nextIndex}: ${formatErr(e)}`);
+      try {
+        await state.save();
+      } catch (saveErr) {
+        error(`state.save failed after insertBlock error: ${formatErr(saveErr)}`);
+      }
+      throw e;
+    }
+    state.cursor.blockIndex = nextIndex;
+    state.observability.lastBlockInsertAt = new Date(nowMs).toISOString();
+    result.blocksIndexed += 1;
+  }
+
+  // Drained this canonical epoch — advance to the next. Cursor.blockIndex
+  // stays at current.ownedEnd so the next iteration's clamp bumps it to
+  // the next epoch's (ownedStart - 1) without re-fetching anything.
+  if (state.cursor.blockIndex >= current.ownedEnd && cursorIdx < plan.length - 1) {
+    const next = plan[cursorIdx + 1]!;
+    log(
+      `canonical: epoch ${current.epoch} drained at ${current.ownedEnd}; advancing to ${next.epoch}`,
+    );
+    state.cursor = { epoch: next.epoch, blockIndex: current.ownedEnd };
+  }
 }
 
 function formatErr(e: unknown): string {
@@ -381,30 +412,98 @@ export async function resolveSelfAddress(
   return snapshot.nodes[selfHost] ? selfHost : null;
 }
 
-async function chooseSeedEpoch(
+/**
+ * Fetch and cache an epoch's block-1 hash. The hash identifies the chain —
+ * every epoch on the same chain shares the same block 1 because epochs
+ * expose the cumulative chain history. Dead chains have distinct block-1
+ * hashes from the canonical chain's block 1.
+ *
+ * Returns null if the node has no block 1 for this epoch yet (the epoch is
+ * known but empty, e.g. just rolled over).
+ */
+async function ensureChainAnchor(
   client: QuipClient,
-  config: IndexerConfig,
+  state: IndexerState,
+  epoch: number,
+): Promise<string | null> {
+  const cached = state.chainAnchors.get(epoch);
+  if (cached !== undefined) return cached;
+  const raw = await client.getBlock(epoch, 1);
+  if (raw === null) return null;
+  const hash = String(raw.block_hash ?? "");
+  if (!hash) return null;
+  state.chainAnchors.set(epoch, hash);
+  return hash;
+}
+
+/**
+ * Build the ordered list of canonical-chain epochs with owned block ranges.
+ *
+ * Canonical chain = the chain whose block-1 hash matches that of
+ * status.latestEpoch (the tip the node is currently extending). Every other
+ * epoch the node knows about is a dead fork and gets skipped — we never
+ * index its blocks.
+ *
+ * Within the canonical chain, each epoch's owned range is the slice of the
+ * chain introduced during that epoch: (previous canonical epoch's lastBlock
+ * + 1) through this epoch's lastBlock. The tip epoch uses
+ * status.latestBlockIndex instead of /epochs.lastBlock because the former is
+ * authoritative for "how far the chain has advanced" while the latter can
+ * lag by one poll cycle.
+ */
+export async function buildCanonicalPlan(
+  client: QuipClient,
+  state: IndexerState,
   status: StatusBody,
-): Promise<number> {
-  if (config.backfillFromEpoch !== undefined && config.backfillFromEpoch <= status.latestEpoch) {
-    log(`backfill from env: starting at epoch ${config.backfillFromEpoch}`);
-    return config.backfillFromEpoch;
+  epochsBody: EpochsBody,
+): Promise<CanonicalEpoch[]> {
+  if (status.latestBlockIndex <= 0) return [];
+  const canonicalAnchor = await ensureChainAnchor(client, state, status.latestEpoch);
+  if (!canonicalAnchor) return [];
+
+  // Include the tip epoch even if /epochs hasn't caught up to it yet — the
+  // node's status body is fresher. Build a union {tip} ∪ /epochs.epochs,
+  // deduplicated, sorted ascending.
+  const byEpoch = new Map<number, { epoch: number; lastBlock: number }>();
+  for (const e of epochsBody.epochs) {
+    byEpoch.set(e.epoch, { epoch: e.epoch, lastBlock: e.lastBlock });
   }
-  try {
-    const epochs = await client.getEpochs();
-    let earliest: number | null = null;
-    for (const e of epochs.epochs) {
-      if (earliest === null || e.epoch < earliest) earliest = e.epoch;
-    }
-    if (earliest !== null) {
-      log(`fresh boot: seeding from earliest known epoch ${earliest}`);
-      return earliest;
-    }
-  } catch (e) {
-    warn(`getEpochs failed on seed; falling back to latest epoch: ${formatErr(e)}`);
+  // Tip override: use status.latestBlockIndex for the current tip epoch.
+  byEpoch.set(status.latestEpoch, {
+    epoch: status.latestEpoch,
+    lastBlock: status.latestBlockIndex,
+  });
+  const sorted = [...byEpoch.values()].sort((a, b) => a.epoch - b.epoch);
+
+  const plan: CanonicalEpoch[] = [];
+  let prevLast = 0;
+  for (const e of sorted) {
+    const anchor = await ensureChainAnchor(client, state, e.epoch);
+    if (anchor !== canonicalAnchor) continue;
+    plan.push({
+      epoch: e.epoch,
+      ownedStart: prevLast + 1,
+      ownedEnd: e.lastBlock,
+    });
+    prevLast = e.lastBlock;
   }
-  log(`fresh boot: no earlier epochs available, starting at ${status.latestEpoch}`);
-  return status.latestEpoch;
+  return plan;
+}
+
+/**
+ * Pick the initial cursor epoch for a fresh boot. If
+ * `config.backfillFromEpoch` is set and that epoch is canonical, honor it;
+ * otherwise start from the earliest canonical epoch so the full chain gets
+ * indexed.
+ */
+function chooseCanonicalSeed(plan: CanonicalEpoch[], config: IndexerConfig): number {
+  const first = plan[0]!;
+  const configured = config.backfillFromEpoch;
+  if (configured === undefined) return first.epoch;
+  const match = plan.find((e) => e.epoch === configured);
+  if (match) return configured;
+  warn(`BACKFILL_FROM_EPOCH=${configured} is not canonical; seeding from ${first.epoch} instead`);
+  return first.epoch;
 }
 
 /**
