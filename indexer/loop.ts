@@ -242,8 +242,10 @@ export function resolveSelfAddress(config: IndexerConfig, snapshot: NodesSnapsho
   if (config.selfAddress) {
     return snapshot.nodes[config.selfAddress] ? config.selfAddress : null;
   }
-  // Fallback: match the polled node's hostname against publicHost. Works when
-  // the upstream includes itself in its own peer list; fails silently (null)
+  // Fallback: match the polled node's hostname against two signals per peer —
+  // publicHost (self-reported) and the hostname portion of address itself
+  // (how other peers reach it). Works when the upstream includes itself in
+  // its own peer list under either representation; fails silently (null)
   // otherwise, and the UI surfaces candidate addresses.
   let selfHost: string;
   try {
@@ -252,9 +254,9 @@ export function resolveSelfAddress(config: IndexerConfig, snapshot: NodesSnapsho
     return null;
   }
   for (const [addr, info] of Object.entries(snapshot.nodes)) {
-    if (info.publicHost && info.publicHost.toLowerCase() === selfHost) {
-      return addr;
-    }
+    if (info.publicHost && info.publicHost.toLowerCase() === selfHost) return addr;
+    const addrHost = addr.split(":", 1)[0]?.toLowerCase();
+    if (addrHost && addrHost === selfHost) return addr;
   }
   return null;
 }

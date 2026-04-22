@@ -474,6 +474,49 @@ describe("runIteration self-address", () => {
     expect(db.selfAddress).toBe("addr-self");
   });
 
+  it("matches via the hostname portion of the address key when publicHost is null", async () => {
+    // Common shape from the wild: peer's public_host is not self-reported,
+    // but its address encodes the same hostname that the dashboard polls.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+
+    const fetchImpl = makeFetch((url) => {
+      if (url.endsWith("/status")) {
+        return { status: 200, etag: "e", body: statusBody("1000", 0) };
+      }
+      if (url.endsWith("/nodes")) {
+        return {
+          status: 200,
+          body: {
+            updated_at: "2025-01-01T00:00:00Z",
+            node_count: 1,
+            active_count: 1,
+            nodes: {
+              "node.example.com:20049": {
+                address: "node.example.com:20049",
+                status: "online",
+                first_seen: 1,
+                last_seen: 2,
+                last_heartbeat: 2,
+                public_host: null,
+              },
+            },
+          },
+        };
+      }
+      return { status: 404 };
+    });
+    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+
+    await runIteration(
+      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => 0 },
+      { value: -1_000_000 },
+    );
+
+    expect(db.selfAddress).toBe("node.example.com:20049");
+  });
+
   it("leaves the address null when no node's publicHost matches", async () => {
     const db = new FakeDb();
     const state = new IndexerState(db);
