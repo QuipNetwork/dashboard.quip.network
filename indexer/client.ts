@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { EpochId, EpochStatus } from "../src/types/telemetry";
+
 export interface StatusBody {
-  epochs: string[];
-  latestEpoch: number;
+  epochs: EpochId[];
+  latestEpoch: EpochId;
   latestBlockIndex: number;
   totalBlocks: number;
   nodeCount: number;
@@ -12,10 +14,11 @@ export interface StatusBody {
 
 export interface EpochsBody {
   epochs: Array<{
-    epoch: number;
+    epoch: EpochId;
     blockCount: number;
     firstBlock: number;
     lastBlock: number;
+    status: EpochStatus;
   }>;
 }
 
@@ -71,12 +74,11 @@ export class QuipClient {
     if (res.status === 304) return { status: 304, etag, body: null };
     const raw = await this.readEnvelope<Record<string, unknown>>(res, path);
     const data = raw ?? {};
-    const latestEpochStr = String(data["latest_epoch"] ?? "");
     const body: StatusBody = {
       epochs: Array.isArray(data["epochs"])
         ? (data["epochs"] as unknown[]).map((s) => String(s))
         : [],
-      latestEpoch: latestEpochStr ? Number(latestEpochStr) : 0,
+      latestEpoch: String(data["latest_epoch"] ?? ""),
       latestBlockIndex: Number(data["latest_block_index"] ?? 0),
       totalBlocks: Number(data["total_blocks"] ?? 0),
       nodeCount: Number(data["node_count"] ?? 0),
@@ -95,10 +97,11 @@ export class QuipClient {
       : [];
     return {
       epochs: rawEpochs.map((e) => ({
-        epoch: Number(e["epoch"] ?? 0),
+        epoch: String(e["epoch"] ?? ""),
         blockCount: Number(e["block_count"] ?? 0),
         firstBlock: Number(e["first_block"] ?? 0),
         lastBlock: Number(e["last_block"] ?? 0),
+        status: narrowEpochStatus(e["status"], path),
       })),
     };
   }
@@ -107,7 +110,7 @@ export class QuipClient {
    * Fetch a single block. Returns null on 404. The `nonce` field is
    * preserved as a string because u64 values exceed Number.MAX_SAFE_INTEGER.
    */
-  async getBlock(epoch: number, blockIndex: number): Promise<Record<string, unknown> | null> {
+  async getBlock(epoch: EpochId, blockIndex: number): Promise<Record<string, unknown> | null> {
     const path = `/api/v1/telemetry/epochs/${epoch}/blocks/${blockIndex}`;
     const res = await this.request(path, null);
     if (res.status === 404) return null;
@@ -186,6 +189,28 @@ export class QuipClient {
     }
     return parsed as unknown as T;
   }
+}
+
+// Fired at most once per process — operators need the warn but not a flood
+// when a single poll produces hundreds of unknown-status rows.
+let epochStatusWarned = false;
+
+/**
+ * Narrow the raw `status` field from the node into our EpochStatus literal.
+ * The node's API contract allows "live" or "stale_fork"; anything else
+ * (schema drift, new chain-state label we don't yet know about) is treated
+ * as stale_fork for display — the UI will visibly mark it as not-current
+ * rather than silently labelling it "live".
+ */
+function narrowEpochStatus(raw: unknown, path: string): EpochStatus {
+  if (raw === "live" || raw === "stale_fork") return raw;
+  if (!epochStatusWarned) {
+    epochStatusWarned = true;
+    console.warn(
+      `[indexer] ${path}: unrecognized epoch.status=${JSON.stringify(raw)}; treating as stale_fork`,
+    );
+  }
+  return "stale_fork";
 }
 
 /**

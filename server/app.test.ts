@@ -84,11 +84,11 @@ beforeEach(async () => {
   await db.connect();
   await db.migrate();
 
-  await db.insertBlock(makeBlock({ epoch: 1_700_000_000, blockIndex: 0 }));
-  await db.insertBlock(makeBlock({ epoch: 1_700_000_000, blockIndex: 1 }));
-  await db.insertBlock(makeBlock({ epoch: 1_700_000_060, blockIndex: 0 }));
+  await db.insertBlock(makeBlock({ epoch: "1700000000", blockIndex: 0 }));
+  await db.insertBlock(makeBlock({ epoch: "1700000000", blockIndex: 1 }));
+  await db.insertBlock(makeBlock({ epoch: "1700000060", blockIndex: 0 }));
   await db.upsertNodes(SNAPSHOT);
-  await db.saveCursor({ epoch: 1_700_000_060, blockIndex: 0 }, {});
+  await db.saveCursor({ epoch: "1700000060", blockIndex: 0 }, {});
 
   app = createApp({ db, enableStatic: false, geoIp: NOOP_GEOIP });
 });
@@ -115,9 +115,9 @@ describe("server app", () => {
 
   test("GET /api/telemetry surfaces indexer observability once written", async () => {
     await db.setIndexerObservability({
-      nodeLatestEpoch: 1_700_000_060,
+      nodeLatestEpoch: "1700000060",
       nodeLatestBlockIndex: 42,
-      cursorEpoch: 1_700_000_060,
+      cursorEpoch: "1700000060",
       cursorBlockIndex: 40,
       lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
       lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
@@ -166,11 +166,13 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { blocks: BlockRecord[] };
     expect(body.blocks).toHaveLength(2);
-    for (const b of body.blocks) expect(b.epoch).toBe(1_700_000_000);
+    for (const b of body.blocks) expect(b.epoch).toBe("1700000000");
   });
 
-  test("GET /api/telemetry/epochs rejects non-integer epoch", async () => {
-    const res = await app.fetch(new Request("http://test/api/telemetry/epochs/not-a-number"));
+  test("GET /api/telemetry/epochs rejects a non-hex epoch id", async () => {
+    // Post-v4 epoch IDs are hex hashes; anything outside /^[0-9a-f]{8,64}$/i
+    // is rejected before the DB roundtrip.
+    const res = await app.fetch(new Request("http://test/api/telemetry/epochs/not-a-hash"));
     expect(res.status).toBe(400);
   });
 
@@ -179,11 +181,11 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ok: boolean;
-      cursor: { epoch: number | null; blockIndex: number };
+      cursor: { epoch: string | null; blockIndex: number };
       lastSync: string | null;
     };
     expect(body.ok).toBe(true);
-    expect(body.cursor.epoch).toBe(1_700_000_060);
+    expect(body.cursor.epoch).toBe("1700000060");
     expect(body.cursor.blockIndex).toBe(0);
     expect(body.lastSync).toBe(SNAPSHOT.updatedAt);
   });
@@ -193,8 +195,8 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as TelemetryIndex;
     const epochs = body.epochs.map((e) => e.epoch).sort();
-    expect(epochs).toEqual([1_700_000_000, 1_700_000_060]);
-    const first = body.epochs.find((e) => e.epoch === 1_700_000_000);
+    expect(epochs).toEqual(["1700000000", "1700000060"]);
+    const first = body.epochs.find((e) => e.epoch === "1700000000");
     expect(first?.blockCount).toBe(2);
   });
 });

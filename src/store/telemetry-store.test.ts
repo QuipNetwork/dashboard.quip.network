@@ -7,7 +7,7 @@ import { selectTipBlock, type TelemetryState } from "./telemetry-store";
 
 function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
   return {
-    epoch: 1_000_000_000,
+    epoch: "1000000000",
     blockIndex: 0,
     blockHash: "hash",
     timestamp: 1_000_000_000,

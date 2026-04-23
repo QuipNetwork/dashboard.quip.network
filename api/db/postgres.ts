@@ -4,6 +4,8 @@ import postgres, { type Sql } from "postgres";
 
 import type {
   BlockRecord,
+  EpochId,
+  EpochStatus,
   IndexerCursor,
   IndexerObservability,
   NodesSnapshot,
@@ -16,11 +18,12 @@ import {
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
+  type EpochStatusEntry,
 } from "./adapter";
 
 const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS blocks (
-     epoch               BIGINT NOT NULL,
+     epoch               TEXT NOT NULL,
      block_index         INTEGER NOT NULL,
      block_hash          TEXT NOT NULL,
      timestamp           BIGINT NOT NULL,
@@ -48,10 +51,14 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE TABLE IF NOT EXISTS indexer_state (
      id               INTEGER PRIMARY KEY CHECK (id = 1),
-     cursor_epoch     BIGINT,
+     cursor_epoch     TEXT,
      cursor_block     INTEGER NOT NULL DEFAULT 0,
      last_nodes_etag  TEXT,
      updated_at       TIMESTAMPTZ NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS epoch_status (
+     epoch   TEXT PRIMARY KEY,
+     status  TEXT NOT NULL CHECK (status IN ('live','stale_fork'))
    )`,
   `CREATE TABLE IF NOT EXISTS meta (
      key   TEXT PRIMARY KEY,
@@ -63,9 +70,12 @@ const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
 
 interface BlockRow {
-  epoch: string | number;
+  epoch: string;
   block_index: number;
   block_hash: string;
+  // timestamp is BIGINT which postgres-js returns as string to preserve
+  // precision; Number() is safe here because unix seconds fit comfortably
+  // inside MAX_SAFE_INTEGER.
   timestamp: string | number;
   previous_hash: string;
   miner_id: string;
@@ -85,7 +95,7 @@ interface BlockRow {
 
 function rowToBlock(r: BlockRow): BlockRecord {
   return {
-    epoch: Number(r.epoch),
+    epoch: r.epoch,
     blockIndex: r.block_index,
     blockHash: r.block_hash,
     timestamp: Number(r.timestamp),
@@ -188,7 +198,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     return rows.map(rowToBlock);
   }
 
-  async getBlocksByEpoch(epoch: number): Promise<BlockRecord[]> {
+  async getBlocksByEpoch(epoch: EpochId): Promise<BlockRecord[]> {
     const rows = await this.requireSql()<BlockRow[]>`
       SELECT * FROM blocks WHERE epoch = ${epoch} ORDER BY block_index
     `;
@@ -197,18 +207,51 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async getIndex(): Promise<TelemetryIndex> {
     const sql = this.requireSql();
-    const rows = await sql<{ epoch: string | number; block_count: string | number }[]>`
-      SELECT epoch, COUNT(*) AS block_count
-      FROM blocks GROUP BY epoch ORDER BY epoch
+    // LEFT JOIN: rows survive while the indexer has persisted blocks for an
+    // epoch but the per-poll epoch_status replace hasn't run yet (brief
+    // window on first boot). Default to stale_fork so we never spuriously
+    // label an epoch "live". first_block_timestamp derives from
+    // block_index=1's timestamp; NULL when that block hasn't been indexed.
+    const rows = await sql<
+      {
+        epoch: string;
+        block_count: string | number;
+        status: string | null;
+        first_block_timestamp: string | number | null;
+      }[]
+    >`
+      SELECT b.epoch AS epoch,
+             COUNT(*) AS block_count,
+             COALESCE(es.status, 'stale_fork') AS status,
+             MAX(CASE WHEN b.block_index = 1 THEN b.timestamp END) AS first_block_timestamp
+      FROM blocks b
+      LEFT JOIN epoch_status es ON es.epoch = b.epoch
+      GROUP BY b.epoch
+      ORDER BY first_block_timestamp DESC NULLS LAST, b.epoch
     `;
     const snap = await this.getNodes();
     return {
       epochs: rows.map((r) => ({
-        epoch: Number(r.epoch),
+        epoch: r.epoch,
         blockCount: Number(r.block_count),
+        status: (r.status === "live" ? "live" : "stale_fork") as EpochStatus,
+        firstBlockTimestamp:
+          r.first_block_timestamp == null ? null : Number(r.first_block_timestamp),
       })),
       lastUpdated: snap?.updatedAt ?? new Date().toISOString(),
     };
+  }
+
+  async replaceEpochStatus(entries: EpochStatusEntry[]): Promise<void> {
+    const sql = this.requireSql();
+    // Atomic swap: a partial write where a chain transitions live →
+    // stale_fork would momentarily show two "live" epochs in the UI.
+    await sql.begin(async (tx) => {
+      await tx`DELETE FROM epoch_status`;
+      if (entries.length === 0) return;
+      // sql(arrayOfObjects) generates a multi-row VALUES clause.
+      await tx`INSERT INTO epoch_status ${tx(entries, "epoch", "status")}`;
+    });
   }
 
   async upsertNodes(snapshot: NodesSnapshot): Promise<number> {
@@ -238,7 +281,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     `;
     const row = rows[0];
     return {
-      epoch: row?.cursor_epoch == null ? null : Number(row.cursor_epoch),
+      epoch: row?.cursor_epoch ?? null,
       blockIndex: row?.cursor_block ?? 0,
     };
   }

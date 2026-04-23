@@ -1,20 +1,27 @@
-// Epoch numbers in this network are unix timestamps (seconds). Render them as
-// a short date so a value like 1776823245 reads as "Apr 21 18:53" rather than
-// as an opaque 10-digit integer. Values below 1e9 (year ~2001) are treated as
-// raw ordinals and returned as-is.
-export function formatEpochTimestamp(e: number): string {
-  if (e >= 1_000_000_000) {
-    const d = new Date(e * 1000);
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    }
+// Epoch IDs are 16-char hex hashes (e.g. "e0a08eef1dfff726"). They're
+// opaque — no ordering or time info in the hash itself — so we render a
+// short prefix. When a `firstBlockTimestamp` (block_index=1's unix seconds)
+// is known, suffix the short hash with a localized date so the selector
+// keeps the time cue operators used pre-cutover.
+const EPOCH_ID_PREFIX_CHARS = 8;
+
+export function formatEpochId(epochHash: string, firstBlockTimestamp?: number | null): string {
+  const short =
+    epochHash.length > EPOCH_ID_PREFIX_CHARS
+      ? `${epochHash.slice(0, EPOCH_ID_PREFIX_CHARS)}…`
+      : epochHash;
+  if (firstBlockTimestamp == null || !Number.isFinite(firstBlockTimestamp)) {
+    return short;
   }
-  return String(e);
+  const d = new Date(firstBlockTimestamp * 1000);
+  if (Number.isNaN(d.getTime())) return short;
+  const when = d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${short} · ${when}`;
 }
 
 export function formatSeconds(s: number): string {

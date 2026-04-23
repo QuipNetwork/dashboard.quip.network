@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { IndexerCursor } from "../src/types/telemetry";
+import type { EpochId, IndexerCursor } from "../src/types/telemetry";
 import type { DatabaseAdapter } from "../api/db/adapter";
 
 export interface EtagState {
@@ -15,7 +15,7 @@ export interface EtagState {
 export interface StallTracker {
   // (epoch, latestBlockIndex) last observed from /api/v1/telemetry/status.
   // null before the first successful poll.
-  lastObserved: { epoch: number; blockIndex: number } | null;
+  lastObserved: { epoch: EpochId; blockIndex: number } | null;
   // Wall-clock ms at which lastObserved last changed. Anchors the stall
   // duration calculation so the check is independent of poll cadence.
   lastAdvanceAtMs: number;
@@ -47,7 +47,7 @@ export class IndexerState {
   // (epochs sharing a block_1 hash are on the same chain). Not persisted:
   // rebuilding is cheap (one /block fetch per epoch) and the node is the
   // source of truth, so staleness across restarts is fine.
-  chainAnchors: Map<number, string> = new Map();
+  chainAnchors: Map<EpochId, string> = new Map();
 
   constructor(private readonly db: DatabaseAdapter) {}
 

@@ -104,22 +104,21 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
     return { level: "healthy", reason: "", blockAgeMs, indexerLagBlocks };
   }
 
-  // Indexer is in an older epoch than the node — it's either still
-  // backfilling, restarted, or wedged. Without this branch we'd fall through
-  // to "stalled" and blame the node for an indexer-side lag: the tip block in
-  // the store is the newest row the indexer has managed to write, not the
-  // newest block the node has produced. A null cursorEpoch means the indexer
-  // hasn't seeded yet; we can't compute a meaningful delta and leave the
-  // banner to the downstream branches.
+  // Indexer is on a different epoch than the node — it's either still
+  // backfilling a dead fork, restarted, or wedged mid-switch. Without this
+  // branch we'd fall through to "stalled" and blame the node for an
+  // indexer-side lag. A null cursorEpoch means the indexer hasn't seeded
+  // yet; we leave that to downstream branches. Post-v4 epochs are opaque
+  // hex hashes so we can't compute a numeric "N epochs behind" — a
+  // binary on-different-epoch signal is all we can report honestly.
   if (
     indexer !== null &&
     indexer.cursorEpoch !== null &&
-    indexer.cursorEpoch < indexer.nodeLatestEpoch
+    indexer.cursorEpoch !== indexer.nodeLatestEpoch
   ) {
-    const behindEpochs = indexer.nodeLatestEpoch - indexer.cursorEpoch;
     return {
       level: "warning",
-      reason: `Indexer is ${behindEpochs} epoch${behindEpochs === 1 ? "" : "s"} behind the polled node.`,
+      reason: "Indexer is on a different epoch than the polled node.",
       blockAgeMs,
       indexerLagBlocks: null,
     };

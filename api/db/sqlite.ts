@@ -6,6 +6,8 @@ import { dirname } from "node:path";
 
 import type {
   BlockRecord,
+  EpochId,
+  EpochStatus,
   IndexerCursor,
   IndexerObservability,
   NodesSnapshot,
@@ -17,11 +19,12 @@ import {
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
+  type EpochStatusEntry,
 } from "./adapter";
 
 const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS blocks (
-     epoch               INTEGER NOT NULL,
+     epoch               TEXT NOT NULL,
      block_index         INTEGER NOT NULL,
      block_hash          TEXT NOT NULL,
      timestamp           INTEGER NOT NULL,
@@ -49,10 +52,14 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE TABLE IF NOT EXISTS indexer_state (
      id                 INTEGER PRIMARY KEY CHECK (id = 1),
-     cursor_epoch       INTEGER,
+     cursor_epoch       TEXT,
      cursor_block       INTEGER NOT NULL DEFAULT 0,
      last_nodes_etag    TEXT,
      updated_at         TEXT NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS epoch_status (
+     epoch   TEXT PRIMARY KEY,
+     status  TEXT NOT NULL CHECK (status IN ('live','stale_fork'))
    )`,
   `CREATE TABLE IF NOT EXISTS meta (
      key   TEXT PRIMARY KEY,
@@ -64,7 +71,7 @@ const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
 
 interface BlockRow {
-  epoch: number;
+  epoch: string;
   block_index: number;
   block_hash: string;
   timestamp: number;
@@ -84,13 +91,15 @@ interface BlockRow {
   min_solutions: number;
 }
 
-interface EpochCountRow {
-  epoch: number;
+interface EpochIndexRow {
+  epoch: string;
   block_count: number;
+  status: string | null;
+  first_block_timestamp: number | null;
 }
 
 interface StateRow {
-  cursor_epoch: number | null;
+  cursor_epoch: string | null;
   cursor_block: number;
   last_nodes_etag: string | null;
 }
@@ -221,7 +230,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return rows.map(rowToBlock);
   }
 
-  async getBlocksByEpoch(epoch: number): Promise<BlockRecord[]> {
+  async getBlocksByEpoch(epoch: EpochId): Promise<BlockRecord[]> {
     const rows = this.requireDb()
       .query("SELECT * FROM blocks WHERE epoch = ? ORDER BY block_index")
       .all(epoch) as BlockRow[];
@@ -230,14 +239,46 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getIndex(): Promise<TelemetryIndex> {
     const db = this.requireDb();
+    // LEFT JOIN epoch_status so rows survive if the indexer has blocks for
+    // an epoch but hasn't yet upserted its status (race between /epochs and
+    // /block writes). Status defaults to stale_fork in that case so the UI
+    // never spuriously badges an epoch as "live" before confirmation.
+    // firstBlockTimestamp derives from block_index=1; NULL if that block
+    // wasn't indexed — the UI handles the missing case.
     const rows = db
-      .query("SELECT epoch, COUNT(*) AS block_count FROM blocks GROUP BY epoch ORDER BY epoch")
-      .all() as EpochCountRow[];
+      .query(
+        `SELECT b.epoch AS epoch,
+                COUNT(*) AS block_count,
+                COALESCE(es.status, 'stale_fork') AS status,
+                MAX(CASE WHEN b.block_index = 1 THEN b.timestamp END) AS first_block_timestamp
+         FROM blocks b
+         LEFT JOIN epoch_status es ON es.epoch = b.epoch
+         GROUP BY b.epoch
+         ORDER BY first_block_timestamp IS NULL, first_block_timestamp DESC, b.epoch`,
+      )
+      .all() as EpochIndexRow[];
     const lastUpdated = (await this.getNodes())?.updatedAt ?? new Date().toISOString();
     return {
-      epochs: rows.map((r) => ({ epoch: r.epoch, blockCount: r.block_count })),
+      epochs: rows.map((r) => ({
+        epoch: r.epoch,
+        blockCount: r.block_count,
+        status: (r.status === "live" ? "live" : "stale_fork") as EpochStatus,
+        firstBlockTimestamp: r.first_block_timestamp,
+      })),
       lastUpdated,
     };
+  }
+
+  async replaceEpochStatus(entries: EpochStatusEntry[]): Promise<void> {
+    const db = this.requireDb();
+    // One transaction: a partial write where a chain transition is only
+    // half-applied would momentarily show the wrong "live" epoch in the UI.
+    const tx = db.transaction((es: EpochStatusEntry[]) => {
+      db.run("DELETE FROM epoch_status");
+      const ins = db.prepare(`INSERT INTO epoch_status (epoch, status) VALUES ($epoch, $status)`);
+      for (const e of es) ins.run({ $epoch: e.epoch, $status: e.status });
+    });
+    tx(entries);
   }
 
   async upsertNodes(snapshot: NodesSnapshot): Promise<number> {

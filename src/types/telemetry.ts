@@ -6,8 +6,20 @@
 
 export type MinerCategory = "CPU" | "GPU" | "QPU";
 
+// Epoch IDs are 16-char hex hashes (e.g. "e0a08eef1dfff726") as of the node's
+// post-timestamp-cutover telemetry. They're opaque strings end-to-end —
+// never parse them to Number. Per-block time still lives in `timestamp`.
+export type EpochId = string;
+
+/**
+ * Tag for `TelemetryIndex.epochs`: "live" is the single canonical-tip epoch
+ * the node is currently extending; "stale_fork" is any indexed-but-abandoned
+ * chain. Sourced from `/api/v1/telemetry/epochs`.
+ */
+export type EpochStatus = "live" | "stale_fork";
+
 export interface BlockRecord {
-  epoch: number;
+  epoch: EpochId;
   blockIndex: number;
   blockHash: string;
   timestamp: number;
@@ -129,9 +141,9 @@ export interface NodesSnapshot {
  *   if no block has been inserted since the indexer was last restarted.
  */
 export interface IndexerObservability {
-  nodeLatestEpoch: number;
+  nodeLatestEpoch: EpochId;
   nodeLatestBlockIndex: number;
-  cursorEpoch: number | null;
+  cursorEpoch: EpochId | null;
   cursorBlockIndex: number;
   lastStatusFetchAt: string;
   lastBlockInsertAt: string | null;
@@ -150,12 +162,21 @@ export interface TelemetryResponse {
 }
 
 export interface TelemetryIndex {
-  epochs: Array<{ epoch: number; blockCount: number }>;
+  epochs: Array<{
+    epoch: EpochId;
+    blockCount: number;
+    status: EpochStatus;
+    // Timestamp (unix seconds) of block_index=1 in this epoch. Drives the
+    // "e0a08eef… · Apr 22 23:58" time cue in the EpochSelector. null when
+    // the DB has rows for this epoch but not block 1 — possible on partial
+    // mid-epoch backfills — in which case the UI renders the short hash only.
+    firstBlockTimestamp: number | null;
+  }>;
   lastUpdated: string;
 }
 
 export interface IndexerCursor {
-  epoch: number | null;
+  epoch: EpochId | null;
   blockIndex: number;
 }
 
