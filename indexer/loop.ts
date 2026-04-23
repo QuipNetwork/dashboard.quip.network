@@ -117,8 +117,10 @@ export async function runIteration(
       await db.setIndexerObservability({
         nodeLatestEpoch: status.latestEpoch,
         nodeLatestBlockIndex: status.latestBlockIndex,
-        cursorEpoch: state.cursor.epoch,
-        cursorBlockIndex: state.cursor.blockIndex,
+        tipEpoch: state.cursor.epoch,
+        tipBlockIndex: state.cursor.blockIndex,
+        backfillEpoch: null,
+        backfillBlockIndex: 0,
         lastStatusFetchAt: new Date(nowMs).toISOString(),
         lastBlockInsertAt: state.observability.lastBlockInsertAt,
       });

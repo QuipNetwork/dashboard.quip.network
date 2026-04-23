@@ -117,8 +117,10 @@ describe("server app", () => {
     await db.setIndexerObservability({
       nodeLatestEpoch: "1700000060",
       nodeLatestBlockIndex: 42,
-      cursorEpoch: "1700000060",
-      cursorBlockIndex: 40,
+      tipEpoch: "1700000060",
+      tipBlockIndex: 40,
+      backfillEpoch: null,
+      backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
       lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
     });
@@ -126,7 +128,7 @@ describe("server app", () => {
     const body = (await res.json()) as TelemetryResponse;
     expect(body.indexer).not.toBeNull();
     expect(body.indexer?.nodeLatestBlockIndex).toBe(42);
-    expect(body.indexer?.cursorBlockIndex).toBe(40);
+    expect(body.indexer?.tipBlockIndex).toBe(40);
     expect(body.indexer?.lastStatusFetchAt).toBe("2026-04-22T12:00:00.000Z");
   });
 

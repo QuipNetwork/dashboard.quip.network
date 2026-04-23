@@ -14,7 +14,7 @@ export interface ChainHealth {
   reason: string;
   // ms since the tip block's timestamp. null when the chain is empty.
   blockAgeMs: number | null;
-  // node's latestBlockIndex minus indexer's cursorBlockIndex. null when
+  // node's latestBlockIndex minus indexer's tipBlockIndex. null when
   // observability is not yet written.
   indexerLagBlocks: number | null;
 }
@@ -69,8 +69,8 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
   const { nowMs, tipBlockTimestampMs, indexer } = inputs;
   const blockAgeMs = tipBlockTimestampMs !== null ? nowMs - tipBlockTimestampMs : null;
   const indexerLagBlocks =
-    indexer !== null && indexer.cursorEpoch === indexer.nodeLatestEpoch
-      ? indexer.nodeLatestBlockIndex - indexer.cursorBlockIndex
+    indexer !== null && indexer.tipEpoch === indexer.nodeLatestEpoch
+      ? indexer.nodeLatestBlockIndex - indexer.tipBlockIndex
       : null;
 
   if (blockAgeMs === null) {
@@ -107,14 +107,14 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
   // Indexer is on a different epoch than the node — it's either still
   // backfilling a dead fork, restarted, or wedged mid-switch. Without this
   // branch we'd fall through to "stalled" and blame the node for an
-  // indexer-side lag. A null cursorEpoch means the indexer hasn't seeded
+  // indexer-side lag. A null tipEpoch means the indexer hasn't seeded
   // yet; we leave that to downstream branches. Post-v4 epochs are opaque
   // hex hashes so we can't compute a numeric "N epochs behind" — a
   // binary on-different-epoch signal is all we can report honestly.
   if (
     indexer !== null &&
-    indexer.cursorEpoch !== null &&
-    indexer.cursorEpoch !== indexer.nodeLatestEpoch
+    indexer.tipEpoch !== null &&
+    indexer.tipEpoch !== indexer.nodeLatestEpoch
   ) {
     return {
       level: "warning",

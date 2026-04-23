@@ -998,8 +998,8 @@ describe("observability persistence", () => {
     expect(db.observability).not.toBeNull();
     expect(db.observability?.nodeLatestEpoch).toBe("1000");
     expect(db.observability?.nodeLatestBlockIndex).toBe(2);
-    expect(db.observability?.cursorEpoch).toBe("1000");
-    expect(db.observability?.cursorBlockIndex).toBe(2);
+    expect(db.observability?.tipEpoch).toBe("1000");
+    expect(db.observability?.tipBlockIndex).toBe(2);
     expect(db.observability?.lastStatusFetchAt).toBe(new Date(fakeNowMs).toISOString());
     // lastBlockInsertAt is bumped by insertBlock; equals the same tick because
     // only one time source was used for the iteration.
@@ -1080,8 +1080,10 @@ describe("observability persistence", () => {
     db.observability = {
       nodeLatestEpoch: "1000",
       nodeLatestBlockIndex: 5,
-      cursorEpoch: "1000",
-      cursorBlockIndex: 5,
+      tipEpoch: "1000",
+      tipBlockIndex: 5,
+      backfillEpoch: null,
+      backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
       lastBlockInsertAt: "2026-01-01T00:00:00.000Z",
     };

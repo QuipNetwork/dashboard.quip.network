@@ -48,8 +48,10 @@ export function parseIndexerObservability(
   if (
     !isStr(p.nodeLatestEpoch) ||
     !isFiniteInt(p.nodeLatestBlockIndex) ||
-    !isNullableStr(p.cursorEpoch) ||
-    !isFiniteInt(p.cursorBlockIndex) ||
+    !isNullableStr(p.tipEpoch) ||
+    !isFiniteInt(p.tipBlockIndex) ||
+    !isNullableStr(p.backfillEpoch) ||
+    !isFiniteInt(p.backfillBlockIndex) ||
     !isStr(p.lastStatusFetchAt) ||
     !isNullableStr(p.lastBlockInsertAt)
   ) {
@@ -59,8 +61,10 @@ export function parseIndexerObservability(
   return {
     nodeLatestEpoch: p.nodeLatestEpoch,
     nodeLatestBlockIndex: p.nodeLatestBlockIndex,
-    cursorEpoch: p.cursorEpoch,
-    cursorBlockIndex: p.cursorBlockIndex,
+    tipEpoch: p.tipEpoch,
+    tipBlockIndex: p.tipBlockIndex,
+    backfillEpoch: p.backfillEpoch,
+    backfillBlockIndex: p.backfillBlockIndex,
     lastStatusFetchAt: p.lastStatusFetchAt,
     lastBlockInsertAt: p.lastBlockInsertAt,
   };
