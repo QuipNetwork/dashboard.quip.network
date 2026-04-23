@@ -109,13 +109,14 @@ manifest:
     - build-image-amd64
     - build-image-arm64
   script:
+    # Tag pipelines leave CI_COMMIT_BRANCH unset and branch pipelines leave
+    # CI_COMMIT_TAG unset — default each to empty so the checks are safe.
     - |
-      set -eu
       TARGETS="$IMAGE:$CI_COMMIT_SHA"
-      if [ "$CI_COMMIT_BRANCH" = "master" ] || [ -n "$CI_COMMIT_TAG" ]; then
+      if [ "${CI_COMMIT_BRANCH:-}" = "master" ] || [ -n "${CI_COMMIT_TAG:-}" ]; then
         TARGETS="$TARGETS $IMAGE:latest"
       fi
-      if [ -n "$CI_COMMIT_TAG" ]; then
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
         TARGETS="$TARGETS $IMAGE:$CI_COMMIT_TAG"
       fi
       for T in $TARGETS; do
