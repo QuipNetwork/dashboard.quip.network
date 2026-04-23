@@ -88,7 +88,11 @@ beforeEach(async () => {
   await db.insertBlock(makeBlock({ epoch: "1700000000", blockIndex: 1 }));
   await db.insertBlock(makeBlock({ epoch: "1700000060", blockIndex: 0 }));
   await db.upsertNodes(SNAPSHOT);
-  await db.saveCursor({ epoch: "1700000060", blockIndex: 0 }, {});
+  await db.saveCursors(
+    { epoch: "1700000060", blockIndex: 0 },
+    { epoch: null, blockIndex: 0 },
+    { nodes: null },
+  );
 
   app = createApp({ db, enableStatic: false, geoIp: NOOP_GEOIP });
 });
@@ -178,17 +182,20 @@ describe("server app", () => {
     expect(res.status).toBe(400);
   });
 
-  test("GET /api/health returns cursor and lastSync", async () => {
+  test("GET /api/health returns tip/backfill cursors and lastSync", async () => {
     const res = await app.fetch(new Request("http://test/api/health"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ok: boolean;
-      cursor: { epoch: string | null; blockIndex: number };
+      tipCursor: { epoch: string | null; blockIndex: number };
+      backfillCursor: { epoch: string | null; blockIndex: number };
       lastSync: string | null;
     };
     expect(body.ok).toBe(true);
-    expect(body.cursor.epoch).toBe("1700000060");
-    expect(body.cursor.blockIndex).toBe(0);
+    expect(body.tipCursor.epoch).toBe("1700000060");
+    expect(body.tipCursor.blockIndex).toBe(0);
+    expect(body.backfillCursor.epoch).toBeNull();
+    expect(body.backfillCursor.blockIndex).toBe(0);
     expect(body.lastSync).toBe(SNAPSHOT.updatedAt);
   });
 

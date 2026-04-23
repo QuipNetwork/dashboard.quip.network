@@ -117,8 +117,8 @@ export async function runIteration(
       await db.setIndexerObservability({
         nodeLatestEpoch: status.latestEpoch,
         nodeLatestBlockIndex: status.latestBlockIndex,
-        tipEpoch: state.cursor.epoch,
-        tipBlockIndex: state.cursor.blockIndex,
+        tipEpoch: state.tipCursor.epoch,
+        tipBlockIndex: state.tipCursor.blockIndex,
         backfillEpoch: null,
         backfillBlockIndex: 0,
         lastStatusFetchAt: new Date(nowMs).toISOString(),
@@ -222,13 +222,13 @@ async function walkCanonicalPlan(
 ): Promise<void> {
   const { client, db, state, config } = deps;
 
-  if (state.cursor.epoch === null) {
+  if (state.tipCursor.epoch === null) {
     const seed = chooseCanonicalSeed(plan, config);
-    state.cursor = { epoch: seed, blockIndex: 0 };
+    state.tipCursor = { epoch: seed, blockIndex: 0 };
     log(`fresh boot: seeding cursor at canonical epoch ${seed}`);
   }
 
-  let cursorIdx = plan.findIndex((e) => e.epoch === state.cursor.epoch);
+  let cursorIdx = plan.findIndex((e) => e.epoch === state.tipCursor.epoch);
   if (cursorIdx < 0) {
     // Cursor's epoch vanished from the plan — most often the node pruned a
     // dead fork we were mid-walk on. Epoch IDs are hashes now so there is
@@ -236,10 +236,10 @@ async function walkCanonicalPlan(
     // and let idempotent inserts handle anything already indexed.
     const seed = plan[0]!;
     warn(
-      `cursor epoch ${state.cursor.epoch} is not in the index plan; ` +
+      `cursor epoch ${state.tipCursor.epoch} is not in the index plan; ` +
         `resetting to earliest plan entry ${seed.epoch}`,
     );
-    state.cursor = { epoch: seed.epoch, blockIndex: 0 };
+    state.tipCursor = { epoch: seed.epoch, blockIndex: 0 };
     cursorIdx = 0;
   }
 
@@ -248,18 +248,18 @@ async function walkCanonicalPlan(
   // Respect the owned range. Cursor starts at (ownedStart - 1) so the first
   // block fetched is ownedStart. Prevents re-fetching blocks that belong
   // to an earlier canonical epoch.
-  if (state.cursor.blockIndex < current.ownedStart - 1) {
-    state.cursor.blockIndex = current.ownedStart - 1;
+  if (state.tipCursor.blockIndex < current.ownedStart - 1) {
+    state.tipCursor.blockIndex = current.ownedStart - 1;
   }
 
   if (config.verbose) {
     log(
-      `canonical: epoch=${current.epoch} owned=[${current.ownedStart}..${current.ownedEnd}] cursor=${state.cursor.blockIndex}`,
+      `canonical: epoch=${current.epoch} owned=[${current.ownedStart}..${current.ownedEnd}] cursor=${state.tipCursor.blockIndex}`,
     );
   }
 
-  while (state.cursor.blockIndex < current.ownedEnd) {
-    const nextIndex = state.cursor.blockIndex + 1;
+  while (state.tipCursor.blockIndex < current.ownedEnd) {
+    const nextIndex = state.tipCursor.blockIndex + 1;
     let raw: Record<string, unknown> | null;
     try {
       raw = await client.getBlock(current.epoch, nextIndex);
@@ -277,7 +277,7 @@ async function walkCanonicalPlan(
     }
     if (raw === null) {
       warn(`block ${current.epoch}/${nextIndex} returned 404, skipping (likely pruned)`);
-      state.cursor.blockIndex = nextIndex;
+      state.tipCursor.blockIndex = nextIndex;
       result.blocksSkipped += 1;
       continue;
     }
@@ -296,7 +296,7 @@ async function walkCanonicalPlan(
       }
       throw e;
     }
-    state.cursor.blockIndex = nextIndex;
+    state.tipCursor.blockIndex = nextIndex;
     state.observability.lastBlockInsertAt = new Date(nowMs).toISOString();
     result.blocksIndexed += 1;
   }
@@ -305,13 +305,13 @@ async function walkCanonicalPlan(
   // blockIndex forward within a chain so inherited blocks aren't re-fetched,
   // but reset to 0 when crossing into a different chain so the new chain's
   // owned range starts from its block 1.
-  if (state.cursor.blockIndex >= current.ownedEnd && cursorIdx < plan.length - 1) {
+  if (state.tipCursor.blockIndex >= current.ownedEnd && cursorIdx < plan.length - 1) {
     const next = plan[cursorIdx + 1]!;
     const carryBlock = next.chainAnchor === current.chainAnchor ? current.ownedEnd : 0;
     log(
       `epoch ${current.epoch} (chain ${current.chainAnchor.slice(0, 8)}…) drained at ${current.ownedEnd}; advancing to ${next.epoch}`,
     );
-    state.cursor = { epoch: next.epoch, blockIndex: carryBlock };
+    state.tipCursor = { epoch: next.epoch, blockIndex: carryBlock };
   }
 }
 

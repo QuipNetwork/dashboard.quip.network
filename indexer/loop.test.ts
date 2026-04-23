@@ -23,10 +23,16 @@ class FakeDb implements DatabaseAdapter {
   upserted: NodesSnapshot[] = [];
   savedCursors: Array<{
     cursor: IndexerCursor;
+    backfillCursor: IndexerCursor;
     etags: { nodes?: string | null };
   }> = [];
+  // Aliased as `cursor` so existing test assertions that pre-date the two-cursor
+  // split keep reading the tip position — the pre-refactor single cursor WAS
+  // the tip cursor.
   cursor: IndexerCursor = { epoch: null, blockIndex: 0 };
+  backfillCursor: IndexerCursor = { epoch: null, blockIndex: 0 };
   etags: { nodes: string | null } = { nodes: null };
+  meta: Map<string, string> = new Map();
   selfAddress: string | null = null;
   epochStatus: EpochStatusEntry[] = [];
 
@@ -65,16 +71,28 @@ class FakeDb implements DatabaseAdapter {
     return this.upserted.at(-1) ?? null;
   }
 
-  async getCursor(): Promise<IndexerCursor> {
-    return { ...this.cursor };
+  async getCursors(): Promise<{ tip: IndexerCursor; backfill: IndexerCursor }> {
+    return { tip: { ...this.cursor }, backfill: { ...this.backfillCursor } };
   }
-  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
-    this.savedCursors.push({ cursor: { ...cursor }, etags: { ...etags } });
-    this.cursor = { ...cursor };
+  async saveCursors(
+    tip: IndexerCursor,
+    backfill: IndexerCursor,
+    etags: { nodes?: string | null },
+  ): Promise<void> {
+    this.savedCursors.push({
+      cursor: { ...tip },
+      backfillCursor: { ...backfill },
+      etags: { ...etags },
+    });
+    this.cursor = { ...tip };
+    this.backfillCursor = { ...backfill };
     if (etags.nodes !== undefined) this.etags.nodes = etags.nodes ?? null;
   }
   async getEtags() {
     return { ...this.etags };
+  }
+  async setMetaRaw(key: string, value: string): Promise<void> {
+    this.meta.set(key, value);
   }
 
   async getSelfAddress(): Promise<string | null> {
@@ -234,7 +252,7 @@ describe("runIteration", () => {
     expect(r.blocksIndexed).toBe(3);
     expect(db.inserted).toHaveLength(3);
     expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2, 3]);
-    expect(state.cursor).toEqual({ epoch: "1000", blockIndex: 3 });
+    expect(state.tipCursor).toEqual({ epoch: "1000", blockIndex: 3 });
     expect(db.savedCursors.at(-1)?.cursor).toEqual({
       epoch: "1000",
       blockIndex: 3,
@@ -320,7 +338,7 @@ describe("runIteration", () => {
     // No new walks this iteration — just the epoch advance. blockIndex=5 is
     // carried forward so the next iteration's clamp picks up at block 6.
     expect(r.blocksIndexed).toBe(0);
-    expect(state.cursor).toEqual({ epoch: "2000", blockIndex: 5 });
+    expect(state.tipCursor).toEqual({ epoch: "2000", blockIndex: 5 });
   });
 
   it("preserves big-int nonce as an exact string", async () => {
@@ -388,7 +406,7 @@ describe("runIteration", () => {
     expect(r.blocksSkipped).toBe(1);
     expect(db.inserted).toHaveLength(2);
     expect(db.inserted.map((b) => b.blockIndex).sort()).toEqual([1, 3]);
-    expect(state.cursor).toEqual({ epoch: "1000", blockIndex: 3 });
+    expect(state.tipCursor).toEqual({ epoch: "1000", blockIndex: 3 });
   });
 
   it("rethrows RateLimitError from getBlock and persists cursor at last successful insert", async () => {
@@ -615,7 +633,7 @@ describe("runIteration backfill", () => {
     ]);
     // Cursor carries the owned-end (2) forward so the next iteration's clamp
     // picks up at block 3 — inherited blocks from 900 aren't re-fetched.
-    expect(state.cursor).toEqual({ epoch: "1000", blockIndex: 2 });
+    expect(state.tipCursor).toEqual({ epoch: "1000", blockIndex: 2 });
   });
 
   it("walks through each canonical epoch rather than skipping straight to the tip", async () => {
@@ -660,7 +678,7 @@ describe("runIteration backfill", () => {
     // Advanced to 901 (the next canonical epoch), not skipping to 1000.
     // blockIndex=2 is carried forward so the next iteration's clamp starts
     // at block 3 — the first block owned by 901.
-    expect(state.cursor).toEqual({ epoch: "901", blockIndex: 2 });
+    expect(state.tipCursor).toEqual({ epoch: "901", blockIndex: 2 });
   });
 
   it("recovers by resetting cursor to plan[0] when its epoch is gone from the plan", async () => {
@@ -711,7 +729,7 @@ describe("runIteration backfill", () => {
       ["900", 1],
       ["900", 2],
     ]);
-    expect(state.cursor).toEqual({ epoch: "1000", blockIndex: 2 });
+    expect(state.tipCursor).toEqual({ epoch: "1000", blockIndex: 2 });
   });
 
   it("resets cursor to plan[0] when the cursor epoch is not in the plan", async () => {
@@ -755,7 +773,7 @@ describe("runIteration backfill", () => {
     // walking this iteration.
     expect(r.blocksIndexed).toBe(1);
     expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([["1000", 1]]);
-    expect(state.cursor).toEqual({ epoch: "1200", blockIndex: 1 });
+    expect(state.tipCursor).toEqual({ epoch: "1200", blockIndex: 1 });
   });
 });
 
@@ -809,7 +827,7 @@ describe("runIteration canonical-chain attribution", () => {
       ["1000", 2],
       ["1000", 3],
     ]);
-    expect(state.cursor).toEqual({ epoch: "900", blockIndex: 0 });
+    expect(state.tipCursor).toEqual({ epoch: "900", blockIndex: 0 });
 
     // Second iteration: walk dead-chain "900" (1..2). Cursor started at 0
     // (chain change reset), so the new chain's block 1 is indexed, not
@@ -868,7 +886,7 @@ describe("runIteration canonical-chain attribution", () => {
       ["900", 4],
       ["900", 5],
     ]);
-    expect(state.cursor).toEqual({ epoch: "1000", blockIndex: 5 });
+    expect(state.tipCursor).toEqual({ epoch: "1000", blockIndex: 5 });
 
     // Second iteration: walk epoch 1000's owned range (6..8). No re-fetch
     // of blocks 1..5 under epoch=1000 even though the node serves them
