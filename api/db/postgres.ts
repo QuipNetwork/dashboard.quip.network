@@ -16,7 +16,7 @@ import {
   SCHEMA_VERSION,
   isLocalDeployment,
   parseIndexerCursors,
-  parseIndexerCursorsRaw,
+  parseIndexerCursorsOrDefault,
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
@@ -50,13 +50,6 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS nodes_snapshot (
      id      INTEGER PRIMARY KEY CHECK (id = 1),
      payload JSONB NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS indexer_state (
-     id               INTEGER PRIMARY KEY CHECK (id = 1),
-     cursor_epoch     TEXT,
-     cursor_block     INTEGER NOT NULL DEFAULT 0,
-     last_nodes_etag  TEXT,
-     updated_at       TIMESTAMPTZ NOT NULL
    )`,
   `CREATE TABLE IF NOT EXISTS epoch_status (
      epoch   TEXT PRIMARY KEY,
@@ -282,7 +275,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     const rows = await this.requireSql()<{ value: string | null }[]>`
       SELECT value FROM meta WHERE key = ${INDEXER_CURSORS_KEY}
     `;
-    return parseIndexerCursors(rows[0]?.value ?? null, "postgres");
+    return parseIndexerCursorsOrDefault(rows[0]?.value ?? null, "postgres");
   }
 
   async saveCursors(
@@ -306,7 +299,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     const rows = await this.requireSql()<{ value: string | null }[]>`
       SELECT value FROM meta WHERE key = ${INDEXER_CURSORS_KEY}
     `;
-    const parsed = parseIndexerCursorsRaw(rows[0]?.value ?? null);
+    const parsed = parseIndexerCursors(rows[0]?.value ?? null);
     return { nodes: parsed?.etags?.nodes ?? null };
   }
 

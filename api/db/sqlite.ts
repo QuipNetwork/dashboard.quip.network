@@ -17,7 +17,7 @@ import {
   OWNED_TABLES,
   SCHEMA_VERSION,
   parseIndexerCursors,
-  parseIndexerCursorsRaw,
+  parseIndexerCursorsOrDefault,
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
@@ -51,13 +51,6 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS nodes_snapshot (
      id         INTEGER PRIMARY KEY CHECK (id = 1),
      payload    TEXT NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS indexer_state (
-     id                 INTEGER PRIMARY KEY CHECK (id = 1),
-     cursor_epoch       TEXT,
-     cursor_block       INTEGER NOT NULL DEFAULT 0,
-     last_nodes_etag    TEXT,
-     updated_at         TEXT NOT NULL
    )`,
   `CREATE TABLE IF NOT EXISTS epoch_status (
      epoch   TEXT PRIMARY KEY,
@@ -309,7 +302,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const row = this.requireDb()
       .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
       .get(INDEXER_CURSORS_KEY);
-    return parseIndexerCursors(row?.value ?? null, "sqlite");
+    return parseIndexerCursorsOrDefault(row?.value ?? null, "sqlite");
   }
 
   async saveCursors(
@@ -334,7 +327,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const row = this.requireDb()
       .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
       .get(INDEXER_CURSORS_KEY);
-    const parsed = parseIndexerCursorsRaw(row?.value ?? null);
+    const parsed = parseIndexerCursors(row?.value ?? null);
     return { nodes: parsed?.etags?.nodes ?? null };
   }
 

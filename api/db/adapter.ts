@@ -74,8 +74,12 @@ export function parseIndexerObservability(
  * Parse the meta[indexer_cursors] JSON. Returns null on any parse/shape
  * failure; the caller's fallback policy decides what to do (typically: treat
  * as "no cursors" and let both workers seed fresh).
+ *
+ * Naming mirrors `parseIndexerObservability` — the unsuffixed name is the
+ * strict nullable variant. See `parseIndexerCursorsOrDefault` for the lenient
+ * wrapper that substitutes fresh defaults on failure.
  */
-export function parseIndexerCursorsRaw(
+export function parseIndexerCursors(
   raw: string | null,
 ): { tip: IndexerCursor; backfill: IndexerCursor; etags: { nodes: string | null } } | null {
   if (raw === null) return null;
@@ -97,25 +101,30 @@ export function parseIndexerCursorsRaw(
     );
   };
   if (!isCursor(p.tip) || !isCursor(p.backfill)) return null;
-  const etags = p.etags as Record<string, unknown> | null | undefined;
-  const nodes =
-    etags && (typeof etags.nodes === "string" || etags.nodes === null)
-      ? (etags.nodes as string | null)
-      : null;
+  // etags is optional but, when present, must be null or a plain object.
+  // A string or array here indicates upstream corruption — fail the parse
+  // rather than silently dropping to nodes:null, matching parseIndexerObservability.
+  let nodes: string | null = null;
+  if (p.etags !== undefined && p.etags !== null) {
+    if (typeof p.etags !== "object" || Array.isArray(p.etags)) return null;
+    const e = p.etags as Record<string, unknown>;
+    if (e.nodes !== undefined && typeof e.nodes !== "string" && e.nodes !== null) return null;
+    nodes = typeof e.nodes === "string" ? e.nodes : null;
+  }
   return { tip: p.tip, backfill: p.backfill, etags: { nodes } };
 }
 
 /**
- * Like `parseIndexerCursorsRaw` but always returns a usable pair — fresh
+ * Like `parseIndexerCursors` but always returns a usable pair — fresh
  * defaults on any parse failure. Use in hot paths that just want "where
  * should the cursors seed?" without caring whether a prior blob existed.
  */
-export function parseIndexerCursors(
+export function parseIndexerCursorsOrDefault(
   raw: string | null,
   source: "sqlite" | "postgres",
 ): { tip: IndexerCursor; backfill: IndexerCursor } {
   const fresh: IndexerCursor = { epoch: null, blockIndex: 0 };
-  const parsed = parseIndexerCursorsRaw(raw);
+  const parsed = parseIndexerCursors(raw);
   if (parsed) return { tip: parsed.tip, backfill: parsed.backfill };
   if (raw !== null) {
     console.warn(`[db/${source}] indexer_cursors missing or malformed; seeding fresh`);
@@ -199,18 +208,20 @@ export interface DbConfig {
 // unix timestamp. `blocks.epoch` and `indexer_state.cursor_epoch` flip from
 // INTEGER/BIGINT to TEXT; new `epoch_status` table holds the node's
 // live/stale_fork tag per epoch so the UI can badge the selector.
+//
+// Post-v4: the `indexer_state` table was retired when tip/backfill cursor
+// persistence moved to `meta[indexer_cursors]` (tip-priority indexer work).
+// `SCHEMA_VERSION` deliberately stays at 4 because no column of any surviving
+// table changed shape — bumping to 5 would force-drop `blocks` / `epoch_status`
+// via the OWNED_TABLES drift path, which the plan explicitly avoids. Existing
+// deployments keep a vestigial empty `indexer_state` table on disk; it will be
+// swept away on the next unrelated SCHEMA_VERSION bump.
 export const SCHEMA_VERSION = 4;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
 // a Postgres database.
-export const OWNED_TABLES = [
-  "blocks",
-  "nodes_snapshot",
-  "indexer_state",
-  "epoch_status",
-  "meta",
-] as const;
+export const OWNED_TABLES = ["blocks", "nodes_snapshot", "epoch_status", "meta"] as const;
 
 const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres"]);
 
