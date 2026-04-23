@@ -16,6 +16,8 @@ import type {
 import {
   OWNED_TABLES,
   SCHEMA_VERSION,
+  parseIndexerCursors,
+  parseIndexerCursorsRaw,
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
@@ -69,6 +71,7 @@ const SCHEMA_STATEMENTS: string[] = [
 
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
+const INDEXER_CURSORS_KEY = "indexer_cursors";
 
 interface BlockRow {
   epoch: string;
@@ -96,12 +99,6 @@ interface EpochIndexRow {
   block_count: number;
   status: string | null;
   first_block_timestamp: number | null;
-}
-
-interface StateRow {
-  cursor_epoch: string | null;
-  cursor_block: number;
-  last_nodes_etag: string | null;
 }
 
 function rowToBlock(r: BlockRow): BlockRecord {
@@ -308,49 +305,47 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }
   }
 
-  async getCursor(): Promise<IndexerCursor> {
+  async getCursors(): Promise<{ tip: IndexerCursor; backfill: IndexerCursor }> {
     const row = this.requireDb()
-      .query<
-        StateRow,
-        []
-      >("SELECT cursor_epoch, cursor_block, last_nodes_etag FROM indexer_state WHERE id = 1")
-      .get();
-    return {
-      epoch: row?.cursor_epoch ?? null,
-      blockIndex: row?.cursor_block ?? 0,
-    };
+      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get(INDEXER_CURSORS_KEY);
+    return parseIndexerCursors(row?.value ?? null, "sqlite");
   }
 
-  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
+  async saveCursors(
+    tip: IndexerCursor,
+    backfill: IndexerCursor,
+    etags: { nodes?: string | null },
+  ): Promise<void> {
+    const payload = JSON.stringify({
+      tip,
+      backfill,
+      etags: { nodes: etags.nodes ?? null },
+    });
     this.requireDb()
       .prepare(
-        `INSERT INTO indexer_state (
-           id, cursor_epoch, cursor_block, last_nodes_etag, updated_at
-         ) VALUES (1, $epoch, $block, $nodes, $updatedAt)
-         ON CONFLICT(id) DO UPDATE SET
-           cursor_epoch = excluded.cursor_epoch,
-           cursor_block = excluded.cursor_block,
-           last_nodes_etag = COALESCE(excluded.last_nodes_etag, indexer_state.last_nodes_etag),
-           updated_at = excluded.updated_at`,
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
-      .run({
-        $epoch: cursor.epoch,
-        $block: cursor.blockIndex,
-        $nodes: etags.nodes ?? null,
-        $updatedAt: new Date().toISOString(),
-      });
+      .run({ $k: INDEXER_CURSORS_KEY, $v: payload });
   }
 
   async getEtags(): Promise<{ nodes: string | null }> {
     const row = this.requireDb()
-      .query<
-        StateRow,
-        []
-      >("SELECT cursor_epoch, cursor_block, last_nodes_etag FROM indexer_state WHERE id = 1")
-      .get();
-    return {
-      nodes: row?.last_nodes_etag ?? null,
-    };
+      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get(INDEXER_CURSORS_KEY);
+    const parsed = parseIndexerCursorsRaw(row?.value ?? null);
+    return { nodes: parsed?.etags?.nodes ?? null };
+  }
+
+  /** @internal test-only — write a raw value under a meta key. */
+  async setMetaRaw(key: string, value: string): Promise<void> {
+    this.requireDb()
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run({ $k: key, $v: value });
   }
 
   async getSelfAddress(): Promise<string | null> {

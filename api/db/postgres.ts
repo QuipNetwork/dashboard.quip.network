@@ -15,6 +15,8 @@ import {
   OWNED_TABLES,
   SCHEMA_VERSION,
   isLocalDeployment,
+  parseIndexerCursors,
+  parseIndexerCursorsRaw,
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
@@ -68,6 +70,7 @@ const SCHEMA_STATEMENTS: string[] = [
 
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
+const INDEXER_CURSORS_KEY = "indexer_cursors";
 
 interface BlockRow {
   epoch: string;
@@ -275,42 +278,45 @@ export class PostgresAdapter implements DatabaseAdapter {
     return rows[0]?.payload ?? null;
   }
 
-  async getCursor(): Promise<IndexerCursor> {
-    const rows = await this.requireSql()<{ cursor_epoch: string | null; cursor_block: number }[]>`
-      SELECT cursor_epoch, cursor_block FROM indexer_state WHERE id = 1
+  async getCursors(): Promise<{ tip: IndexerCursor; backfill: IndexerCursor }> {
+    const rows = await this.requireSql()<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = ${INDEXER_CURSORS_KEY}
     `;
-    const row = rows[0];
-    return {
-      epoch: row?.cursor_epoch ?? null,
-      blockIndex: row?.cursor_block ?? 0,
-    };
+    return parseIndexerCursors(rows[0]?.value ?? null, "postgres");
   }
 
-  async saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void> {
-    const sql = this.requireSql();
-    const nodesEtag = etags.nodes ?? null;
-    await sql`
-      INSERT INTO indexer_state (
-        id, cursor_epoch, cursor_block, last_nodes_etag, updated_at
-      ) VALUES (
-        1, ${cursor.epoch}, ${cursor.blockIndex}, ${nodesEtag}, NOW()
-      )
-      ON CONFLICT (id) DO UPDATE SET
-        cursor_epoch = EXCLUDED.cursor_epoch,
-        cursor_block = EXCLUDED.cursor_block,
-        last_nodes_etag  = COALESCE(EXCLUDED.last_nodes_etag, indexer_state.last_nodes_etag),
-        updated_at = EXCLUDED.updated_at
+  async saveCursors(
+    tip: IndexerCursor,
+    backfill: IndexerCursor,
+    etags: { nodes?: string | null },
+  ): Promise<void> {
+    const payload = JSON.stringify({
+      tip,
+      backfill,
+      etags: { nodes: etags.nodes ?? null },
+    });
+    await this.requireSql()`
+      INSERT INTO meta (key, value)
+      VALUES (${INDEXER_CURSORS_KEY}, ${payload})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
     `;
   }
 
   async getEtags(): Promise<{ nodes: string | null }> {
-    const rows = await this.requireSql()<{ last_nodes_etag: string | null }[]>`
-      SELECT last_nodes_etag FROM indexer_state WHERE id = 1
+    const rows = await this.requireSql()<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = ${INDEXER_CURSORS_KEY}
     `;
-    const row = rows[0];
-    return {
-      nodes: row?.last_nodes_etag ?? null,
-    };
+    const parsed = parseIndexerCursorsRaw(rows[0]?.value ?? null);
+    return { nodes: parsed?.etags?.nodes ?? null };
+  }
+
+  /** @internal test-only — write a raw value under a meta key. */
+  async setMetaRaw(key: string, value: string): Promise<void> {
+    await this.requireSql()`
+      INSERT INTO meta (key, value)
+      VALUES (${key}, ${value})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `;
   }
 
   async getSelfAddress(): Promise<string | null> {

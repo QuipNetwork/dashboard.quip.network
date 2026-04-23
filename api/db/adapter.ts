@@ -70,6 +70,59 @@ export function parseIndexerObservability(
   };
 }
 
+/**
+ * Parse the meta[indexer_cursors] JSON. Returns null on any parse/shape
+ * failure; the caller's fallback policy decides what to do (typically: treat
+ * as "no cursors" and let both workers seed fresh).
+ */
+export function parseIndexerCursorsRaw(
+  raw: string | null,
+): { tip: IndexerCursor; backfill: IndexerCursor; etags: { nodes: string | null } } | null {
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const p = parsed as Record<string, unknown>;
+  const isCursor = (v: unknown): v is IndexerCursor => {
+    if (typeof v !== "object" || v === null) return false;
+    const c = v as Record<string, unknown>;
+    return (
+      (typeof c.epoch === "string" || c.epoch === null) &&
+      typeof c.blockIndex === "number" &&
+      Number.isFinite(c.blockIndex)
+    );
+  };
+  if (!isCursor(p.tip) || !isCursor(p.backfill)) return null;
+  const etags = p.etags as Record<string, unknown> | null | undefined;
+  const nodes =
+    etags && (typeof etags.nodes === "string" || etags.nodes === null)
+      ? (etags.nodes as string | null)
+      : null;
+  return { tip: p.tip, backfill: p.backfill, etags: { nodes } };
+}
+
+/**
+ * Like `parseIndexerCursorsRaw` but always returns a usable pair — fresh
+ * defaults on any parse failure. Use in hot paths that just want "where
+ * should the cursors seed?" without caring whether a prior blob existed.
+ */
+export function parseIndexerCursors(
+  raw: string | null,
+  source: "sqlite" | "postgres",
+): { tip: IndexerCursor; backfill: IndexerCursor } {
+  const fresh: IndexerCursor = { epoch: null, blockIndex: 0 };
+  const parsed = parseIndexerCursorsRaw(raw);
+  if (parsed) return { tip: parsed.tip, backfill: parsed.backfill };
+  if (raw !== null) {
+    console.warn(`[db/${source}] indexer_cursors missing or malformed; seeding fresh`);
+  }
+  return { tip: { ...fresh }, backfill: { ...fresh } };
+}
+
 export interface EpochStatusEntry {
   epoch: EpochId;
   status: EpochStatus;
@@ -94,9 +147,20 @@ export interface DatabaseAdapter {
   upsertNodes(snapshot: NodesSnapshot): Promise<number>;
   getNodes(): Promise<NodesSnapshot | null>;
 
-  getCursor(): Promise<IndexerCursor>;
-  saveCursor(cursor: IndexerCursor, etags: { nodes?: string | null }): Promise<void>;
+  // Two-cursor persistence (replaces the old single-cursor getCursor/saveCursor).
+  // Stored as a JSON blob in meta[indexer_cursors]; missing-key or parse failure
+  // returns fresh {epoch:null, blockIndex:0} defaults for both cursors —
+  // equivalent to a clean state.json wipe from the design spec.
+  getCursors(): Promise<{ tip: IndexerCursor; backfill: IndexerCursor }>;
+  saveCursors(
+    tip: IndexerCursor,
+    backfill: IndexerCursor,
+    etags: { nodes?: string | null },
+  ): Promise<void>;
   getEtags(): Promise<{ nodes: string | null }>;
+
+  /** @internal test-only — write a raw value under a meta key. */
+  setMetaRaw(key: string, value: string): Promise<void>;
 
   // Address of the quip-node this deployment polls. Persisted so the server
   // can tell the UI which entry in the nodes snapshot is "us" without also
