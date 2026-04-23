@@ -58,7 +58,7 @@ export function EpochSelector() {
       <select
         value={selectedEpoch}
         onChange={onChange}
-        className="cursor-pointer rounded-lg border border-brand-gray-2 bg-brand-gray-1/50 px-2 py-1.5 font-accent text-sm text-brand-gray-5 outline-none transition-colors hover:border-brand-gray-3 focus:border-brand-gray-4"
+        className="max-w-[14rem] cursor-pointer truncate rounded-lg border border-brand-gray-2 bg-brand-gray-1/50 px-2 py-1.5 font-accent text-sm text-brand-gray-5 outline-none transition-colors hover:border-brand-gray-3 focus:border-brand-gray-4"
       >
         <option value="all">All ({epochs.length})</option>
         {epochs.map((e) => (

@@ -30,7 +30,7 @@ export function Header() {
 
   return (
     <header className="border-b border-brand-gray-1 bg-gradient-to-r from-brand-gray-0 via-brand-gray-1 to-brand-gray-0 px-6 py-5">
-      <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
         {/* Left: aggregation toggle (Network + Compute) */}
         <div className="justify-self-center sm:justify-self-start">
           {showAggregation && (
