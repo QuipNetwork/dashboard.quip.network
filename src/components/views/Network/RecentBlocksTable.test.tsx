@@ -16,7 +16,7 @@ import { RecentBlocksTable } from "./RecentBlocksTable";
 
 function makeBlock(i: number, tsSec: number): BlockRecord {
   return {
-    epoch: 1_700_000_000,
+    epoch: "1700000000",
     blockIndex: i,
     blockHash: `hash-${i}`,
     timestamp: tsSec,
@@ -40,9 +40,9 @@ function makeBlock(i: number, tsSec: number): BlockRecord {
 function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservability {
   const now = Date.now();
   return {
-    nodeLatestEpoch: 1_700_000_000,
+    nodeLatestEpoch: "1700000000",
     nodeLatestBlockIndex: 10,
-    cursorEpoch: 1_700_000_000,
+    cursorEpoch: "1700000000",
     cursorBlockIndex: 10,
     lastStatusFetchAt: new Date(now - 10_000).toISOString(),
     lastBlockInsertAt: new Date(now - 10_000).toISOString(),

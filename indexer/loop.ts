@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { rawBlockToRecord, rawNodesToSnapshot, type DatabaseAdapter } from "../api/db/adapter";
-import type { NodesSnapshot } from "../src/types/telemetry";
+import type { EpochId, NodesSnapshot } from "../src/types/telemetry";
 
 import { AuthError, QuipClient, RateLimitError, type EpochsBody, type StatusBody } from "./client";
 import type { IndexerConfig } from "./config";
@@ -27,7 +27,7 @@ import { IndexerState } from "./state";
  * owned-range accounting.
  */
 export interface CanonicalEpoch {
-  epoch: number;
+  epoch: EpochId;
   chainAnchor: string;
   ownedStart: number;
   ownedEnd: number;
@@ -152,6 +152,17 @@ async function runIterationBody(
   // node has no block 1 yet (early bootstrap or transient 404) — we still
   // do the nodes-refresh / observability work below, just no indexing.
   const epochsBody = await client.getEpochs();
+  // Mirror the node's live/stale_fork tagging into the DB so the UI's
+  // epoch selector can badge each option. Writing before the walk keeps
+  // the common case (blocks indexed → getIndex reads status) in sync even
+  // if this poll's walk is interrupted.
+  try {
+    await db.replaceEpochStatus(
+      epochsBody.epochs.map((e) => ({ epoch: e.epoch, status: e.status })),
+    );
+  } catch (e) {
+    warn(`replaceEpochStatus failed: ${formatErr(e)}`);
+  }
   const plan = await buildCanonicalPlan(client, state, status, epochsBody);
   if (plan.length > 0) {
     await walkCanonicalPlan(deps, result, plan, nowMs);
@@ -217,16 +228,17 @@ async function walkCanonicalPlan(
 
   let cursorIdx = plan.findIndex((e) => e.epoch === state.cursor.epoch);
   if (cursorIdx < 0) {
-    const next = plan.find((e) => e.epoch > (state.cursor.epoch ?? 0));
-    if (!next) {
-      warn(
-        `cursor epoch ${state.cursor.epoch} is not in the index plan and has no successor; waiting`,
-      );
-      return;
-    }
-    warn(`cursor epoch ${state.cursor.epoch} is not in the index plan; advancing to ${next.epoch}`);
-    state.cursor = { epoch: next.epoch, blockIndex: 0 };
-    cursorIdx = plan.findIndex((e) => e.epoch === next.epoch);
+    // Cursor's epoch vanished from the plan — most often the node pruned a
+    // dead fork we were mid-walk on. Epoch IDs are hashes now so there is
+    // no numeric ordering to pick a "successor" from; fall back to plan[0]
+    // and let idempotent inserts handle anything already indexed.
+    const seed = plan[0]!;
+    warn(
+      `cursor epoch ${state.cursor.epoch} is not in the index plan; ` +
+        `resetting to earliest plan entry ${seed.epoch}`,
+    );
+    state.cursor = { epoch: seed.epoch, blockIndex: 0 };
+    cursorIdx = 0;
   }
 
   const current = plan[cursorIdx]!;
@@ -424,7 +436,7 @@ export async function resolveSelfAddress(
 async function ensureChainAnchor(
   client: QuipClient,
   state: IndexerState,
-  epoch: number,
+  epoch: EpochId,
 ): Promise<string | null> {
   const cached = state.chainAnchors.get(epoch);
   if (cached !== undefined) return cached;
@@ -462,7 +474,7 @@ export async function buildCanonicalPlan(
   if (status.latestBlockIndex <= 0) return [];
 
   // Include the tip epoch even if /epochs hasn't caught up to it yet.
-  const byEpoch = new Map<number, { epoch: number; lastBlock: number }>();
+  const byEpoch = new Map<EpochId, { epoch: EpochId; lastBlock: number }>();
   for (const e of epochsBody.epochs) {
     byEpoch.set(e.epoch, { epoch: e.epoch, lastBlock: e.lastBlock });
   }
@@ -473,7 +485,7 @@ export async function buildCanonicalPlan(
 
   // Resolve each epoch's chain anchor (block-1 hash). Empty epochs (no
   // block 1) are dropped — they contribute nothing until blocks arrive.
-  const byChain = new Map<string, Array<{ epoch: number; lastBlock: number }>>();
+  const byChain = new Map<string, Array<{ epoch: EpochId; lastBlock: number }>>();
   for (const e of byEpoch.values()) {
     if (e.lastBlock <= 0) continue;
     const anchor = await ensureChainAnchor(client, state, e.epoch);
@@ -483,11 +495,14 @@ export async function buildCanonicalPlan(
     byChain.set(anchor, group);
   }
 
-  // Compute per-chain owned ranges, then flatten and sort by epoch ID so
-  // the walk visits epochs in chronological order across all chains.
+  // Compute per-chain owned ranges. Within each chain, sort by lastBlock
+  // ascending — epoch IDs are hashes now, so lastBlock is the only
+  // within-chain chronology signal we have. Across chains, sort by
+  // (chainAnchor, ownedStart) so same-chain epochs walk contiguously and
+  // the order is deterministic for a given node view.
   const plan: CanonicalEpoch[] = [];
   for (const [chainAnchor, epochs] of byChain) {
-    epochs.sort((a, b) => a.epoch - b.epoch);
+    epochs.sort((a, b) => a.lastBlock - b.lastBlock);
     let prevLast = 0;
     for (const e of epochs) {
       plan.push({
@@ -499,7 +514,10 @@ export async function buildCanonicalPlan(
       if (e.lastBlock > prevLast) prevLast = e.lastBlock;
     }
   }
-  plan.sort((a, b) => a.epoch - b.epoch);
+  plan.sort((a, b) => {
+    if (a.chainAnchor !== b.chainAnchor) return a.chainAnchor < b.chainAnchor ? -1 : 1;
+    return a.ownedStart - b.ownedStart;
+  });
   return plan;
 }
 
@@ -509,7 +527,7 @@ export async function buildCanonicalPlan(
  * it; otherwise start from the earliest epoch in the plan so the full
  * history gets indexed (including dead chains).
  */
-function chooseCanonicalSeed(plan: CanonicalEpoch[], config: IndexerConfig): number {
+function chooseCanonicalSeed(plan: CanonicalEpoch[], config: IndexerConfig): EpochId {
   const first = plan[0]!;
   const configured = config.backfillFromEpoch;
   if (configured === undefined) return first.epoch;

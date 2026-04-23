@@ -10,7 +10,7 @@ function makeBlock(
   overrides: Partial<BlockRecord> & Pick<BlockRecord, "blockIndex" | "minerCategory" | "minerId">,
 ): BlockRecord {
   return {
-    epoch: 1700000000,
+    epoch: "1700000000",
     blockHash: `hash-${overrides.blockIndex}`,
     timestamp: 1700000000 + overrides.blockIndex * 60,
     previousHash: `prev-${overrides.blockIndex}`,

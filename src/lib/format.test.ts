@@ -2,29 +2,38 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { formatDuration, formatEpochTimestamp, formatNumber, formatSeconds } from "./format";
+import { formatDuration, formatEpochId, formatNumber, formatSeconds } from "./format";
 
-describe("formatEpochTimestamp", () => {
-  it("formats unix-second timestamps as a short localized date", () => {
-    // Output shape depends on the test host's locale and timezone — some
-    // locales render "Apr 21, 03:00", others "Apr 21 at 03:00 AM". The
-    // invariant we care about is that a recognizable month name + day + time
-    // all appear somewhere in the string.
-    const out = formatEpochTimestamp(1776826445);
+describe("formatEpochId", () => {
+  it("shortens a 16-char hex hash to an 8-char prefix + ellipsis", () => {
+    expect(formatEpochId("e0a08eef1dfff726")).toBe("e0a08eef…");
+  });
+
+  it("returns short-form on its own when no timestamp is provided", () => {
+    expect(formatEpochId("de9c9fdb25849930")).toBe("de9c9fdb…");
+  });
+
+  it("returns short-form on its own for a null/undefined timestamp", () => {
+    expect(formatEpochId("de9c9fdb25849930", null)).toBe("de9c9fdb…");
+    expect(formatEpochId("de9c9fdb25849930", undefined)).toBe("de9c9fdb…");
+  });
+
+  it("suffixes a localized date when a block-1 timestamp is provided", () => {
+    // Locale/timezone-dependent output; assert the short hash prefix and
+    // the presence of a recognizable month-and-time fragment.
+    const out = formatEpochId("e0a08eef1dfff726", 1776826445);
+    expect(out.startsWith("e0a08eef… · ")).toBe(true);
     expect(out).toMatch(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/);
-    expect(out).toMatch(/\d{1,2}/);
     expect(out).toMatch(/\d{1,2}:\d{2}/);
   });
 
-  it("returns raw integer for sub-1e9 ordinals", () => {
-    expect(formatEpochTimestamp(42)).toBe("42");
-    expect(formatEpochTimestamp(999_999_999)).toBe("999999999");
+  it("returns short-form when the timestamp is NaN or non-finite", () => {
+    expect(formatEpochId("e0a08eef1dfff726", Number.NaN)).toBe("e0a08eef…");
+    expect(formatEpochId("e0a08eef1dfff726", Number.POSITIVE_INFINITY)).toBe("e0a08eef…");
   });
 
-  it("accepts large valid timestamps without NaN blowups", () => {
-    // Year 2100-ish
-    const out = formatEpochTimestamp(4_102_444_800);
-    expect(out).not.toBe("NaN");
+  it("returns the raw string for hashes shorter than the prefix", () => {
+    expect(formatEpochId("abcd")).toBe("abcd");
   });
 });
 

@@ -66,10 +66,12 @@ export function createApp(options: CreateAppOptions): Hono {
   });
 
   app.get("/api/telemetry/epochs/:epoch", async (c) => {
-    const raw = c.req.param("epoch");
-    const epoch = Number(raw);
-    if (!Number.isFinite(epoch) || !Number.isInteger(epoch)) {
-      return c.json({ error: "invalid epoch", detail: raw }, 400);
+    // Epoch IDs are opaque 16-char hex hashes (e.g. e0a08eef1dfff726).
+    // Only rough-validate the shape so an obvious path-injection attempt
+    // produces 400 rather than a DB roundtrip with a bogus key.
+    const epoch = c.req.param("epoch");
+    if (!/^[0-9a-f]{8,64}$/i.test(epoch)) {
+      return c.json({ error: "invalid epoch", detail: epoch }, 400);
     }
     const blocks = await db.getBlocksByEpoch(epoch);
     return c.json({ blocks });

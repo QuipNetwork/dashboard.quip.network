@@ -14,9 +14,9 @@ const NOW_MS = 1_800_000_000_000;
 
 function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservability {
   return {
-    nodeLatestEpoch: 1000,
+    nodeLatestEpoch: "1000",
     nodeLatestBlockIndex: 10,
-    cursorEpoch: 1000,
+    cursorEpoch: "1000",
     cursorBlockIndex: 10,
     lastStatusFetchAt: new Date(NOW_MS - 30_000).toISOString(),
     lastBlockInsertAt: new Date(NOW_MS - 2 * 60_000).toISOString(),
@@ -99,7 +99,7 @@ describe("computeChainHealth", () => {
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 5 * 60 * 1000,
-      indexer: obs({ nodeLatestEpoch: 2000, cursorEpoch: 1000 }),
+      indexer: obs({ nodeLatestEpoch: "2000", cursorEpoch: "1000" }),
     });
     expect(h.indexerLagBlocks).toBeNull();
   });
@@ -109,37 +109,27 @@ describe("computeChainHealth", () => {
     // indexer is stuck in an older epoch so the newest stored block is days
     // old. Previously the banner read "Polled node hasn't seen a block in 5d
     // 2h" — misleading, since the node is fine. Expect the indexer-framed
-    // warning instead.
+    // warning instead. Post-v4 epochs are hashes so we can only say the
+    // indexer is "on a different epoch", not a numeric distance.
     const now = 1_800_000_000_000;
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 5 * 24 * 60 * 60 * 1000, // 5 days — would be "stalled" otherwise
-      indexer: obs({ nodeLatestEpoch: 1005, cursorEpoch: 1000 }),
+      indexer: obs({ nodeLatestEpoch: "1005", cursorEpoch: "1000" }),
     });
     expect(h.level).toBe("warning");
-    expect(h.reason).toMatch(/5 epochs behind/);
+    expect(h.reason).toMatch(/different epoch/);
   });
 
-  it("uses singular 'epoch' when the indexer is exactly 1 epoch behind", () => {
-    const now = 1_800_000_000_000;
-    const h = computeChainHealth({
-      nowMs: now,
-      tipBlockTimestampMs: now - 60_000,
-      indexer: obs({ nodeLatestEpoch: 1001, cursorEpoch: 1000 }),
-    });
-    expect(h.reason).toMatch(/1 epoch behind/);
-  });
-
-  it("does not warn 'N epochs behind' before the cursor has seeded", () => {
+  it("does not warn about differing epochs before the cursor has seeded", () => {
     // Fresh indexer: cursorEpoch is null until the first successful poll.
-    // Computing (nodeLatestEpoch - null) would surface a nonsense delta.
     const now = 1_800_000_000_000;
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 60_000,
       indexer: obs({ cursorEpoch: null }),
     });
-    expect(h.reason).not.toMatch(/epoch.*behind/);
+    expect(h.reason).not.toMatch(/different epoch/);
   });
 
   it("flags the indexer as wedged when lastStatusFetchAt is stale", () => {

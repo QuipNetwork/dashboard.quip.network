@@ -2,6 +2,8 @@
 
 import type {
   BlockRecord,
+  EpochId,
+  EpochStatus,
   IndexerCursor,
   IndexerObservability,
   NodeInfo,
@@ -41,13 +43,12 @@ export function parseIndexerObservability(
   }
   const p = parsed as Record<string, unknown>;
   const isFiniteInt = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-  const isNullableInt = (v: unknown): v is number | null => v === null || isFiniteInt(v);
   const isStr = (v: unknown): v is string => typeof v === "string";
   const isNullableStr = (v: unknown): v is string | null => v === null || isStr(v);
   if (
-    !isFiniteInt(p.nodeLatestEpoch) ||
+    !isStr(p.nodeLatestEpoch) ||
     !isFiniteInt(p.nodeLatestBlockIndex) ||
-    !isNullableInt(p.cursorEpoch) ||
+    !isNullableStr(p.cursorEpoch) ||
     !isFiniteInt(p.cursorBlockIndex) ||
     !isStr(p.lastStatusFetchAt) ||
     !isNullableStr(p.lastBlockInsertAt)
@@ -65,6 +66,11 @@ export function parseIndexerObservability(
   };
 }
 
+export interface EpochStatusEntry {
+  epoch: EpochId;
+  status: EpochStatus;
+}
+
 export interface DatabaseAdapter {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
@@ -72,8 +78,14 @@ export interface DatabaseAdapter {
 
   insertBlock(block: BlockRecord): Promise<boolean>;
   getAllBlocks(): Promise<BlockRecord[]>;
-  getBlocksByEpoch(epoch: number): Promise<BlockRecord[]>;
+  getBlocksByEpoch(epoch: EpochId): Promise<BlockRecord[]>;
   getIndex(): Promise<TelemetryIndex>;
+
+  // Replace the entire epoch_status table with this snapshot. Called once
+  // per successful /api/v1/telemetry/epochs fetch. Writing the whole set
+  // (rather than per-row upserting) keeps the DB in sync with the node when
+  // a chain transitions live → stale_fork between polls.
+  replaceEpochStatus(entries: EpochStatusEntry[]): Promise<void>;
 
   upsertNodes(snapshot: NodesSnapshot): Promise<number>;
   getNodes(): Promise<NodesSnapshot | null>;
@@ -115,12 +127,22 @@ export interface DbConfig {
 // v3: second re-index — v2 indexed only the canonical chain and dropped
 // dead-chain history on the floor. v3 indexes dead chains alongside the
 // canonical one with per-chain owned ranges. Same table shape.
-export const SCHEMA_VERSION = 3;
+// v4: node telemetry now identifies epochs by 16-char hex hash rather than
+// unix timestamp. `blocks.epoch` and `indexer_state.cursor_epoch` flip from
+// INTEGER/BIGINT to TEXT; new `epoch_status` table holds the node's
+// live/stale_fork tag per epoch so the UI can badge the selector.
+export const SCHEMA_VERSION = 4;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
 // a Postgres database.
-export const OWNED_TABLES = ["blocks", "nodes_snapshot", "indexer_state", "meta"] as const;
+export const OWNED_TABLES = [
+  "blocks",
+  "nodes_snapshot",
+  "indexer_state",
+  "epoch_status",
+  "meta",
+] as const;
 
 const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres"]);
 
@@ -232,7 +254,7 @@ export function toMinerCategory(s: unknown): "CPU" | "GPU" | "QPU" {
   throw new Error(`Unknown miner category: ${s.slice(0, 80)}`);
 }
 
-export function rawBlockToRecord(raw: RawBlockPayload, epoch: number): BlockRecord {
+export function rawBlockToRecord(raw: RawBlockPayload, epoch: EpochId): BlockRecord {
   return {
     epoch,
     blockIndex: raw.block_index,

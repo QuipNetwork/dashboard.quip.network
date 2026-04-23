@@ -5,7 +5,7 @@ export interface IndexerConfig {
   token: string | undefined;
   pollIntervalSec: number;
   nodesRefreshSec: number;
-  backfillFromEpoch: number | undefined;
+  backfillFromEpoch: string | undefined;
   once: boolean;
   verbose: boolean;
   // Seconds of no `latestBlockIndex` advance (from /api/v1/telemetry/status)
@@ -84,12 +84,15 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
         ? parseIntStrict("NODES_REFRESH_SEC", process.env.NODES_REFRESH_SEC)
         : DEFAULTS.nodesRefreshSec;
 
+  // Epoch IDs are opaque hex hashes post-v4 — accept the string as-is.
+  // Trim whitespace so `--backfill-from-epoch=abc…` and environment pass-
+  // through both work; reject empty/whitespace-only values so a stray env
+  // var doesn't silently skip to plan[0].
   const backfillRaw =
     (typeof backfillFlag === "string" ? backfillFlag : undefined) ??
     process.env.BACKFILL_FROM_EPOCH;
-  const backfillFromEpoch = backfillRaw
-    ? parseIntStrict("--backfill-from-epoch", backfillRaw)
-    : undefined;
+  const backfillTrimmed = backfillRaw?.trim();
+  const backfillFromEpoch = backfillTrimmed ? backfillTrimmed : undefined;
 
   const once = onceFlag === true || onceFlag === "true" || onceFlag === "1";
   const verbose =

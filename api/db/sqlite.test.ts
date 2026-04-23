@@ -11,7 +11,7 @@ import { SQLiteAdapter } from "./sqlite";
 import type { BlockRecord } from "../../src/types/telemetry";
 
 const sampleBlock = (): BlockRecord => ({
-  epoch: 1000,
+  epoch: "1000",
   blockIndex: 1,
   blockHash: "h",
   timestamp: 1,
