@@ -22,7 +22,7 @@ class FakeDb implements DatabaseAdapter {
   inserted: BlockRecord[] = [];
   upserted: NodesSnapshot[] = [];
   savedCursors: Array<{
-    cursor: IndexerCursor;
+    tipCursor: IndexerCursor;
     backfillCursor: IndexerCursor;
     etags: { nodes?: string | null };
   }> = [];
@@ -80,7 +80,7 @@ class FakeDb implements DatabaseAdapter {
     etags: { nodes?: string | null },
   ): Promise<void> {
     this.savedCursors.push({
-      cursor: { ...tip },
+      tipCursor: { ...tip },
       backfillCursor: { ...backfill },
       etags: { ...etags },
     });
@@ -253,7 +253,7 @@ describe("runIteration", () => {
     expect(db.inserted).toHaveLength(3);
     expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2, 3]);
     expect(state.tipCursor).toEqual({ epoch: "1000", blockIndex: 3 });
-    expect(db.savedCursors.at(-1)?.cursor).toEqual({
+    expect(db.savedCursors.at(-1)?.tipCursor).toEqual({
       epoch: "1000",
       blockIndex: 3,
     });
@@ -436,7 +436,7 @@ describe("runIteration", () => {
     ).rejects.toBeInstanceOf(RateLimitError);
 
     expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2]);
-    expect(db.savedCursors.at(-1)?.cursor).toEqual({ epoch: "1000", blockIndex: 2 });
+    expect(db.savedCursors.at(-1)?.tipCursor).toEqual({ epoch: "1000", blockIndex: 2 });
   });
 
   it("throws and persists cursor up to last successful insert on db error", async () => {
@@ -473,7 +473,7 @@ describe("runIteration", () => {
     expect(db.inserted).toHaveLength(1);
     // Cursor was persisted at the last successful insert so the next
     // iteration resumes from block 2, not block 1.
-    expect(db.savedCursors.at(-1)?.cursor).toEqual({ epoch: "1000", blockIndex: 1 });
+    expect(db.savedCursors.at(-1)?.tipCursor).toEqual({ epoch: "1000", blockIndex: 1 });
   });
 });
 
