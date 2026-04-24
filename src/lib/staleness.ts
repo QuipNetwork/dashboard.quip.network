@@ -24,11 +24,93 @@ const WARN_BLOCK_AGE_MS = 30 * 60 * 1000;
 const STALLED_BLOCK_AGE_MS = 2 * 60 * 60 * 1000;
 const INDEXER_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
 
+// Heartbeat-stale must precede every other check because a dead indexer's
+// last-written cursor can equal its last-observed node tip (= looks caught-up).
+function checkHeartbeatStale(
+  indexer: IndexerObservability,
+  nowMs: number,
+  blockAgeMs: number | null,
+  tipLagBlocks: number | null,
+): ChainHealth | null {
+  const heartbeatMs = Date.parse(indexer.lastStatusFetchAt);
+  if (!Number.isFinite(heartbeatMs)) return null;
+  const heartbeatAgeMs = nowMs - heartbeatMs;
+  if (heartbeatAgeMs < INDEXER_HEARTBEAT_STALE_MS) return null;
+  const mins = Math.max(1, Math.floor(heartbeatAgeMs / 60_000));
+  return {
+    level: "stalled",
+    reason: `Dashboard indexer hasn't polled the node in ${formatApproxDuration(heartbeatAgeMs)}.`,
+    stage: "stalled",
+    detail: `${mins}m`,
+    blockAgeMs,
+    tipLagBlocks,
+  };
+}
+
+function checkTipSync(
+  indexer: IndexerObservability,
+  blockAgeMs: number | null,
+  tipLagBlocks: number | null,
+): ChainHealth | null {
+  if (indexer.tipEpoch !== null && indexer.tipEpoch !== indexer.nodeLatestEpoch) {
+    return {
+      level: "warning",
+      reason: "Indexer catching up to a new epoch from the node.",
+      stage: "synchronizing",
+      detail: "Catching up to new epoch",
+      blockAgeMs,
+      tipLagBlocks: null,
+    };
+  }
+  if (tipLagBlocks !== null && tipLagBlocks > 0) {
+    return {
+      level: "warning",
+      reason: `Indexer is ${tipLagBlocks} block${tipLagBlocks === 1 ? "" : "s"} behind the polled node.`,
+      stage: "synchronizing",
+      detail: `${tipLagBlocks} block${tipLagBlocks === 1 ? "" : "s"} behind`,
+      blockAgeMs,
+      tipLagBlocks,
+    };
+  }
+  return null;
+}
+
+// Clock-skew handling: require a finite, non-negative blockAgeMs before
+// escalating. The *indexer* is fine here; the node just isn't producing.
+function checkCaughtUpBlockAge(
+  blockAgeMs: number | null,
+  tipLagBlocks: number | null,
+): ChainHealth | null {
+  if (blockAgeMs === null || !Number.isFinite(blockAgeMs) || blockAgeMs < 0) {
+    return null;
+  }
+  if (blockAgeMs >= STALLED_BLOCK_AGE_MS) {
+    return {
+      level: "stalled",
+      reason: `Polled node hasn't seen a block in ${formatApproxDuration(blockAgeMs)}.`,
+      stage: "caught_up",
+      detail: null,
+      blockAgeMs,
+      tipLagBlocks,
+    };
+  }
+  if (blockAgeMs >= WARN_BLOCK_AGE_MS) {
+    return {
+      level: "warning",
+      reason: `Last block was ${formatApproxDuration(blockAgeMs)} ago.`,
+      stage: "caught_up",
+      detail: null,
+      blockAgeMs,
+      tipLagBlocks,
+    };
+  }
+  return null;
+}
+
 export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
   const { nowMs, tipBlockTimestampMs, indexer } = inputs;
   const blockAgeMs = tipBlockTimestampMs !== null ? nowMs - tipBlockTimestampMs : null;
-  const sameEpoch =
-    indexer !== null && indexer.tipEpoch === indexer.nodeLatestEpoch;
+  const sameEpoch = indexer !== null && indexer.tipEpoch === indexer.nodeLatestEpoch;
   const tipLagBlocks =
     indexer !== null && sameEpoch
       ? indexer.nodeLatestBlockIndex - indexer.tipBlockIndex
@@ -46,49 +128,16 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
     };
   }
 
-  // 2. Heartbeat-stale — precedes every other check because a dead indexer's
-  // last-written cursor can equal its last-observed node tip (= looks caught-up).
-  const heartbeatMs = Date.parse(indexer.lastStatusFetchAt);
-  if (Number.isFinite(heartbeatMs)) {
-    const heartbeatAgeMs = nowMs - heartbeatMs;
-    if (heartbeatAgeMs >= INDEXER_HEARTBEAT_STALE_MS) {
-      const mins = Math.max(1, Math.floor(heartbeatAgeMs / 60_000));
-      return {
-        level: "stalled",
-        reason: `Dashboard indexer hasn't polled the node in ${formatApproxDuration(heartbeatAgeMs)}.`,
-        stage: "stalled",
-        detail: `${mins}m`,
-        blockAgeMs,
-        tipLagBlocks,
-      };
-    }
-  }
+  // 2. Heartbeat-stale must precede every other check — a dead indexer's
+  //    last-written cursor can equal its last-observed node tip (looks caught-up).
+  const stalled = checkHeartbeatStale(indexer, nowMs, blockAgeMs, tipLagBlocks);
+  if (stalled) return stalled;
 
-  // 3. Tip on a different epoch than the node.
-  if (indexer.tipEpoch !== null && indexer.tipEpoch !== indexer.nodeLatestEpoch) {
-    return {
-      level: "warning",
-      reason: "Indexer catching up to a new epoch from the node.",
-      stage: "synchronizing",
-      detail: "Catching up to new epoch",
-      blockAgeMs,
-      tipLagBlocks: null,
-    };
-  }
+  // 3. Tip still catching up (either epoch mismatch or same-epoch block lag).
+  const syncing = checkTipSync(indexer, blockAgeMs, tipLagBlocks);
+  if (syncing) return syncing;
 
-  // 3b. Same-epoch lag.
-  if (tipLagBlocks !== null && tipLagBlocks > 0) {
-    return {
-      level: "warning",
-      reason: `Indexer is ${tipLagBlocks} block${tipLagBlocks === 1 ? "" : "s"} behind the polled node.`,
-      stage: "synchronizing",
-      detail: `${tipLagBlocks} block${tipLagBlocks === 1 ? "" : "s"} behind`,
-      blockAgeMs,
-      tipLagBlocks,
-    };
-  }
-
-  // 4. Backfill in flight — tip is caught up.
+  // 4. Backfill in flight — tip is caught up, historical work pending.
   if (indexer.backfillEpoch !== null) {
     return {
       level: "healthy",
@@ -100,30 +149,9 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
     };
   }
 
-  // 5. Tip caught up, backfill idle. Existing block-age thresholds still
-  // produce the warning/stalled level for an actually-dead node.
-  if (blockAgeMs !== null && Number.isFinite(blockAgeMs) && blockAgeMs >= 0) {
-    if (blockAgeMs >= STALLED_BLOCK_AGE_MS) {
-      return {
-        level: "stalled",
-        reason: `Polled node hasn't seen a block in ${formatApproxDuration(blockAgeMs)}.`,
-        stage: "caught_up",  // the *indexer* is fine; the node isn't producing
-        detail: null,
-        blockAgeMs,
-        tipLagBlocks,
-      };
-    }
-    if (blockAgeMs >= WARN_BLOCK_AGE_MS) {
-      return {
-        level: "warning",
-        reason: `Last block was ${formatApproxDuration(blockAgeMs)} ago.`,
-        stage: "caught_up",
-        detail: null,
-        blockAgeMs,
-        tipLagBlocks,
-      };
-    }
-  }
+  // 5. Tip caught up, backfill idle. Escalate level on block-age thresholds.
+  const ageEscalated = checkCaughtUpBlockAge(blockAgeMs, tipLagBlocks);
+  if (ageEscalated) return ageEscalated;
 
   return {
     level: "healthy",
