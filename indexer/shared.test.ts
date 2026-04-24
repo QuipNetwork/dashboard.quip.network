@@ -81,7 +81,6 @@ function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
     token: undefined,
     pollIntervalSec: 8,
     nodesRefreshSec: 45,
-    backfillFromEpoch: undefined,
     backfillIdleRecheckSec: 300,
     once: false,
     verbose: false,

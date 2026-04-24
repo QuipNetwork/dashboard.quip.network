@@ -42,10 +42,6 @@ export interface WorkerDeps {
   now?: () => number;
 }
 
-export function defaultSleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 /**
  * Sleep for {@link ms} milliseconds, aborting early if {@link signal} fires.
  * Unlike plain `await sleep(ms)`, this resolves as soon as the abort event

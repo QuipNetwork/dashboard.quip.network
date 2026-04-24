@@ -125,7 +125,6 @@ volumes:
 | `QUIP_NODE_TOKEN`     | (unset)                            | indexer    | bearer token if node is protected      |
 | `POLL_INTERVAL_SEC`   | `8`                                | indexer    | status-poll cadence                    |
 | `NODES_REFRESH_SEC`   | `45`                               | indexer    | nodes-poll cadence                     |
-| `BACKFILL_FROM_EPOCH` | (unset)                            | indexer    | start epoch; older epochs are skipped  |
 | `VERBOSE`             | (unset)                            | indexer    | `1` enables debug logging              |
 | `DB_ADAPTER`          | `sqlite`                           | both       | `sqlite` or `postgres`                 |
 | `DATABASE_URL`        | (unset)                            | both       | required when `DB_ADAPTER=postgres`    |

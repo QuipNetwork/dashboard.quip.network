@@ -71,8 +71,7 @@ async function main(): Promise<number> {
   console.log(
     `[indexer] starting node=${config.nodeUrl} poll=${config.pollIntervalSec}s` +
       ` nodesRefresh=${config.nodesRefreshSec}s stallWarnAfter=${config.stallWarnAfterSec}s` +
-      ` backfillIdleRecheck=${config.backfillIdleRecheckSec}s once=${config.once}` +
-      (config.backfillFromEpoch !== undefined ? ` backfillFrom=${config.backfillFromEpoch}` : ""),
+      ` backfillIdleRecheck=${config.backfillIdleRecheckSec}s once=${config.once}`,
   );
 
   const db = await createAdapter();
