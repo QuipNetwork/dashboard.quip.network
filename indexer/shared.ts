@@ -75,10 +75,28 @@ export function logPrefix(verb: "log" | "warn" | "error"): (...args: unknown[]) 
 
 const warn = logPrefix("warn");
 const log = logPrefix("log");
+const error = logPrefix("error");
 
 export function formatErr(e: unknown): string {
   if (e instanceof Error) return e.stack ?? e.message;
   return String(e);
+}
+
+/**
+ * Best-effort `state.save()` that swallows errors so the caller can continue
+ * a cleanup/rethrow path without masking the original failure. Logs via the
+ * shared `[indexer]` prefix so the save failure is visible in ops output.
+ *
+ * Used by both workers on the "about to rethrow a RateLimitError / other
+ * error — try to flush the cursor first" path; keeping it here avoids two
+ * near-identical copies drifting apart.
+ */
+export async function saveStateSafely(state: IndexerState, context: string): Promise<void> {
+  try {
+    await state.save();
+  } catch (e) {
+    error(`state.save failed after ${context}: ${formatErr(e)}`);
+  }
 }
 
 /**

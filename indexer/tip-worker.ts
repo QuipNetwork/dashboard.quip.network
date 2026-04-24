@@ -9,6 +9,7 @@ import {
   logPrefix,
   maybeWarnStalled,
   refreshSelfAddress,
+  saveStateSafely,
   sleepInterruptible,
   updateStallTracker,
   type WorkerDeps,
@@ -176,6 +177,13 @@ function reseedTipCursorIfNeeded(
   }
 }
 
+/**
+ * Walk the tip epoch from `state.tipCursor.blockIndex + 1` up to
+ * `status.latestBlockIndex`. Unlike the backfill walker, this loop is
+ * bounded by `latestBlockIndex - tipBlockIndex` — a small number per poll
+ * on a healthy node — so it doesn't need an abort check inside the loop.
+ * Shutdown is observed between iterations in `runTipLoop`.
+ */
 async function walkTipBlocks(
   deps: WorkerDeps,
   result: TipIterationResult,
@@ -228,14 +236,6 @@ async function walkTipBlocks(
     state.tipCursor.blockIndex = nextIndex;
     state.observability.lastBlockInsertAt = new Date(nowMs).toISOString();
     result.blocksIndexed += 1;
-  }
-}
-
-async function saveStateSafely(state: IndexerState, reason: string): Promise<void> {
-  try {
-    await state.save();
-  } catch (saveErr) {
-    error(`state.save failed after ${reason}: ${formatErr(saveErr)}`);
   }
 }
 

@@ -8,6 +8,7 @@ import {
   buildCanonicalPlan,
   formatErr,
   logPrefix,
+  saveStateSafely,
   sleepInterruptible,
   type CanonicalEpoch,
   type WorkerDeps,
@@ -91,6 +92,10 @@ export async function markPlanEntriesDone(
  * entry, and walk its owned range. Observability is written in `finally` so
  * it always runs, even if the block walk throws.
  *
+ * The walk checks {@link signal} between blocks so a deep backfill (thousands
+ * of blocks in one owned range) can't delay shutdown — abort breaks out of
+ * the inner loop, `finally` still runs, state is flushed.
+ *
  * Returns `idle: true` when the plan is empty or every entry is done; the
  * caller can then sleep on `backfillIdleRecheckSec` rather than the normal
  * poll interval.
@@ -98,6 +103,7 @@ export async function markPlanEntriesDone(
 export async function runBackfillIteration(
   deps: WorkerDeps,
   nowMs: number,
+  signal: AbortSignal,
 ): Promise<BackfillIterationResult> {
   const { client, db, state } = deps;
   const result: BackfillIterationResult = {
@@ -132,7 +138,7 @@ export async function runBackfillIteration(
       result.idle = true;
       return result;
     }
-    await walkBackfillEntry(deps, result, nextEntry, nowMs);
+    await walkBackfillEntry(deps, result, nextEntry, nowMs, signal);
     await state.save();
   } finally {
     await writeBackfillObservability(db, state, status, nowMs);
@@ -172,12 +178,18 @@ async function writeBackfillObservability(
  * the owned range inserting any blocks not already in the DB. 404 responses
  * advance the cursor past the missing block (likely pruned). RateLimitError
  * escapes to the caller so the loop can back off.
+ *
+ * The loop checks {@link signal} at the top of each iteration and breaks
+ * cleanly on abort so shutdown isn't blocked for minutes on a deep range.
+ * Breaking (rather than throwing) lets the outer `finally` flush
+ * observability with an accurate cursor.
  */
 async function walkBackfillEntry(
   deps: WorkerDeps,
   result: BackfillIterationResult,
   entry: CanonicalEpoch,
   nowMs: number,
+  signal: AbortSignal,
 ): Promise<void> {
   const { db, state, config } = deps;
 
@@ -200,6 +212,7 @@ async function walkBackfillEntry(
   const present = new Set(existing.map((b) => b.blockIndex));
 
   while (state.backfillCursor.blockIndex < entry.ownedEnd) {
+    if (signal.aborted) break;
     const nextIndex = state.backfillCursor.blockIndex + 1;
     if (present.has(nextIndex)) {
       state.backfillCursor.blockIndex = nextIndex;
@@ -221,7 +234,13 @@ async function fetchAndInsertBlock(
   try {
     raw = await client.getBlock(epoch, blockIndex);
   } catch (e) {
-    if (e instanceof RateLimitError) throw e;
+    if (e instanceof RateLimitError) {
+      // Flush the cursor advances made this iteration before bubbling to the
+      // backoff handler — otherwise the `finally` observability write reports
+      // a stale backfillCursor.
+      await saveStateSafely(state, "rate limit");
+      throw e;
+    }
     error(`[backfill] block fetch failed at epoch=${epoch} index=${blockIndex}: ${formatErr(e)}`);
     throw e;
   }
@@ -255,7 +274,7 @@ export async function runBackfillLoop(deps: WorkerDeps, signal: AbortSignal): Pr
   while (!signal.aborted) {
     let idle = false;
     try {
-      const r = await runBackfillIteration(deps, now());
+      const r = await runBackfillIteration(deps, now(), signal);
       backoffMs = 0;
       idle = r.idle;
       if (config.verbose) {

@@ -155,6 +155,7 @@ describe("runBackfillIteration", () => {
     const r = await runBackfillIteration(
       { config: makeConfig(), client, db, state, now: () => FIXED_MS },
       FIXED_MS,
+      new AbortController().signal,
     );
 
     // The tip worker owns `tip`. Backfill should never fetch a tip block
@@ -191,6 +192,7 @@ describe("runBackfillIteration", () => {
     const r = await runBackfillIteration(
       { config: makeConfig(), client, db, state, now: () => FIXED_MS },
       FIXED_MS,
+      new AbortController().signal,
     );
 
     expect(r.idle).toBe(true);
@@ -247,6 +249,7 @@ describe("runBackfillIteration", () => {
     await runBackfillIteration(
       { config: makeConfig(), client, db, state, now: () => FIXED_MS },
       FIXED_MS,
+      new AbortController().signal,
     );
 
     // Only indices 4 and 5 should be fetched — 1..3 were already in DB.
@@ -298,9 +301,54 @@ describe("runBackfillIteration", () => {
       runBackfillIteration(
         { config: makeConfig(), client, db, state, now: () => FIXED_MS },
         FIXED_MS,
+        new AbortController().signal,
       ),
     ).rejects.toThrow();
     // Observability is still written via the finally block.
+    expect(db.observabilityWrites.length).toBe(1);
+  });
+
+  it("stops walking on abort", async () => {
+    // Owned range is 1..10 (all un-indexed). Abort after the 3rd block fetch
+    // so the walk must observe the signal and break — otherwise we'd fetch
+    // all 10. Asserts the in-loop abort check actually short-circuits.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+    state.chainAnchors.set("tip", "hash-canonical-1");
+    state.chainAnchors.set("prior", "hash-canonical-1");
+
+    const controller = new AbortController();
+    const priorFetches: number[] = [];
+    const client = makeClient(
+      backfillRouter({
+        status: statusBody("tip", 20),
+        epochs: [
+          { epoch: "prior", block_count: 10, first_block: 1, last_block: 10, status: "stale_fork" },
+          { epoch: "tip", block_count: 20, first_block: 1, last_block: 20, status: "live" },
+        ],
+        chainOf: () => "canonical",
+        onBlockFetch: (epoch, idx) => {
+          if (epoch === "prior") {
+            priorFetches.push(idx);
+            if (priorFetches.length === 3) controller.abort();
+          }
+        },
+      }),
+    );
+
+    const r = await runBackfillIteration(
+      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
+      FIXED_MS,
+      controller.signal,
+    );
+
+    // Walk should have stopped before covering the full 1..10 range. Exact
+    // count depends on when the signal is observed relative to in-flight
+    // fetches — the key invariant is "fewer than the plan required".
+    expect(priorFetches.length).toBeLessThan(10);
+    expect(r.blocksIndexed).toBeLessThan(10);
+    // Observability still flushed via finally.
     expect(db.observabilityWrites.length).toBe(1);
   });
 });
