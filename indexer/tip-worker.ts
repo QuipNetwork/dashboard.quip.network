@@ -4,12 +4,12 @@ import { rawBlockToRecord, rawNodesToSnapshot } from "../api/db/adapter";
 
 import { AuthError, RateLimitError, type EpochsBody, type StatusBody } from "./client";
 import {
-  defaultSleep,
   ensureChainAnchor,
   formatErr,
   logPrefix,
   maybeWarnStalled,
   refreshSelfAddress,
+  sleepInterruptible,
   updateStallTracker,
   type WorkerDeps,
 } from "./shared";
@@ -280,7 +280,6 @@ async function maybeRefreshNodes(
  */
 export async function runTipLoop(deps: WorkerDeps, signal: AbortSignal): Promise<void> {
   const { config } = deps;
-  const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? Date.now;
   const lastNodesFetch = { value: 0 };
   let backoffMs = 0;
@@ -298,22 +297,13 @@ export async function runTipLoop(deps: WorkerDeps, signal: AbortSignal): Promise
       if (e instanceof RateLimitError) {
         backoffMs = backoffMs === 0 ? 5000 : Math.min(backoffMs * 2, 60000);
         warn(`tip worker rate limited, backing off ${backoffMs}ms`);
-        await sleepInterruptible(sleep, backoffMs, signal);
+        await sleepInterruptible(backoffMs, signal);
         if (config.once) throw e;
         continue;
       }
       error(`tip iteration failed: ${formatErr(e)}`);
       if (config.once) throw e;
     }
-    await sleepInterruptible(sleep, config.pollIntervalSec * 1000, signal);
+    await sleepInterruptible(config.pollIntervalSec * 1000, signal);
   }
-}
-
-async function sleepInterruptible(
-  sleep: (ms: number) => Promise<void>,
-  ms: number,
-  signal: AbortSignal,
-): Promise<void> {
-  if (signal.aborted) return;
-  await sleep(ms);
 }

@@ -18,6 +18,7 @@ import {
   formatErr,
   isNodeStalled,
   maybeWarnStalled,
+  sleepInterruptible,
   updateStallTracker,
   type CanonicalEpoch,
   type WorkerDeps,
@@ -190,5 +191,33 @@ describe("stall detection", () => {
     const cfg = makeConfig({ stallWarnAfterSec: 0 });
     updateStallTracker(state, status(162), 0);
     expect(maybeWarnStalled(state, cfg, 24 * 60 * 60 * 1000)).toBe(false);
+  });
+});
+
+describe("sleepInterruptible", () => {
+  it("sleepInterruptible resolves immediately on abort", async () => {
+    const ac = new AbortController();
+    const start = Date.now();
+    const p = sleepInterruptible(10_000, ac.signal);
+    setTimeout(() => ac.abort(), 10);
+    await p;
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(100); // resolved well before the 10s timeout
+  });
+
+  it("sleepInterruptible resolves after ms when not aborted", async () => {
+    const ac = new AbortController();
+    const start = Date.now();
+    await sleepInterruptible(30, ac.signal);
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(25); // allow a small fudge
+  });
+
+  it("sleepInterruptible returns immediately if already aborted", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const start = Date.now();
+    await sleepInterruptible(10_000, ac.signal);
+    expect(Date.now() - start).toBeLessThan(20);
   });
 });

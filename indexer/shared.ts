@@ -46,6 +46,28 @@ export function defaultSleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Sleep for {@link ms} milliseconds, aborting early if {@link signal} fires.
+ * Unlike plain `await sleep(ms)`, this resolves as soon as the abort event
+ * dispatches — callers can check `signal.aborted` afterward to distinguish
+ * normal completion from abort.
+ */
+export function sleepInterruptible(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function logPrefix(verb: "log" | "warn" | "error"): (...args: unknown[]) => void {
   const fn = console[verb].bind(console);
   return (...args: unknown[]) => fn("[indexer]", ...args);
