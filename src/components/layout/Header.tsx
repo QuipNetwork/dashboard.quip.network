@@ -3,6 +3,7 @@ import { SERIES_COLORS } from "../../lib/colors";
 import type { MinerCategory } from "../../types/telemetry";
 import { CurrentBlockIndicator } from "./CurrentBlockIndicator";
 import { EpochSelector } from "./EpochSelector";
+import { SyncIndicator } from "./SyncIndicator";
 
 const TYPES: MinerCategory[] = ["CPU", "GPU", "QPU"];
 
@@ -31,8 +32,9 @@ export function Header() {
   return (
     <header className="border-b border-brand-gray-1 bg-gradient-to-r from-brand-gray-0 via-brand-gray-1 to-brand-gray-0 px-6 py-5">
       <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
-        {/* Left: aggregation toggle (Network + Compute) */}
-        <div className="justify-self-center sm:justify-self-start">
+        {/* Left: sync indicator (always) + aggregation toggle (Network + Compute only). */}
+        <div className="flex flex-col items-center gap-2 justify-self-center sm:items-start sm:justify-self-start">
+          <SyncIndicator />
           {showAggregation && (
             <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
               {MODES.map(({ value, label }) => {
