@@ -3,10 +3,7 @@
 import { useMemo } from "react";
 
 import { computeChainHealth, type SyncStage } from "../../lib/staleness";
-import {
-  selectTipBlockTimestampMs,
-  useTelemetryStore,
-} from "../../store/telemetry-store";
+import { selectTipBlockTimestampMs, useTelemetryStore } from "../../store/telemetry-store";
 
 const STYLES: Record<
   SyncStage,
@@ -86,11 +83,7 @@ export function SyncIndicator() {
   const text = composeText(health.stage, health.detail);
 
   const dotClass =
-    style.dotAnim === "spin"
-      ? "animate-spin"
-      : style.dotAnim === "pulse"
-        ? "animate-pulse"
-        : "";
+    style.dotAnim === "spin" ? "animate-spin" : style.dotAnim === "pulse" ? "animate-pulse" : "";
 
   return (
     <span

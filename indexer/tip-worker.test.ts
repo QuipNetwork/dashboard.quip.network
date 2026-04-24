@@ -303,11 +303,9 @@ describe("runTipIteration", () => {
     const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
 
     await expect(
-      runTipIteration(
-        { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-        FIXED_MS,
-        { value: FIXED_MS },
-      ),
+      runTipIteration({ config: makeConfig(), client, db, state, now: () => FIXED_MS }, FIXED_MS, {
+        value: FIXED_MS,
+      }),
     ).rejects.toBeInstanceOf(RateLimitError);
 
     expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2]);
@@ -344,11 +342,9 @@ describe("runTipIteration", () => {
     const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
 
     await expect(
-      runTipIteration(
-        { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-        FIXED_MS,
-        { value: FIXED_MS },
-      ),
+      runTipIteration({ config: makeConfig(), client, db, state, now: () => FIXED_MS }, FIXED_MS, {
+        value: FIXED_MS,
+      }),
     ).rejects.toThrow(/simulated db write error/);
 
     expect(db.inserted).toHaveLength(1);
@@ -495,11 +491,9 @@ describe("runTipIteration observability persistence", () => {
     const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
 
     await expect(
-      runTipIteration(
-        { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-        FIXED_MS,
-        { value: FIXED_MS },
-      ),
+      runTipIteration({ config: makeConfig(), client, db, state, now: () => FIXED_MS }, FIXED_MS, {
+        value: FIXED_MS,
+      }),
     ).rejects.toThrow(/simulated db write error/);
 
     // Heartbeat still advanced, even though the iteration threw.
@@ -547,9 +541,7 @@ describe("runTipIteration observability persistence", () => {
     );
 
     expect(db.observability?.lastBlockInsertAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(db.observability?.lastStatusFetchAt).toBe(
-      new Date(1_800_000_000_000).toISOString(),
-    );
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(1_800_000_000_000).toISOString());
   });
 });
 

@@ -37,10 +37,7 @@ export interface BackfillIterationResult {
  * present in the plan (fresh rollover, transient 404), the plan is returned
  * unchanged — callers still get something safe to iterate.
  */
-export function reorderCanonicalFirst(
-  plan: CanonicalEpoch[],
-  tipEpoch: string,
-): CanonicalEpoch[] {
+export function reorderCanonicalFirst(plan: CanonicalEpoch[], tipEpoch: string): CanonicalEpoch[] {
   const tipEntry = plan.find((e) => e.epoch === tipEpoch);
   if (!tipEntry) return plan;
   const tipAnchor = tipEntry.chainAnchor;
@@ -250,10 +247,7 @@ async function fetchAndInsertBlock(
     result.blocksSkipped += 1;
     return;
   }
-  const record = rawBlockToRecord(
-    raw as unknown as Parameters<typeof rawBlockToRecord>[0],
-    epoch,
-  );
+  const record = rawBlockToRecord(raw as unknown as Parameters<typeof rawBlockToRecord>[0], epoch);
   await db.insertBlock(record);
   state.backfillCursor.blockIndex = blockIndex;
   state.observability.lastBlockInsertAt = new Date(nowMs).toISOString();
@@ -299,9 +293,7 @@ export async function runBackfillLoop(deps: WorkerDeps, signal: AbortSignal): Pr
       error(`[backfill] iteration failed: ${formatErr(e)}`);
       if (config.once) throw e;
     }
-    const sleepMs = idle
-      ? config.backfillIdleRecheckSec * 1000
-      : config.pollIntervalSec * 1000;
+    const sleepMs = idle ? config.backfillIdleRecheckSec * 1000 : config.pollIntervalSec * 1000;
     await sleepInterruptible(sleepMs, signal);
   }
 }

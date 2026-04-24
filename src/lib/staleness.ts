@@ -112,9 +112,7 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
   const blockAgeMs = tipBlockTimestampMs !== null ? nowMs - tipBlockTimestampMs : null;
   const sameEpoch = indexer !== null && indexer.tipEpoch === indexer.nodeLatestEpoch;
   const tipLagBlocks =
-    indexer !== null && sameEpoch
-      ? indexer.nodeLatestBlockIndex - indexer.tipBlockIndex
-      : null;
+    indexer !== null && sameEpoch ? indexer.nodeLatestBlockIndex - indexer.tipBlockIndex : null;
 
   // 1. Connecting — no poll has completed yet.
   if (indexer === null) {

@@ -159,8 +159,8 @@ export interface IndexerObservability {
   backfillEpoch: EpochId | null;
   backfillBlockIndex: number;
 
-  lastStatusFetchAt: string;         // tip-worker heartbeat (ISO 8601)
-  lastBlockInsertAt: string | null;  // either worker's most recent insert
+  lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
+  lastBlockInsertAt: string | null; // either worker's most recent insert
 }
 
 export interface TelemetryResponse {

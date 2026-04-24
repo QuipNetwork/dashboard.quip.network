@@ -61,13 +61,13 @@ other.
 
 ### Error handling
 
-| Situation            | Behavior                                             |
-| -------------------- | ---------------------------------------------------- |
-| 304                  | no-op, sleep `pollIntervalSec`, continue             |
-| 404 on a block       | warn, advance cursor, continue                       |
-| 401                  | abort sibling worker, `process.exit(1)`              |
-| 429                  | exponential backoff 5s → 60s (reset on success)      |
-| 5xx / network error  | warn, sleep `pollIntervalSec`, retry                 |
+| Situation            | Behavior                                              |
+| -------------------- | ----------------------------------------------------- |
+| 304                  | no-op, sleep `pollIntervalSec`, continue              |
+| 404 on a block       | warn, advance cursor, continue                        |
+| 401                  | abort sibling worker, `process.exit(1)`               |
+| 429                  | exponential backoff 5s → 60s (reset on success)       |
+| 5xx / network error  | warn, sleep `pollIntervalSec`, retry                  |
 | `SIGINT` / `SIGTERM` | finish iteration, persist cursors, disconnect, exit 0 |
 
 ### Big-int nonce
@@ -86,12 +86,12 @@ bun test indexer/
 Tests stub `fetch` and use an in-memory fake `DatabaseAdapter`; they do not
 touch SQLite.
 
-| File                             | Covers                                                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `indexer/shared.test.ts`         | helpers: `buildCanonicalPlan`, stall tracker, `sleepInterruptible`, `saveStateSafely`                        |
-| `indexer/tip-worker.test.ts`     | tip iteration: `ownedStart` seeding, epoch rollover, same-epoch advance, observability heartbeat, `replaceEpochStatus` |
+| File                              | Covers                                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `indexer/shared.test.ts`          | helpers: `buildCanonicalPlan`, stall tracker, `sleepInterruptible`, `saveStateSafely`                                  |
+| `indexer/tip-worker.test.ts`      | tip iteration: `ownedStart` seeding, epoch rollover, same-epoch advance, observability heartbeat, `replaceEpochStatus` |
 | `indexer/backfill-worker.test.ts` | plan reordering, `markPlanEntriesDone`, tip-epoch filter, idle transition, `RateLimitError` rethrow, abort during walk |
-| `indexer/main.test.ts`           | orchestration: both workers complete normally; `AuthError` aborts sibling; unhandled error returns 1         |
-| `indexer/config.test.ts`         | flag / env parsing, validation, whitespace handling                                                          |
-| `indexer/client.test.ts`         | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                             |
-| `indexer/state.test.ts`          | `IndexerState` load/save, schema-drift reset                                                                 |
+| `indexer/main.test.ts`            | orchestration: both workers complete normally; `AuthError` aborts sibling; unhandled error returns 1                   |
+| `indexer/config.test.ts`          | flag / env parsing, validation, whitespace handling                                                                    |
+| `indexer/client.test.ts`          | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                       |
+| `indexer/state.test.ts`           | `IndexerState` load/save, schema-drift reset                                                                           |

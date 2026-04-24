@@ -6,7 +6,7 @@
 
 ## Motivation
 
-On `qpu-1.nodes.quip.network` (and any node with accumulated dead-fork history), the dashboard shows the warning *"Indexer is on a different epoch than the polled node"* and the epoch selector lists no `(live)` option. Root cause: the indexer walks its canonical plan in `(chainAnchor, ownedStart)` order — chain-1-hash alphabetical — so dead forks get indexed before the live chain. No block in `latestEpoch` is persisted until the entire dead-fork history is walked, which can take hours.
+On `qpu-1.nodes.quip.network` (and any node with accumulated dead-fork history), the dashboard shows the warning _"Indexer is on a different epoch than the polled node"_ and the epoch selector lists no `(live)` option. Root cause: the indexer walks its canonical plan in `(chainAnchor, ownedStart)` order — chain-1-hash alphabetical — so dead forks get indexed before the live chain. No block in `latestEpoch` is persisted until the entire dead-fork history is walked, which can take hours.
 
 Users have no way to tell whether the dashboard is broken, the node is broken, or the indexer is still catching up. The header has no status surface at all during the healthy path.
 
@@ -86,8 +86,8 @@ export interface IndexerObservability {
   backfillEpoch: EpochId | null;
   backfillBlockIndex: number;
 
-  lastStatusFetchAt: string;         // tip-worker heartbeat (ISO 8601)
-  lastBlockInsertAt: string | null;  // either worker, most recent insert
+  lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
+  lastBlockInsertAt: string | null; // either worker, most recent insert
 }
 ```
 
@@ -95,13 +95,13 @@ export interface IndexerObservability {
 
 ```ts
 interface IndexerState {
-  tipCursor:      { epoch: EpochId | null; blockIndex: number };
+  tipCursor: { epoch: EpochId | null; blockIndex: number };
   backfillCursor: { epoch: EpochId | null; blockIndex: number };
 
-  chainAnchors: Map<EpochId, string>;        // shared read/write; atomic under JS event loop
-  stall:        { lastObserved, lastAdvanceAtMs, lastWarnAtMs };  // tip worker owns
-  etags:        { nodes: string | null };    // tip worker owns (nodes refresh lives on tip poll)
-  observability:{ lastBlockInsertAt: string | null };   // either worker updates
+  chainAnchors: Map<EpochId, string>; // shared read/write; atomic under JS event loop
+  stall: { lastObserved; lastAdvanceAtMs; lastWarnAtMs }; // tip worker owns
+  etags: { nodes: string | null }; // tip worker owns (nodes refresh lives on tip poll)
+  observability: { lastBlockInsertAt: string | null }; // either worker updates
 }
 ```
 
@@ -117,27 +117,27 @@ The persisted `state.json` gains a schema-version field. On startup, if the on-d
 
 ```ts
 export type HealthLevel = "healthy" | "warning" | "stalled";
-export type SyncStage  = "connecting" | "synchronizing" | "backfilling" | "caught_up" | "stalled";
+export type SyncStage = "connecting" | "synchronizing" | "backfilling" | "caught_up" | "stalled";
 
 export interface ChainHealth {
-  level: HealthLevel;        // drives RecentBlocksTable banner (existing)
-  reason: string;            // banner copy
-  stage: SyncStage;          // drives SyncIndicator pill
-  detail: string | null;     // pill sub-detail ("14 blocks behind", "7m", …)
+  level: HealthLevel; // drives RecentBlocksTable banner (existing)
+  reason: string; // banner copy
+  stage: SyncStage; // drives SyncIndicator pill
+  detail: string | null; // pill sub-detail ("14 blocks behind", "7m", …)
   blockAgeMs: number | null;
-  tipLagBlocks: number | null;   // renamed from indexerLagBlocks
+  tipLagBlocks: number | null; // renamed from indexerLagBlocks
 }
 ```
 
 `computeChainHealth` derives `stage` (and the paired `level` for the banner) in this precedence:
 
-| # | Condition | `stage` | `level` | Banner |
-|---|---|---|---|---|
-| 1 | `indexer === null` | `connecting` | `healthy` | suppressed |
-| 2 | `nowMs − lastStatusFetchAt ≥ 5 min` | `stalled` | `stalled` | red banner |
-| 3 | `tipEpoch !== nodeLatestEpoch` OR `tipBlockIndex < nodeLatestBlockIndex` | `synchronizing` | `warning` | yellow banner with same copy as today's "different epoch" message, relabelled |
-| 4 | `backfillEpoch !== null` | `backfilling` | `healthy` | suppressed |
-| 5 | (otherwise) | `caught_up` | `healthy` | suppressed |
+| #   | Condition                                                                | `stage`         | `level`   | Banner                                                                        |
+| --- | ------------------------------------------------------------------------ | --------------- | --------- | ----------------------------------------------------------------------------- |
+| 1   | `indexer === null`                                                       | `connecting`    | `healthy` | suppressed                                                                    |
+| 2   | `nowMs − lastStatusFetchAt ≥ 5 min`                                      | `stalled`       | `stalled` | red banner                                                                    |
+| 3   | `tipEpoch !== nodeLatestEpoch` OR `tipBlockIndex < nodeLatestBlockIndex` | `synchronizing` | `warning` | yellow banner with same copy as today's "different epoch" message, relabelled |
+| 4   | `backfillEpoch !== null`                                                 | `backfilling`   | `healthy` | suppressed                                                                    |
+| 5   | (otherwise)                                                              | `caught_up`     | `healthy` | suppressed                                                                    |
 
 Existing precedence comments in `staleness.ts:82-84` (dead indexer masquerading as caught-up) are preserved — the heartbeat-stale check at row 2 must precede the same-cursor-as-node check that was at `staleness.ts:72`, or a wedged indexer would look caught-up.
 
@@ -240,14 +240,14 @@ Existing `SIGINT` / `SIGTERM` handlers call `ac.abort()`; both worker loops obse
 
 Reads `indexer` and `latestBlockTimestampMs` from the telemetry store, calls `computeChainHealth` in a `useMemo`, and renders a pill keyed off `health.stage`:
 
-| Stage | Dot | Color | Animation | Copy |
-|---|---|---|---|---|
-| connecting | 10px ring | gray `#A9A9A9` | spin | "Connecting to node…" |
-| synchronizing (same epoch) | 7px dot | cyan `#4CE0FF` | pulse | "Synchronizing · N blocks behind" (N = `nodeLatestBlockIndex − tipBlockIndex`) |
-| synchronizing (new epoch) | 7px dot | cyan `#4CE0FF` | pulse | "Catching up to new epoch" |
-| backfilling | 7px dot | amber `#F5A623` | pulse (slower) | "Backfilling history" |
-| caught_up | 7px dot | green `#67E347` | static | "Live" |
-| stalled | 7px dot | red `#E34735` | static | "Indexer offline · Xm" (X = minutes since `lastStatusFetchAt`) |
+| Stage                      | Dot       | Color           | Animation      | Copy                                                                           |
+| -------------------------- | --------- | --------------- | -------------- | ------------------------------------------------------------------------------ |
+| connecting                 | 10px ring | gray `#A9A9A9`  | spin           | "Connecting to node…"                                                          |
+| synchronizing (same epoch) | 7px dot   | cyan `#4CE0FF`  | pulse          | "Synchronizing · N blocks behind" (N = `nodeLatestBlockIndex − tipBlockIndex`) |
+| synchronizing (new epoch)  | 7px dot   | cyan `#4CE0FF`  | pulse          | "Catching up to new epoch"                                                     |
+| backfilling                | 7px dot   | amber `#F5A623` | pulse (slower) | "Backfilling history"                                                          |
+| caught_up                  | 7px dot   | green `#67E347` | static         | "Live"                                                                         |
+| stalled                    | 7px dot   | red `#E34735`   | static         | "Indexer offline · Xm" (X = minutes since `lastStatusFetchAt`)                 |
 
 Green matches the existing `#67E347` used for the "Network" view toggle. Cyan matches the existing `#4CE0FF` used for "By Type". Amber and red are new palette entries reserved for indexer state.
 
@@ -280,16 +280,16 @@ Type updates only. No new store state.
 
 ## Error handling
 
-| Scenario | Handling |
-|---|---|
-| `AuthError` from either worker | Worker logs, calls `ac.abort()`. `main.ts` awaits both loops, runs `db.disconnect()`, exits(1). |
-| `RateLimitError` (429) | Worker-local exponential backoff (5s → 60s cap), persists state, retries. **Other worker unaffected** — the key improvement over today's shared backoff. |
-| `insertBlock` throws | Log, save state, rethrow → worker's top-level catch logs + restarts after a short delay. Block stays un-indexed; next iteration retries. |
-| Block fetch returns 404 / null | Log warn, advance cursor past the missing block. Unchanged from `loop.ts:276-281`. |
-| Chain-switch mid-walk (cursor epoch vanished from plan) | Existing `loop.ts:229-242` reset-to-plan[0]; reused for `backfillCursor`. Tip worker handles via the epoch-change branch in its own loop. |
-| Workers race on same `(epoch, blockIndex)` | DB idempotent insert resolves. No explicit coordination. |
-| Unexpected exception in a worker | Top-level catch: log with stack, sleep pollInterval, restart own loop. Does not propagate to the other worker. |
-| Observability write fails | Log warn, continue. Next poll's write overwrites. Matches existing best-effort pattern at `loop.ts:125-127`. |
+| Scenario                                                | Handling                                                                                                                                                 |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AuthError` from either worker                          | Worker logs, calls `ac.abort()`. `main.ts` awaits both loops, runs `db.disconnect()`, exits(1).                                                          |
+| `RateLimitError` (429)                                  | Worker-local exponential backoff (5s → 60s cap), persists state, retries. **Other worker unaffected** — the key improvement over today's shared backoff. |
+| `insertBlock` throws                                    | Log, save state, rethrow → worker's top-level catch logs + restarts after a short delay. Block stays un-indexed; next iteration retries.                 |
+| Block fetch returns 404 / null                          | Log warn, advance cursor past the missing block. Unchanged from `loop.ts:276-281`.                                                                       |
+| Chain-switch mid-walk (cursor epoch vanished from plan) | Existing `loop.ts:229-242` reset-to-plan[0]; reused for `backfillCursor`. Tip worker handles via the epoch-change branch in its own loop.                |
+| Workers race on same `(epoch, blockIndex)`              | DB idempotent insert resolves. No explicit coordination.                                                                                                 |
+| Unexpected exception in a worker                        | Top-level catch: log with stack, sleep pollInterval, restart own loop. Does not propagate to the other worker.                                           |
+| Observability write fails                               | Log warn, continue. Next poll's write overwrites. Matches existing best-effort pattern at `loop.ts:125-127`.                                             |
 
 ## Testing
 

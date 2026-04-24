@@ -18,45 +18,46 @@
 
 **New files:**
 
-| Path | Responsibility |
-|---|---|
-| `indexer/shared.ts` | Helpers used by both workers: `updateStallTracker`, `maybeWarnStalled`, `isNodeStalled`, `buildCanonicalPlan`, `ensureChainAnchor`, `resolveSelfAddress`, `refreshSelfAddress`, `formatErr`, `logPrefix`, `defaultSleep`, the `CanonicalEpoch` type. Pure relocation from `loop.ts` — no behavior change. |
-| `indexer/tip-worker.ts` | `runTipLoop(deps, signal)`, `runTipIteration(deps, nowMs)`, `computeTipOwnedStart(status, epochsBody, state)`. |
-| `indexer/tip-worker.test.ts` | Tip-worker behavior tests. |
-| `indexer/backfill-worker.ts` | `runBackfillLoop(deps, signal)`, `runBackfillIteration(deps, nowMs)`, `reorderCanonicalFirst(plan, tipEpoch, chainAnchors)`, `markPlanEntriesDone(plan, db)`. |
-| `indexer/backfill-worker.test.ts` | Backfill-worker behavior tests. |
-| `src/components/layout/SyncIndicator.tsx` | The new pill component. |
-| `src/components/layout/SyncIndicator.test.tsx` | Per-stage render tests. |
+| Path                                           | Responsibility                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `indexer/shared.ts`                            | Helpers used by both workers: `updateStallTracker`, `maybeWarnStalled`, `isNodeStalled`, `buildCanonicalPlan`, `ensureChainAnchor`, `resolveSelfAddress`, `refreshSelfAddress`, `formatErr`, `logPrefix`, `defaultSleep`, the `CanonicalEpoch` type. Pure relocation from `loop.ts` — no behavior change. |
+| `indexer/tip-worker.ts`                        | `runTipLoop(deps, signal)`, `runTipIteration(deps, nowMs)`, `computeTipOwnedStart(status, epochsBody, state)`.                                                                                                                                                                                            |
+| `indexer/tip-worker.test.ts`                   | Tip-worker behavior tests.                                                                                                                                                                                                                                                                                |
+| `indexer/backfill-worker.ts`                   | `runBackfillLoop(deps, signal)`, `runBackfillIteration(deps, nowMs)`, `reorderCanonicalFirst(plan, tipEpoch, chainAnchors)`, `markPlanEntriesDone(plan, db)`.                                                                                                                                             |
+| `indexer/backfill-worker.test.ts`              | Backfill-worker behavior tests.                                                                                                                                                                                                                                                                           |
+| `src/components/layout/SyncIndicator.tsx`      | The new pill component.                                                                                                                                                                                                                                                                                   |
+| `src/components/layout/SyncIndicator.test.tsx` | Per-stage render tests.                                                                                                                                                                                                                                                                                   |
 
 **Modified files:**
 
-| Path | Change |
-|---|---|
-| `src/types/telemetry.ts` | `IndexerObservability`: `cursorEpoch`/`cursorBlockIndex` → `tipEpoch`/`tipBlockIndex` + add `backfillEpoch`/`backfillBlockIndex`. |
-| `api/db/adapter.ts` | `parseIndexerObservability` validates new shape. Add `getCursors`/`saveCursors` methods (replacing `getCursor`/`saveCursor`). Keep `getEtags` — read from same JSON blob. |
-| `api/db/sqlite.ts`, `api/db/postgres.ts` | Implement new DB methods; store `{tipCursor, backfillCursor, etags}` as JSON in `meta[indexer_cursors]`. |
-| `api/db/sqlite.test.ts`, `api/db/postgres.test.ts` | Add round-trip tests for new methods; update observability tests for new shape. |
-| `indexer/state.ts` | Replace `cursor` with `tipCursor` + `backfillCursor`. `load()`/`save()` use new adapter methods. |
-| `indexer/config.ts` | Add `backfillIdleRecheckSec` with `BACKFILL_IDLE_RECHECK_SEC` env / `--backfill-idle-recheck` flag (default 300). |
-| `indexer/config.test.ts` | Parse test for new knob. |
-| `indexer/main.ts` | Spawn two workers in parallel with a shared `AbortController`; map `AuthError` from either to abort-and-exit(1). |
-| `indexer/loop.ts` | Deleted (contents split across `shared.ts`, `tip-worker.ts`, `backfill-worker.ts`). |
-| `indexer/loop.test.ts` | Deleted; tests moved to `tip-worker.test.ts` / `backfill-worker.test.ts` / `shared.test.ts`. |
-| `indexer/shared.test.ts` (new if needed) | `buildCanonicalPlan` and stall-tracker tests that didn't fit in worker-specific files. |
-| `src/lib/staleness.ts` | New `SyncStage` type. `ChainHealth` gains `stage` + `detail`; `indexerLagBlocks` → `tipLagBlocks`. Rewrite `computeChainHealth` to populate the new fields. |
-| `src/lib/staleness.test.ts` | Update `obs()` to new shape; keep existing scenarios; add per-stage tests. |
-| `src/components/layout/Header.tsx` | Left cell becomes `flex flex-col` stack: `<SyncIndicator />` above conditional `<AggregationToggle />`. |
-| `src/components/views/Network/RecentBlocksTable.tsx` | Field renames (`cursorEpoch` → `tipEpoch`). |
-| `src/components/views/Network/RecentBlocksTable.test.tsx` | `obs()` field renames. |
-| `src/store/telemetry-store.ts` | Add `selectTipBlockTimestampMs` selector for `SyncIndicator`. |
-| `server/app.test.ts` | `obs()` field renames. |
-| `.gitignore` | Already updated (adds `.superpowers/`). |
+| Path                                                      | Change                                                                                                                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/types/telemetry.ts`                                  | `IndexerObservability`: `cursorEpoch`/`cursorBlockIndex` → `tipEpoch`/`tipBlockIndex` + add `backfillEpoch`/`backfillBlockIndex`.                                         |
+| `api/db/adapter.ts`                                       | `parseIndexerObservability` validates new shape. Add `getCursors`/`saveCursors` methods (replacing `getCursor`/`saveCursor`). Keep `getEtags` — read from same JSON blob. |
+| `api/db/sqlite.ts`, `api/db/postgres.ts`                  | Implement new DB methods; store `{tipCursor, backfillCursor, etags}` as JSON in `meta[indexer_cursors]`.                                                                  |
+| `api/db/sqlite.test.ts`, `api/db/postgres.test.ts`        | Add round-trip tests for new methods; update observability tests for new shape.                                                                                           |
+| `indexer/state.ts`                                        | Replace `cursor` with `tipCursor` + `backfillCursor`. `load()`/`save()` use new adapter methods.                                                                          |
+| `indexer/config.ts`                                       | Add `backfillIdleRecheckSec` with `BACKFILL_IDLE_RECHECK_SEC` env / `--backfill-idle-recheck` flag (default 300).                                                         |
+| `indexer/config.test.ts`                                  | Parse test for new knob.                                                                                                                                                  |
+| `indexer/main.ts`                                         | Spawn two workers in parallel with a shared `AbortController`; map `AuthError` from either to abort-and-exit(1).                                                          |
+| `indexer/loop.ts`                                         | Deleted (contents split across `shared.ts`, `tip-worker.ts`, `backfill-worker.ts`).                                                                                       |
+| `indexer/loop.test.ts`                                    | Deleted; tests moved to `tip-worker.test.ts` / `backfill-worker.test.ts` / `shared.test.ts`.                                                                              |
+| `indexer/shared.test.ts` (new if needed)                  | `buildCanonicalPlan` and stall-tracker tests that didn't fit in worker-specific files.                                                                                    |
+| `src/lib/staleness.ts`                                    | New `SyncStage` type. `ChainHealth` gains `stage` + `detail`; `indexerLagBlocks` → `tipLagBlocks`. Rewrite `computeChainHealth` to populate the new fields.               |
+| `src/lib/staleness.test.ts`                               | Update `obs()` to new shape; keep existing scenarios; add per-stage tests.                                                                                                |
+| `src/components/layout/Header.tsx`                        | Left cell becomes `flex flex-col` stack: `<SyncIndicator />` above conditional `<AggregationToggle />`.                                                                   |
+| `src/components/views/Network/RecentBlocksTable.tsx`      | Field renames (`cursorEpoch` → `tipEpoch`).                                                                                                                               |
+| `src/components/views/Network/RecentBlocksTable.test.tsx` | `obs()` field renames.                                                                                                                                                    |
+| `src/store/telemetry-store.ts`                            | Add `selectTipBlockTimestampMs` selector for `SyncIndicator`.                                                                                                             |
+| `server/app.test.ts`                                      | `obs()` field renames.                                                                                                                                                    |
+| `.gitignore`                                              | Already updated (adds `.superpowers/`).                                                                                                                                   |
 
 ---
 
 ## Task 1: Update `IndexerObservability` type and parser
 
 **Files:**
+
 - Modify: `src/types/telemetry.ts:143-150`
 - Modify: `api/db/adapter.ts:28-67`
 
@@ -147,8 +148,8 @@ export interface IndexerObservability {
   backfillEpoch: EpochId | null;
   backfillBlockIndex: number;
 
-  lastStatusFetchAt: string;         // tip-worker heartbeat (ISO 8601)
-  lastBlockInsertAt: string | null;  // either worker's most recent insert
+  lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
+  lastBlockInsertAt: string | null; // either worker's most recent insert
 }
 ```
 
@@ -157,29 +158,29 @@ export interface IndexerObservability {
 In `api/db/adapter.ts`, replace the body of `parseIndexerObservability` (lines 48–66):
 
 ```ts
-  if (
-    !isStr(p.nodeLatestEpoch) ||
-    !isFiniteInt(p.nodeLatestBlockIndex) ||
-    !isNullableStr(p.tipEpoch) ||
-    !isFiniteInt(p.tipBlockIndex) ||
-    !isNullableStr(p.backfillEpoch) ||
-    !isFiniteInt(p.backfillBlockIndex) ||
-    !isStr(p.lastStatusFetchAt) ||
-    !isNullableStr(p.lastBlockInsertAt)
-  ) {
-    console.warn(`[db/${source}] corrupt indexer_observability: shape mismatch`);
-    return null;
-  }
-  return {
-    nodeLatestEpoch: p.nodeLatestEpoch,
-    nodeLatestBlockIndex: p.nodeLatestBlockIndex,
-    tipEpoch: p.tipEpoch,
-    tipBlockIndex: p.tipBlockIndex,
-    backfillEpoch: p.backfillEpoch,
-    backfillBlockIndex: p.backfillBlockIndex,
-    lastStatusFetchAt: p.lastStatusFetchAt,
-    lastBlockInsertAt: p.lastBlockInsertAt,
-  };
+if (
+  !isStr(p.nodeLatestEpoch) ||
+  !isFiniteInt(p.nodeLatestBlockIndex) ||
+  !isNullableStr(p.tipEpoch) ||
+  !isFiniteInt(p.tipBlockIndex) ||
+  !isNullableStr(p.backfillEpoch) ||
+  !isFiniteInt(p.backfillBlockIndex) ||
+  !isStr(p.lastStatusFetchAt) ||
+  !isNullableStr(p.lastBlockInsertAt)
+) {
+  console.warn(`[db/${source}] corrupt indexer_observability: shape mismatch`);
+  return null;
+}
+return {
+  nodeLatestEpoch: p.nodeLatestEpoch,
+  nodeLatestBlockIndex: p.nodeLatestBlockIndex,
+  tipEpoch: p.tipEpoch,
+  tipBlockIndex: p.tipBlockIndex,
+  backfillEpoch: p.backfillEpoch,
+  backfillBlockIndex: p.backfillBlockIndex,
+  lastStatusFetchAt: p.lastStatusFetchAt,
+  lastBlockInsertAt: p.lastBlockInsertAt,
+};
 ```
 
 - [ ] **Step 5: Fix type-check errors across the codebase by renaming field references only**
@@ -205,6 +206,7 @@ await db.setIndexerObservability({
 (Backfill is tracked as "nothing outstanding" until the backfill worker exists. The tip/backfill split happens in later tasks.)
 
 In `src/lib/staleness.ts`:
+
 - line 72: replace `indexer.cursorEpoch === indexer.nodeLatestEpoch` with `indexer.tipEpoch === indexer.nodeLatestEpoch`
 - line 73: replace `indexer.cursorBlockIndex` with `indexer.tipBlockIndex`
 - line 116: replace `indexer.cursorEpoch !== null` with `indexer.tipEpoch !== null`
@@ -238,6 +240,7 @@ git commit -m "refactor(indexer): rename observability cursor fields to tip/back
 ## Task 2: Add DB methods for two-cursor persistence
 
 **Files:**
+
 - Modify: `api/db/adapter.ts:74-109` (DatabaseAdapter interface)
 - Modify: `api/db/sqlite.ts:311-354`
 - Modify: `api/db/postgres.ts` (analogous methods)
@@ -386,9 +389,10 @@ export function parseIndexerCursorsRaw(
   };
   if (!isCursor(p.tip) || !isCursor(p.backfill)) return null;
   const etags = p.etags as Record<string, unknown> | null | undefined;
-  const nodes = etags && (typeof etags.nodes === "string" || etags.nodes === null)
-    ? (etags.nodes as string | null)
-    : null;
+  const nodes =
+    etags && (typeof etags.nodes === "string" || etags.nodes === null)
+      ? (etags.nodes as string | null)
+      : null;
   return { tip: p.tip, backfill: p.backfill, etags: { nodes } };
 }
 
@@ -462,6 +466,7 @@ git commit -m "feat(db): add getCursors/saveCursors for tip+backfill persistence
 ## Task 3: Update `IndexerState` for two cursors
 
 **Files:**
+
 - Modify: `indexer/state.ts`
 - Modify: `indexer/loop.ts` (only to fix compile errors — loop is still the single-worker loop at this point)
 - Modify: `indexer/loop.test.ts`
@@ -583,6 +588,7 @@ git commit -m "feat(indexer): split state cursor into tipCursor and backfillCurs
 ## Task 4: Extend `ChainHealth` with `stage` and `detail`
 
 **Files:**
+
 - Modify: `src/lib/staleness.ts`
 - Modify: `src/lib/staleness.test.ts`
 
@@ -699,12 +705,9 @@ const INDEXER_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
 export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
   const { nowMs, tipBlockTimestampMs, indexer } = inputs;
   const blockAgeMs = tipBlockTimestampMs !== null ? nowMs - tipBlockTimestampMs : null;
-  const sameEpoch =
-    indexer !== null && indexer.tipEpoch === indexer.nodeLatestEpoch;
+  const sameEpoch = indexer !== null && indexer.tipEpoch === indexer.nodeLatestEpoch;
   const tipLagBlocks =
-    indexer !== null && sameEpoch
-      ? indexer.nodeLatestBlockIndex - indexer.tipBlockIndex
-      : null;
+    indexer !== null && sameEpoch ? indexer.nodeLatestBlockIndex - indexer.tipBlockIndex : null;
 
   // 1. Connecting — no poll has completed yet.
   if (indexer === null) {
@@ -785,7 +788,7 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
       return {
         level: "stalled",
         reason: `Polled node hasn't seen a block in ${formatApproxDuration(blockAgeMs)}.`,
-        stage: "caught_up",  // the *indexer* is fine; the node isn't producing
+        stage: "caught_up", // the *indexer* is fine; the node isn't producing
         detail: null,
         blockAgeMs,
         tipLagBlocks,
@@ -848,6 +851,7 @@ git commit -m "feat(staleness): derive SyncStage + detail for indicator"
 ## Task 5: Add `backfillIdleRecheckSec` config knob
 
 **Files:**
+
 - Modify: `indexer/config.ts`
 - Modify: `indexer/config.test.ts`
 
@@ -929,6 +933,7 @@ git commit -m "feat(indexer): add backfillIdleRecheckSec config knob (default 30
 ## Task 6: Extract shared helpers into `indexer/shared.ts`
 
 **Files:**
+
 - Create: `indexer/shared.ts`
 - Modify: `indexer/loop.ts` (re-export for interim continuity)
 
@@ -1012,6 +1017,7 @@ git commit -m "refactor(indexer): extract shared helpers into shared.ts"
 ## Task 7: Create the tip worker
 
 **Files:**
+
 - Create: `indexer/tip-worker.ts`
 - Create: `indexer/tip-worker.test.ts`
 
@@ -1033,8 +1039,14 @@ import { runTipIteration } from "./tip-worker";
 import { IndexerState } from "./state";
 
 const CONFIG = {
-  nodeUrl: "http://x", token: undefined, pollIntervalSec: 8, nodesRefreshSec: 45,
-  backfillFromEpoch: undefined, once: false, verbose: false, stallWarnAfterSec: 600,
+  nodeUrl: "http://x",
+  token: undefined,
+  pollIntervalSec: 8,
+  nodesRefreshSec: 45,
+  backfillFromEpoch: undefined,
+  once: false,
+  verbose: false,
+  stallWarnAfterSec: 600,
   backfillIdleRecheckSec: 300,
 } as const;
 
@@ -1045,7 +1057,7 @@ describe("runTipIteration", () => {
       status: { latestEpoch: "tipA", latestBlockIndex: 102 },
       epochs: [
         { epoch: "priorA", status: "live", lastBlock: 100 }, // prior on same chain
-        { epoch: "tipA",   status: "live", lastBlock: 102 },
+        { epoch: "tipA", status: "live", lastBlock: 102 },
       ],
       // Both epochs resolve to the same chain anchor via block-1 hash.
       blockByHash: { priorA_1: "chainX", tipA_1: "chainX" },
@@ -1057,8 +1069,12 @@ describe("runTipIteration", () => {
 
     // ownedStart(tipA) = priorA.lastBlock + 1 = 101. Fetched blocks: 101, 102.
     expect(state.tipCursor).toEqual({ epoch: "tipA", blockIndex: 102 });
-    expect(db.blocks.filter(b => b.epoch === "tipA").map(b => b.blockIndex).sort())
-      .toEqual([101, 102]);
+    expect(
+      db.blocks
+        .filter((b) => b.epoch === "tipA")
+        .map((b) => b.blockIndex)
+        .sort(),
+    ).toEqual([101, 102]);
   });
 
   it("resets tipCursor on epoch rollover", async () => {
@@ -1092,8 +1108,9 @@ describe("runTipIteration", () => {
 
     await runTipIteration({ config: CONFIG, client, db, state }, Date.now());
 
-    expect(client.getBlockCalls.filter(c => c.epoch === "tipA").map(c => c.index))
-      .toEqual([103, 104, 105]);
+    expect(client.getBlockCalls.filter((c) => c.epoch === "tipA").map((c) => c.index)).toEqual([
+      103, 104, 105,
+    ]);
     expect(state.tipCursor.blockIndex).toBe(105);
   });
 
@@ -1114,8 +1131,8 @@ describe("runTipIteration", () => {
     const client = makeFakeClient({
       status: { latestEpoch: "tipA", latestBlockIndex: 1 },
       epochs: [
-        { epoch: "tipA",   status: "live",       lastBlock: 1 },
-        { epoch: "deadA",  status: "stale_fork", lastBlock: 8 },
+        { epoch: "tipA", status: "live", lastBlock: 1 },
+        { epoch: "deadA", status: "stale_fork", lastBlock: 8 },
       ],
       blockByHash: { tipA_1: "chainA" },
     });
@@ -1125,7 +1142,7 @@ describe("runTipIteration", () => {
     const epochStatusRows = db.epochStatus.slice().sort((a, b) => a.epoch.localeCompare(b.epoch));
     expect(epochStatusRows).toEqual([
       { epoch: "deadA", status: "stale_fork" },
-      { epoch: "tipA",  status: "live" },
+      { epoch: "tipA", status: "live" },
     ]);
   });
 
@@ -1164,7 +1181,13 @@ import type { DatabaseAdapter } from "../api/db/adapter";
 import { rawBlockToRecord, rawNodesToSnapshot } from "../api/db/adapter";
 import type { EpochId } from "../src/types/telemetry";
 
-import { AuthError, RateLimitError, type EpochsBody, type StatusBody, type QuipClient } from "./client";
+import {
+  AuthError,
+  RateLimitError,
+  type EpochsBody,
+  type StatusBody,
+  type QuipClient,
+} from "./client";
 import type { IndexerConfig } from "./config";
 import {
   ensureChainAnchor,
@@ -1199,7 +1222,10 @@ export async function runTipIteration(
 ): Promise<TipIterationResult> {
   const { client, db, state, config } = deps;
   const result: TipIterationResult = {
-    fetchedStatus: false, blocksIndexed: 0, blocksSkipped: 0, nodesRefreshed: false,
+    fetchedStatus: false,
+    blocksIndexed: 0,
+    blocksSkipped: 0,
+    nodesRefreshed: false,
   };
 
   const statusRes = await client.getStatus(null);
@@ -1350,7 +1376,9 @@ export async function runTipLoop(deps: WorkerDeps, signal: AbortSignal): Promise
       const r = await runTipIteration(deps, now(), lastNodesFetch);
       backoffMs = 0;
       if (config.verbose) {
-        log(`[tip] indexed=${r.blocksIndexed} skipped=${r.blocksSkipped} nodes=${r.nodesRefreshed}`);
+        log(
+          `[tip] indexed=${r.blocksIndexed} skipped=${r.blocksSkipped} nodes=${r.nodesRefreshed}`,
+        );
       }
       if (config.once) return;
     } catch (e) {
@@ -1358,14 +1386,22 @@ export async function runTipLoop(deps: WorkerDeps, signal: AbortSignal): Promise
       if (e instanceof RateLimitError) {
         backoffMs = backoffMs === 0 ? 5000 : Math.min(backoffMs * 2, 60000);
         warn(`[tip] rate limited, backing off ${backoffMs}ms`);
-        try { await sleep(backoffMs); } catch { /* aborted */ }
+        try {
+          await sleep(backoffMs);
+        } catch {
+          /* aborted */
+        }
         if (config.once) throw e;
         continue;
       }
       error(`[tip] iteration failed: ${formatErr(e)}`);
       if (config.once) throw e;
     }
-    try { await sleep(config.pollIntervalSec * 1000); } catch { /* aborted */ }
+    try {
+      await sleep(config.pollIntervalSec * 1000);
+    } catch {
+      /* aborted */
+    }
   }
 }
 ```
@@ -1391,6 +1427,7 @@ git commit -m "feat(indexer): add tip-worker module with tight-loop tip indexing
 ## Task 8: Create the backfill worker
 
 **Files:**
+
 - Create: `indexer/backfill-worker.ts`
 - Create: `indexer/backfill-worker.test.ts`
 
@@ -1408,8 +1445,14 @@ import { IndexerState } from "./state";
 import type { CanonicalEpoch } from "./shared";
 
 const CONFIG = {
-  nodeUrl: "http://x", token: undefined, pollIntervalSec: 8, nodesRefreshSec: 45,
-  backfillFromEpoch: undefined, once: false, verbose: false, stallWarnAfterSec: 600,
+  nodeUrl: "http://x",
+  token: undefined,
+  pollIntervalSec: 8,
+  nodesRefreshSec: 45,
+  backfillFromEpoch: undefined,
+  once: false,
+  verbose: false,
+  stallWarnAfterSec: 600,
   backfillIdleRecheckSec: 300,
 } as const;
 
@@ -1421,7 +1464,7 @@ describe("reorderCanonicalFirst", () => {
       { epoch: "deadB", chainAnchor: "bbbb", ownedStart: 1, ownedEnd: 3 },
     ];
     const reordered = reorderCanonicalFirst(plan, "liveA");
-    expect(reordered.map(e => e.epoch)).toEqual(["liveA", "deadA", "deadB"]);
+    expect(reordered.map((e) => e.epoch)).toEqual(["liveA", "deadA", "deadB"]);
   });
   it("preserves ownedStart order within each partition", () => {
     const plan: CanonicalEpoch[] = [
@@ -1429,7 +1472,7 @@ describe("reorderCanonicalFirst", () => {
       { epoch: "live1", chainAnchor: "zzzz", ownedStart: 1, ownedEnd: 5 },
     ];
     const reordered = reorderCanonicalFirst(plan, "live2");
-    expect(reordered.map(e => e.epoch)).toEqual(["live1", "live2"]);
+    expect(reordered.map((e) => e.epoch)).toEqual(["live1", "live2"]);
   });
 });
 
@@ -1439,7 +1482,7 @@ describe("runBackfillIteration", () => {
     const client = makeFakeClient({
       status: { latestEpoch: "tip", latestBlockIndex: 10 },
       epochs: [
-        { epoch: "tip",   status: "live",       lastBlock: 10 },
+        { epoch: "tip", status: "live", lastBlock: 10 },
         { epoch: "prior", status: "stale_fork", lastBlock: 5 },
       ],
       blockByHash: { tip_1: "chainA", prior_1: "chainA" },
@@ -1448,9 +1491,13 @@ describe("runBackfillIteration", () => {
     await runBackfillIteration({ config: CONFIG, client, db, state }, Date.now());
 
     // Should have indexed prior's range [1..5], never requested tip.
-    expect(client.getBlockCalls.some(c => c.epoch === "tip")).toBe(false);
-    expect(db.blocks.map(b => `${b.epoch}/${b.blockIndex}`).sort()).toEqual([
-      "prior/1","prior/2","prior/3","prior/4","prior/5",
+    expect(client.getBlockCalls.some((c) => c.epoch === "tip")).toBe(false);
+    expect(db.blocks.map((b) => `${b.epoch}/${b.blockIndex}`).sort()).toEqual([
+      "prior/1",
+      "prior/2",
+      "prior/3",
+      "prior/4",
+      "prior/5",
     ]);
   });
 
@@ -1477,7 +1524,7 @@ describe("runBackfillIteration", () => {
     const client = makeFakeClient({
       status: { latestEpoch: "tip", latestBlockIndex: 10 },
       epochs: [
-        { epoch: "tip",   status: "live",       lastBlock: 10 },
+        { epoch: "tip", status: "live", lastBlock: 10 },
         { epoch: "prior", status: "stale_fork", lastBlock: 5 },
       ],
       blockByHash: { tip_1: "chainA", prior_1: "chainA" },
@@ -1486,7 +1533,7 @@ describe("runBackfillIteration", () => {
     await runBackfillIteration({ config: CONFIG, client, db, state }, Date.now());
 
     // Blocks 1-3 already present; backfiller only fetches 4, 5.
-    const priorCalls = client.getBlockCalls.filter(c => c.epoch === "prior").map(c => c.index);
+    const priorCalls = client.getBlockCalls.filter((c) => c.epoch === "prior").map((c) => c.index);
     expect(priorCalls.sort()).toEqual([4, 5]);
   });
 });
@@ -1506,8 +1553,12 @@ import { rawBlockToRecord } from "../api/db/adapter";
 
 import { AuthError, RateLimitError } from "./client";
 import {
-  buildCanonicalPlan, ensureChainAnchor, formatErr, logPrefix,
-  type CanonicalEpoch, type WorkerDeps,
+  buildCanonicalPlan,
+  ensureChainAnchor,
+  formatErr,
+  logPrefix,
+  type CanonicalEpoch,
+  type WorkerDeps,
 } from "./shared";
 
 const log = logPrefix("log");
@@ -1526,10 +1577,7 @@ export interface BackfillIterationResult {
  * comes before every epoch on any other chain. Ordering within each partition
  * preserves the buildCanonicalPlan (ownedStart ascending) arrangement.
  */
-export function reorderCanonicalFirst(
-  plan: CanonicalEpoch[],
-  tipEpoch: string,
-): CanonicalEpoch[] {
+export function reorderCanonicalFirst(plan: CanonicalEpoch[], tipEpoch: string): CanonicalEpoch[] {
   const tipEntry = plan.find((e) => e.epoch === tipEpoch);
   if (!tipEntry) return plan.slice();
   const canonical = plan.filter((e) => e.chainAnchor === tipEntry.chainAnchor);
@@ -1549,11 +1597,17 @@ export async function runBackfillIteration(
 ): Promise<BackfillIterationResult> {
   const { client, db, state, config } = deps;
   const result: BackfillIterationResult = {
-    blocksIndexed: 0, blocksSkipped: 0, planSize: 0, idle: false,
+    blocksIndexed: 0,
+    blocksSkipped: 0,
+    planSize: 0,
+    idle: false,
   };
 
   const statusRes = await client.getStatus(null);
-  if (!statusRes.body) { result.idle = true; return result; }
+  if (!statusRes.body) {
+    result.idle = true;
+    return result;
+  }
   const status = statusRes.body;
   const epochsBody = await client.getEpochs();
 
@@ -1652,7 +1706,11 @@ export async function runBackfillLoop(deps: WorkerDeps, signal: AbortSignal): Pr
       }
     }
     if (sleepMs > 0) {
-      try { await sleep(sleepMs); } catch { /* aborted */ }
+      try {
+        await sleep(sleepMs);
+      } catch {
+        /* aborted */
+      }
     }
   }
 }
@@ -1678,6 +1736,7 @@ git commit -m "feat(indexer): add backfill-worker with canonical-first plan orde
 ## Task 9: Rewrite `main.ts` for two-worker orchestration
 
 **Files:**
+
 - Modify: `indexer/main.ts`
 - Create: `indexer/main.test.ts`
 - Delete: `indexer/loop.ts`, `indexer/loop.test.ts` (fold residue into `shared.test.ts` if needed)
@@ -1698,8 +1757,12 @@ describe("runWorkers", () => {
     const tipRan = { value: false };
     const bfRan = { value: false };
     const code = await runWorkers({
-      runTip: async () => { tipRan.value = true; },
-      runBackfill: async () => { bfRan.value = true; },
+      runTip: async () => {
+        tipRan.value = true;
+      },
+      runBackfill: async () => {
+        bfRan.value = true;
+      },
     });
     expect(code).toBe(0);
     expect(tipRan.value).toBe(true);
@@ -1709,10 +1772,15 @@ describe("runWorkers", () => {
   it("returns 1 and aborts the sibling when one worker throws AuthError", async () => {
     const bfAborted = { value: false };
     const code = await runWorkers({
-      runTip: async () => { throw new AuthError("401"); },
+      runTip: async () => {
+        throw new AuthError("401");
+      },
       runBackfill: async (signal) => {
         await new Promise<void>((resolve, reject) => {
-          signal.addEventListener("abort", () => { bfAborted.value = true; resolve(); });
+          signal.addEventListener("abort", () => {
+            bfAborted.value = true;
+            resolve();
+          });
           setTimeout(() => reject(new Error("timed out without abort")), 500);
         });
       },
@@ -1723,8 +1791,12 @@ describe("runWorkers", () => {
 
   it("returns 1 when a non-auth error leaks out (should not happen but defensive)", async () => {
     const code = await runWorkers({
-      runTip: async () => { throw new Error("boom"); },
-      runBackfill: async () => { /* finishes fast */ },
+      runTip: async () => {
+        throw new Error("boom");
+      },
+      runBackfill: async () => {
+        /* finishes fast */
+      },
     });
     expect(code).toBe(1);
   });
@@ -1874,6 +1946,7 @@ git commit -m "feat(indexer): orchestrate tip + backfill workers with AbortContr
 ## Task 10: Create `<SyncIndicator />` component
 
 **Files:**
+
 - Create: `src/components/layout/SyncIndicator.tsx`
 - Create: `src/components/layout/SyncIndicator.test.tsx`
 - Modify: `src/store/telemetry-store.ts` (add `selectTipBlockTimestampMs` selector)
@@ -1925,9 +1998,12 @@ describe("SyncIndicator", () => {
   it("renders 'Live' when caught up", () => {
     setStore({
       indexer: {
-        nodeLatestEpoch: "x", nodeLatestBlockIndex: 10,
-        tipEpoch: "x", tipBlockIndex: 10,
-        backfillEpoch: null, backfillBlockIndex: 0,
+        nodeLatestEpoch: "x",
+        nodeLatestBlockIndex: 10,
+        tipEpoch: "x",
+        tipBlockIndex: 10,
+        backfillEpoch: null,
+        backfillBlockIndex: 0,
         lastStatusFetchAt: new Date().toISOString(),
         lastBlockInsertAt: null,
       },
@@ -1940,9 +2016,12 @@ describe("SyncIndicator", () => {
   it("renders 'N blocks behind' when tip is behind on same epoch", () => {
     setStore({
       indexer: {
-        nodeLatestEpoch: "x", nodeLatestBlockIndex: 10,
-        tipEpoch: "x", tipBlockIndex: 3,
-        backfillEpoch: null, backfillBlockIndex: 0,
+        nodeLatestEpoch: "x",
+        nodeLatestBlockIndex: 10,
+        tipEpoch: "x",
+        tipBlockIndex: 3,
+        backfillEpoch: null,
+        backfillBlockIndex: 0,
         lastStatusFetchAt: new Date().toISOString(),
         lastBlockInsertAt: null,
       },
@@ -1954,9 +2033,12 @@ describe("SyncIndicator", () => {
   it("renders 'Backfilling history' when tip caught up and backfill active", () => {
     setStore({
       indexer: {
-        nodeLatestEpoch: "x", nodeLatestBlockIndex: 10,
-        tipEpoch: "x", tipBlockIndex: 10,
-        backfillEpoch: "dead", backfillBlockIndex: 2,
+        nodeLatestEpoch: "x",
+        nodeLatestBlockIndex: 10,
+        tipEpoch: "x",
+        tipBlockIndex: 10,
+        backfillEpoch: "dead",
+        backfillBlockIndex: 2,
         lastStatusFetchAt: new Date().toISOString(),
         lastBlockInsertAt: null,
       },
@@ -1968,9 +2050,12 @@ describe("SyncIndicator", () => {
   it("renders 'Indexer offline · 7m' when heartbeat is stale", () => {
     setStore({
       indexer: {
-        nodeLatestEpoch: "x", nodeLatestBlockIndex: 10,
-        tipEpoch: "x", tipBlockIndex: 10,
-        backfillEpoch: null, backfillBlockIndex: 0,
+        nodeLatestEpoch: "x",
+        nodeLatestBlockIndex: 10,
+        tipEpoch: "x",
+        tipBlockIndex: 10,
+        backfillEpoch: null,
+        backfillBlockIndex: 0,
         lastStatusFetchAt: new Date(Date.now() - 7 * 60_000).toISOString(),
         lastBlockInsertAt: null,
       },
@@ -1997,14 +2082,51 @@ import { computeChainHealth, type SyncStage } from "../../lib/staleness";
 import { selectTipBlockTimestampMs, useTelemetryStore } from "../../store/telemetry-store";
 
 /** Visual tokens per stage. Keys are the SyncStage enum values. */
-const STYLES: Record<SyncStage, {
-  bg: string; border: string; text: string; dotColor: string; dotAnim: "pulse" | "spin" | "static";
-}> = {
-  connecting:     { bg: "bg-[#A9A9A9]/10", border: "border-[#A9A9A9]/40", text: "text-[#A9A9A9]", dotColor: "#A9A9A9", dotAnim: "spin" },
-  synchronizing:  { bg: "bg-[#4CE0FF]/10", border: "border-[#4CE0FF]/40", text: "text-[#4CE0FF]", dotColor: "#4CE0FF", dotAnim: "pulse" },
-  backfilling:    { bg: "bg-[#F5A623]/10", border: "border-[#F5A623]/40", text: "text-[#F5A623]", dotColor: "#F5A623", dotAnim: "pulse" },
-  caught_up:      { bg: "bg-[#67E347]/10", border: "border-[#67E347]/40", text: "text-[#67E347]", dotColor: "#67E347", dotAnim: "static" },
-  stalled:        { bg: "bg-[#E34735]/10", border: "border-[#E34735]/60", text: "text-[#E34735]", dotColor: "#E34735", dotAnim: "static" },
+const STYLES: Record<
+  SyncStage,
+  {
+    bg: string;
+    border: string;
+    text: string;
+    dotColor: string;
+    dotAnim: "pulse" | "spin" | "static";
+  }
+> = {
+  connecting: {
+    bg: "bg-[#A9A9A9]/10",
+    border: "border-[#A9A9A9]/40",
+    text: "text-[#A9A9A9]",
+    dotColor: "#A9A9A9",
+    dotAnim: "spin",
+  },
+  synchronizing: {
+    bg: "bg-[#4CE0FF]/10",
+    border: "border-[#4CE0FF]/40",
+    text: "text-[#4CE0FF]",
+    dotColor: "#4CE0FF",
+    dotAnim: "pulse",
+  },
+  backfilling: {
+    bg: "bg-[#F5A623]/10",
+    border: "border-[#F5A623]/40",
+    text: "text-[#F5A623]",
+    dotColor: "#F5A623",
+    dotAnim: "pulse",
+  },
+  caught_up: {
+    bg: "bg-[#67E347]/10",
+    border: "border-[#67E347]/40",
+    text: "text-[#67E347]",
+    dotColor: "#67E347",
+    dotAnim: "static",
+  },
+  stalled: {
+    bg: "bg-[#E34735]/10",
+    border: "border-[#E34735]/60",
+    text: "text-[#E34735]",
+    dotColor: "#E34735",
+    dotAnim: "static",
+  },
 };
 
 const LABELS: Record<SyncStage, string> = {
@@ -2031,19 +2153,10 @@ export function SyncIndicator() {
   // Compose final copy. Stages with a non-null detail show "label · detail"
   // except for "Connecting" where the label itself is the message, and
   // "Backfilling"/"Live" where detail is null.
-  const text =
-    health.stage === "connecting"
-      ? label
-      : detail
-        ? `${label} · ${detail}`
-        : label;
+  const text = health.stage === "connecting" ? label : detail ? `${label} · ${detail}` : label;
 
   const dotClass =
-    style.dotAnim === "spin"
-      ? "animate-spin"
-      : style.dotAnim === "pulse"
-        ? "animate-pulse"
-        : "";
+    style.dotAnim === "spin" ? "animate-spin" : style.dotAnim === "pulse" ? "animate-pulse" : "";
 
   return (
     <span
@@ -2086,6 +2199,7 @@ git commit -m "feat(ui): add SyncIndicator pill for five-state indexer health"
 ## Task 11: Wire `<SyncIndicator />` into the header
 
 **Files:**
+
 - Modify: `src/components/layout/Header.tsx`
 
 - [ ] **Step 1: Update the left cell to stack the indicator above the aggregation toggle**
@@ -2096,36 +2210,39 @@ In `src/components/layout/Header.tsx`, replace lines 34–56 (the left column di
 import { SyncIndicator } from "./SyncIndicator";
 
 // ... inside the grid:
-        {/* Left: sync indicator (always) + aggregation toggle (Network + Compute only). */}
-        <div className="flex flex-col items-center gap-2 justify-self-center sm:items-start sm:justify-self-start">
-          <SyncIndicator />
-          {showAggregation && (
-            <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
-              {MODES.map(({ value, label }) => {
-                const active = aggregationMode === value;
-                return (
-                  <button
-                    key={value}
-                    onClick={() => setAggregationMode(value)}
-                    className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
-                    style={{
-                      backgroundColor: active ? "#4CE0FF20" : "transparent",
-                      color: active ? "#4CE0FF" : "#A9A9A9",
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+{
+  /* Left: sync indicator (always) + aggregation toggle (Network + Compute only). */
+}
+<div className="flex flex-col items-center gap-2 justify-self-center sm:items-start sm:justify-self-start">
+  <SyncIndicator />
+  {showAggregation && (
+    <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
+      {MODES.map(({ value, label }) => {
+        const active = aggregationMode === value;
+        return (
+          <button
+            key={value}
+            onClick={() => setAggregationMode(value)}
+            className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
+            style={{
+              backgroundColor: active ? "#4CE0FF20" : "transparent",
+              color: active ? "#4CE0FF" : "#A9A9A9",
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  )}
+</div>;
 ```
 
 - [ ] **Step 2: Manually verify in the dev server**
 
 Run: `bun dev` (or the repo's documented dev command).
 Open the dashboard in a browser. Confirm:
+
 - In "My Node" view: SyncIndicator appears alone in the left cell.
 - In "Network" or "Compute" view: SyncIndicator stacks above the aggregation toggle.
 - Indicator color/text changes with backend state (force synchronizing by restarting the indexer with a bogus `BACKFILL_FROM_EPOCH` if needed; force stalled by stopping the indexer).
@@ -2146,6 +2263,7 @@ git commit -m "feat(ui): place SyncIndicator in header left cell (layout B)"
 ## Task 12: Finalize server + UI type renames
 
 **Files:**
+
 - Modify: `src/components/views/Network/RecentBlocksTable.tsx`
 - Modify: `src/components/views/Network/RecentBlocksTable.test.tsx`
 - Modify: `server/app.test.ts`
@@ -2179,6 +2297,7 @@ git commit -m "refactor: final sweep of cursor→tip rename in UI and tests"
 ## Task 13: End-to-end smoke test
 
 **Files:**
+
 - No code changes; verification only.
 
 - [ ] **Step 1: Start the dashboard against a real node**
@@ -2210,6 +2329,7 @@ If verification uncovered a regression, loop back to the relevant task. Otherwis
 ## Self-review notes
 
 **Spec coverage:**
+
 - Motivation (tip-first indexing, UI indicator): Tasks 7, 10, 11.
 - Architecture invariants: encoded across Tasks 7–9.
 - Data model (`IndexerObservability`, `IndexerState`): Tasks 1, 3.
@@ -2223,6 +2343,7 @@ If verification uncovered a regression, loop back to the relevant task. Otherwis
 **Placeholder scan:** No TBDs or generic "add appropriate error handling" stubs; every step has concrete code or exact commands. One intentional note is the spec-vs-implementation mismatch on `state.json` vs `meta[indexer_cursors]` — called out in the plan header so reviewers aren't surprised.
 
 **Type consistency:**
+
 - `IndexerObservability` fields (`tipEpoch`, `tipBlockIndex`, `backfillEpoch`, `backfillBlockIndex`) are used consistently across Tasks 1, 4, 7, 8, 10.
 - `SyncStage` values (`connecting`, `synchronizing`, `backfilling`, `caught_up`, `stalled`) match between staleness.ts (Task 4) and SyncIndicator (Task 10).
 - `WorkerDeps` (renamed from `LoopDeps`) is defined in `shared.ts` (Task 6) and imported by both workers (Tasks 7, 8).

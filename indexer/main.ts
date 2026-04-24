@@ -98,8 +98,7 @@ async function main(): Promise<number> {
   try {
     exitCode = await runWorkers(
       {
-        runTip: (signal) =>
-          runTipLoop({ config, client: tipClient, db, state }, signal),
+        runTip: (signal) => runTipLoop({ config, client: tipClient, db, state }, signal),
         runBackfill: (signal) =>
           runBackfillLoop({ config, client: backfillClient, db, state }, signal),
       },
