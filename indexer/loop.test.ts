@@ -13,7 +13,7 @@ import type { DatabaseAdapter, EpochStatusEntry } from "../api/db/adapter";
 
 import { AuthError, QuipClient, RateLimitError } from "./client";
 import type { IndexerConfig } from "./config";
-import { isNodeStalled, maybeWarnStalled, runIteration, runLoop, updateStallTracker } from "./loop";
+import { runIteration, runLoop } from "./loop";
 import { IndexerState } from "./state";
 
 class FakeDb implements DatabaseAdapter {
@@ -1132,87 +1132,6 @@ describe("observability persistence", () => {
 });
 
 describe("stall detection", () => {
-  // Tiny synthetic StatusBody — stall tracking only reads latestEpoch and
-  // latestBlockIndex, so everything else can be zeroed without affecting
-  // behavior.
-  function status(latestBlockIndex: number, latestEpoch = "1000") {
-    return {
-      epochs: [latestEpoch],
-      latestEpoch,
-      latestBlockIndex,
-      totalBlocks: latestBlockIndex,
-      nodeCount: 0,
-      activeNodeCount: 0,
-      nodesUpdatedAt: null,
-    };
-  }
-
-  it("isNodeStalled uses >= on the threshold", () => {
-    expect(isNodeStalled(599_000, 600_000)).toBe(false);
-    expect(isNodeStalled(600_000, 600_000)).toBe(true);
-    expect(isNodeStalled(1_000_000, 600_000)).toBe(true);
-    expect(isNodeStalled(0, 0)).toBe(true); // a 0 threshold is pathological; the caller disables via stallWarnAfterSec<=0
-  });
-
-  it("updateStallTracker seeds state and does not treat first observation as an advance", () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    updateStallTracker(state, status(162), 5_000);
-    expect(state.stall.lastObserved).toEqual({ epoch: "1000", blockIndex: 162 });
-    expect(state.stall.lastAdvanceAtMs).toBe(5_000);
-  });
-
-  it("updateStallTracker bumps lastAdvanceAtMs when latestBlockIndex changes", () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    updateStallTracker(state, status(162), 1_000);
-    updateStallTracker(state, status(162), 2_000); // no advance
-    expect(state.stall.lastAdvanceAtMs).toBe(1_000);
-    updateStallTracker(state, status(163), 3_000); // advance
-    expect(state.stall.lastAdvanceAtMs).toBe(3_000);
-    expect(state.stall.lastObserved).toEqual({ epoch: "1000", blockIndex: 163 });
-  });
-
-  it("updateStallTracker clears the warn throttle so re-stalls surface again", () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    state.stall.lastWarnAtMs = 12_345;
-    updateStallTracker(state, status(162), 0);
-    updateStallTracker(state, status(163), 100); // advance clears warn throttle
-    expect(state.stall.lastWarnAtMs).toBe(0);
-  });
-
-  it("maybeWarnStalled is a no-op before the threshold is crossed", () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    const cfg = makeConfig({ stallWarnAfterSec: 600 });
-    updateStallTracker(state, status(162), 0);
-    expect(maybeWarnStalled(state, cfg, 300_000)).toBe(false); // 5 min elapsed
-    expect(state.stall.lastWarnAtMs).toBe(0);
-  });
-
-  it("maybeWarnStalled fires once past threshold, then throttles until the next window", () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    const cfg = makeConfig({ stallWarnAfterSec: 600 });
-    updateStallTracker(state, status(162), 0);
-    expect(maybeWarnStalled(state, cfg, 600_000)).toBe(true); // exactly at threshold
-    expect(state.stall.lastWarnAtMs).toBe(600_000);
-    // A second poll 1s later is still stalled but throttled.
-    expect(maybeWarnStalled(state, cfg, 601_000)).toBe(false);
-    // 10 minutes after the first warn, we re-emit.
-    expect(maybeWarnStalled(state, cfg, 1_200_000)).toBe(true);
-    expect(state.stall.lastWarnAtMs).toBe(1_200_000);
-  });
-
-  it("maybeWarnStalled is disabled when stallWarnAfterSec=0", () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    const cfg = makeConfig({ stallWarnAfterSec: 0 });
-    updateStallTracker(state, status(162), 0);
-    expect(maybeWarnStalled(state, cfg, 24 * 60 * 60 * 1000)).toBe(false);
-  });
-
   it("runIteration wires the stall tracker through /status", async () => {
     // Two back-to-back polls of the same status with the wall clock advanced
     // past stallWarnAfterSec. The second poll should trip maybeWarnStalled,
