@@ -78,10 +78,11 @@ export function createApp(options: CreateAppOptions): Hono {
   });
 
   app.get("/api/health", async (c) => {
-    const [cursor, nodes] = await Promise.all([db.getCursor(), db.getNodes()]);
+    const [cursors, nodes] = await Promise.all([db.getCursors(), db.getNodes()]);
     return c.json({
       ok: true,
-      cursor,
+      tipCursor: cursors.tip,
+      backfillCursor: cursors.backfill,
       lastSync: nodes?.updatedAt ?? null,
     });
   });

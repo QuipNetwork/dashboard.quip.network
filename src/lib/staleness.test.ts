@@ -16,8 +16,10 @@ function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservabilit
   return {
     nodeLatestEpoch: "1000",
     nodeLatestBlockIndex: 10,
-    cursorEpoch: "1000",
-    cursorBlockIndex: 10,
+    tipEpoch: "1000",
+    tipBlockIndex: 10,
+    backfillEpoch: null,
+    backfillBlockIndex: 0,
     lastStatusFetchAt: new Date(NOW_MS - 30_000).toISOString(),
     lastBlockInsertAt: new Date(NOW_MS - 2 * 60_000).toISOString(),
     ...overrides,
@@ -75,11 +77,11 @@ describe("computeChainHealth", () => {
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 3 * 60 * 60 * 1000, // 3h — would be "stalled" otherwise
-      indexer: obs({ nodeLatestBlockIndex: 20, cursorBlockIndex: 17 }),
+      indexer: obs({ nodeLatestBlockIndex: 20, tipBlockIndex: 17 }),
     });
     expect(h.level).toBe("warning");
     expect(h.reason).toMatch(/3 blocks behind/);
-    expect(h.indexerLagBlocks).toBe(3);
+    expect(h.tipLagBlocks).toBe(3);
   });
 
   it("uses singular 'block' when the indexer is exactly 1 behind", () => {
@@ -87,21 +89,21 @@ describe("computeChainHealth", () => {
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 1000,
-      indexer: obs({ nodeLatestBlockIndex: 11, cursorBlockIndex: 10 }),
+      indexer: obs({ nodeLatestBlockIndex: 11, tipBlockIndex: 10 }),
     });
     expect(h.reason).toMatch(/1 block behind/);
   });
 
   it("does NOT compute indexer lag across different epochs", () => {
     // During an epoch transition the cursor is mid-walk; the delta between
-    // nodeLatestBlockIndex and cursorBlockIndex is meaningless across epochs.
+    // nodeLatestBlockIndex and tipBlockIndex is meaningless across epochs.
     const now = 1_800_000_000_000;
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 5 * 60 * 1000,
-      indexer: obs({ nodeLatestEpoch: "2000", cursorEpoch: "1000" }),
+      indexer: obs({ nodeLatestEpoch: "2000", tipEpoch: "1000" }),
     });
-    expect(h.indexerLagBlocks).toBeNull();
+    expect(h.tipLagBlocks).toBeNull();
   });
 
   it("attributes cross-epoch lag to the indexer, not the node", () => {
@@ -115,21 +117,21 @@ describe("computeChainHealth", () => {
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 5 * 24 * 60 * 60 * 1000, // 5 days — would be "stalled" otherwise
-      indexer: obs({ nodeLatestEpoch: "1005", cursorEpoch: "1000" }),
+      indexer: obs({ nodeLatestEpoch: "1005", tipEpoch: "1000" }),
     });
     expect(h.level).toBe("warning");
-    expect(h.reason).toMatch(/different epoch/);
+    expect(h.reason).toMatch(/new epoch/);
   });
 
   it("does not warn about differing epochs before the cursor has seeded", () => {
-    // Fresh indexer: cursorEpoch is null until the first successful poll.
+    // Fresh indexer: tipEpoch is null until the first successful poll.
     const now = 1_800_000_000_000;
     const h = computeChainHealth({
       nowMs: now,
       tipBlockTimestampMs: now - 60_000,
-      indexer: obs({ cursorEpoch: null }),
+      indexer: obs({ tipEpoch: null }),
     });
-    expect(h.reason).not.toMatch(/different epoch/);
+    expect(h.reason).not.toMatch(/new epoch/);
   });
 
   it("flags the indexer as wedged when lastStatusFetchAt is stale", () => {
@@ -216,5 +218,71 @@ describe("computeChainHealth", () => {
     });
     expect(h.level).toBe("healthy");
     expect(h.blockAgeMs).toBeLessThan(0);
+  });
+});
+
+describe("computeChainHealth — stage derivation", () => {
+  const now = 1_800_000_000_000;
+
+  it("stage='connecting' when indexer is null", () => {
+    const h = computeChainHealth({ nowMs: now, tipBlockTimestampMs: null, indexer: null });
+    expect(h.stage).toBe("connecting");
+    expect(h.level).toBe("healthy");
+    expect(h.detail).toBe("Connecting to node…");
+  });
+
+  it("stage='stalled' when heartbeat is stale", () => {
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 60_000,
+      indexer: obs({ lastStatusFetchAt: new Date(now - 6 * 60_000).toISOString() }),
+    });
+    expect(h.stage).toBe("stalled");
+    expect(h.level).toBe("stalled");
+    expect(h.detail).toMatch(/6m/);
+  });
+
+  it("stage='synchronizing' + detail='N blocks behind' when tip lags on same epoch", () => {
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 60_000,
+      indexer: obs({ nodeLatestBlockIndex: 25, tipBlockIndex: 11 }),
+    });
+    expect(h.stage).toBe("synchronizing");
+    expect(h.detail).toBe("14 blocks behind");
+    expect(h.tipLagBlocks).toBe(14);
+  });
+
+  it("stage='synchronizing' + detail='Catching up to new epoch' on epoch mismatch", () => {
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 60_000,
+      indexer: obs({ nodeLatestEpoch: "newA", tipEpoch: "oldB" }),
+    });
+    expect(h.stage).toBe("synchronizing");
+    expect(h.detail).toBe("Catching up to new epoch");
+    expect(h.tipLagBlocks).toBeNull();
+  });
+
+  it("stage='backfilling' when tip is caught up but backfill is running", () => {
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 60_000,
+      indexer: obs({ backfillEpoch: "some-epoch", backfillBlockIndex: 5 }),
+    });
+    expect(h.stage).toBe("backfilling");
+    expect(h.level).toBe("healthy");
+    expect(h.detail).toBeNull();
+  });
+
+  it("stage='caught_up' when tip current and backfill idle", () => {
+    const h = computeChainHealth({
+      nowMs: now,
+      tipBlockTimestampMs: now - 60_000,
+      indexer: obs(),
+    });
+    expect(h.stage).toBe("caught_up");
+    expect(h.level).toBe("healthy");
+    expect(h.detail).toBeNull();
   });
 });

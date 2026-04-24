@@ -10,6 +10,17 @@ import { SCHEMA_VERSION } from "./adapter";
 import { SQLiteAdapter } from "./sqlite";
 import type { BlockRecord } from "../../src/types/telemetry";
 
+// Shared helper: return a connected+migrated SQLiteAdapter backed by a fresh
+// tempdir. Caller is responsible for disconnect(); the tempdir is leaked
+// (bun test runs in a sandbox so it's cleaned up at process exit).
+async function freshSqlite(): Promise<SQLiteAdapter> {
+  const dir = mkdtempSync(join(tmpdir(), "quip-sqlite-test-"));
+  const db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: join(dir, "telemetry.db") });
+  await db.connect();
+  await db.migrate();
+  return db;
+}
+
 const sampleBlock = (): BlockRecord => ({
   epoch: "1000",
   blockIndex: 1,
@@ -107,5 +118,39 @@ describe("SQLiteAdapter.migrate schema-version check", () => {
     const blocks = await db2.getAllBlocks();
     await db2.disconnect();
     expect(blocks).toHaveLength(0);
+  });
+});
+
+describe("getCursors / saveCursors", () => {
+  it("returns fresh defaults when no cursors have been saved", async () => {
+    const db = await freshSqlite();
+    const c = await db.getCursors();
+    expect(c.tip).toEqual({ epoch: null, blockIndex: 0 });
+    expect(c.backfill).toEqual({ epoch: null, blockIndex: 0 });
+    await db.disconnect();
+  });
+
+  it("round-trips tip + backfill + etags", async () => {
+    const db = await freshSqlite();
+    await db.saveCursors(
+      { epoch: "abc", blockIndex: 42 },
+      { epoch: "def", blockIndex: 17 },
+      { nodes: "etag-1" },
+    );
+    const c = await db.getCursors();
+    expect(c.tip).toEqual({ epoch: "abc", blockIndex: 42 });
+    expect(c.backfill).toEqual({ epoch: "def", blockIndex: 17 });
+    expect((await db.getEtags()).nodes).toBe("etag-1");
+    await db.disconnect();
+  });
+
+  it("treats a corrupt indexer_cursors blob as 'no cursors'", async () => {
+    const db = await freshSqlite();
+    // Write garbage under the key the adapter reads from.
+    await db.setMetaRaw("indexer_cursors", "{not json");
+    const c = await db.getCursors();
+    expect(c.tip).toEqual({ epoch: null, blockIndex: 0 });
+    expect(c.backfill).toEqual({ epoch: null, blockIndex: 0 });
+    await db.disconnect();
   });
 });

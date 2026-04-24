@@ -19,15 +19,14 @@ bun indexer/main.ts \
 
 ## Flags / env
 
-| Flag                    | Env                   | Default                               |
-| ----------------------- | --------------------- | ------------------------------------- |
-| `--node-url`            | `QUIP_NODE_URL`       | `https://qpu-1.nodes.quip.network`    |
-| `--token`               | `QUIP_NODE_TOKEN`     | unset                                 |
-| `--poll-interval`       | `POLL_INTERVAL_SEC`   | `8`                                   |
-| `--nodes-refresh`       | `NODES_REFRESH_SEC`   | `45`                                  |
-| `--backfill-from-epoch` | `BACKFILL_FROM_EPOCH` | unset (starts at node's latest epoch) |
-| `--once`                | —                     | `false`                               |
-| `--verbose`             | `VERBOSE=1`           | `false`                               |
+| Flag              | Env                 | Default                            |
+| ----------------- | ------------------- | ---------------------------------- |
+| `--node-url`      | `QUIP_NODE_URL`     | `https://qpu-1.nodes.quip.network` |
+| `--token`         | `QUIP_NODE_TOKEN`   | unset                              |
+| `--poll-interval` | `POLL_INTERVAL_SEC` | `8`                                |
+| `--nodes-refresh` | `NODES_REFRESH_SEC` | `45`                               |
+| `--once`          | —                   | `false`                            |
+| `--verbose`       | `VERBOSE=1`         | `false`                            |
 
 Database configuration is read from env via `api/db`:
 
@@ -39,29 +38,37 @@ Database configuration is read from env via `api/db`:
 
 ## How it works
 
-Each iteration:
+Two concurrent async workers run in one process. They share the same
+`IndexerState`, `DatabaseAdapter`, and `chainAnchors` cache, but each holds
+its own `QuipClient` so rate-limit backoff in one worker does not stall the
+other.
 
-1. `GET /api/v1/telemetry/status` with `If-None-Match: <last status etag>`.
-   A `304` short-circuits the iteration.
-2. If a new epoch appears or the indexer is booting fresh, the cursor resets
-   to `blockIndex = 0` on the latest epoch (or on `BACKFILL_FROM_EPOCH`).
-3. While `cursor.blockIndex < status.latestBlockIndex`, fetches
-   `/epochs/{epoch}/blocks/{index+1}` and writes via `db.insertBlock`.
-   404s advance the cursor and log a warning (pruned block).
-4. If `nodesRefreshSec` has elapsed since the last nodes fetch, calls
-   `/nodes` with its own etag and upserts via `db.upsertNodes`.
-5. Persists the cursor + etags via `db.saveCursor`.
+- **Tip worker** (`indexer/tip-worker.ts`) runs a tight poll loop: GET
+  `/status` → GET `/epochs` → compute the tip epoch's owned block range →
+  walk any new blocks → refresh the nodes snapshot on cadence → write
+  observability. It only fetches blocks that belong to `status.latestEpoch`,
+  so the dashboard sees at least one block of the live chain within a single
+  poll interval.
+- **Backfill worker** (`indexer/backfill-worker.ts`) walks the full
+  canonical plan (every epoch except the tip), ordered canonical-chain-first
+  and then dead forks. When every plan entry is fully indexed, it sleeps for
+  `backfillIdleRecheckSec` (default 300s) before rebuilding the plan. That
+  re-check catches chains that became dead forks mid-walk and new dead forks
+  the node starts exposing later.
+- **Orchestrator** (`indexer/main.ts`) spawns both workers under a shared
+  `AbortController`. An `AuthError` in either worker aborts its sibling and
+  exits with code 1. `SIGINT` / `SIGTERM` aborts both cleanly.
 
 ### Error handling
 
-| Situation            | Behavior                                             |
-| -------------------- | ---------------------------------------------------- |
-| 304                  | no-op, sleep `pollIntervalSec`, continue             |
-| 404 on a block       | warn, advance cursor, continue                       |
-| 401                  | log with `QUIP_NODE_TOKEN` hint, `process.exit(1)`   |
-| 429                  | exponential backoff 5s → 60s (reset on success)      |
-| 5xx / network error  | warn, sleep `pollIntervalSec`, retry                 |
-| `SIGINT` / `SIGTERM` | finish iteration, persist cursor, disconnect, exit 0 |
+| Situation            | Behavior                                              |
+| -------------------- | ----------------------------------------------------- |
+| 304                  | no-op, sleep `pollIntervalSec`, continue              |
+| 404 on a block       | warn, advance cursor, continue                        |
+| 401                  | abort sibling worker, `process.exit(1)`               |
+| 429                  | exponential backoff 5s → 60s (reset on success)       |
+| 5xx / network error  | warn, sleep `pollIntervalSec`, retry                  |
+| `SIGINT` / `SIGTERM` | finish iteration, persist cursors, disconnect, exit 0 |
 
 ### Big-int nonce
 
@@ -73,8 +80,18 @@ Each iteration:
 ## Tests
 
 ```bash
-bun test indexer/loop.test.ts
+bun test indexer/
 ```
 
 Tests stub `fetch` and use an in-memory fake `DatabaseAdapter`; they do not
 touch SQLite.
+
+| File                              | Covers                                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `indexer/shared.test.ts`          | helpers: `buildCanonicalPlan`, stall tracker, `sleepInterruptible`, `saveStateSafely`                                  |
+| `indexer/tip-worker.test.ts`      | tip iteration: `ownedStart` seeding, epoch rollover, same-epoch advance, observability heartbeat, `replaceEpochStatus` |
+| `indexer/backfill-worker.test.ts` | plan reordering, `markPlanEntriesDone`, tip-epoch filter, idle transition, `RateLimitError` rethrow, abort during walk |
+| `indexer/main.test.ts`            | orchestration: both workers complete normally; `AuthError` aborts sibling; unhandled error returns 1                   |
+| `indexer/config.test.ts`          | flag / env parsing, validation, whitespace handling                                                                    |
+| `indexer/client.test.ts`          | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                       |
+| `indexer/state.test.ts`           | `IndexerState` load/save, schema-drift reset                                                                           |

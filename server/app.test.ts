@@ -88,7 +88,11 @@ beforeEach(async () => {
   await db.insertBlock(makeBlock({ epoch: "1700000000", blockIndex: 1 }));
   await db.insertBlock(makeBlock({ epoch: "1700000060", blockIndex: 0 }));
   await db.upsertNodes(SNAPSHOT);
-  await db.saveCursor({ epoch: "1700000060", blockIndex: 0 }, {});
+  await db.saveCursors(
+    { epoch: "1700000060", blockIndex: 0 },
+    { epoch: null, blockIndex: 0 },
+    { nodes: null },
+  );
 
   app = createApp({ db, enableStatic: false, geoIp: NOOP_GEOIP });
 });
@@ -117,8 +121,10 @@ describe("server app", () => {
     await db.setIndexerObservability({
       nodeLatestEpoch: "1700000060",
       nodeLatestBlockIndex: 42,
-      cursorEpoch: "1700000060",
-      cursorBlockIndex: 40,
+      tipEpoch: "1700000060",
+      tipBlockIndex: 40,
+      backfillEpoch: null,
+      backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
       lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
     });
@@ -126,7 +132,7 @@ describe("server app", () => {
     const body = (await res.json()) as TelemetryResponse;
     expect(body.indexer).not.toBeNull();
     expect(body.indexer?.nodeLatestBlockIndex).toBe(42);
-    expect(body.indexer?.cursorBlockIndex).toBe(40);
+    expect(body.indexer?.tipBlockIndex).toBe(40);
     expect(body.indexer?.lastStatusFetchAt).toBe("2026-04-22T12:00:00.000Z");
   });
 
@@ -176,17 +182,20 @@ describe("server app", () => {
     expect(res.status).toBe(400);
   });
 
-  test("GET /api/health returns cursor and lastSync", async () => {
+  test("GET /api/health returns tip/backfill cursors and lastSync", async () => {
     const res = await app.fetch(new Request("http://test/api/health"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ok: boolean;
-      cursor: { epoch: string | null; blockIndex: number };
+      tipCursor: { epoch: string | null; blockIndex: number };
+      backfillCursor: { epoch: string | null; blockIndex: number };
       lastSync: string | null;
     };
     expect(body.ok).toBe(true);
-    expect(body.cursor.epoch).toBe("1700000060");
-    expect(body.cursor.blockIndex).toBe(0);
+    expect(body.tipCursor.epoch).toBe("1700000060");
+    expect(body.tipCursor.blockIndex).toBe(0);
+    expect(body.backfillCursor.epoch).toBeNull();
+    expect(body.backfillCursor.blockIndex).toBe(0);
     expect(body.lastSync).toBe(SNAPSHOT.updatedAt);
   });
 

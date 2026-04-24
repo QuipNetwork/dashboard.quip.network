@@ -3,6 +3,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { QuipClient } from "./client";
+import { buildBlockPayload, makeFetch } from "./test-helpers";
 
 // These fixtures are copy-pasted from real responses captured against
 // https://qpu-1.nodes.quip.network on 2026-04-22 (v0.0.6 dashboard, post-v4
@@ -112,5 +113,59 @@ describe("QuipClient against live-format telemetry", () => {
     });
     await client.getBlock("e0a08eef1dfff726", 7);
     expect(seenUrl).toContain("/api/v1/telemetry/epochs/e0a08eef1dfff726/blocks/7");
+  });
+});
+
+describe("QuipClient error handling", () => {
+  it("throws when the envelope reports success:false", async () => {
+    const fetchImpl = makeFetch(() => ({
+      status: 200,
+      rawText: JSON.stringify({ success: false, error: "internal error" }),
+    }));
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(client.getStatus(null)).rejects.toThrow(/internal error/);
+  });
+
+  it("throws when a block response has a non-numeric nonce string", async () => {
+    // If the upstream API ever hands us a nonce that's already a non-numeric
+    // string, the regex pre-pass won't touch it and the raw value lands in
+    // the parsed payload. assertNonceShape should refuse to ingest it rather
+    // than letting a bad row reach the DB.
+    const payload = buildBlockPayload("1000", 1, "abc");
+    const rawBlockJson = JSON.stringify({ success: true, data: payload });
+
+    const fetchImpl = makeFetch(() => ({ status: 200, rawText: rawBlockJson }));
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    await expect(client.getBlock("1000", 1)).rejects.toThrow(/malformed nonce/);
+  });
+
+  it("preserves big-int nonce as an exact string through getBlock", async () => {
+    // Nonces above 2^53 arrive as bare JSON integers; the client's regex
+    // pre-pass must quote them before JSON.parse so precision is kept.
+    const nonceDigits = "14191405648832262461";
+    const rawBlockJson = JSON.stringify({
+      success: true,
+      data: buildBlockPayload("1000", 1, 0),
+    }).replace(/"nonce":0/, `"nonce":${nonceDigits}`);
+
+    const fetchImpl = makeFetch(() => ({ status: 200, rawText: rawBlockJson }));
+    const client = new QuipClient({
+      baseUrl: "https://node.example.com",
+      fetchImpl,
+    });
+
+    const raw = await client.getBlock("1000", 1);
+    expect(raw).not.toBeNull();
+    // The nonce is nested under quantum_proof in the raw payload shape.
+    const quantumProof = raw?.quantum_proof as Record<string, unknown> | undefined;
+    expect(quantumProof?.nonce).toBe(nonceDigits);
   });
 });

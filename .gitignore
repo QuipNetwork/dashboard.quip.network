@@ -6,3 +6,6 @@
 
 # Local Netlify folder
 .netlify
+
+# Superpowers brainstorming companion
+.superpowers/

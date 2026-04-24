@@ -61,3 +61,9 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 export function selectTipBlock(s: TelemetryState): BlockRecord | null {
   return s.blocks.length > 0 ? (s.blocks[s.blocks.length - 1] ?? null) : null;
 }
+
+/** Timestamp (ms) of the tip block, or null when no blocks are loaded. */
+export function selectTipBlockTimestampMs(s: TelemetryState): number | null {
+  const tip = selectTipBlock(s);
+  return tip ? tip.timestamp * 1000 : null;
+}

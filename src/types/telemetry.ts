@@ -132,8 +132,12 @@ export interface NodesSnapshot {
  *
  * - nodeLatestEpoch / nodeLatestBlockIndex: tip last reported by the node
  *   via /api/v1/telemetry/status.
- * - cursorEpoch / cursorBlockIndex: how far the indexer has actually
- *   persisted. Equal to the node's tip when caught up.
+ * - tipEpoch / tipBlockIndex: how far the tip-follower has actually
+ *   persisted on status.latestEpoch's owned range. Equal to the node's
+ *   tip when caught up.
+ * - backfillEpoch / backfillBlockIndex: the epoch (and block within it)
+ *   currently being walked by the backfill worker. Null epoch means the
+ *   backfill plan has no outstanding work.
  * - lastStatusFetchAt: ISO timestamp of the most recent status response.
  *   Acts as an "indexer alive" heartbeat — if this is >minutes old, the
  *   indexer process has stopped or is wedged.
@@ -143,10 +147,20 @@ export interface NodesSnapshot {
 export interface IndexerObservability {
   nodeLatestEpoch: EpochId;
   nodeLatestBlockIndex: number;
-  cursorEpoch: EpochId | null;
-  cursorBlockIndex: number;
-  lastStatusFetchAt: string;
-  lastBlockInsertAt: string | null;
+
+  // Tip follower — cursor on status.latestEpoch's owned range.
+  // tipEpoch === nodeLatestEpoch && tipBlockIndex === nodeLatestBlockIndex
+  // means the tip is caught up.
+  tipEpoch: EpochId | null;
+  tipBlockIndex: number;
+
+  // Backfill worker — null when no outstanding plan work; otherwise the
+  // epoch currently being walked.
+  backfillEpoch: EpochId | null;
+  backfillBlockIndex: number;
+
+  lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
+  lastBlockInsertAt: string | null; // either worker's most recent insert
 }
 
 export interface TelemetryResponse {

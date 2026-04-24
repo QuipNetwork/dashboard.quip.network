@@ -5,13 +5,16 @@ export interface IndexerConfig {
   token: string | undefined;
   pollIntervalSec: number;
   nodesRefreshSec: number;
-  backfillFromEpoch: string | undefined;
   once: boolean;
   verbose: boolean;
   // Seconds of no `latestBlockIndex` advance (from /api/v1/telemetry/status)
   // after which the indexer emits a WARN that the polled node looks stalled.
   // 0 disables the check.
   stallWarnAfterSec: number;
+  // Interval (seconds) the backfill worker sleeps between plan re-checks when
+  // idle (plan fully indexed). Guards against a chain that was the tip mid-walk
+  // and became a dead fork before being fully indexed.
+  backfillIdleRecheckSec: number;
 }
 
 const DEFAULTS = {
@@ -19,6 +22,7 @@ const DEFAULTS = {
   pollIntervalSec: 8,
   nodesRefreshSec: 45,
   stallWarnAfterSec: 600, // 10 minutes — longer than typical QPU block time.
+  backfillIdleRecheckSec: 300,
 };
 
 function parseIntStrict(name: string, raw: string): number {
@@ -57,10 +61,10 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
   const tokenFlag = takeFlag(argv, "--token");
   const pollFlag = takeFlag(argv, "--poll-interval");
   const nodesFlag = takeFlag(argv, "--nodes-refresh");
-  const backfillFlag = takeFlag(argv, "--backfill-from-epoch");
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
   const stallFlag = takeFlag(argv, "--stall-warn-after");
+  const backfillIdleFlag = takeFlag(argv, "--backfill-idle-recheck");
 
   const nodeUrl =
     (typeof nodeUrlFlag === "string" ? nodeUrlFlag : undefined) ??
@@ -84,16 +88,6 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
         ? parseIntStrict("NODES_REFRESH_SEC", process.env.NODES_REFRESH_SEC)
         : DEFAULTS.nodesRefreshSec;
 
-  // Epoch IDs are opaque hex hashes post-v4 — accept the string as-is.
-  // Trim whitespace so `--backfill-from-epoch=abc…` and environment pass-
-  // through both work; reject empty/whitespace-only values so a stray env
-  // var doesn't silently skip to plan[0].
-  const backfillRaw =
-    (typeof backfillFlag === "string" ? backfillFlag : undefined) ??
-    process.env.BACKFILL_FROM_EPOCH;
-  const backfillTrimmed = backfillRaw?.trim();
-  const backfillFromEpoch = backfillTrimmed ? backfillTrimmed : undefined;
-
   const once = onceFlag === true || onceFlag === "true" || onceFlag === "1";
   const verbose =
     verboseFlag === true ||
@@ -111,14 +105,26 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     throw new Error(`[indexer] --stall-warn-after must be >= 0, got: ${stallWarnAfterSec}`);
   }
 
+  const backfillIdleRecheckSec =
+    typeof backfillIdleFlag === "string"
+      ? parseIntStrict("--backfill-idle-recheck", backfillIdleFlag)
+      : process.env.BACKFILL_IDLE_RECHECK_SEC
+        ? parseIntStrict("BACKFILL_IDLE_RECHECK_SEC", process.env.BACKFILL_IDLE_RECHECK_SEC)
+        : DEFAULTS.backfillIdleRecheckSec;
+  if (backfillIdleRecheckSec <= 0) {
+    throw new Error(
+      `[indexer] --backfill-idle-recheck must be > 0, got: ${backfillIdleRecheckSec}`,
+    );
+  }
+
   return {
     nodeUrl: nodeUrl.replace(/\/+$/, ""),
     token,
     pollIntervalSec,
     nodesRefreshSec,
-    backfillFromEpoch,
     once,
     verbose,
     stallWarnAfterSec,
+    backfillIdleRecheckSec,
   };
 }

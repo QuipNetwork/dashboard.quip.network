@@ -42,8 +42,10 @@ function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservabilit
   return {
     nodeLatestEpoch: "1700000000",
     nodeLatestBlockIndex: 10,
-    cursorEpoch: "1700000000",
-    cursorBlockIndex: 10,
+    tipEpoch: "1700000000",
+    tipBlockIndex: 10,
+    backfillEpoch: null,
+    backfillBlockIndex: 0,
     lastStatusFetchAt: new Date(now - 10_000).toISOString(),
     lastBlockInsertAt: new Date(now - 10_000).toISOString(),
     ...overrides,
@@ -102,7 +104,7 @@ describe("RecentBlocksTable banner", () => {
   test("renders 'indexer is N blocks behind' when the indexer is lagging the node", () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const blocks = [makeBlock(10, nowSec - 30)];
-    const indexer = obs({ nodeLatestBlockIndex: 15, cursorBlockIndex: 10 });
+    const indexer = obs({ nodeLatestBlockIndex: 15, tipBlockIndex: 10 });
     render(createElement(RecentBlocksTable, { blocks, indexer }));
     const banner = container.querySelector('[role="status"]');
     expect(banner?.textContent).toMatch(/Indexer is 5 blocks behind/);

@@ -34,12 +34,13 @@ export interface ObservabilityCache {
 }
 
 /**
- * In-memory cache of the indexer's cursor and etag state, backed by the
- * DatabaseAdapter. Callers mutate {@link cursor} / {@link etags} and call
- * {@link save} to persist.
+ * In-memory cache of the indexer's cursors and etag state, backed by the
+ * DatabaseAdapter. Callers mutate {@link tipCursor} / {@link backfillCursor} /
+ * {@link etags} and call {@link save} to persist.
  */
 export class IndexerState {
-  cursor: IndexerCursor = { epoch: null, blockIndex: 0 };
+  tipCursor: IndexerCursor = { epoch: null, blockIndex: 0 };
+  backfillCursor: IndexerCursor = { epoch: null, blockIndex: 0 };
   etags: EtagState = { nodes: null };
   stall: StallTracker = { lastObserved: null, lastAdvanceAtMs: 0, lastWarnAtMs: 0 };
   observability: ObservabilityCache = { lastBlockInsertAt: null };
@@ -52,7 +53,9 @@ export class IndexerState {
   constructor(private readonly db: DatabaseAdapter) {}
 
   async load(): Promise<void> {
-    this.cursor = await this.db.getCursor();
+    const { tip, backfill } = await this.db.getCursors();
+    this.tipCursor = tip;
+    this.backfillCursor = backfill;
     this.etags = await this.db.getEtags();
     // Carry forward lastBlockInsertAt across restarts so the UI doesn't
     // flip to "never indexed" for a few seconds after every deploy.
@@ -61,6 +64,8 @@ export class IndexerState {
   }
 
   async save(): Promise<void> {
-    await this.db.saveCursor(this.cursor, { nodes: this.etags.nodes });
+    await this.db.saveCursors(this.tipCursor, this.backfillCursor, {
+      nodes: this.etags.nodes,
+    });
   }
 }
