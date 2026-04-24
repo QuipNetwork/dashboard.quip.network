@@ -127,8 +127,8 @@ export function makeFetch(router: Router): typeof fetch {
   const fn = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     let spec = router(url, init);
-    // Since the indexer moved to chain-aware attribution, runIteration fetches
-    // /epochs on every poll (used to be only during backfill). Tests that
+    // Since the indexer moved to chain-aware attribution, the tip worker
+    // fetches /epochs on every poll (used to be only during backfill). Tests that
     // don't care about multi-epoch semantics shouldn't be forced to mock it —
     // synthesize an empty list here and the tip-override in
     // buildCanonicalPlan still yields a valid plan for the single latest epoch.
