@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {
+  BabeAuthorityRecord,
+  BabeEpochState,
   BlockRecord,
+  ChainHead,
+  ChainMinerRecord,
+  DifficultyRecord,
   EpochId,
   EpochStatus,
   IndexerCursor,
@@ -183,6 +188,78 @@ export interface DatabaseAdapter {
   // falling behind". Null until the first successful poll after deploy.
   getIndexerObservability(): Promise<IndexerObservability | null>;
   setIndexerObservability(obs: IndexerObservability): Promise<void>;
+
+  // --- Substrate-derived state (v5; targets quip-protocol-rs spec 101). ---
+  // All methods are filled by the substrate worker when QUIP_VALIDATOR_RPC_URL
+  // is set on the indexer; otherwise the tables stay empty and reads return
+  // null/[]. Each upsert is idempotent — a no-change call must be a no-op
+  // at the row level (use ON CONFLICT DO UPDATE … WHERE … IS DISTINCT FROM).
+
+  upsertChainHead(head: ChainHead): Promise<void>;
+  getChainHead(): Promise<ChainHead | null>;
+
+  upsertBabeEpoch(epoch: BabeEpochState): Promise<void>;
+  getCurrentBabeEpoch(): Promise<BabeEpochState | null>;
+
+  // Replace-in-place the BABE authorities for the given epoch. UPSERT
+  // by accountId, flip is_active=false for prior accounts not in the new
+  // set. Never deletes — preserves per-epoch history.
+  upsertBabeAuthorities(
+    epochIndex: number,
+    authorities: BabeAuthorityRecord[],
+  ): Promise<void>;
+  getActiveBabeAuthorities(): Promise<BabeAuthorityRecord[]>;
+
+  // On-chain miner state from quantum_pow.Miners. The telemetry-node join
+  // happens at read time in the server, not write time — keep this table
+  // chain-pure.
+  upsertChainMiners(
+    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>,
+  ): Promise<void>;
+  getChainMiners(): Promise<Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>>;
+
+  // Append-only difficulty snapshots. Worker dedupes against most recent
+  // before calling; ON CONFLICT DO NOTHING covers the race where two
+  // workers see the same boundary block.
+  insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void>;
+  getRecentDifficulty(limit: number): Promise<DifficultyRecord[]>;
+
+  // NULL-tolerant update of a single block row by (epoch, blockIndex).
+  // COALESCE semantics: never clobbers a non-null with null unless the field
+  // is explicitly being cleared (e.g., reorg). `finalized: true` is monotonic
+  // — sets but never clears. Returns matched=false when the row doesn't
+  // exist yet — caller queues for later replay via pendingWinnerEvents.
+  updateBlockSubstrateFields(
+    epoch: EpochId,
+    blockIndex: number,
+    fields: Partial<{
+      substrateBlockNumber: string;
+      substrateBlockHash: string;
+      substrateParentHash: string;
+      extrinsicsRoot: string;
+      stateRoot: string;
+      finalized: boolean;
+    }>,
+  ): Promise<{ matched: boolean }>;
+
+  // Look up a candidate block by (minerId, energy). Used by the substrate
+  // worker's BlockWinner-event correlation: when an event fires, find the
+  // matching PoW BlockRecord. Returns the most recent match if multiple
+  // exist (energy collisions across blocks are improbable for floats).
+  findBlockByMinerAndEnergy(
+    minerId: string,
+    energy: number,
+  ): Promise<{ epoch: EpochId; blockIndex: number } | null>;
+
+  // Mark all blocks in the listed epochs as canonical=false (or true).
+  // Used by the `epoch_status` swap path so dead-fork blocks never leak
+  // into default reads (audit fix #5).
+  markBlocksCanonical(epochs: EpochId[], canonical: boolean): Promise<void>;
+
+  // Single-shot UPDATE of epoch_status.chain_anchor by epoch. Written by
+  // the substrate worker once it has resolved which substrate block hash
+  // anchors block_index=1 of that epoch.
+  updateEpochChainAnchor(epoch: EpochId, chainAnchor: string): Promise<void>;
 }
 
 export interface DbConfig {
