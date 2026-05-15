@@ -25,6 +25,13 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     difficultyEnergy: -110,
     minDiversity: 0.1,
     minSolutions: 1,
+    substrateBlockNumber: null,
+    substrateBlockHash: null,
+    substrateParentHash: null,
+    extrinsicsRoot: null,
+    stateRoot: null,
+    finalized: false,
+    isCanonical: true,
     ...overrides,
   };
 }

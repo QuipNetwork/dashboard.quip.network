@@ -25,6 +25,13 @@ function makeBlock(
     difficultyEnergy: 0.4,
     minDiversity: 0.2,
     minSolutions: 1,
+    substrateBlockNumber: null,
+    substrateBlockHash: null,
+    substrateParentHash: null,
+    extrinsicsRoot: null,
+    stateRoot: null,
+    finalized: false,
+    isCanonical: true,
     ...overrides,
   };
 }

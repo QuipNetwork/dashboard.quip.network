@@ -117,6 +117,13 @@ describe("markPlanEntriesDone", () => {
         difficultyEnergy: 0,
         minDiversity: 0,
         minSolutions: 0,
+        substrateBlockNumber: null,
+        substrateBlockHash: null,
+        substrateParentHash: null,
+        extrinsicsRoot: null,
+        stateRoot: null,
+        finalized: false,
+        isCanonical: true,
       });
     }
     const plan: CanonicalEpoch[] = [
@@ -221,6 +228,13 @@ describe("runBackfillIteration", () => {
         difficultyEnergy: 0,
         minDiversity: 0,
         minSolutions: 0,
+        substrateBlockNumber: null,
+        substrateBlockHash: null,
+        substrateParentHash: null,
+        extrinsicsRoot: null,
+        stateRoot: null,
+        finalized: false,
+        isCanonical: true,
       });
     }
     const state = new IndexerState(db);

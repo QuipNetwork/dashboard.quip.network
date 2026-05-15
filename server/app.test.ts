@@ -48,6 +48,13 @@ function makeBlock(
     difficultyEnergy: 0.4,
     minDiversity: 0.2,
     minSolutions: 1,
+    substrateBlockNumber: null,
+    substrateBlockHash: null,
+    substrateParentHash: null,
+    extrinsicsRoot: null,
+    stateRoot: null,
+    finalized: false,
+    isCanonical: true,
     ...overrides,
   };
 }
@@ -127,6 +134,10 @@ describe("server app", () => {
       backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
       lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
+      lastSubstrateEventAt: null,
+      bestBlockHeight: null,
+      finalizedBlockHeight: null,
+      chainConnected: false,
     });
     const res = await app.fetch(new Request("http://test/api/telemetry"));
     const body = (await res.json()) as TelemetryResponse;
@@ -134,6 +145,78 @@ describe("server app", () => {
     expect(body.indexer?.nodeLatestBlockIndex).toBe(42);
     expect(body.indexer?.tipBlockIndex).toBe(40);
     expect(body.indexer?.lastStatusFetchAt).toBe("2026-04-22T12:00:00.000Z");
+    expect(body.indexer?.chainConnected).toBe(false);
+  });
+
+  test("GET /api/telemetry returns v5 substrate keys (null/empty in degraded mode)", async () => {
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(typeof body.serverTime).toBe("string");
+    expect(body.chainHead).toBeNull();
+    expect(body.babeEpoch).toBeNull();
+    expect(body.babeAuthorities).toEqual([]);
+    expect(body.chainMiners).toEqual([]);
+    expect(body.recentDifficulty).toEqual([]);
+  });
+
+  test("GET /api/telemetry returns chainHead/babeEpoch/chainMiners when populated", async () => {
+    await db.upsertChainHead({
+      bestBlockNumber: "100",
+      bestBlockHash: "0xabc",
+      finalizedBlockNumber: "98",
+      finalizedBlockHash: "0xdef",
+      finalityLag: 2,
+      runtime: {
+        specName: "quip",
+        specVersion: 101,
+        transactionVersion: 2,
+        implName: "quip",
+        lastRuntimeUpgrade: null,
+      },
+      updatedAt: "2026-05-15T00:00:00.000Z",
+    });
+    await db.upsertBabeEpoch({
+      epochIndex: 7,
+      currentSlot: "16801",
+      epochStartSlot: "16800",
+      slotsPerEpoch: 2400,
+      currentSlotInEpoch: 1,
+      authorityCount: 3,
+    });
+    await db.upsertBabeAuthorities(7, [
+      { accountId: "5GrwvaEF1", displayName: null },
+      { accountId: "5GrwvaEF2", displayName: null },
+    ]);
+    await db.upsertChainMiners([
+      {
+        accountId: "5GrwvaEF1",
+        deposit: "1000",
+        proofsSubmitted: "10",
+        proofsWon: "3",
+        rewardsEarned: "3000",
+      },
+    ]);
+    await db.insertDifficultySnapshot({
+      observedAtBlock: "100",
+      difficultyEnergy: 12.5,
+      minDiversity: 0.5,
+      minSolutions: 3,
+      observedAt: "2026-05-15T00:00:00.000Z",
+    });
+
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(body.chainHead?.bestBlockNumber).toBe("100");
+    expect(body.chainHead?.runtime.specVersion).toBe(101);
+    expect(body.babeEpoch?.epochIndex).toBe(7);
+    expect(body.babeAuthorities.map((a) => a.accountId)).toEqual(["5GrwvaEF1", "5GrwvaEF2"]);
+    expect(body.chainMiners).toHaveLength(1);
+    expect(body.chainMiners[0]?.proofsWon).toBe("3");
+    // telemetryNodeAddress join stays null until the chain side ships
+    // an ECDSA-pubkey → account_id mapping (see plan note in Task 0.8).
+    expect(body.chainMiners[0]?.telemetryNodeAddress).toBeNull();
+    expect(body.recentDifficulty).toHaveLength(1);
+    expect(body.recentDifficulty[0]?.difficultyEnergy).toBe(12.5);
   });
 
   test("GET /api/telemetry surfaces the configured self address", async () => {

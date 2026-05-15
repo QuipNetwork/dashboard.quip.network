@@ -12,7 +12,6 @@ import type {
   BlockRecord,
   ChainHead,
   ChainMinerRecord,
-  DifficultyRecord,
 } from "../../src/types/telemetry";
 
 const sampleHead = (): ChainHead => ({

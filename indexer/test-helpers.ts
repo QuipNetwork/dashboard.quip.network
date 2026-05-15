@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {
+  BabeAuthorityRecord,
+  BabeEpochState,
   BlockRecord,
+  ChainHead,
+  ChainMinerRecord,
+  DifficultyRecord,
+  EpochId,
   IndexerCursor,
   IndexerObservability,
   NodesSnapshot,
@@ -110,6 +116,119 @@ export class FakeDb implements DatabaseAdapter {
   async setIndexerObservability(obs: IndexerObservability): Promise<void> {
     this.observability = obs;
     this.observabilityWrites.push(obs);
+  }
+
+  // v5 substrate-derived state. Stub storage; tests that exercise substrate
+  // behavior assert against these fields directly.
+  chainHead: ChainHead | null = null;
+  babeEpochs: Map<number, BabeEpochState> = new Map();
+  currentBabeEpochIndex: number | null = null;
+  babeAuthorities: Map<string, BabeAuthorityRecord & { isActive: boolean }> = new Map();
+  chainMiners: Map<string, Omit<ChainMinerRecord, "telemetryNodeAddress">> = new Map();
+  difficultyHistory: DifficultyRecord[] = [];
+  substrateFieldUpdates: Array<{
+    epoch: EpochId;
+    blockIndex: number;
+    fields: Record<string, unknown>;
+  }> = [];
+
+  async upsertChainHead(head: ChainHead): Promise<void> {
+    this.chainHead = head;
+  }
+  async getChainHead(): Promise<ChainHead | null> {
+    return this.chainHead;
+  }
+  async upsertBabeEpoch(epoch: BabeEpochState): Promise<void> {
+    this.babeEpochs.set(epoch.epochIndex, epoch);
+    this.currentBabeEpochIndex = epoch.epochIndex;
+  }
+  async getCurrentBabeEpoch(): Promise<BabeEpochState | null> {
+    if (this.currentBabeEpochIndex == null) return null;
+    return this.babeEpochs.get(this.currentBabeEpochIndex) ?? null;
+  }
+  async upsertBabeAuthorities(_epochIndex: number, authorities: BabeAuthorityRecord[]): Promise<void> {
+    const incoming = new Set(authorities.map((a) => a.accountId));
+    for (const [id, prev] of this.babeAuthorities) {
+      if (!incoming.has(id)) prev.isActive = false;
+    }
+    for (const a of authorities) {
+      this.babeAuthorities.set(a.accountId, { ...a, isActive: true });
+    }
+  }
+  async getActiveBabeAuthorities(): Promise<BabeAuthorityRecord[]> {
+    return [...this.babeAuthorities.values()]
+      .filter((a) => a.isActive)
+      .map(({ accountId, displayName }) => ({ accountId, displayName }));
+  }
+  async upsertChainMiners(
+    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>,
+  ): Promise<void> {
+    for (const m of miners) this.chainMiners.set(m.accountId, m);
+  }
+  async getChainMiners(): Promise<Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>> {
+    return [...this.chainMiners.values()].sort(
+      (a, b) => Number(b.rewardsEarned) - Number(a.rewardsEarned),
+    );
+  }
+  async insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void> {
+    if (!this.difficultyHistory.some((d) => d.observedAtBlock === snapshot.observedAtBlock)) {
+      this.difficultyHistory.push(snapshot);
+    }
+  }
+  async getRecentDifficulty(limit: number): Promise<DifficultyRecord[]> {
+    return [...this.difficultyHistory]
+      .sort((a, b) => (b.observedAt > a.observedAt ? 1 : -1))
+      .slice(0, limit);
+  }
+  async updateBlockSubstrateFields(
+    epoch: EpochId,
+    blockIndex: number,
+    fields: Partial<{
+      substrateBlockNumber: string;
+      substrateBlockHash: string;
+      substrateParentHash: string;
+      extrinsicsRoot: string;
+      stateRoot: string;
+      finalized: boolean;
+    }>,
+  ): Promise<{ matched: boolean }> {
+    const block = this.inserted.find(
+      (b) => b.epoch === epoch && b.blockIndex === blockIndex,
+    );
+    if (!block) return { matched: false };
+    if (fields.substrateBlockNumber !== undefined)
+      block.substrateBlockNumber = fields.substrateBlockNumber ?? block.substrateBlockNumber;
+    if (fields.substrateBlockHash !== undefined)
+      block.substrateBlockHash = fields.substrateBlockHash ?? block.substrateBlockHash;
+    if (fields.substrateParentHash !== undefined)
+      block.substrateParentHash = fields.substrateParentHash ?? block.substrateParentHash;
+    if (fields.extrinsicsRoot !== undefined)
+      block.extrinsicsRoot = fields.extrinsicsRoot ?? block.extrinsicsRoot;
+    if (fields.stateRoot !== undefined)
+      block.stateRoot = fields.stateRoot ?? block.stateRoot;
+    if (fields.finalized === true) block.finalized = true;
+    this.substrateFieldUpdates.push({ epoch, blockIndex, fields });
+    return { matched: true };
+  }
+  async findBlockByMinerAndEnergy(
+    minerId: string,
+    energy: number,
+  ): Promise<{ epoch: EpochId; blockIndex: number } | null> {
+    const matches = this.inserted
+      .filter((b) => b.minerId === minerId && b.energy === energy)
+      .sort((a, b) => b.timestamp - a.timestamp);
+    const m = matches[0];
+    if (!m) return null;
+    return { epoch: m.epoch, blockIndex: m.blockIndex };
+  }
+  async markBlocksCanonical(epochs: EpochId[], canonical: boolean): Promise<void> {
+    const set = new Set(epochs);
+    for (const b of this.inserted) {
+      if (set.has(b.epoch)) b.isCanonical = canonical;
+    }
+  }
+  async updateEpochChainAnchor(_epoch: EpochId, _chainAnchor: string): Promise<void> {
+    // No-op stub; tests that need this should assert on a different path.
   }
 }
 

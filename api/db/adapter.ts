@@ -453,6 +453,16 @@ export function rawBlockToRecord(raw: RawBlockPayload, epoch: EpochId): BlockRec
     difficultyEnergy: raw.requirements.difficulty_energy,
     minDiversity: raw.requirements.min_diversity,
     minSolutions: raw.requirements.min_solutions,
+    // Substrate fields are filled by substrate-worker post-insert; isCanonical
+    // defaults to true and flips false via markBlocksCanonical when the
+    // epoch_status swap detects a stale_fork.
+    substrateBlockNumber: null,
+    substrateBlockHash: null,
+    substrateParentHash: null,
+    extrinsicsRoot: null,
+    stateRoot: null,
+    finalized: false,
+    isCanonical: true,
   };
 }
 

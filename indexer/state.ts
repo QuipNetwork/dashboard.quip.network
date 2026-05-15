@@ -25,12 +25,21 @@ export interface StallTracker {
 }
 
 /**
- * ISO timestamp of the most recent insertBlock call. Carried forward across
- * poll iterations (and seeded from the DB at load() time) so a restart with
- * no fresh blocks doesn't make the UI think a block was just inserted.
+ * Cache of indexer observability fields, carried forward across poll
+ * iterations and seeded from the DB at load() time so restarts with no
+ * fresh writes don't make the UI think a block/event just landed.
+ *
+ * v5 adds substrate-worker fields. They stay null/false until the substrate
+ * worker is configured (QUIP_VALIDATOR_RPC_URL) and starts emitting events.
+ * `chainConnected` is transient — it's NOT seeded from the DB on restart
+ * (a prior process's connection state is meaningless to a new process).
  */
 export interface ObservabilityCache {
   lastBlockInsertAt: string | null;
+  lastSubstrateEventAt: string | null;
+  bestBlockHeight: string | null;
+  finalizedBlockHeight: string | null;
+  chainConnected: boolean;
 }
 
 /**
@@ -43,7 +52,13 @@ export class IndexerState {
   backfillCursor: IndexerCursor = { epoch: null, blockIndex: 0 };
   etags: EtagState = { nodes: null };
   stall: StallTracker = { lastObserved: null, lastAdvanceAtMs: 0, lastWarnAtMs: 0 };
-  observability: ObservabilityCache = { lastBlockInsertAt: null };
+  observability: ObservabilityCache = {
+    lastBlockInsertAt: null,
+    lastSubstrateEventAt: null,
+    bestBlockHeight: null,
+    finalizedBlockHeight: null,
+    chainConnected: false,
+  };
   // Cache of epoch → block_1.block_hash. Used to test chain membership
   // (epochs sharing a block_1 hash are on the same chain). Not persisted:
   // rebuilding is cheap (one /block fetch per epoch) and the node is the
@@ -57,10 +72,17 @@ export class IndexerState {
     this.tipCursor = tip;
     this.backfillCursor = backfill;
     this.etags = await this.db.getEtags();
-    // Carry forward lastBlockInsertAt across restarts so the UI doesn't
-    // flip to "never indexed" for a few seconds after every deploy.
+    // Carry forward observability across restarts so the UI doesn't flip
+    // to "never indexed" for a few seconds after every deploy. chainConnected
+    // is intentionally NOT seeded — a prior process's connection state is
+    // meaningless to a new process.
     const prior = await this.db.getIndexerObservability();
-    if (prior) this.observability.lastBlockInsertAt = prior.lastBlockInsertAt;
+    if (prior) {
+      this.observability.lastBlockInsertAt = prior.lastBlockInsertAt;
+      this.observability.lastSubstrateEventAt = prior.lastSubstrateEventAt;
+      this.observability.bestBlockHeight = prior.bestBlockHeight;
+      this.observability.finalizedBlockHeight = prior.finalizedBlockHeight;
+    }
   }
 
   async save(): Promise<void> {

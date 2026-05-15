@@ -73,6 +73,36 @@ class StubDb implements DatabaseAdapter {
     return null;
   }
   async setIndexerObservability(_obs: IndexerObservability): Promise<void> {}
+  // v5 substrate-state stubs — never called by the stall-tracking paths
+  // this stub serves, so they're no-ops that satisfy the interface.
+  async upsertChainHead(): Promise<void> {}
+  async getChainHead() {
+    return null;
+  }
+  async upsertBabeEpoch(): Promise<void> {}
+  async getCurrentBabeEpoch() {
+    return null;
+  }
+  async upsertBabeAuthorities(): Promise<void> {}
+  async getActiveBabeAuthorities() {
+    return [];
+  }
+  async upsertChainMiners(): Promise<void> {}
+  async getChainMiners() {
+    return [];
+  }
+  async insertDifficultySnapshot(): Promise<void> {}
+  async getRecentDifficulty() {
+    return [];
+  }
+  async updateBlockSubstrateFields() {
+    return { matched: false };
+  }
+  async findBlockByMinerAndEnergy() {
+    return null;
+  }
+  async markBlocksCanonical(): Promise<void> {}
+  async updateEpochChainAnchor(): Promise<void> {}
 }
 
 function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {

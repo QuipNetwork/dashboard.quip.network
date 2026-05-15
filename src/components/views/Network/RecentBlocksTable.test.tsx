@@ -34,6 +34,13 @@ function makeBlock(i: number, tsSec: number): BlockRecord {
     difficultyEnergy: -1,
     minDiversity: 0,
     minSolutions: 1,
+    substrateBlockNumber: null,
+    substrateBlockHash: null,
+    substrateParentHash: null,
+    extrinsicsRoot: null,
+    stateRoot: null,
+    finalized: false,
+    isCanonical: true,
   };
 }
 
@@ -48,6 +55,10 @@ function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservabilit
     backfillBlockIndex: 0,
     lastStatusFetchAt: new Date(now - 10_000).toISOString(),
     lastBlockInsertAt: new Date(now - 10_000).toISOString(),
+    lastSubstrateEventAt: null,
+    bestBlockHeight: null,
+    finalizedBlockHeight: null,
+    chainConnected: false,
     ...overrides,
   };
 }

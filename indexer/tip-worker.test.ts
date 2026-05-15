@@ -514,6 +514,10 @@ describe("runTipIteration observability persistence", () => {
       backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
       lastBlockInsertAt: "2026-01-01T00:00:00.000Z",
+      lastSubstrateEventAt: null,
+      bestBlockHeight: null,
+      finalizedBlockHeight: null,
+      chainConnected: false,
     };
     db.cursor = { epoch: "tipA", blockIndex: 5 }; // caught up
     const state = new IndexerState(db);

@@ -120,6 +120,13 @@ async function writeTipObservability(
       backfillBlockIndex: state.backfillCursor.blockIndex,
       lastStatusFetchAt: new Date(nowMs).toISOString(),
       lastBlockInsertAt: state.observability.lastBlockInsertAt,
+      // Substrate worker mutates these via state.observability; tip-worker
+      // is the only writer of setIndexerObservability so it carries them
+      // through to the DB.
+      lastSubstrateEventAt: state.observability.lastSubstrateEventAt,
+      bestBlockHeight: state.observability.bestBlockHeight,
+      finalizedBlockHeight: state.observability.finalizedBlockHeight,
+      chainConnected: state.observability.chainConnected,
     });
   } catch (e) {
     warn(`setIndexerObservability failed: ${formatErr(e)}`);

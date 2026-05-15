@@ -22,6 +22,10 @@ function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservabilit
     backfillBlockIndex: 0,
     lastStatusFetchAt: new Date(NOW_MS - 30_000).toISOString(),
     lastBlockInsertAt: new Date(NOW_MS - 2 * 60_000).toISOString(),
+    lastSubstrateEventAt: null,
+    bestBlockHeight: null,
+    finalizedBlockHeight: null,
+    chainConnected: false,
     ...overrides,
   };
 }

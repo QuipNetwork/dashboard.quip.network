@@ -4,7 +4,12 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { NodeInfo, NodesSnapshot, TelemetryResponse } from "../src/types/telemetry";
+import type {
+  ChainMinerRecord,
+  NodeInfo,
+  NodesSnapshot,
+  TelemetryResponse,
+} from "../src/types/telemetry";
 import { getGeoIpEnricher, type GeoIpEnricher } from "./geo-ip";
 
 interface StaticOptions {
@@ -40,22 +45,54 @@ export function createApp(options: CreateAppOptions): Hono {
   const app = new Hono();
 
   app.get("/api/telemetry", async (c) => {
-    const [blocks, nodes, selfAddress, indexer] = await Promise.all([
+    const [
+      blocks,
+      nodes,
+      selfAddress,
+      indexer,
+      chainHead,
+      babeEpoch,
+      babeAuthorities,
+      rawChainMiners,
+      recentDifficulty,
+    ] = await Promise.all([
       db.getAllBlocks(),
       db.getNodes(),
       db.getSelfAddress(),
       db.getIndexerObservability(),
+      db.getChainHead(),
+      db.getCurrentBabeEpoch(),
+      db.getActiveBabeAuthorities(),
+      db.getChainMiners(),
+      db.getRecentDifficulty(50),
     ]);
     const rawSnapshot = nodes ?? emptySnapshot;
     const enricher = geoIp ?? (await getGeoIpEnricher());
     const enrichedNodes: Record<string, NodeInfo> = enricher.enabled
       ? await enricher.enrichSnapshot(rawSnapshot.nodes)
       : rawSnapshot.nodes;
+
+    // Chain miners → telemetry node join. quip-protocol-rs spec 101 does
+    // not currently expose an ECDSA pubkey alongside the SS58 account_id,
+    // so the join cannot fire — telemetryNodeAddress stays null. The
+    // ChainMinerRecord type + UI plumbing are in place ahead of the chain
+    // side adding that mapping (see plan rev 2 Task 0.8 follow-up).
+    const chainMiners: ChainMinerRecord[] = rawChainMiners.map((m) => ({
+      ...m,
+      telemetryNodeAddress: null,
+    }));
+
     const body: TelemetryResponse = {
       blocks,
       nodes: { ...rawSnapshot, nodes: enrichedNodes },
       selfAddress,
       indexer,
+      serverTime: new Date().toISOString(),
+      chainHead,
+      babeEpoch,
+      babeAuthorities,
+      chainMiners,
+      recentDifficulty,
     };
     return c.json(body);
   });

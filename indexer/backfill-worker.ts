@@ -164,6 +164,12 @@ async function writeBackfillObservability(
       backfillBlockIndex: state.backfillCursor.blockIndex,
       lastStatusFetchAt: new Date(nowMs).toISOString(),
       lastBlockInsertAt: state.observability.lastBlockInsertAt,
+      // Substrate fields carried from the shared cache. The substrate worker
+      // is the only mutator; backfill just reflects current state.
+      lastSubstrateEventAt: state.observability.lastSubstrateEventAt,
+      bestBlockHeight: state.observability.bestBlockHeight,
+      finalizedBlockHeight: state.observability.finalizedBlockHeight,
+      chainConnected: state.observability.chainConnected,
     });
   } catch (e) {
     warn(`[backfill] setIndexerObservability failed: ${formatErr(e)}`);
