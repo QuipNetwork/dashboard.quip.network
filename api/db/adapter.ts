@@ -50,6 +50,7 @@ export function parseIndexerObservability(
   const isFiniteInt = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
   const isStr = (v: unknown): v is string => typeof v === "string";
   const isNullableStr = (v: unknown): v is string | null => v === null || isStr(v);
+  const isBool = (v: unknown): v is boolean => typeof v === "boolean";
   if (
     !isStr(p.nodeLatestEpoch) ||
     !isFiniteInt(p.nodeLatestBlockIndex) ||
@@ -58,7 +59,14 @@ export function parseIndexerObservability(
     !isNullableStr(p.backfillEpoch) ||
     !isFiniteInt(p.backfillBlockIndex) ||
     !isStr(p.lastStatusFetchAt) ||
-    !isNullableStr(p.lastBlockInsertAt)
+    !isNullableStr(p.lastBlockInsertAt) ||
+    // v5 fields. A v4 blob (missing these) is rejected so the indexer's
+    // next poll overwrites with a fresh v5 shape — same recovery pattern
+    // as the cursor schema bump in v4.
+    !isNullableStr(p.lastSubstrateEventAt) ||
+    !isNullableStr(p.bestBlockHeight) ||
+    !isNullableStr(p.finalizedBlockHeight) ||
+    !isBool(p.chainConnected)
   ) {
     console.warn(`[db/${source}] corrupt indexer_observability: shape mismatch`);
     return null;
@@ -72,6 +80,10 @@ export function parseIndexerObservability(
     backfillBlockIndex: p.backfillBlockIndex,
     lastStatusFetchAt: p.lastStatusFetchAt,
     lastBlockInsertAt: p.lastBlockInsertAt,
+    lastSubstrateEventAt: p.lastSubstrateEventAt,
+    bestBlockHeight: p.bestBlockHeight,
+    finalizedBlockHeight: p.finalizedBlockHeight,
+    chainConnected: p.chainConnected,
   };
 }
 
