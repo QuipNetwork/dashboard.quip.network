@@ -38,6 +38,114 @@ export interface BlockRecord {
   difficultyEnergy: number;
   minDiversity: number;
   minSolutions: number;
+
+  // Substrate-side metadata (filled by substrate-worker; null until joined).
+  // The join is via `quantum_pow.BlockWinner` events on quip-protocol-rs: the
+  // event's `submitted_at` becomes substrateBlockNumber, then `chain.getBlock`
+  // fills the rest. Lookup keyed by (minerId, energy) within the event payload.
+  // u64 as string — substrate block heights exceed Number.MAX_SAFE_INTEGER.
+  substrateBlockNumber: string | null;
+  substrateBlockHash: string | null;
+  substrateParentHash: string | null;
+  extrinsicsRoot: string | null;
+  stateRoot: string | null;
+  // True once the substrate chain has finalized this PoW block's substrate
+  // counterpart. Finality is monotonic — once true, never reverts.
+  finalized: boolean;
+  // False when this block is part of a stale_fork epoch. Default reads filter
+  // this out unless a view explicitly opts in.
+  isCanonical: boolean;
+}
+
+export interface RuntimeVersion {
+  specName: string;
+  specVersion: number;
+  transactionVersion: number;
+  implName: string;
+  // Block number (u64 as string) at which the active runtime was last
+  // upgraded. Null when the chain has never upgraded since genesis.
+  lastRuntimeUpgrade: string | null;
+}
+
+/**
+ * Best/finalized substrate chain heads + runtime version. Single-row snapshot
+ * written by the substrate worker on every head event (debounced). Null on
+ * /api/telemetry when QUIP_VALIDATOR_RPC_URL is unset on the indexer.
+ */
+export interface ChainHead {
+  bestBlockNumber: string;
+  bestBlockHash: string;
+  finalizedBlockNumber: string;
+  finalizedBlockHash: string;
+  // bestBlockNumber - finalizedBlockNumber, precomputed for the UI.
+  finalityLag: number;
+  runtime: RuntimeVersion;
+  updatedAt: string;
+}
+
+/**
+ * Substrate BABE epoch state. **Distinct from `EpochId` (PoW epoch)** — this
+ * is the substrate-chain consensus rotation concept, slot-based, typically
+ * ~2400 slots / ~4h on quip-protocol-rs spec_version 101.
+ */
+export interface BabeEpochState {
+  epochIndex: number;
+  // u64 as string — BABE slot can exceed Number.MAX_SAFE_INTEGER on long-running chains.
+  currentSlot: string;
+  // u64 as string. The slot at which this epoch began.
+  epochStartSlot: string;
+  // Constant from `api.consts.babe.epochDuration`. Typically 2400 on quip.
+  slotsPerEpoch: number;
+  // currentSlot - epochStartSlot, precomputed for the UI progress bar.
+  currentSlotInEpoch: number;
+  // Number of BABE authorities active in this epoch. Sourced from
+  // `api.query.session.validators().length` since BABE rotates per session.
+  authorityCount: number;
+}
+
+/**
+ * Thin record for a BABE authority. quip-protocol-rs spec 101 does not use
+ * FRAME staking, so there is no commission/exposure/nominator concept — just
+ * the account ID that has authority to author blocks in the current session.
+ */
+export interface BabeAuthorityRecord {
+  accountId: string;
+  // Optional display name from `api.query.identity.identityOf()` if the
+  // identity pallet is enabled. Null on quip-protocol-rs spec 101.
+  displayName: string | null;
+}
+
+/**
+ * Rich on-chain miner state from `pallet-quantum-pow`'s `Miners` storage.
+ * This is the high-value chain surface for the dashboard's mining audience.
+ */
+export interface ChainMinerRecord {
+  accountId: string;
+  // Token deposit locked by the miner to participate. u128 as string.
+  deposit: string;
+  // Lifetime counters. u64 as string.
+  proofsSubmitted: string;
+  proofsWon: string;
+  // u128 as string (token amount).
+  rewardsEarned: string;
+  // Joined from the existing nodes snapshot when the chain account's ECDSA
+  // pubkey matches a known telemetry node. Null when no match (chain account
+  // isn't running a known node, or the chain hasn't published the mapping yet).
+  telemetryNodeAddress: string | null;
+}
+
+/**
+ * Snapshot of `quantum_pow.Difficulty` at a specific substrate block.
+ * Adjusted every `QuantumPowEpochLength` blocks (~100 = ~10min on spec 101).
+ * Stored append-only in `difficulty_history` for the chart surface.
+ */
+export interface DifficultyRecord {
+  // u64 as string — substrate block number at which this snapshot was taken.
+  observedAtBlock: string;
+  difficultyEnergy: number;
+  minDiversity: number;
+  minSolutions: number;
+  observedAt: string; // ISO 8601
 }
 
 export interface NodeRuntime {
@@ -161,6 +269,19 @@ export interface IndexerObservability {
 
   lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
   lastBlockInsertAt: string | null; // either worker's most recent insert
+
+  // Substrate worker heartbeat (null when QUIP_VALIDATOR_RPC_URL is unset).
+  // Most recent head event (new or finalized) received on the WSS subscription
+  // or BlockWinner event from system.events. Anchors substrate health checks
+  // in the SyncIndicator the same way lastStatusFetchAt anchors REST health.
+  lastSubstrateEventAt: string | null;
+  // Best/finalized substrate block heights, mirrored from chain_head for the
+  // SyncIndicator. u64 as string. Null pre-first-event.
+  bestBlockHeight: string | null;
+  finalizedBlockHeight: string | null;
+  // Live WSS socket state. Always false on a fresh process — only flips true
+  // after the substrate worker's client emits a `connected` event.
+  chainConnected: boolean;
 }
 
 export interface TelemetryResponse {
@@ -173,6 +294,19 @@ export interface TelemetryResponse {
   // Indexer/node tip observability. null before the indexer has completed
   // its first successful /status poll after deploy.
   indexer: IndexerObservability | null;
+  // ISO 8601 timestamp the server stamped this response. Lets the UI
+  // compute observability ages relative to server time, not client clock —
+  // fixes audit #3 (tab-visibility heartbeat skew).
+  serverTime: string;
+  // Substrate-derived snapshots. Null/empty when QUIP_VALIDATOR_RPC_URL is
+  // unset on the indexer — degrades gracefully to PoW-only mode.
+  chainHead: ChainHead | null;
+  babeEpoch: BabeEpochState | null;
+  babeAuthorities: BabeAuthorityRecord[];
+  chainMiners: ChainMinerRecord[];
+  // Recent DifficultyRecord snapshots (most recent first). Empty when no
+  // substrate worker; populated by Phase 1.
+  recentDifficulty: DifficultyRecord[];
 }
 
 export interface TelemetryIndex {
