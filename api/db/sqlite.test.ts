@@ -40,6 +40,13 @@ const sampleBlock = (): BlockRecord => ({
   difficultyEnergy: -1,
   minDiversity: 0,
   minSolutions: 1,
+  substrateBlockNumber: null,
+  substrateBlockHash: null,
+  substrateParentHash: null,
+  extrinsicsRoot: null,
+  stateRoot: null,
+  finalized: false,
+  isCanonical: true,
 });
 
 describe("SQLiteAdapter.migrate schema-version check", () => {
