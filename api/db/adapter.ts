@@ -208,20 +208,31 @@ export interface DbConfig {
 // unix timestamp. `blocks.epoch` and `indexer_state.cursor_epoch` flip from
 // INTEGER/BIGINT to TEXT; new `epoch_status` table holds the node's
 // live/stale_fork tag per epoch so the UI can badge the selector.
-//
-// Post-v4: the `indexer_state` table was retired when tip/backfill cursor
-// persistence moved to `meta[indexer_cursors]` (tip-priority indexer work).
-// `SCHEMA_VERSION` deliberately stays at 4 because no column of any surviving
-// table changed shape — bumping to 5 would force-drop `blocks` / `epoch_status`
-// via the OWNED_TABLES drift path, which the plan explicitly avoids. Existing
-// deployments keep a vestigial empty `indexer_state` table on disk; it will be
-// swept away on the next unrelated SCHEMA_VERSION bump.
-export const SCHEMA_VERSION = 4;
+// v5: substrate-derived fields (v0.2.0 release; targets quip-protocol-rs
+// spec_version 101). Adds substrate-side columns to `blocks`
+// (substrate_block_number, substrate_block_hash, substrate_parent_hash,
+// extrinsics_root, state_root, finalized, is_canonical). Adds new tables
+// `chain_head`, `babe_epochs`, `babe_authorities`, `chain_miners`,
+// `difficulty_history`. Adds `chain_anchor` column to `epoch_status`.
+// Drops vestigial `indexer_state` table. Operators on SQLite wipe
+// `data/telemetry.db`; Postgres production runs the forward migration in
+// `server/migrate.ts` (idempotent IF NOT EXISTS / IF EXISTS).
+export const SCHEMA_VERSION = 5;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
 // a Postgres database.
-export const OWNED_TABLES = ["blocks", "nodes_snapshot", "epoch_status", "meta"] as const;
+export const OWNED_TABLES = [
+  "blocks",
+  "nodes_snapshot",
+  "epoch_status",
+  "meta",
+  "chain_head",
+  "babe_epochs",
+  "babe_authorities",
+  "chain_miners",
+  "difficulty_history",
+] as const;
 
 const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres"]);
 
