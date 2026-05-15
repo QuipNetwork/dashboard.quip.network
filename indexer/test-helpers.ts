@@ -285,6 +285,11 @@ export function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfi
     once: false,
     verbose: false,
     stallWarnAfterSec: 600,
+    substrateRpcUrl: null,
+    substrateRpcTimeoutMs: 15000,
+    substrateReconnectMaxBackoffMs: 60000,
+    substrateBabePollSec: 30,
+    substrateChainPollSec: 300,
     ...overrides,
   };
 }

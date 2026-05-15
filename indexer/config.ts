@@ -15,6 +15,22 @@ export interface IndexerConfig {
   // idle (plan fully indexed). Guards against a chain that was the tip mid-walk
   // and became a dead fork before being fully indexed.
   backfillIdleRecheckSec: number;
+
+  // --- Substrate (quip-protocol-rs validator) RPC options ---
+  // null = no substrate worker, degraded mode (the indexer still polls REST
+  // and the dashboard surfaces null/empty for chain fields). All other
+  // substrate options are inert when this is null.
+  substrateRpcUrl: string | null;
+  // Per-request timeout for WsProvider handshake + RPC calls.
+  substrateRpcTimeoutMs: number;
+  // Upper bound on the exponential-backoff reconnect loop (±20% jitter).
+  substrateReconnectMaxBackoffMs: number;
+  // Cadence at which we re-poll BABE epoch state (cheap; epoch changes are
+  // ~hourly on quip-protocol-rs spec 101). Also re-polled on every finalized head.
+  substrateBabePollSec: number;
+  // Cadence at which we re-poll the bigger chain surfaces — quantum_pow.Miners,
+  // quantum_pow.Difficulty, session.validators. More expensive: O(miners) RPCs.
+  substrateChainPollSec: number;
 }
 
 const DEFAULTS = {
@@ -23,6 +39,10 @@ const DEFAULTS = {
   nodesRefreshSec: 45,
   stallWarnAfterSec: 600, // 10 minutes — longer than typical QPU block time.
   backfillIdleRecheckSec: 300,
+  substrateRpcTimeoutMs: 15000,
+  substrateReconnectMaxBackoffMs: 60000,
+  substrateBabePollSec: 30,
+  substrateChainPollSec: 300,
 };
 
 function parseIntStrict(name: string, raw: string): number {
@@ -117,6 +137,78 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     );
   }
 
+  // --- Substrate options ---
+  const substrateRpcUrlFlag = takeFlag(argv, "--substrate-rpc-url");
+  const substrateRpcTimeoutFlag = takeFlag(argv, "--substrate-rpc-timeout");
+  const substrateBackoffFlag = takeFlag(argv, "--substrate-reconnect-max-backoff");
+  const substrateBabePollFlag = takeFlag(argv, "--substrate-babe-poll");
+  const substrateChainPollFlag = takeFlag(argv, "--substrate-chain-poll");
+
+  const substrateRpcUrlRaw =
+    (typeof substrateRpcUrlFlag === "string" ? substrateRpcUrlFlag : undefined) ??
+    process.env.QUIP_VALIDATOR_RPC_URL;
+  // Reject empty string explicitly — operators usually mean "leave unset" but
+  // a stray `--substrate-rpc-url=` would otherwise produce a connect-time
+  // failure deep in the substrate worker.
+  if (substrateRpcUrlRaw !== undefined && substrateRpcUrlRaw.trim() === "") {
+    throw new Error(
+      `[indexer] --substrate-rpc-url cannot be empty (omit the flag/env to disable substrate)`,
+    );
+  }
+  const substrateRpcUrl =
+    substrateRpcUrlRaw !== undefined ? substrateRpcUrlRaw.replace(/\/+$/, "") : null;
+
+  const substrateRpcTimeoutMs =
+    typeof substrateRpcTimeoutFlag === "string"
+      ? parseIntStrict("--substrate-rpc-timeout", substrateRpcTimeoutFlag)
+      : process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS
+        ? parseIntStrict(
+            "QUIP_VALIDATOR_RPC_TIMEOUT_MS",
+            process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS,
+          )
+        : DEFAULTS.substrateRpcTimeoutMs;
+  if (substrateRpcTimeoutMs <= 0) {
+    throw new Error(`[indexer] substrate RPC timeout must be > 0, got: ${substrateRpcTimeoutMs}`);
+  }
+
+  const substrateReconnectMaxBackoffMs =
+    typeof substrateBackoffFlag === "string"
+      ? parseIntStrict("--substrate-reconnect-max-backoff", substrateBackoffFlag)
+      : process.env.QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS
+        ? parseIntStrict(
+            "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
+            process.env.QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS,
+          )
+        : DEFAULTS.substrateReconnectMaxBackoffMs;
+  if (substrateReconnectMaxBackoffMs <= 0) {
+    throw new Error(
+      `[indexer] substrate reconnect backoff must be > 0, got: ${substrateReconnectMaxBackoffMs}`,
+    );
+  }
+
+  const substrateBabePollSec =
+    typeof substrateBabePollFlag === "string"
+      ? parseIntStrict("--substrate-babe-poll", substrateBabePollFlag)
+      : process.env.QUIP_VALIDATOR_BABE_POLL_SEC
+        ? parseIntStrict("QUIP_VALIDATOR_BABE_POLL_SEC", process.env.QUIP_VALIDATOR_BABE_POLL_SEC)
+        : DEFAULTS.substrateBabePollSec;
+  if (substrateBabePollSec <= 0) {
+    throw new Error(`[indexer] --substrate-babe-poll must be > 0, got: ${substrateBabePollSec}`);
+  }
+
+  const substrateChainPollSec =
+    typeof substrateChainPollFlag === "string"
+      ? parseIntStrict("--substrate-chain-poll", substrateChainPollFlag)
+      : process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC
+        ? parseIntStrict(
+            "QUIP_VALIDATOR_CHAIN_POLL_SEC",
+            process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC,
+          )
+        : DEFAULTS.substrateChainPollSec;
+  if (substrateChainPollSec <= 0) {
+    throw new Error(`[indexer] --substrate-chain-poll must be > 0, got: ${substrateChainPollSec}`);
+  }
+
   return {
     nodeUrl: nodeUrl.replace(/\/+$/, ""),
     token,
@@ -126,5 +218,10 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     verbose,
     stallWarnAfterSec,
     backfillIdleRecheckSec,
+    substrateRpcUrl,
+    substrateRpcTimeoutMs,
+    substrateReconnectMaxBackoffMs,
+    substrateBabePollSec,
+    substrateChainPollSec,
   };
 }

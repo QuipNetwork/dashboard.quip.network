@@ -14,6 +14,11 @@ const TOUCHED_ENV = [
   "STALL_WARN_AFTER_SEC",
   "BACKFILL_IDLE_RECHECK_SEC",
   "VERBOSE",
+  "QUIP_VALIDATOR_RPC_URL",
+  "QUIP_VALIDATOR_RPC_TIMEOUT_MS",
+  "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
+  "QUIP_VALIDATOR_BABE_POLL_SEC",
+  "QUIP_VALIDATOR_CHAIN_POLL_SEC",
 ] as const;
 
 describe("parseConfig", () => {
@@ -110,5 +115,52 @@ describe("parseConfig", () => {
   it("defaults backfillIdleRecheckSec to 300", () => {
     const cfg = parseConfig([]);
     expect(cfg.backfillIdleRecheckSec).toBe(300);
+  });
+
+  it("defaults substrateRpcUrl to null (degraded mode)", () => {
+    const cfg = parseConfig([]);
+    expect(cfg.substrateRpcUrl).toBeNull();
+    expect(cfg.substrateRpcTimeoutMs).toBe(15000);
+    expect(cfg.substrateReconnectMaxBackoffMs).toBe(60000);
+    expect(cfg.substrateBabePollSec).toBe(30);
+    expect(cfg.substrateChainPollSec).toBe(300);
+  });
+
+  it("reads QUIP_VALIDATOR_RPC_URL from env", () => {
+    process.env.QUIP_VALIDATOR_RPC_URL = "ws://quip-validator:9944";
+    expect(parseConfig([]).substrateRpcUrl).toBe("ws://quip-validator:9944");
+  });
+
+  it("honours --substrate-rpc-url flag", () => {
+    const cfg = parseConfig(["--substrate-rpc-url", "wss://x.example/rpc"]);
+    expect(cfg.substrateRpcUrl).toBe("wss://x.example/rpc");
+  });
+
+  it("flag overrides env for substrate fields", () => {
+    process.env.QUIP_VALIDATOR_RPC_URL = "ws://env";
+    expect(parseConfig(["--substrate-rpc-url=ws://flag"]).substrateRpcUrl).toBe("ws://flag");
+  });
+
+  it("parses substrate poll intervals from env", () => {
+    process.env.QUIP_VALIDATOR_BABE_POLL_SEC = "60";
+    process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC = "600";
+    process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS = "20000";
+    process.env.QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS = "120000";
+    const cfg = parseConfig([]);
+    expect(cfg.substrateBabePollSec).toBe(60);
+    expect(cfg.substrateChainPollSec).toBe(600);
+    expect(cfg.substrateRpcTimeoutMs).toBe(20000);
+    expect(cfg.substrateReconnectMaxBackoffMs).toBe(120000);
+  });
+
+  it("rejects non-positive substrate poll intervals", () => {
+    expect(() => parseConfig(["--substrate-babe-poll=0"])).toThrow(/> 0/);
+    expect(() => parseConfig(["--substrate-chain-poll=-1"])).toThrow(/> 0/);
+  });
+
+  it("rejects empty substrate-rpc-url (use unset/omit for degraded mode)", () => {
+    // Empty string would otherwise look "set" but produce a wss:// connect
+    // failure deep in the worker; reject at config time.
+    expect(() => parseConfig(["--substrate-rpc-url="])).toThrow(/empty/);
   });
 });

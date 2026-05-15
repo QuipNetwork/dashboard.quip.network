@@ -115,6 +115,11 @@ function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
     once: false,
     verbose: false,
     stallWarnAfterSec: 600,
+    substrateRpcUrl: null,
+    substrateRpcTimeoutMs: 15000,
+    substrateReconnectMaxBackoffMs: 60000,
+    substrateBabePollSec: 30,
+    substrateChainPollSec: 300,
     ...overrides,
   };
 }
