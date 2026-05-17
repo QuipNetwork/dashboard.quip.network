@@ -39,7 +39,8 @@ function setVisibility(state: "visible" | "hidden") {
   dispatchVisibilityChange();
 }
 
-let originalFetchTelemetry: (typeof useTelemetryStore.getState)["fetchTelemetry"] | null = null;
+let originalFetchTelemetry: ReturnType<typeof useTelemetryStore.getState>["fetchTelemetry"] | null =
+  null;
 
 beforeEach(() => {
   visibility = "visible";
