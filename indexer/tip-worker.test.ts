@@ -514,6 +514,7 @@ describe("runTipIteration observability persistence", () => {
       backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
       lastBlockInsertAt: "2026-01-01T00:00:00.000Z",
+      nodesObservedAt: null,
       lastSubstrateEventAt: null,
       bestBlockHeight: null,
       finalizedBlockHeight: null,

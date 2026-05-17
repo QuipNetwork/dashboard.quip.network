@@ -51,6 +51,7 @@ function makeIndexer(latestEpoch: string): IndexerObservability {
     backfillBlockIndex: 0,
     lastStatusFetchAt: new Date().toISOString(),
     lastBlockInsertAt: new Date().toISOString(),
+    nodesObservedAt: null,
     lastSubstrateEventAt: null,
     bestBlockHeight: null,
     finalizedBlockHeight: null,

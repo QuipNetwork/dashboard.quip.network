@@ -55,6 +55,7 @@ function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservabilit
     backfillBlockIndex: 0,
     lastStatusFetchAt: new Date(now - 10_000).toISOString(),
     lastBlockInsertAt: new Date(now - 10_000).toISOString(),
+    nodesObservedAt: null,
     lastSubstrateEventAt: null,
     bestBlockHeight: null,
     finalizedBlockHeight: null,

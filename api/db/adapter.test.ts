@@ -130,6 +130,7 @@ describe("parseIndexerObservability", () => {
       backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-04-23T00:00:00.000Z",
       lastBlockInsertAt: null,
+      nodesObservedAt: "2026-04-23T00:00:30.000Z",
       lastSubstrateEventAt: "2026-05-15T00:00:00.000Z",
       bestBlockHeight: "12345",
       finalizedBlockHeight: "12343",
@@ -143,6 +144,7 @@ describe("parseIndexerObservability", () => {
     expect(parsed!.chainConnected).toBe(true);
     expect(parsed!.bestBlockHeight).toBe("12345");
     expect(parsed!.lastSubstrateEventAt).toBe("2026-05-15T00:00:00.000Z");
+    expect(parsed!.nodesObservedAt).toBe("2026-04-23T00:00:30.000Z");
   });
 
   it("rejects v4 blobs missing substrate fields (forces refresh on first poll)", () => {
@@ -157,6 +159,25 @@ describe("parseIndexerObservability", () => {
       lastBlockInsertAt: null,
     });
     expect(parseIndexerObservability(v4Blob, "sqlite")).toBeNull();
+  });
+
+  it("rejects blobs missing nodesObservedAt (audit #6)", () => {
+    const blob = JSON.stringify({
+      nodeLatestEpoch: "abc",
+      nodeLatestBlockIndex: 1,
+      tipEpoch: "abc",
+      tipBlockIndex: 1,
+      backfillEpoch: null,
+      backfillBlockIndex: 0,
+      lastStatusFetchAt: "2026-04-23T00:00:00.000Z",
+      lastBlockInsertAt: null,
+      // nodesObservedAt: missing
+      lastSubstrateEventAt: null,
+      bestBlockHeight: null,
+      finalizedBlockHeight: null,
+      chainConnected: false,
+    });
+    expect(parseIndexerObservability(blob, "sqlite")).toBeNull();
   });
 
   it("rejects old-shape blobs (cursorEpoch/cursorBlockIndex)", () => {

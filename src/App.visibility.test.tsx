@@ -39,6 +39,8 @@ function setVisibility(state: "visible" | "hidden") {
   dispatchVisibilityChange();
 }
 
+let originalFetchTelemetry: (typeof useTelemetryStore.getState)["fetchTelemetry"] | null = null;
+
 beforeEach(() => {
   visibility = "visible";
   // jsdom's document.visibilityState is read-only; intercept via getter.
@@ -49,12 +51,24 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  // Snapshot the real fetchTelemetry so afterEach can restore it. Tests
+  // here swap it for a counter-spy; leaking the spy into other test
+  // files crashes their App smoke tests (they expect /api/telemetry to
+  // actually fire).
+  originalFetchTelemetry = useTelemetryStore.getState().fetchTelemetry;
 });
 
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  useTelemetryStore.setState({ blocks: [], nodes: null });
+  useTelemetryStore.setState({
+    blocks: [],
+    nodes: null,
+    ...(originalFetchTelemetry ? { fetchTelemetry: originalFetchTelemetry } : {}),
+  });
+  originalFetchTelemetry = null;
+  // Drop the visibilityState shadow so it doesn't pollute other test files.
+  delete (document as unknown as { visibilityState?: string }).visibilityState;
 });
 
 describe("App visibility fetch behavior (audit #1)", () => {

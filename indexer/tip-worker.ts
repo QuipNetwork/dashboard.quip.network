@@ -121,6 +121,7 @@ async function writeTipObservability(
       backfillBlockIndex: state.backfillCursor.blockIndex,
       lastStatusFetchAt: new Date(nowMs).toISOString(),
       lastBlockInsertAt: state.observability.lastBlockInsertAt,
+      nodesObservedAt: state.observability.nodesObservedAt,
       // Substrate worker mutates these via state.observability; tip-worker
       // is the only writer of setIndexerObservability so it carries them
       // through to the DB.
@@ -296,6 +297,11 @@ async function maybeRefreshNodes(
       await db.upsertNodes(snapshot);
       if (nodesRes.etag) state.etags.nodes = nodesRes.etag;
       result.nodesRefreshed = true;
+      // Audit fix #6: distinguish "indexer alive" from "nodes data fresh".
+      // This advances only on actual 200 responses, never on 304s — so a
+      // UI surfacing node-data age can show staleness independent of the
+      // indexer's poll heartbeat.
+      state.observability.nodesObservedAt = new Date(nowMs).toISOString();
       await refreshSelfAddress(db, client, snapshot);
       if (config.verbose) {
         log(`refreshed nodes: ${snapshot.nodeCount} total`);

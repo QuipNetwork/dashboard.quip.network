@@ -36,6 +36,10 @@ export interface StallTracker {
  */
 export interface ObservabilityCache {
   lastBlockInsertAt: string | null;
+  // Distinct from the indexer's poll heartbeat: ticks only on actual 200
+  // responses from /api/v1/telemetry/nodes, not on 304 Not-Modified
+  // responses. See IndexerObservability.nodesObservedAt for the contract.
+  nodesObservedAt: string | null;
   lastSubstrateEventAt: string | null;
   bestBlockHeight: string | null;
   finalizedBlockHeight: string | null;
@@ -74,6 +78,7 @@ export class IndexerState {
   stall: StallTracker = { lastObserved: null, lastAdvanceAtMs: 0, lastWarnAtMs: 0 };
   observability: ObservabilityCache = {
     lastBlockInsertAt: null,
+    nodesObservedAt: null,
     lastSubstrateEventAt: null,
     bestBlockHeight: null,
     finalizedBlockHeight: null,
@@ -106,6 +111,7 @@ export class IndexerState {
     const prior = await this.db.getIndexerObservability();
     if (prior) {
       this.observability.lastBlockInsertAt = prior.lastBlockInsertAt;
+      this.observability.nodesObservedAt = prior.nodesObservedAt;
       this.observability.lastSubstrateEventAt = prior.lastSubstrateEventAt;
       this.observability.bestBlockHeight = prior.bestBlockHeight;
       this.observability.finalizedBlockHeight = prior.finalizedBlockHeight;

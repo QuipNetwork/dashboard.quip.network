@@ -196,6 +196,7 @@ async function writeBackfillObservability(
       backfillBlockIndex: state.backfillCursor.blockIndex,
       lastStatusFetchAt: new Date(nowMs).toISOString(),
       lastBlockInsertAt: state.observability.lastBlockInsertAt,
+      nodesObservedAt: state.observability.nodesObservedAt,
       // Substrate fields carried from the shared cache. The substrate worker
       // is the only mutator; backfill just reflects current state.
       lastSubstrateEventAt: state.observability.lastSubstrateEventAt,

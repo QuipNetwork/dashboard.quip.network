@@ -133,6 +133,7 @@ describe("v5 telemetry types", () => {
       backfillBlockIndex: 0,
       lastStatusFetchAt: "2026-05-15T00:00:00Z",
       lastBlockInsertAt: null,
+      nodesObservedAt: null,
       lastSubstrateEventAt: null,
       bestBlockHeight: null,
       finalizedBlockHeight: null,

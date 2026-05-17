@@ -60,6 +60,7 @@ export function parseIndexerObservability(
     !isFiniteInt(p.backfillBlockIndex) ||
     !isStr(p.lastStatusFetchAt) ||
     !isNullableStr(p.lastBlockInsertAt) ||
+    !isNullableStr(p.nodesObservedAt) ||
     // v5 fields. A v4 blob (missing these) is rejected so the indexer's
     // next poll overwrites with a fresh v5 shape — same recovery pattern
     // as the cursor schema bump in v4.
@@ -80,6 +81,7 @@ export function parseIndexerObservability(
     backfillBlockIndex: p.backfillBlockIndex,
     lastStatusFetchAt: p.lastStatusFetchAt,
     lastBlockInsertAt: p.lastBlockInsertAt,
+    nodesObservedAt: p.nodesObservedAt,
     lastSubstrateEventAt: p.lastSubstrateEventAt,
     bestBlockHeight: p.bestBlockHeight,
     finalizedBlockHeight: p.finalizedBlockHeight,

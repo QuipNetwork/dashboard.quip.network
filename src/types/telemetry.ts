@@ -282,6 +282,15 @@ export interface IndexerObservability {
   lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
   lastBlockInsertAt: string | null; // either worker's most recent insert
 
+  // ISO 8601 timestamp of the most recent NON-304 `/api/v1/telemetry/nodes`
+  // response — i.e. when we last got a fresh nodes snapshot from the node.
+  // 304 (Not Modified) responses do NOT advance this, so a UI surfacing
+  // node-data age can show "data N min old" even while the indexer is
+  // actively polling (lastStatusFetchAt ticks every poll regardless).
+  // Audit fix #6 — separates "indexer alive" from "nodes data fresh".
+  // Null until the first 200 from /nodes after a restart.
+  nodesObservedAt: string | null;
+
   // Substrate worker heartbeat (null when QUIP_VALIDATOR_RPC_URL is unset).
   // Most recent head event (new or finalized) received on the WSS subscription
   // or BlockWinner event from system.events. Anchors substrate health checks
