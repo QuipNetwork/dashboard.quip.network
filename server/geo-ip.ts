@@ -11,8 +11,16 @@
 // package instead. Useful for operators who keep their own refreshed
 // GeoLite2-City or GeoIP2-City (commercial) database on disk.
 //
-// Both paths cache per-hostname results for one hour to avoid re-resolving
-// DNS on every /api/telemetry hit.
+// Both paths cache per-hostname results to avoid re-resolving DNS on every
+// /api/telemetry hit.
+//
+// Audit fix #9: TTL is 5 minutes (was 1 hour). Operators routinely move
+// nodes between cloud regions and the dashboard's map needs to track
+// within minutes, not hours. The MaxMind .mmdb lookup itself is fast
+// (synchronous in-memory tree); the only cost saved by caching is the
+// per-hostname DNS resolution. 5 minutes is comfortably below typical
+// DNS TTLs (often 300-3600s) so we usually pick up IP changes within
+// the same window the resolver does.
 
 import { lookup as dnsLookup } from "node:dns/promises";
 
@@ -20,7 +28,7 @@ import type { CityResponse, Reader } from "mmdb-lib";
 
 import type { NodeInfo, NodeLocation } from "../src/types/telemetry";
 
-const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CacheEntry {
   location: NodeLocation | null;
