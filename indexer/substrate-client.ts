@@ -65,14 +65,15 @@ export interface ChainMinerInfo {
   rewardsEarned: string;
 }
 
-// Difficulty snapshot from pallet-quantum-pow's Difficulty storage.
-// Field names mirror the DifficultyConfig struct in the runtime — verify
-// once at impl time (PolkadotSubstrateClient.getDifficulty), then they're
-// stable as long as spec_version doesn't bump.
+// Difficulty snapshot from pallet-quantum-pow's Difficulty storage. This
+// is the WIRE shape — fields mirror the on-chain `DifficultyConfig` struct
+// in quip-protocol-rs/pallets/quantum-pow/src/types.rs:38-43. The substrate
+// worker converts to DifficultyRecord (milli → float) before DB write.
 export interface DifficultyInfo {
-  difficultyEnergy: number;
-  minDiversity: number;
+  maxEnergyMilli: number;
+  minDiversityMilli: number;
   minSolutions: number;
+  minQualityMilli: number;
 }
 
 export type UnsubFn = () => void;

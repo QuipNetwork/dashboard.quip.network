@@ -130,6 +130,7 @@ const SCHEMA_STATEMENTS: string[] = [
      difficulty_energy  DOUBLE PRECISION NOT NULL,
      min_diversity      DOUBLE PRECISION NOT NULL,
      min_solutions      INTEGER NOT NULL,
+     min_quality        DOUBLE PRECISION NOT NULL,
      observed_at        TIMESTAMPTZ NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed
@@ -667,10 +668,11 @@ export class PostgresAdapter implements DatabaseAdapter {
   async insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void> {
     await this.requireSql()`
       INSERT INTO difficulty_history
-        (observed_at_block, difficulty_energy, min_diversity, min_solutions, observed_at)
+        (observed_at_block, difficulty_energy, min_diversity, min_solutions, min_quality, observed_at)
       VALUES (
         ${snapshot.observedAtBlock}, ${snapshot.difficultyEnergy},
-        ${snapshot.minDiversity}, ${snapshot.minSolutions}, ${snapshot.observedAt}
+        ${snapshot.minDiversity}, ${snapshot.minSolutions},
+        ${snapshot.minQuality}, ${snapshot.observedAt}
       )
       ON CONFLICT (observed_at_block) DO NOTHING
     `;
@@ -683,6 +685,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         difficulty_energy: number;
         min_diversity: number;
         min_solutions: number;
+        min_quality: number;
         observed_at: Date;
       }[]
     >`SELECT * FROM difficulty_history ORDER BY observed_at DESC LIMIT ${limit}`;
@@ -691,6 +694,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       difficultyEnergy: r.difficulty_energy,
       minDiversity: r.min_diversity,
       minSolutions: r.min_solutions,
+      minQuality: r.min_quality,
       observedAt:
         r.observed_at instanceof Date ? r.observed_at.toISOString() : String(r.observed_at),
     }));

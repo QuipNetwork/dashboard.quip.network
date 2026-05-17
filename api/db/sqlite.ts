@@ -130,6 +130,7 @@ const SCHEMA_STATEMENTS: string[] = [
      difficulty_energy  REAL NOT NULL,
      min_diversity      REAL NOT NULL,
      min_solutions      INTEGER NOT NULL,
+     min_quality        REAL NOT NULL,
      observed_at        TEXT NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed
@@ -749,8 +750,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
     this.requireDb()
       .prepare(
         `INSERT INTO difficulty_history
-           (observed_at_block, difficulty_energy, min_diversity, min_solutions, observed_at)
-         VALUES ($block, $energy, $div, $sol, $at)
+           (observed_at_block, difficulty_energy, min_diversity, min_solutions, min_quality, observed_at)
+         VALUES ($block, $energy, $div, $sol, $qual, $at)
          ON CONFLICT(observed_at_block) DO NOTHING`,
       )
       .run({
@@ -758,6 +759,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $energy: snapshot.difficultyEnergy,
         $div: snapshot.minDiversity,
         $sol: snapshot.minSolutions,
+        $qual: snapshot.minQuality,
         $at: snapshot.observedAt,
       });
   }
@@ -770,6 +772,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
           difficulty_energy: number;
           min_diversity: number;
           min_solutions: number;
+          min_quality: number;
           observed_at: string;
         },
         [number]
@@ -780,6 +783,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       difficultyEnergy: r.difficulty_energy,
       minDiversity: r.min_diversity,
       minSolutions: r.min_solutions,
+      minQuality: r.min_quality,
       observedAt: r.observed_at,
     }));
   }

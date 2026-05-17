@@ -141,6 +141,7 @@ describe.skipIf(!TEST_URL)("PostgresAdapter v5 substrate state", () => {
       difficultyEnergy: 12.5,
       minDiversity: 0.5,
       minSolutions: 3,
+      minQuality: 0.25,
       observedAt: "2026-05-15T00:00:00.000Z",
     });
     await db.insertDifficultySnapshot({
@@ -148,6 +149,7 @@ describe.skipIf(!TEST_URL)("PostgresAdapter v5 substrate state", () => {
       difficultyEnergy: 13.0,
       minDiversity: 0.5,
       minSolutions: 3,
+      minQuality: 0.25,
       observedAt: "2026-05-15T00:10:00.000Z",
     });
     await db.insertDifficultySnapshot({
@@ -155,6 +157,7 @@ describe.skipIf(!TEST_URL)("PostgresAdapter v5 substrate state", () => {
       difficultyEnergy: 999,
       minDiversity: 0.5,
       minSolutions: 3,
+      minQuality: 0.25,
       observedAt: "2026-05-15T00:20:00.000Z",
     });
     const recent = await db.getRecentDifficulty(10);

@@ -151,6 +151,7 @@ describe("SQLite v5 schema", () => {
       difficultyEnergy: 12.5,
       minDiversity: 0.5,
       minSolutions: 3,
+      minQuality: 0.25,
       observedAt: "2026-05-15T00:00:00.000Z",
     });
     await db.insertDifficultySnapshot({
@@ -158,6 +159,7 @@ describe("SQLite v5 schema", () => {
       difficultyEnergy: 13.0,
       minDiversity: 0.5,
       minSolutions: 3,
+      minQuality: 0.25,
       observedAt: "2026-05-15T00:10:00.000Z",
     });
     // Replay first snapshot — should not duplicate.
@@ -166,6 +168,7 @@ describe("SQLite v5 schema", () => {
       difficultyEnergy: 999,
       minDiversity: 0.5,
       minSolutions: 3,
+      minQuality: 0.25,
       observedAt: "2026-05-15T00:20:00.000Z",
     });
     const recent = await db.getRecentDifficulty(10);

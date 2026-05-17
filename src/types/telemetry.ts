@@ -138,13 +138,25 @@ export interface ChainMinerRecord {
  * Snapshot of `quantum_pow.Difficulty` at a specific substrate block.
  * Adjusted every `QuantumPowEpochLength` blocks (~100 = ~10min on spec 101).
  * Stored append-only in `difficulty_history` for the chart surface.
+ *
+ * Field names mirror BlockRecord (energy/diversity/solutions/quality) for
+ * cross-table consistency. The substrate worker divides the chain's
+ * `*_milli` integer encoding by 1000 before writing.
  */
 export interface DifficultyRecord {
   // u64 as string — substrate block number at which this snapshot was taken.
   observedAtBlock: string;
+  // From chain `max_energy_milli / 1000` — proof energy must be ≤ this.
+  // Named `difficultyEnergy` to match the field on BlockRecord.
   difficultyEnergy: number;
+  // From chain `min_diversity_milli / 1000`.
   minDiversity: number;
+  // From chain `min_solutions` (already integer-units; no conversion).
   minSolutions: number;
+  // From chain `min_quality_milli / 1000`. Surfaces a fourth dimension of
+  // difficulty that BlockRecord doesn't track (proofs have a quality score
+  // distinct from energy/diversity).
+  minQuality: number;
   observedAt: string; // ISO 8601
 }
 

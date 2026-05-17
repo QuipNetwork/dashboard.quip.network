@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS difficulty_history (
   difficulty_energy  DOUBLE PRECISION NOT NULL,
   min_diversity      DOUBLE PRECISION NOT NULL,
   min_solutions      INTEGER NOT NULL,
+  min_quality        DOUBLE PRECISION NOT NULL,
   observed_at        TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed

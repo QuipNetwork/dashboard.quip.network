@@ -116,9 +116,11 @@ describe("v5 telemetry types", () => {
       difficultyEnergy: 12.5,
       minDiversity: 0.5,
       minSolutions: 3,
+      minQuality: 0.25,
       observedAt: "2026-05-15T00:00:00Z",
     };
     expect(d.difficultyEnergy).toBe(12.5);
+    expect(d.minQuality).toBe(0.25);
   });
 
   test("IndexerObservability carries substrate heartbeat", () => {

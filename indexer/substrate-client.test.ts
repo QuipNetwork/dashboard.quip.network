@@ -8,9 +8,9 @@ describe("FakeSubstrateClient", () => {
   test("emits finalized head to subscribers and stashes for getBlockHeader", async () => {
     const c = new FakeSubstrateClient();
     await c.connect();
-    let received: SubstrateHead | null = null;
+    const received: SubstrateHead[] = [];
     const unsub = await c.subscribeFinalizedHeads((h) => {
-      received = h;
+      received.push(h);
     });
     const h: SubstrateHead = {
       number: "10",
@@ -20,7 +20,7 @@ describe("FakeSubstrateClient", () => {
       stateRoot: "0xff",
     };
     c.emitFinalized(h);
-    expect(received).toEqual(h);
+    expect(received).toEqual([h]);
     // emitFinalized also stashes the header so a later getBlockHeader hits.
     const fetched = await c.getBlockHeader("10");
     expect(fetched).toEqual(h);
