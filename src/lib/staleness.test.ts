@@ -4,7 +4,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { IndexerObservability } from "../types/telemetry";
 
-import { computeChainHealth } from "./staleness";
+import { computeChainHealth, computeSubstrateHealth } from "./staleness";
 
 // Shared test clock. Pinning a single `nowMs` across tests keeps thresholds
 // deterministic and lets the default heartbeat in `obs()` stay fresh relative
@@ -288,5 +288,76 @@ describe("computeChainHealth — stage derivation", () => {
     expect(h.stage).toBe("caught_up");
     expect(h.level).toBe("healthy");
     expect(h.detail).toBeNull();
+  });
+});
+
+describe("computeSubstrateHealth", () => {
+  it("returns 'disabled' when indexer is null", () => {
+    expect(computeSubstrateHealth(null, NOW_MS).level).toBe("disabled");
+  });
+
+  it("returns 'disabled' when lastSubstrateEventAt is null", () => {
+    const h = computeSubstrateHealth(obs({ lastSubstrateEventAt: null }), NOW_MS);
+    expect(h.level).toBe("disabled");
+  });
+
+  it("returns 'offline' when chainConnected is false", () => {
+    const h = computeSubstrateHealth(
+      obs({
+        lastSubstrateEventAt: new Date(NOW_MS - 5_000).toISOString(),
+        chainConnected: false,
+      }),
+      NOW_MS,
+    );
+    expect(h.level).toBe("offline");
+  });
+
+  it("returns 'ok' when an event arrived within 30s and chainConnected=true", () => {
+    const h = computeSubstrateHealth(
+      obs({
+        lastSubstrateEventAt: new Date(NOW_MS - 10_000).toISOString(),
+        chainConnected: true,
+      }),
+      NOW_MS,
+    );
+    expect(h.level).toBe("ok");
+    expect(h.ageMs).toBe(10_000);
+  });
+
+  it("returns 'stale' when event age is between 30s and 5m", () => {
+    const h = computeSubstrateHealth(
+      obs({
+        lastSubstrateEventAt: new Date(NOW_MS - 60_000).toISOString(),
+        chainConnected: true,
+      }),
+      NOW_MS,
+    );
+    expect(h.level).toBe("stale");
+  });
+
+  it("returns 'offline' when event age exceeds 5m", () => {
+    const h = computeSubstrateHealth(
+      obs({
+        lastSubstrateEventAt: new Date(NOW_MS - 10 * 60_000).toISOString(),
+        chainConnected: true,
+      }),
+      NOW_MS,
+    );
+    expect(h.level).toBe("offline");
+  });
+
+  it("server-anchored nowMs survives stale client clock (audit #3)", () => {
+    // Simulate a backgrounded tab: client clock is 30 min ahead of the
+    // server's last response time. With Date.now() as the anchor the
+    // substrate event would falsely look 30 min old; with server-anchored
+    // nowMs (NOW_MS, matching the recorded event time), it's fresh.
+    const indexer = obs({
+      lastSubstrateEventAt: new Date(NOW_MS - 5_000).toISOString(),
+      chainConnected: true,
+    });
+    const clientClockMs = NOW_MS + 30 * 60_000;
+    expect(computeSubstrateHealth(indexer, clientClockMs).level).toBe("offline");
+    // But anchored to server time it stays ok.
+    expect(computeSubstrateHealth(indexer, NOW_MS).level).toBe("ok");
   });
 });

@@ -5,6 +5,20 @@ import type { IndexerObservability } from "../types/telemetry";
 export type HealthLevel = "healthy" | "warning" | "stalled";
 export type SyncStage = "connecting" | "synchronizing" | "backfilling" | "caught_up" | "stalled";
 
+/** Substrate worker health (separate dimension from REST chain health). */
+export type SubstrateHealthLevel = "disabled" | "ok" | "stale" | "offline";
+
+export interface SubstrateHealth {
+  level: SubstrateHealthLevel;
+  ageMs: number | null;
+  reason: string;
+}
+
+// Substrate event freshness windows. Tighter than the REST heartbeat
+// thresholds because finalized heads arrive every ~6s on quip-protocol-rs.
+const SUBSTRATE_OK_WINDOW_MS = 30_000;
+const SUBSTRATE_STALE_WINDOW_MS = 5 * 60 * 1000;
+
 export interface ChainHealth {
   level: HealthLevel;
   reason: string;
@@ -158,6 +172,54 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
     detail: null,
     blockAgeMs,
     tipLagBlocks,
+  };
+}
+
+/**
+ * Compute substrate-worker health. Three-tier:
+ *
+ *   - "disabled": QUIP_VALIDATOR_RPC_URL unset on the indexer — the worker
+ *     was never started, so the UI hides the substrate dot entirely.
+ *   - "ok": A substrate event arrived within 30s and the socket is live.
+ *   - "stale": Last event > 30s but < 5m ago (transient slowdown).
+ *   - "offline": Either chainConnected=false, or last event > 5m ago.
+ *
+ * `nowMs` is server-anchored (see selectServerNowMs) so backgrounded tabs
+ * don't show inflated ages.
+ */
+export function computeSubstrateHealth(
+  indexer: IndexerObservability | null,
+  nowMs: number,
+): SubstrateHealth {
+  if (!indexer || indexer.lastSubstrateEventAt === null) {
+    return { level: "disabled", ageMs: null, reason: "" };
+  }
+  if (!indexer.chainConnected) {
+    return {
+      level: "offline",
+      ageMs: null,
+      reason: "Substrate validator RPC disconnected",
+    };
+  }
+  const lastMs = Date.parse(indexer.lastSubstrateEventAt);
+  if (!Number.isFinite(lastMs)) {
+    return { level: "offline", ageMs: null, reason: "Substrate timestamp unparseable" };
+  }
+  const ageMs = nowMs - lastMs;
+  if (ageMs < SUBSTRATE_OK_WINDOW_MS) {
+    return { level: "ok", ageMs, reason: "" };
+  }
+  if (ageMs < SUBSTRATE_STALE_WINDOW_MS) {
+    return {
+      level: "stale",
+      ageMs,
+      reason: `No substrate event in ${formatApproxDuration(ageMs)}`,
+    };
+  }
+  return {
+    level: "offline",
+    ageMs,
+    reason: `No substrate event in ${formatApproxDuration(ageMs)}`,
   };
 }
 

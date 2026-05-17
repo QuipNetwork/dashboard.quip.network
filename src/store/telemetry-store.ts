@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import type {
+  BabeAuthorityRecord,
+  BabeEpochState,
   BlockRecord,
+  ChainHead,
+  ChainMinerRecord,
+  DifficultyRecord,
   IndexerObservability,
   NodesSnapshot,
   TelemetryResponse,
@@ -11,6 +16,15 @@ export interface TelemetryState {
   nodes: NodesSnapshot | null;
   selfAddress: string | null;
   indexer: IndexerObservability | null;
+  // ISO 8601 server timestamp from the last /api/telemetry response.
+  // Used as the "now" anchor in health checks so a backgrounded tab
+  // doesn't compute inflated ages from cached responses (audit fix #3).
+  serverTime: string | null;
+  chainHead: ChainHead | null;
+  babeEpoch: BabeEpochState | null;
+  babeAuthorities: BabeAuthorityRecord[];
+  chainMiners: ChainMinerRecord[];
+  recentDifficulty: DifficultyRecord[];
   loading: boolean;
   error: string | null;
 
@@ -22,6 +36,12 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   nodes: null,
   selfAddress: null,
   indexer: null,
+  serverTime: null,
+  chainHead: null,
+  babeEpoch: null,
+  babeAuthorities: [],
+  chainMiners: [],
+  recentDifficulty: [],
   loading: true,
   error: null,
 
@@ -39,6 +59,12 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         nodes: data.nodes,
         selfAddress: data.selfAddress ?? null,
         indexer: data.indexer ?? null,
+        serverTime: data.serverTime ?? null,
+        chainHead: data.chainHead ?? null,
+        babeEpoch: data.babeEpoch ?? null,
+        babeAuthorities: data.babeAuthorities ?? [],
+        chainMiners: data.chainMiners ?? [],
+        recentDifficulty: data.recentDifficulty ?? [],
         loading: false,
         error: null,
       });
@@ -66,4 +92,18 @@ export function selectTipBlock(s: TelemetryState): BlockRecord | null {
 export function selectTipBlockTimestampMs(s: TelemetryState): number | null {
   const tip = selectTipBlock(s);
   return tip ? tip.timestamp * 1000 : null;
+}
+
+/**
+ * Server-anchored "now" in ms. Returns the parsed `serverTime` from the most
+ * recent telemetry response, or `Date.now()` if no response has landed yet
+ * (initial connect). Use this in place of `Date.now()` when computing ages
+ * relative to indexer/server fields — fixes audit #3 (backgrounded tab shows
+ * inflated heartbeat ages because the cached response's lastStatusFetchAt is
+ * server-stamped but the comparison anchor was client-clock).
+ */
+export function selectServerNowMs(s: TelemetryState): number {
+  if (s.serverTime === null) return Date.now();
+  const parsed = Date.parse(s.serverTime);
+  return Number.isFinite(parsed) ? parsed : Date.now();
 }
