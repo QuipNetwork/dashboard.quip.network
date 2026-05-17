@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { rawBlockToRecord, rawNodesToSnapshot } from "../api/db/adapter";
+import type { EpochId } from "../src/types/telemetry";
 
 import { AuthError, RateLimitError, type EpochsBody, type StatusBody } from "./client";
 import {
@@ -243,6 +244,33 @@ async function walkTipBlocks(
     state.tipCursor.blockIndex = nextIndex;
     state.observability.lastBlockInsertAt = new Date(nowMs).toISOString();
     result.blocksIndexed += 1;
+    // Drain any BlockWinner event that arrived before this PoW block did
+    // (race between substrate-worker subscription and REST poll). Keyed
+    // by (minerId, energy) — the chain emits the same energy_milli the
+    // miner reports here, so an exact-equality lookup is safe.
+    await drainPendingWinnerEvent(deps, record);
+  }
+}
+
+async function drainPendingWinnerEvent(
+  deps: WorkerDeps,
+  record: { epoch: EpochId; blockIndex: number; minerId: string; energy: number },
+): Promise<void> {
+  const { db, state } = deps;
+  const key = `${record.minerId}:${record.energy}` as const;
+  const pending = state.pendingWinnerEvents.get(key);
+  if (!pending) return;
+  state.pendingWinnerEvents.delete(key);
+  try {
+    await db.updateBlockSubstrateFields(record.epoch, record.blockIndex, {
+      substrateBlockNumber: pending.submittedAt,
+      substrateBlockHash: pending.substrateBlockHash,
+      substrateParentHash: pending.substrateParentHash,
+      extrinsicsRoot: pending.extrinsicsRoot,
+      stateRoot: pending.stateRoot,
+    });
+  } catch (e) {
+    warn(`drainPendingWinnerEvent failed for ${key}: ${formatErr(e)}`);
   }
 }
 
