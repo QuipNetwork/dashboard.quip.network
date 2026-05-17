@@ -106,13 +106,30 @@ export function SyncIndicator() {
   // the first telemetry response lands.
   const nowMs = useTelemetryStore(selectServerNowMs);
 
+  // Audit fix #11: depend on the primitive fields computeChainHealth /
+  // computeSubstrateHealth actually read, not on the `indexer` object
+  // reference. The Zustand selector returns the same object reference
+  // between polls when no data changed, BUT if a parent re-renders with
+  // an explicit key or a wrapper layer maps to a new object, the
+  // reference-based dep would re-fire the memo for free. Primitive deps
+  // make the memo invalidate exactly when the output could change.
   const health = useMemo(
     () => computeChainHealth({ nowMs, tipBlockTimestampMs, indexer }),
-    [indexer, tipBlockTimestampMs, nowMs],
+    [
+      nowMs,
+      tipBlockTimestampMs,
+      indexer?.lastStatusFetchAt,
+      indexer?.tipEpoch,
+      indexer?.tipBlockIndex,
+      indexer?.nodeLatestEpoch,
+      indexer?.nodeLatestBlockIndex,
+      indexer?.backfillEpoch,
+      indexer, // keep for the `indexer === null` branch
+    ],
   );
   const substrate = useMemo(
     () => computeSubstrateHealth(indexer, nowMs),
-    [indexer, nowMs],
+    [nowMs, indexer?.lastSubstrateEventAt, indexer?.chainConnected, indexer],
   );
 
   const style = STYLES[health.stage];
