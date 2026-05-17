@@ -43,6 +43,26 @@ export interface ObservabilityCache {
 }
 
 /**
+ * Pending substrate enrichment from a BlockWinner event that fired before
+ * the matching PoW BlockRecord landed via REST. Drained by the tip worker
+ * after each successful insertBlock when (minerId, energy) match.
+ */
+export interface PendingWinnerEvent {
+  miner: string;
+  energy: number;
+  submittedAt: string;
+  // Substrate header looked up at event time. Cached so the drain path
+  // doesn't re-fetch.
+  substrateBlockHash: string;
+  substrateParentHash: string;
+  extrinsicsRoot: string;
+  stateRoot: string;
+}
+
+/** Key for the pendingWinnerEvents map: `${minerId}:${energy}`. */
+export type WinnerKey = `${string}:${number}`;
+
+/**
  * In-memory cache of the indexer's cursors and etag state, backed by the
  * DatabaseAdapter. Callers mutate {@link tipCursor} / {@link backfillCursor} /
  * {@link etags} and call {@link save} to persist.
@@ -64,6 +84,13 @@ export class IndexerState {
   // rebuilding is cheap (one /block fetch per epoch) and the node is the
   // source of truth, so staleness across restarts is fine.
   chainAnchors: Map<EpochId, string> = new Map();
+
+  // Bounded LRU buffer for BlockWinner events whose matching PoW block
+  // hasn't been inserted yet. The tip worker drains after each
+  // insertBlock; entries that age out get dropped (no recovery — the
+  // dashboard accepts eventual inconsistency on overflow).
+  pendingWinnerEvents: Map<WinnerKey, PendingWinnerEvent> = new Map();
+  static readonly PENDING_WINNER_LIMIT = 256;
 
   constructor(private readonly db: DatabaseAdapter) {}
 
