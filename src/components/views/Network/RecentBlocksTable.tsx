@@ -4,6 +4,7 @@ import { SERIES_COLORS } from "../../../lib/colors";
 import { formatDuration } from "../../../lib/format";
 import { computeChainHealth, type ChainHealth } from "../../../lib/staleness";
 import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
+import { FinalityBadge } from "../../blocks/FinalityBadge";
 
 interface RecentBlocksTableProps {
   blocks: BlockRecord[];
@@ -60,7 +61,12 @@ export function RecentBlocksTable({
                 key={`${b.epoch}:${b.blockIndex}`}
                 className="border-b border-brand-gray-1 last:border-b-0"
               >
-                <td className="py-2 pr-4 font-mono text-brand-gray-5">#{b.blockIndex}</td>
+                <td className="py-2 pr-4 font-mono text-brand-gray-5">
+                  <span className="inline-flex items-center gap-1.5">
+                    #{b.blockIndex}
+                    <FinalityBadge block={b} />
+                  </span>
+                </td>
                 <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
                   {truncateMinerId(b.minerId)}
                 </td>
