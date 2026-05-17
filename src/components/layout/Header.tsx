@@ -1,6 +1,7 @@
 import { useUIStore, type AggregationMode, type ViewMode } from "../../store/ui-store";
 import { SERIES_COLORS } from "../../lib/colors";
 import type { MinerCategory } from "../../types/telemetry";
+import { BabeEpochProgress } from "./BabeEpochProgress";
 import { CurrentBlockIndicator } from "./CurrentBlockIndicator";
 import { EpochSelector } from "./EpochSelector";
 import { SyncIndicator } from "./SyncIndicator";
@@ -35,6 +36,9 @@ export function Header() {
         {/* Left: sync indicator (always) + aggregation toggle (Network + Compute only). */}
         <div className="flex flex-col items-center gap-2 justify-self-center sm:items-start sm:justify-self-start">
           <SyncIndicator />
+          {/* BabeEpochProgress hides itself when substrate is unconfigured;
+              free to include unconditionally. */}
+          <BabeEpochProgress />
           {showAggregation && (
             <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
               {MODES.map(({ value, label }) => {
