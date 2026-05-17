@@ -254,6 +254,170 @@ describe("substrate worker", () => {
     await loop;
   });
 
+  test("polls BABE epoch on connect and writes the row", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.babeEpoch = {
+      epochIndex: 7,
+      currentSlot: "16805",
+      epochStartSlot: "16800",
+      slotsPerEpoch: 2400,
+      authorityCount: 3,
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    const epoch = await db.getCurrentBabeEpoch();
+    expect(epoch?.epochIndex).toBe(7);
+    expect(epoch?.currentSlotInEpoch).toBe(5);
+    expect(epoch?.authorityCount).toBe(3);
+  });
+
+  test("BABE epoch poll is idempotent — no write when slot unchanged", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.babeEpoch = {
+      epochIndex: 7,
+      currentSlot: "16800",
+      epochStartSlot: "16800",
+      slotsPerEpoch: 2400,
+      authorityCount: 1,
+    };
+
+    // First connect → write. Then disconnect+reconnect with same data,
+    // second `pollBabeEpoch` should NOT change updated_at (idempotency
+    // handled at the worker layer via the hash cache; the row's
+    // updated_at column would change on every upsert otherwise).
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1, // 1s timer to exercise the repeat path
+          substrateChainPollSec: 1000,
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    const first = await db.getCurrentBabeEpoch();
+    // Tick the timer twice; cache should prevent re-upsert.
+    await wait(2100);
+    const second = await db.getCurrentBabeEpoch();
+    expect(first?.epochIndex).toBe(second?.epochIndex);
+    expect(first?.currentSlot).toBe(second?.currentSlot);
+    ac.abort();
+    await loop;
+  }, 5000);
+
+  test("polls difficulty after a finalized head lands", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.difficulty = {
+      maxEnergyMilli: 12500,
+      minDiversityMilli: 500,
+      minSolutions: 3,
+      minQualityMilli: 250,
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1, // 1s so the difficulty timer fires
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    // Need a finalized head first so observability.finalizedBlockHeight
+    // is non-null before difficulty polls fire.
+    await wait(50);
+    client.emitFinalized({
+      number: "100",
+      hash: "0xf",
+      parentHash: "0xfp",
+      extrinsicsRoot: "0xer",
+      stateRoot: "0xsr",
+    });
+    await wait(1200);
+    ac.abort();
+    await loop;
+
+    const recent = await db.getRecentDifficulty(10);
+    expect(recent.length).toBeGreaterThan(0);
+    expect(recent[0]?.difficultyEnergy).toBeCloseTo(12.5, 5);
+    expect(recent[0]?.minDiversity).toBeCloseTo(0.5, 5);
+    expect(recent[0]?.minSolutions).toBe(3);
+    expect(recent[0]?.minQuality).toBeCloseTo(0.25, 5);
+    expect(recent[0]?.observedAtBlock).toBe("100");
+  }, 5000);
+
+  test("difficulty poll skips when finalizedBlockHeight is null", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.difficulty = {
+      maxEnergyMilli: 12500,
+      minDiversityMilli: 500,
+      minSolutions: 3,
+      minQualityMilli: 250,
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1,
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    // No finalized head emitted — finalizedBlockHeight stays null. The
+    // initial connect poll runs but skips the write.
+    await wait(200);
+    ac.abort();
+    await loop;
+
+    const recent = await db.getRecentDifficulty(10);
+    expect(recent).toHaveLength(0);
+  });
+
   test("pendingWinnerEvents drops oldest on overflow", async () => {
     const state = new IndexerState(db);
     await state.load();

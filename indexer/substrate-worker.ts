@@ -199,6 +199,35 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
     }),
   );
 
+  // --- Polling: BABE epoch + difficulty + (Phase 3) chain miners/authorities ---
+  // Worker-level idempotency cache so polls that observe no change avoid
+  // hitting the DB at all. The adapter is also idempotent (ON CONFLICT … WHERE
+  // … IS DISTINCT FROM), so these are belt-and-suspenders.
+  const pollState: PollIdempotencyCache = {
+    babeEpochHash: null,
+    difficultyHash: null,
+  };
+
+  // Initial polls on connect — populate UI before the first timer tick.
+  void pollBabeEpoch(deps, pollState).catch((e) => {
+    console.warn("[indexer/substrate] initial babe-epoch poll failed:", e);
+  });
+  void pollDifficulty(deps, pollState).catch((e) => {
+    console.warn("[indexer/substrate] initial difficulty poll failed:", e);
+  });
+
+  const babeTimer = setInterval(() => {
+    void pollBabeEpoch(deps, pollState).catch((e) => {
+      console.warn("[indexer/substrate] babe-epoch poll failed:", e);
+    });
+  }, deps.config.substrateBabePollSec * 1000);
+
+  const chainPollTimer = setInterval(() => {
+    void pollDifficulty(deps, pollState).catch((e) => {
+      console.warn("[indexer/substrate] difficulty poll failed:", e);
+    });
+  }, deps.config.substrateChainPollSec * 1000);
+
   try {
     // Wait until either the abort fires (operator shutdown) or the
     // disconnect handler trips (chain dropped us).
@@ -209,6 +238,8 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
     });
   } finally {
     if (chainHeadTimer) clearTimeout(chainHeadTimer);
+    clearInterval(babeTimer);
+    clearInterval(chainPollTimer);
     for (const u of unsubs) {
       try {
         u();
@@ -224,6 +255,89 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
     }
     state.observability.chainConnected = false;
   }
+}
+
+interface PollIdempotencyCache {
+  // Hash of (epochIndex, currentSlot) — bumped on every observed change.
+  babeEpochHash: string | null;
+  // Hash of (energy, diversity, solutions, quality) — bumped on every
+  // observed change. Doubles as the dedupe key for insertDifficultySnapshot.
+  difficultyHash: string | null;
+}
+
+/**
+ * Poll BABE epoch state. Skips the DB write when (epochIndex, currentSlot)
+ * matches the last observed values — saves a transaction per uneventful
+ * tick. Capability-checked (Fake / chains without BABE return null).
+ */
+async function pollBabeEpoch(
+  deps: SubstrateWorkerDeps,
+  cache: PollIdempotencyCache,
+): Promise<void> {
+  const info = await deps.client.getBabeEpoch();
+  if (!info) return;
+  const hash = `${info.epochIndex}:${info.currentSlot}`;
+  if (hash === cache.babeEpochHash) return;
+  cache.babeEpochHash = hash;
+
+  // currentSlotInEpoch = currentSlot - epochStartSlot. Slots can exceed
+  // Number.MAX_SAFE_INTEGER on long-running chains, but the delta within
+  // one epoch (≤ slotsPerEpoch = 2400 on quip-protocol-rs spec 101) fits
+  // in a small integer.
+  let currentSlotInEpoch = 0;
+  try {
+    currentSlotInEpoch = Number(BigInt(info.currentSlot) - BigInt(info.epochStartSlot));
+  } catch {
+    // Malformed slot values — leave at 0 rather than throw; the BABE
+    // progress bar will show empty until the next poll lands clean data.
+  }
+
+  await deps.db.upsertBabeEpoch({
+    epochIndex: info.epochIndex,
+    currentSlot: info.currentSlot,
+    epochStartSlot: info.epochStartSlot,
+    slotsPerEpoch: info.slotsPerEpoch,
+    currentSlotInEpoch,
+    authorityCount: info.authorityCount,
+  });
+}
+
+/**
+ * Poll `quantum_pow.Difficulty` and append a row to `difficulty_history`
+ * when the snapshot has changed. Converts chain's milli-encoded floats
+ * (max_energy_milli, min_diversity_milli, min_quality_milli) into the
+ * "human" units the dashboard's BlockRecord already uses.
+ *
+ * `observed_at_block` is the substrate finalized height we know at poll
+ * time. When the chain hasn't emitted a finalized head yet
+ * (finalizedBlockHeight=null), we skip — there's no meaningful block to
+ * anchor the snapshot to.
+ */
+async function pollDifficulty(
+  deps: SubstrateWorkerDeps,
+  cache: PollIdempotencyCache,
+): Promise<void> {
+  const info = await deps.client.getDifficulty();
+  if (!info) return;
+  const observedAtBlock = deps.state.observability.finalizedBlockHeight;
+  if (observedAtBlock === null) return;
+  // Convert milli → float (the dashboard's BlockRecord uses floats; chain
+  // stores u32/i64 milli-encodings to avoid floating-point in consensus).
+  const difficultyEnergy = info.maxEnergyMilli / 1000;
+  const minDiversity = info.minDiversityMilli / 1000;
+  const minQuality = info.minQualityMilli / 1000;
+  const hash = `${difficultyEnergy}:${minDiversity}:${info.minSolutions}:${minQuality}`;
+  if (hash === cache.difficultyHash) return;
+  cache.difficultyHash = hash;
+
+  await deps.db.insertDifficultySnapshot({
+    observedAtBlock,
+    difficultyEnergy,
+    minDiversity,
+    minSolutions: info.minSolutions,
+    minQuality,
+    observedAt: nowIso(deps),
+  });
 }
 
 /**
