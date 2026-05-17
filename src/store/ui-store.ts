@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { MinerCategory } from "../types/telemetry";
 
 export type AggregationMode = "byType" | "byNode";
-export type ViewMode = "my-node" | "network" | "compute";
+export type ViewMode = "my-node" | "network" | "compute" | "chain";
 // "all" means no epoch filter; an epoch-id hash string narrows every chart
 // and stat to that epoch. Stored on the UI store so it persists across
 // view switches.
