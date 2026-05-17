@@ -48,6 +48,7 @@ function makeState(blocks: BlockRecord[]): TelemetryState {
     babeAuthorities: [],
     chainMiners: [],
     recentDifficulty: [],
+    telemetryIndex: null,
     loading: false,
     error: null,
     fetchTelemetry: async () => {},

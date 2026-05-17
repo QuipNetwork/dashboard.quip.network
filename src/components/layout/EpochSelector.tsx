@@ -3,26 +3,57 @@
 import { useMemo } from "react";
 
 import { formatEpochId } from "../../lib/format";
-import { useTelemetryStore } from "../../store/telemetry-store";
+import {
+  buildEpochStatusMap,
+  useTelemetryStore,
+} from "../../store/telemetry-store";
 import { useUIStore, type EpochFilter } from "../../store/ui-store";
+import type { EpochStatus } from "../../types/telemetry";
 
 interface EpochRow {
   id: string;
   firstBlockTimestamp: number | null;
   isLive: boolean;
+  // Server-side tag from /api/telemetry/index. null when the indexer hasn't
+  // catalogued this epoch yet (rare — possible mid-poll race for a freshly
+  // discovered epoch). Treat null as "past canonical" — no badge.
+  serverStatus: EpochStatus | null;
+}
+
+/**
+ * Compose the trailing label for an epoch row. Audit fix #2: distinguish
+ * the *live* epoch (currently extending), *stale_fork* epochs (chain
+ * abandoned mid-way), and unlabeled past canonical epochs (just history).
+ *
+ * Previous behavior tagged every non-live epoch as "(stale)", which
+ * conflated historical canonical epochs with actual stale forks. Operators
+ * read those as "indexer is broken" and went hunting for a problem that
+ * wasn't there.
+ */
+function composeBadge(row: EpochRow): string {
+  if (row.isLive) return " (live)";
+  if (row.serverStatus === "stale_fork") return " (stale fork)";
+  return "";
 }
 
 export function EpochSelector() {
   const blocks = useTelemetryStore((s) => s.blocks);
   const liveEpoch = useTelemetryStore((s) => s.indexer?.nodeLatestEpoch ?? null);
+  const telemetryIndex = useTelemetryStore((s) => s.telemetryIndex);
+  // Memoize the status lookup. Returning a fresh Map from the selector
+  // would trip Zustand's reference equality and cause render loops.
+  const statusMap = useMemo(() => buildEpochStatusMap(telemetryIndex), [telemetryIndex]);
   const selectedEpoch = useUIStore((s) => s.selectedEpoch);
   const setSelectedEpoch = useUIStore((s) => s.setSelectedEpoch);
 
   // Derive the epoch list from the blocks we already have in memory — the
-  // /api/telemetry response drives everything else, so using a separate
-  // /api/telemetry/index call would desynchronize with the charts. block_1
-  // timestamps give each option a readable time cue; `liveEpoch` (from the
-  // indexer observability field) tags the currently-extending chain.
+  // /api/telemetry response drives everything else. block_1 timestamps give
+  // each option a readable time cue; `liveEpoch` tags the currently-
+  // extending chain; the status map tags actual stale_fork epochs.
+  //
+  // Stale-fork epochs typically aren't in `blocks` (the server filters by
+  // is_canonical=TRUE by default) — but their entries in `telemetryIndex`
+  // still inform the badge if they happen to appear here.
   const epochs = useMemo<EpochRow[]>(() => {
     const firstBlockTs = new Map<string, number>();
     const seen = new Set<string>();
@@ -34,6 +65,7 @@ export function EpochSelector() {
       id,
       firstBlockTimestamp: firstBlockTs.get(id) ?? null,
       isLive: liveEpoch !== null && id === liveEpoch,
+      serverStatus: statusMap.get(id) ?? null,
     }));
     // Newest first by block_1 timestamp; epochs without block_1 (partial
     // backfills) sink to the bottom. Ties break on epoch hash for stability.
@@ -44,7 +76,7 @@ export function EpochSelector() {
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
     return rows;
-  }, [blocks, liveEpoch]);
+  }, [blocks, liveEpoch, statusMap]);
 
   const onChange: React.ChangeEventHandler<HTMLSelectElement> = (e) => {
     const v = e.target.value;
@@ -64,7 +96,7 @@ export function EpochSelector() {
         {epochs.map((e) => (
           <option key={e.id} value={e.id}>
             {formatEpochId(e.id, e.firstBlockTimestamp)}
-            {liveEpoch !== null ? (e.isLive ? " (live)" : " (stale)") : ""}
+            {composeBadge(e)}
           </option>
         ))}
       </select>

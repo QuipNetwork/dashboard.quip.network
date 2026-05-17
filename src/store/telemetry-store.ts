@@ -6,8 +6,10 @@ import type {
   ChainHead,
   ChainMinerRecord,
   DifficultyRecord,
+  EpochStatus,
   IndexerObservability,
   NodesSnapshot,
+  TelemetryIndex,
   TelemetryResponse,
 } from "../types/telemetry";
 
@@ -25,6 +27,11 @@ export interface TelemetryState {
   babeAuthorities: BabeAuthorityRecord[];
   chainMiners: ChainMinerRecord[];
   recentDifficulty: DifficultyRecord[];
+  // Epoch catalog with per-epoch status ("live" | "stale_fork"). Fetched
+  // alongside /api/telemetry so the EpochSelector can accurately label
+  // entries without conflating "past canonical" with "stale_fork"
+  // (audit fix #2).
+  telemetryIndex: TelemetryIndex | null;
   loading: boolean;
   error: string | null;
 
@@ -42,6 +49,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   babeAuthorities: [],
   chainMiners: [],
   recentDifficulty: [],
+  telemetryIndex: null,
   loading: true,
   error: null,
 
@@ -51,9 +59,19 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     const firstLoad = get().blocks.length === 0 && get().nodes === null;
     if (firstLoad && !get().loading) set({ loading: true });
     try {
-      const res = await fetch("/api/telemetry");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as TelemetryResponse;
+      // Parallel fetch: /api/telemetry carries blocks + nodes + chain state,
+      // /api/telemetry/index carries the epoch catalog with per-epoch
+      // status. Both reads hit the same DB so server-side cost is tiny;
+      // the SPA gets atomic-ish snapshots since they're requested together.
+      const [telemetryRes, indexRes] = await Promise.all([
+        fetch("/api/telemetry"),
+        fetch("/api/telemetry/index"),
+      ]);
+      if (!telemetryRes.ok) throw new Error(`HTTP ${telemetryRes.status}`);
+      const data = (await telemetryRes.json()) as TelemetryResponse;
+      // Index failures are non-fatal — the EpochSelector falls back to
+      // unlabeled entries when telemetryIndex is null.
+      const index = indexRes.ok ? ((await indexRes.json()) as TelemetryIndex) : null;
       set({
         blocks: data.blocks,
         nodes: data.nodes,
@@ -65,6 +83,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         babeAuthorities: data.babeAuthorities ?? [],
         chainMiners: data.chainMiners ?? [],
         recentDifficulty: data.recentDifficulty ?? [],
+        telemetryIndex: index,
         loading: false,
         error: null,
       });
@@ -73,6 +92,20 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Build an epoch → status map from a TelemetryIndex. Callers should pass
+ * the raw `telemetryIndex` from the store and memoize this with `useMemo`
+ * — returning a fresh Map from a Zustand selector causes infinite render
+ * loops (the new reference looks like a state change every poll).
+ */
+export function buildEpochStatusMap(
+  index: TelemetryIndex | null,
+): Map<string, EpochStatus> {
+  const map = new Map<string, EpochStatus>();
+  for (const e of index?.epochs ?? []) map.set(e.epoch, e.status);
+  return map;
+}
 
 // --- Selectors ---
 
