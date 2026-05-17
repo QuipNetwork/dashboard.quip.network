@@ -220,3 +220,255 @@ export class FakeSubstrateClient implements SubstrateClient {
     this.headers.set(h.number, h);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Production implementation
+// ---------------------------------------------------------------------------
+
+import { ApiPromise, WsProvider } from "@polkadot/api";
+
+/**
+ * @polkadot/api-backed implementation. Pinned to 15.9.1 in package.json so
+ * @polkadot/types stays in lockstep (a mismatch produces opaque decode
+ * errors). Storage queries assume quip-protocol-rs spec_version 101 —
+ * later runtime upgrades may rename items; capability checks (`?.`)
+ * keep the worker non-fatal in that case.
+ */
+export class PolkadotSubstrateClient implements SubstrateClient {
+  private api: ApiPromise | null = null;
+  private provider: WsProvider | null = null;
+  private connectedCbs = new Set<() => void>();
+  private disconnectedCbs = new Set<() => void>();
+
+  constructor(
+    private readonly url: string,
+    private readonly timeoutMs: number = 15_000,
+  ) {}
+
+  async connect(): Promise<void> {
+    // autoReconnect = false: our substrate-worker owns the reconnect loop
+    // (exponential backoff with jitter). WsProvider's built-in reconnect
+    // uses a fixed interval which doesn't match our policy.
+    this.provider = new WsProvider(this.url, false, undefined, this.timeoutMs);
+    this.provider.on("connected", () => {
+      for (const cb of this.connectedCbs) cb();
+    });
+    this.provider.on("disconnected", () => {
+      for (const cb of this.disconnectedCbs) cb();
+    });
+    this.api = await ApiPromise.create({ provider: this.provider, throwOnConnect: true });
+  }
+
+  async disconnect(): Promise<void> {
+    const api = this.api;
+    this.api = null;
+    this.provider = null;
+    if (api) await api.disconnect();
+  }
+
+  isConnected(): boolean {
+    return this.provider?.isConnected ?? false;
+  }
+
+  onConnected(cb: () => void): UnsubFn {
+    this.connectedCbs.add(cb);
+    return () => {
+      this.connectedCbs.delete(cb);
+    };
+  }
+  onDisconnected(cb: () => void): UnsubFn {
+    this.disconnectedCbs.add(cb);
+    return () => {
+      this.disconnectedCbs.delete(cb);
+    };
+  }
+
+  private requireApi(): ApiPromise {
+    if (!this.api) throw new Error("[substrate-client] not connected");
+    return this.api;
+  }
+
+  async subscribeFinalizedHeads(cb: (h: SubstrateHead) => void): Promise<UnsubFn> {
+    const api = this.requireApi();
+    const unsub = await api.rpc.chain.subscribeFinalizedHeads((header) => {
+      cb({
+        number: header.number.toString(),
+        hash: header.hash.toHex(),
+        parentHash: header.parentHash.toHex(),
+        extrinsicsRoot: header.extrinsicsRoot.toHex(),
+        stateRoot: header.stateRoot.toHex(),
+      });
+    });
+    return () => {
+      unsub();
+    };
+  }
+
+  async subscribeNewHeads(cb: (h: SubstrateHead) => void): Promise<UnsubFn> {
+    const api = this.requireApi();
+    const unsub = await api.rpc.chain.subscribeNewHeads((header) => {
+      cb({
+        number: header.number.toString(),
+        hash: header.hash.toHex(),
+        parentHash: header.parentHash.toHex(),
+        extrinsicsRoot: header.extrinsicsRoot.toHex(),
+        stateRoot: header.stateRoot.toHex(),
+      });
+    });
+    return () => {
+      unsub();
+    };
+  }
+
+  async subscribeBlockWinnerEvents(cb: (e: BlockWinnerEvent) => void): Promise<UnsubFn> {
+    const api = this.requireApi();
+    const eventsQuery = api.query.system?.events;
+    if (!eventsQuery) {
+      // Should never happen on Substrate, but capability-checked for safety.
+      return () => {};
+    }
+    // Subscribes to ALL events; filter to quantumPow.BlockWinner. Event
+    // shape: (miner: AccountId, reward: Balance, energy_milli: i64,
+    // submitted_at: BlockNumber). Verified against
+    // quip-protocol-rs/pallets/quantum-pow/src/lib.rs:159-164.
+    type EventRecord = {
+      event: {
+        section: string;
+        method: string;
+        data: Array<{ toString: () => string }>;
+      };
+    };
+    const unsub = await eventsQuery((records: EventRecord[]) => {
+      for (const record of records) {
+        const { event } = record;
+        if (event.section !== "quantumPow" || event.method !== "BlockWinner") continue;
+        const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = event.data;
+        if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
+        cb({
+          miner: minerCodec.toString(),
+          reward: rewardCodec.toString(),
+          energyMilli: Number(energyCodec.toString()),
+          submittedAt: submittedAtCodec.toString(),
+        });
+      }
+    });
+    return () => {
+      (unsub as unknown as () => void)();
+    };
+  }
+
+  async getBabeEpoch(): Promise<BabeEpochInfo | null> {
+    const api = this.requireApi();
+    if (!api.query.babe?.epochIndex || !api.query.babe?.currentSlot) return null;
+    const [epochIndexCodec, currentSlotCodec] = await Promise.all([
+      api.query.babe.epochIndex(),
+      api.query.babe.currentSlot(),
+    ]);
+    const slotsPerEpochConst = api.consts.babe?.epochDuration;
+    if (!slotsPerEpochConst) return null;
+    const slotsPerEpoch = Number(slotsPerEpochConst.toString());
+    const epochIndex = Number(epochIndexCodec.toString());
+    const currentSlot = currentSlotCodec.toString();
+    // epoch_start_slot is not directly exposed by stock BABE; derive from
+    // epoch_index * slots_per_epoch which is exact when no epoch was skipped.
+    const epochStartSlot = (BigInt(epochIndex) * BigInt(slotsPerEpoch)).toString();
+    // authorityCount = session.validators().length (session rotates per BABE epoch).
+    let authorityCount = 0;
+    if (api.query.session?.validators) {
+      const validators = await api.query.session.validators();
+      authorityCount = Array.isArray(validators) ? validators.length : (validators as unknown as { length?: number }).length ?? 0;
+    }
+    return { epochIndex, currentSlot, epochStartSlot, slotsPerEpoch, authorityCount };
+  }
+
+  async getBabeAuthorities(): Promise<BabeAuthorityInfo[]> {
+    const api = this.requireApi();
+    if (!api.query.session?.validators) return [];
+    const codec = await api.query.session.validators();
+    const list = codec as unknown as Array<{ toString: () => string }>;
+    // Identity pallet not enabled on quip-protocol-rs spec 101 — displayName
+    // stays null. When it ships, layer in a per-account identityOf() lookup.
+    return list.map((id) => ({ accountId: id.toString(), displayName: null }));
+  }
+
+  async getChainMiners(): Promise<ChainMinerInfo[]> {
+    const api = this.requireApi();
+    if (!api.query.quantumPow?.miners) return [];
+    const entries = await api.query.quantumPow.miners.entries();
+    const out: ChainMinerInfo[] = [];
+    for (const [key, value] of entries) {
+      const accountId = key.args[0]!.toString();
+      // MinerInfo struct from pallet-quantum-pow/src/types.rs:57-67.
+      // polkadot.js exposes Rust field names in camelCase via codec.toJSON;
+      // we read via toHuman/toJSON for reliable field access.
+      const json = (value as unknown as { toJSON: () => Record<string, unknown> }).toJSON();
+      out.push({
+        accountId,
+        deposit: String(json.deposit ?? "0"),
+        proofsSubmitted: String(json.proofsSubmitted ?? json.proofs_submitted ?? "0"),
+        proofsWon: String(json.proofsWon ?? json.proofs_won ?? "0"),
+        rewardsEarned: String(json.rewardsEarned ?? json.rewards_earned ?? "0"),
+      });
+    }
+    return out;
+  }
+
+  async getDifficulty(): Promise<DifficultyInfo | null> {
+    const api = this.requireApi();
+    if (!api.query.quantumPow?.difficulty) return null;
+    const codec = await api.query.quantumPow.difficulty();
+    // DifficultyConfig from pallet-quantum-pow/src/types.rs:38-43.
+    const json = (codec as unknown as { toJSON: () => Record<string, unknown> }).toJSON();
+    return {
+      maxEnergyMilli: Number(json.maxEnergyMilli ?? json.max_energy_milli ?? 0),
+      minDiversityMilli: Number(json.minDiversityMilli ?? json.min_diversity_milli ?? 0),
+      minSolutions: Number(json.minSolutions ?? json.min_solutions ?? 0),
+      minQualityMilli: Number(json.minQualityMilli ?? json.min_quality_milli ?? 0),
+    };
+  }
+
+  async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
+    const api = this.requireApi();
+    const rv = api.runtimeVersion;
+    return {
+      specName: rv.specName.toString(),
+      specVersion: rv.specVersion.toNumber(),
+      transactionVersion: rv.transactionVersion.toNumber(),
+      implName: rv.implName.toString(),
+    };
+  }
+
+  async getLastRuntimeUpgrade(): Promise<{ blockNumber: string } | null> {
+    const api = this.requireApi();
+    if (!api.query.system?.lastRuntimeUpgrade) return null;
+    const codec = await api.query.system.lastRuntimeUpgrade();
+    const opt = codec as unknown as {
+      isSome?: boolean;
+      unwrap?: () => Record<string, { toString: () => string }>;
+    };
+    if (!opt.isSome || !opt.unwrap) return null;
+    const inner = opt.unwrap();
+    // lastRuntimeUpgrade is `Option<LastRuntimeUpgradeInfo>` with
+    // {spec_version, spec_name}. We want the block number it happened at —
+    // which isn't actually in this storage; the storage tells you what
+    // version was installed, not when. Surface specVersion in lieu of
+    // blockNumber; the substrate worker uses it as an upgrade-trigger
+    // sentinel, not a block reference.
+    return { blockNumber: String(inner.specVersion?.toString() ?? "0") };
+  }
+
+  async getBlockHeader(blockNumber: string): Promise<SubstrateHead | null> {
+    const api = this.requireApi();
+    const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
+    if (hashCodec.isEmpty) return null;
+    const signed = await api.rpc.chain.getBlock(hashCodec);
+    const header = signed.block.header;
+    return {
+      number: header.number.toString(),
+      hash: header.hash.toHex(),
+      parentHash: header.parentHash.toHex(),
+      extrinsicsRoot: header.extrinsicsRoot.toHex(),
+      stateRoot: header.stateRoot.toHex(),
+    };
+  }
+}

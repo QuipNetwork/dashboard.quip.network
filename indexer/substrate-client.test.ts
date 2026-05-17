@@ -2,7 +2,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { FakeSubstrateClient, type SubstrateHead } from "./substrate-client";
+import {
+  FakeSubstrateClient,
+  PolkadotSubstrateClient,
+  type SubstrateHead,
+} from "./substrate-client";
 
 describe("FakeSubstrateClient", () => {
   test("emits finalized head to subscribers and stashes for getBlockHeader", async () => {
@@ -121,4 +125,34 @@ describe("FakeSubstrateClient", () => {
     });
     expect(count).toBe(1);
   });
+});
+
+// PolkadotSubstrateClient integration smoke test. Gated behind
+// QUIP_TEST_VALIDATOR_RPC_URL so unit-test runs (and CI without a
+// validator) don't depend on a live chain. Run locally against the
+// nodes.quip.network v0.2 compose:
+//   QUIP_TEST_VALIDATOR_RPC_URL=ws://localhost:9944 bun test
+const integrationUrl = process.env.QUIP_TEST_VALIDATOR_RPC_URL;
+const maybeTest = integrationUrl ? test : test.skip;
+
+describe("PolkadotSubstrateClient (integration)", () => {
+  maybeTest("connects, reads runtime version, subscribes, disconnects", async () => {
+    const client = new PolkadotSubstrateClient(integrationUrl!, 30_000);
+    await client.connect();
+    expect(client.isConnected()).toBe(true);
+
+    const rt = await client.getRuntimeVersion();
+    expect(rt.specName.length).toBeGreaterThan(0);
+
+    // Quick subscription roundtrip — the chain produces ~1 block per 6s
+    // on quip-protocol-rs spec 101, so wait up to 10s for one new head.
+    const received: SubstrateHead[] = [];
+    const unsub = await client.subscribeNewHeads((h) => received.push(h));
+    await new Promise<void>((resolve) => setTimeout(resolve, 10_000));
+    unsub();
+    expect(received.length).toBeGreaterThan(0);
+
+    await client.disconnect();
+    expect(client.isConnected()).toBe(false);
+  }, 30_000);
 });
