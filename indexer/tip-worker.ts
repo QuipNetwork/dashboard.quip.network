@@ -151,6 +151,10 @@ async function runTipIterationBody(
   } catch (e) {
     warn(`replaceEpochStatus failed: ${formatErr(e)}`);
   }
+  // Canonical-vs-dead marking lives in the backfill worker (audit fix #7),
+  // where chainAnchor info is already computed. The node's `stale_fork`
+  // tag conflates past canonical history with abandoned forks — anchor
+  // matching is the discriminator that doesn't.
 
   const ownedStart = await computeTipOwnedStart(client, state, status, epochsBody);
   if (ownedStart !== null) {

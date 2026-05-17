@@ -128,6 +128,14 @@ export async function runBackfillIteration(
     const ordered = reorderCanonicalFirst(filtered, status.latestEpoch);
     result.planSize = ordered.length;
 
+    // Audit fix #7: any plan entry whose chainAnchor differs from the tip
+    // epoch's is a dead-fork chain. Mark its blocks is_canonical=false so
+    // default reads hide them. Idempotent — re-running has no effect.
+    // (Past canonical history shares the tip's chainAnchor and is left
+    // alone; the node's "stale_fork" status tag isn't a reliable signal
+    // because it labels everything-but-the-tip the same way.)
+    await markDeadForkBlocksNonCanonical(db, plan, status.latestEpoch);
+
     const annotated = await markPlanEntriesDone(ordered, db);
     const nextEntry = annotated.find((e) => !e.done);
     if (!nextEntry) {
@@ -146,6 +154,30 @@ export async function runBackfillIteration(
 async function markIdle(state: IndexerState): Promise<void> {
   state.backfillCursor = { epoch: null, blockIndex: 0 };
   await state.save();
+}
+
+/**
+ * Audit fix #7: epochs that don't share the tip's chainAnchor are dead
+ * forks. Their blocks (whether already indexed by an earlier backfill
+ * pass or freshly inserted) should be flagged is_canonical=false so the
+ * server's default-canonical reads hide them from charts/leaderboards.
+ *
+ * Idempotent: rerunning produces no additional writes once every dead-
+ * fork epoch's rows already carry is_canonical=false.
+ */
+async function markDeadForkBlocksNonCanonical(
+  db: DatabaseAdapter,
+  plan: CanonicalEpoch[],
+  tipEpoch: string,
+): Promise<void> {
+  const tipEntry = plan.find((e) => e.epoch === tipEpoch);
+  if (!tipEntry) return; // Fresh rollover; defer until we know the tip anchor.
+  const tipAnchor = tipEntry.chainAnchor;
+  const deadEpochs = plan
+    .filter((e) => e.chainAnchor !== tipAnchor)
+    .map((e) => e.epoch);
+  if (deadEpochs.length === 0) return;
+  await db.markBlocksCanonical(deadEpochs, false);
 }
 
 async function writeBackfillObservability(

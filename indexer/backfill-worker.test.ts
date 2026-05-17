@@ -365,4 +365,122 @@ describe("runBackfillIteration", () => {
     // Observability still flushed via finally.
     expect(db.observabilityWrites.length).toBe(1);
   });
+
+  it("marks dead-fork blocks is_canonical=false (audit fix #7)", async () => {
+    const db = new FakeDb();
+    // Seed two previously-indexed dead-fork blocks (came in on a prior
+    // pass before the fork was abandoned). They start is_canonical=true.
+    await db.insertBlock({
+      epoch: "fork",
+      blockIndex: 1,
+      blockHash: "hash-dead-1",
+      timestamp: 1,
+      previousHash: "p-1",
+      minerId: "m",
+      minerCategory: "CPU",
+      ecdsaPublicKey: "pk",
+      energy: 0,
+      diversity: 0,
+      numValidSolutions: 0,
+      miningTime: 0,
+      nonce: "0",
+      numNodes: 0,
+      numEdges: 0,
+      difficultyEnergy: 0,
+      minDiversity: 0,
+      minSolutions: 0,
+      substrateBlockNumber: null,
+      substrateBlockHash: null,
+      substrateParentHash: null,
+      extrinsicsRoot: null,
+      stateRoot: null,
+      finalized: false,
+      isCanonical: true,
+    });
+    const state = new IndexerState(db);
+    await state.load();
+
+    // /epochs reports both the canonical tip ("tip" → chain "canonical")
+    // and a dead fork ("fork" → chain "deadfork"). The tip block 1 hash
+    // disagrees with the fork's block 1 hash (different `chainOf`).
+    const client = makeClient(
+      backfillRouter({
+        status: statusBody("tip", 3),
+        epochs: [
+          { epoch: "tip", block_count: 3, first_block: 1, last_block: 3, status: "live" },
+          { epoch: "fork", block_count: 1, first_block: 1, last_block: 1, status: "stale_fork" },
+        ],
+        chainOf: (epoch) => (epoch === "fork" ? "deadfork" : "canonical"),
+      }),
+    );
+
+    await runBackfillIteration(
+      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
+      FIXED_MS,
+      new AbortController().signal,
+    );
+
+    const blocks = await db.getBlocksByEpoch("fork");
+    expect(blocks.every((b) => b.isCanonical === false)).toBe(true);
+  });
+
+  it("does NOT mark past-canonical-history blocks as non-canonical", async () => {
+    // The node tags every non-tip epoch as `stale_fork` in /epochs.
+    // Past canonical history shares the tip's chainAnchor; only entries
+    // with a DIFFERENT anchor should flip is_canonical=false. Without
+    // this distinction the dashboard would erase historical charts.
+    const db = new FakeDb();
+    await db.insertBlock({
+      epoch: "history",
+      blockIndex: 1,
+      blockHash: "hash-canonical-1",
+      timestamp: 1,
+      previousHash: "p-1",
+      minerId: "m",
+      minerCategory: "CPU",
+      ecdsaPublicKey: "pk",
+      energy: 0,
+      diversity: 0,
+      numValidSolutions: 0,
+      miningTime: 0,
+      nonce: "0",
+      numNodes: 0,
+      numEdges: 0,
+      difficultyEnergy: 0,
+      minDiversity: 0,
+      minSolutions: 0,
+      substrateBlockNumber: null,
+      substrateBlockHash: null,
+      substrateParentHash: null,
+      extrinsicsRoot: null,
+      stateRoot: null,
+      finalized: false,
+      isCanonical: true,
+    });
+    const state = new IndexerState(db);
+    await state.load();
+
+    const client = makeClient(
+      backfillRouter({
+        status: statusBody("tip", 5),
+        epochs: [
+          { epoch: "history", block_count: 1, first_block: 1, last_block: 1, status: "stale_fork" },
+          { epoch: "tip", block_count: 5, first_block: 1, last_block: 5, status: "live" },
+        ],
+        // Same chain — history and tip share block_1 hash. (chainOf returns
+        // a single anchor; buildCanonicalPlan derives chainAnchor from
+        // fetching block 1, which uses chainOf.)
+        chainOf: () => "canonical",
+      }),
+    );
+
+    await runBackfillIteration(
+      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
+      FIXED_MS,
+      new AbortController().signal,
+    );
+
+    const blocks = await db.getBlocksByEpoch("history");
+    expect(blocks.every((b) => b.isCanonical === true)).toBe(true);
+  });
 });
