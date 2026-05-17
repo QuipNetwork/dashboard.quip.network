@@ -206,6 +206,8 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
   const pollState: PollIdempotencyCache = {
     babeEpochHash: null,
     difficultyHash: null,
+    chainMinersHash: null,
+    babeAuthoritiesHash: null,
   };
 
   // Initial polls on connect — populate UI before the first timer tick.
@@ -214,6 +216,9 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
   });
   void pollDifficulty(deps, pollState).catch((e) => {
     console.warn("[indexer/substrate] initial difficulty poll failed:", e);
+  });
+  void pollChainState(deps, pollState).catch((e) => {
+    console.warn("[indexer/substrate] initial chain-state poll failed:", e);
   });
 
   const babeTimer = setInterval(() => {
@@ -225,6 +230,9 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
   const chainPollTimer = setInterval(() => {
     void pollDifficulty(deps, pollState).catch((e) => {
       console.warn("[indexer/substrate] difficulty poll failed:", e);
+    });
+    void pollChainState(deps, pollState).catch((e) => {
+      console.warn("[indexer/substrate] chain-state poll failed:", e);
     });
   }, deps.config.substrateChainPollSec * 1000);
 
@@ -263,6 +271,13 @@ interface PollIdempotencyCache {
   // Hash of (energy, diversity, solutions, quality) — bumped on every
   // observed change. Doubles as the dedupe key for insertDifficultySnapshot.
   difficultyHash: string | null;
+  // Hash of the sorted (accountId,deposit,proofs,rewards) tuples — bumped
+  // when any miner's on-chain state changes. Single hash for the whole set
+  // since polling cadence is coarse (default 300s); a granular diff would
+  // add complexity for no win.
+  chainMinersHash: string | null;
+  // Hash of (epochIndex + sorted authority account IDs).
+  babeAuthoritiesHash: string | null;
 }
 
 /**
@@ -338,6 +353,62 @@ async function pollDifficulty(
     minQuality,
     observedAt: nowIso(deps),
   });
+}
+
+/**
+ * Poll the on-chain miner registry (`quantum_pow.Miners`) and the BABE
+ * authority set (`session.validators`). Both share the same cadence
+ * because they're chain-static enough that fine-grained timers add no
+ * value — once per `substrateChainPollSec` is plenty.
+ *
+ * Authorities require a current BABE epoch in the cache to key on; if
+ * the BABE poll hasn't completed yet (first connect window), the
+ * authorities write is deferred to the next tick. Miners write
+ * unconditionally — they're keyed by account ID, not by era.
+ */
+async function pollChainState(
+  deps: SubstrateWorkerDeps,
+  cache: PollIdempotencyCache,
+): Promise<void> {
+  const [miners, authorities, epoch] = await Promise.all([
+    deps.client.getChainMiners(),
+    deps.client.getBabeAuthorities(),
+    deps.client.getBabeEpoch(),
+  ]);
+
+  // --- Miners ---
+  // Sort by accountId so the hash is order-independent. Storage entries
+  // come from a map and have no inherent ordering.
+  const sortedMiners = [...miners].sort((a, b) =>
+    a.accountId < b.accountId ? -1 : a.accountId > b.accountId ? 1 : 0,
+  );
+  const minersHash = sortedMiners
+    .map((m) => `${m.accountId}:${m.deposit}:${m.proofsSubmitted}:${m.proofsWon}:${m.rewardsEarned}`)
+    .join("|");
+  if (minersHash !== cache.chainMinersHash) {
+    cache.chainMinersHash = minersHash;
+    await deps.db.upsertChainMiners(
+      sortedMiners.map((m) => ({
+        accountId: m.accountId,
+        deposit: m.deposit,
+        proofsSubmitted: m.proofsSubmitted,
+        proofsWon: m.proofsWon,
+        rewardsEarned: m.rewardsEarned,
+      })),
+    );
+  }
+
+  // --- BABE authorities ---
+  if (epoch) {
+    const sortedAuthorities = [...authorities].sort((a, b) =>
+      a.accountId < b.accountId ? -1 : a.accountId > b.accountId ? 1 : 0,
+    );
+    const authoritiesHash = `${epoch.epochIndex}|${sortedAuthorities.map((a) => a.accountId).join(",")}`;
+    if (authoritiesHash !== cache.babeAuthoritiesHash) {
+      cache.babeAuthoritiesHash = authoritiesHash;
+      await deps.db.upsertBabeAuthorities(epoch.epochIndex, sortedAuthorities);
+    }
+  }
 }
 
 /**
