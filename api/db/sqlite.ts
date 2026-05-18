@@ -647,9 +647,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
     db.transaction(() => {
       const incoming = new Set(authorities.map((a) => a.accountId));
       const existing = db
-        .query<{ account_id: string }, [number]>(
-          "SELECT account_id FROM babe_authorities WHERE epoch_index = ? AND is_active = 1",
-        )
+        .query<
+          { account_id: string },
+          [number]
+        >("SELECT account_id FROM babe_authorities WHERE epoch_index = ? AND is_active = 1")
         .all(epochIndex);
       for (const row of existing) {
         if (!incoming.has(row.account_id)) {
@@ -845,9 +846,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // chain event report the same numeric value). If precision drift
     // appears in production, switch to ABS(energy - ?) < 1e-6 here.
     const row = this.requireDb()
-      .query<{ epoch: string; block_index: number }, [string, number]>(
-        "SELECT epoch, block_index FROM blocks WHERE miner_id = ? AND energy = ? ORDER BY timestamp DESC LIMIT 1",
-      )
+      .query<
+        { epoch: string; block_index: number },
+        [string, number]
+      >("SELECT epoch, block_index FROM blocks WHERE miner_id = ? AND energy = ? ORDER BY timestamp DESC LIMIT 1")
       .get(minerId, energy);
     if (!row) return null;
     return { epoch: row.epoch, blockIndex: row.block_index };

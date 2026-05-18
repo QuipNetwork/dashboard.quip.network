@@ -169,9 +169,15 @@ describe.skipIf(!TEST_URL)("PostgresAdapter v5 substrate state", () => {
 
   test("findBlockByMinerAndEnergy returns most-recent match", async () => {
     const db = await freshPostgres();
-    await db.insertBlock(sampleBlock({ blockIndex: 1, timestamp: 100, minerId: "M", energy: 12.5 }));
-    await db.insertBlock(sampleBlock({ blockIndex: 2, timestamp: 200, minerId: "M", energy: 12.5 }));
-    await db.insertBlock(sampleBlock({ blockIndex: 3, timestamp: 150, minerId: "N", energy: 12.5 }));
+    await db.insertBlock(
+      sampleBlock({ blockIndex: 1, timestamp: 100, minerId: "M", energy: 12.5 }),
+    );
+    await db.insertBlock(
+      sampleBlock({ blockIndex: 2, timestamp: 200, minerId: "M", energy: 12.5 }),
+    );
+    await db.insertBlock(
+      sampleBlock({ blockIndex: 3, timestamp: 150, minerId: "N", energy: 12.5 }),
+    );
     const match = await db.findBlockByMinerAndEnergy("M", 12.5);
     expect(match).toEqual({ epoch: "1000", blockIndex: 2 });
     await db.disconnect();

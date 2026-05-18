@@ -83,25 +83,23 @@ describe("App smoke test", () => {
     // The store fetches /api/telemetry and /api/telemetry/index in
     // parallel; each call must produce its own Response (Response body is
     // single-read, so a shared instance fails the second .json()).
-    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
-      ((input: RequestInfo | URL) => {
-        const url = typeof input === "string" ? input : input.toString();
-        if (url === "/api/telemetry/index") {
-          return Promise.resolve(
-            new Response(JSON.stringify({ epochs: [], lastUpdated: new Date().toISOString() }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          );
-        }
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/api/telemetry/index") {
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ blocks: MOCK_BLOCKS, nodes: MOCK_NODES, selfAddress: null }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
+          new Response(JSON.stringify({ epochs: [], lastUpdated: new Date().toISOString() }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
         );
-      }) as unknown as typeof fetch,
-    );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ blocks: MOCK_BLOCKS, nodes: MOCK_NODES, selfAddress: null }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as unknown as typeof fetch);
 
     const App = (await import("../App")).default;
 

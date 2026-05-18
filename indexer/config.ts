@@ -162,10 +162,7 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     typeof substrateRpcTimeoutFlag === "string"
       ? parseIntStrict("--substrate-rpc-timeout", substrateRpcTimeoutFlag)
       : process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS
-        ? parseIntStrict(
-            "QUIP_VALIDATOR_RPC_TIMEOUT_MS",
-            process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS,
-          )
+        ? parseIntStrict("QUIP_VALIDATOR_RPC_TIMEOUT_MS", process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS)
         : DEFAULTS.substrateRpcTimeoutMs;
   if (substrateRpcTimeoutMs <= 0) {
     throw new Error(`[indexer] substrate RPC timeout must be > 0, got: ${substrateRpcTimeoutMs}`);
@@ -200,10 +197,7 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     typeof substrateChainPollFlag === "string"
       ? parseIntStrict("--substrate-chain-poll", substrateChainPollFlag)
       : process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC
-        ? parseIntStrict(
-            "QUIP_VALIDATOR_CHAIN_POLL_SEC",
-            process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC,
-          )
+        ? parseIntStrict("QUIP_VALIDATOR_CHAIN_POLL_SEC", process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC)
         : DEFAULTS.substrateChainPollSec;
   if (substrateChainPollSec <= 0) {
     throw new Error(`[indexer] --substrate-chain-poll must be > 0, got: ${substrateChainPollSec}`);

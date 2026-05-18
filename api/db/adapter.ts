@@ -218,18 +218,13 @@ export interface DatabaseAdapter {
   // Replace-in-place the BABE authorities for the given epoch. UPSERT
   // by accountId, flip is_active=false for prior accounts not in the new
   // set. Never deletes — preserves per-epoch history.
-  upsertBabeAuthorities(
-    epochIndex: number,
-    authorities: BabeAuthorityRecord[],
-  ): Promise<void>;
+  upsertBabeAuthorities(epochIndex: number, authorities: BabeAuthorityRecord[]): Promise<void>;
   getActiveBabeAuthorities(): Promise<BabeAuthorityRecord[]>;
 
   // On-chain miner state from quantum_pow.Miners. The telemetry-node join
   // happens at read time in the server, not write time — keep this table
   // chain-pure.
-  upsertChainMiners(
-    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>,
-  ): Promise<void>;
+  upsertChainMiners(miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>): Promise<void>;
   getChainMiners(): Promise<Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>>;
 
   // Append-only difficulty snapshots. Worker dedupes against most recent

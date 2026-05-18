@@ -31,12 +31,15 @@ async function applyForwardMigrationIfRemotePostgres(): Promise<void> {
     const rows = await sql<{ value: string | null }[]>`
       SELECT value FROM meta WHERE key = 'schema_version'
     `.catch(() => [] as { value: string | null }[]);
-    const stored = rows[0]?.value !== undefined && rows[0].value !== null ? Number(rows[0].value) : null;
+    const stored =
+      rows[0]?.value !== undefined && rows[0].value !== null ? Number(rows[0].value) : null;
     if (stored === 5) {
       console.log("[server] remote postgres already at schema_version=5, skipping forward SQL");
       return;
     }
-    console.log(`[server] remote postgres at stored=${stored ?? "none"}; applying v5 forward migration`);
+    console.log(
+      `[server] remote postgres at stored=${stored ?? "none"}; applying v5 forward migration`,
+    );
     const ddl = readFileSync(V5_SQL_PATH, "utf8");
     await sql.unsafe(ddl);
     console.log("[server] v5 forward migration applied");

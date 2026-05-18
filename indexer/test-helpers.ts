@@ -146,7 +146,10 @@ export class FakeDb implements DatabaseAdapter {
     if (this.currentBabeEpochIndex == null) return null;
     return this.babeEpochs.get(this.currentBabeEpochIndex) ?? null;
   }
-  async upsertBabeAuthorities(_epochIndex: number, authorities: BabeAuthorityRecord[]): Promise<void> {
+  async upsertBabeAuthorities(
+    _epochIndex: number,
+    authorities: BabeAuthorityRecord[],
+  ): Promise<void> {
     const incoming = new Set(authorities.map((a) => a.accountId));
     for (const [id, prev] of this.babeAuthorities) {
       if (!incoming.has(id)) prev.isActive = false;
@@ -192,9 +195,7 @@ export class FakeDb implements DatabaseAdapter {
       finalized: boolean;
     }>,
   ): Promise<{ matched: boolean }> {
-    const block = this.inserted.find(
-      (b) => b.epoch === epoch && b.blockIndex === blockIndex,
-    );
+    const block = this.inserted.find((b) => b.epoch === epoch && b.blockIndex === blockIndex);
     if (!block) return { matched: false };
     if (fields.substrateBlockNumber !== undefined)
       block.substrateBlockNumber = fields.substrateBlockNumber ?? block.substrateBlockNumber;
@@ -204,8 +205,7 @@ export class FakeDb implements DatabaseAdapter {
       block.substrateParentHash = fields.substrateParentHash ?? block.substrateParentHash;
     if (fields.extrinsicsRoot !== undefined)
       block.extrinsicsRoot = fields.extrinsicsRoot ?? block.extrinsicsRoot;
-    if (fields.stateRoot !== undefined)
-      block.stateRoot = fields.stateRoot ?? block.stateRoot;
+    if (fields.stateRoot !== undefined) block.stateRoot = fields.stateRoot ?? block.stateRoot;
     if (fields.finalized === true) block.finalized = true;
     this.substrateFieldUpdates.push({ epoch, blockIndex, fields });
     return { matched: true };

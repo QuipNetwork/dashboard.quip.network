@@ -70,7 +70,11 @@ describe("substrate worker", () => {
     const ac = new AbortController();
     const loop = runSubstrateLoop(
       {
-        config: makeConfig({ substrateRpcUrl: "ws://x", substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
         client,
         db,
         state,
@@ -123,7 +127,11 @@ describe("substrate worker", () => {
     const ac = new AbortController();
     const loop = runSubstrateLoop(
       {
-        config: makeConfig({ substrateRpcUrl: "ws://x", substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
         client,
         db,
         state,
@@ -164,7 +172,11 @@ describe("substrate worker", () => {
     const ac = new AbortController();
     const loop = runSubstrateLoop(
       {
-        config: makeConfig({ substrateRpcUrl: "ws://x", substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
         client,
         db,
         state,
@@ -202,7 +214,11 @@ describe("substrate worker", () => {
     const ac = new AbortController();
     const loop = runSubstrateLoop(
       {
-        config: makeConfig({ substrateRpcUrl: "ws://x", substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
         client,
         db,
         state,
@@ -237,7 +253,11 @@ describe("substrate worker", () => {
     const ac = new AbortController();
     const loop = runSubstrateLoop(
       {
-        config: makeConfig({ substrateRpcUrl: "ws://x", substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
         client,
         db,
         state,
@@ -563,7 +583,11 @@ describe("substrate worker", () => {
     const ac = new AbortController();
     const loop = runSubstrateLoop(
       {
-        config: makeConfig({ substrateRpcUrl: "ws://x", substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
         client,
         db,
         state,

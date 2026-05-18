@@ -48,10 +48,7 @@ function backoffMs(attempt: number, capMs: number): number {
  * finalized. Single statement — concurrency-safe since `finalized` is
  * monotonic (only sets, never clears).
  */
-async function markFinalizedThrough(
-  db: DatabaseAdapter,
-  finalizedNumber: string,
-): Promise<void> {
+async function markFinalizedThrough(db: DatabaseAdapter, finalizedNumber: string): Promise<void> {
   // The adapter's updateBlockSubstrateFields is per-row; finality is a
   // bulk operation. Use a direct query via the adapter's internal API
   // would couple to adapter internals. Instead we walk pending rows
@@ -383,7 +380,9 @@ async function pollChainState(
     a.accountId < b.accountId ? -1 : a.accountId > b.accountId ? 1 : 0,
   );
   const minersHash = sortedMiners
-    .map((m) => `${m.accountId}:${m.deposit}:${m.proofsSubmitted}:${m.proofsWon}:${m.rewardsEarned}`)
+    .map(
+      (m) => `${m.accountId}:${m.deposit}:${m.proofsSubmitted}:${m.proofsWon}:${m.rewardsEarned}`,
+    )
     .join("|");
   if (minersHash !== cache.chainMinersHash) {
     cache.chainMinersHash = minersHash;
@@ -416,10 +415,7 @@ async function pollChainState(
  * REST side hasn't landed the block yet, buffer the enrichment so the
  * tip worker can replay it after insertBlock.
  */
-async function enrichOnBlockWinner(
-  deps: SubstrateWorkerDeps,
-  ev: BlockWinnerEvent,
-): Promise<void> {
+async function enrichOnBlockWinner(deps: SubstrateWorkerDeps, ev: BlockWinnerEvent): Promise<void> {
   const { client, db, state } = deps;
   const energy = ev.energyMilli / 1000;
 

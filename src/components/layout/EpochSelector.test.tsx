@@ -101,7 +101,12 @@ describe("EpochSelector audit-fix #2 (status badging)", () => {
   test("badges actual stale_fork epochs from telemetryIndex", () => {
     const index: TelemetryIndex = {
       epochs: [
-        { epoch: "aaaa1111", blockCount: 5, status: "stale_fork", firstBlockTimestamp: 1_700_000_001 },
+        {
+          epoch: "aaaa1111",
+          blockCount: 5,
+          status: "stale_fork",
+          firstBlockTimestamp: 1_700_000_001,
+        },
         { epoch: "bbbb2222", blockCount: 1, status: "live", firstBlockTimestamp: 1_700_000_005 },
       ],
       lastUpdated: new Date().toISOString(),

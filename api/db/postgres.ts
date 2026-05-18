@@ -721,16 +721,24 @@ export class PostgresAdapter implements DatabaseAdapter {
       return `$${i++}`;
     };
     if (fields.substrateBlockNumber !== undefined) {
-      setClauses.push(`substrate_block_number = COALESCE(${next(fields.substrateBlockNumber)}, substrate_block_number)`);
+      setClauses.push(
+        `substrate_block_number = COALESCE(${next(fields.substrateBlockNumber)}, substrate_block_number)`,
+      );
     }
     if (fields.substrateBlockHash !== undefined) {
-      setClauses.push(`substrate_block_hash = COALESCE(${next(fields.substrateBlockHash)}, substrate_block_hash)`);
+      setClauses.push(
+        `substrate_block_hash = COALESCE(${next(fields.substrateBlockHash)}, substrate_block_hash)`,
+      );
     }
     if (fields.substrateParentHash !== undefined) {
-      setClauses.push(`substrate_parent_hash = COALESCE(${next(fields.substrateParentHash)}, substrate_parent_hash)`);
+      setClauses.push(
+        `substrate_parent_hash = COALESCE(${next(fields.substrateParentHash)}, substrate_parent_hash)`,
+      );
     }
     if (fields.extrinsicsRoot !== undefined) {
-      setClauses.push(`extrinsics_root = COALESCE(${next(fields.extrinsicsRoot)}, extrinsics_root)`);
+      setClauses.push(
+        `extrinsics_root = COALESCE(${next(fields.extrinsicsRoot)}, extrinsics_root)`,
+      );
     }
     if (fields.stateRoot !== undefined) {
       setClauses.push(`state_root = COALESCE(${next(fields.stateRoot)}, state_root)`);

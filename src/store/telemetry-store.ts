@@ -99,9 +99,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
  * — returning a fresh Map from a Zustand selector causes infinite render
  * loops (the new reference looks like a state change every poll).
  */
-export function buildEpochStatusMap(
-  index: TelemetryIndex | null,
-): Map<string, EpochStatus> {
+export function buildEpochStatusMap(index: TelemetryIndex | null): Map<string, EpochStatus> {
   const map = new Map<string, EpochStatus>();
   for (const e of index?.epochs ?? []) map.set(e.epoch, e.status);
   return map;

@@ -25,8 +25,8 @@ export function ChainMinersView() {
       <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
         <p className="font-heading text-2xl text-brand-gray-5">No substrate data</p>
         <p className="mt-2 font-accent text-sm text-brand-gray-3">
-          Set <code>QUIP_VALIDATOR_RPC_URL</code> on the indexer to surface on-chain miner state
-          and validator authorities here.
+          Set <code>QUIP_VALIDATOR_RPC_URL</code> on the indexer to surface on-chain miner state and
+          validator authorities here.
         </p>
       </div>
     );
@@ -75,9 +75,7 @@ export function ChainMinersView() {
                       {shortAddress(m.accountId)}
                     </td>
                     <td className="px-4 py-2 text-brand-gray-3">
-                      {m.telemetryNodeAddress
-                        ? shortAddress(m.telemetryNodeAddress)
-                        : "—"}
+                      {m.telemetryNodeAddress ? shortAddress(m.telemetryNodeAddress) : "—"}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">
                       {formatBalance(m.deposit)}

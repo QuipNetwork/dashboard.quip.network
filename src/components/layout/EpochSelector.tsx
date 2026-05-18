@@ -3,10 +3,7 @@
 import { useMemo } from "react";
 
 import { formatEpochId } from "../../lib/format";
-import {
-  buildEpochStatusMap,
-  useTelemetryStore,
-} from "../../store/telemetry-store";
+import { buildEpochStatusMap, useTelemetryStore } from "../../store/telemetry-store";
 import { useUIStore, type EpochFilter } from "../../store/ui-store";
 import type { EpochStatus } from "../../types/telemetry";
 

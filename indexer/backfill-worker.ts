@@ -173,9 +173,7 @@ async function markDeadForkBlocksNonCanonical(
   const tipEntry = plan.find((e) => e.epoch === tipEpoch);
   if (!tipEntry) return; // Fresh rollover; defer until we know the tip anchor.
   const tipAnchor = tipEntry.chainAnchor;
-  const deadEpochs = plan
-    .filter((e) => e.chainAnchor !== tipAnchor)
-    .map((e) => e.epoch);
+  const deadEpochs = plan.filter((e) => e.chainAnchor !== tipAnchor).map((e) => e.epoch);
   if (deadEpochs.length === 0) return;
   await db.markBlocksCanonical(deadEpochs, false);
 }

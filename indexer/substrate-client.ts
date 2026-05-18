@@ -25,10 +25,10 @@ export interface SubstrateHead {
 // quip-protocol-rs/pallets/quantum-pow/src/lib.rs:159-164). The substrate
 // worker subscribes to system.events and filters for these.
 export interface BlockWinnerEvent {
-  miner: string;         // SS58 account ID
-  reward: string;        // u128 as string
-  energyMilli: number;   // integer; divide by 1000 to compare to BlockRecord.energy
-  submittedAt: string;   // substrate block number (u64 as string)
+  miner: string; // SS58 account ID
+  reward: string; // u128 as string
+  energyMilli: number; // integer; divide by 1000 to compare to BlockRecord.energy
+  submittedAt: string; // substrate block number (u64 as string)
 }
 
 export interface BabeEpochInfo {
@@ -376,7 +376,9 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     let authorityCount = 0;
     if (api.query.session?.validators) {
       const validators = await api.query.session.validators();
-      authorityCount = Array.isArray(validators) ? validators.length : (validators as unknown as { length?: number }).length ?? 0;
+      authorityCount = Array.isArray(validators)
+        ? validators.length
+        : ((validators as unknown as { length?: number }).length ?? 0);
     }
     return { epochIndex, currentSlot, epochStartSlot, slotsPerEpoch, authorityCount };
   }

@@ -43,10 +43,7 @@ export async function runWorkers(
   const signals = parentSignal ? [ac.signal, parentSignal] : [ac.signal];
   const combined = signals.length === 1 ? ac.signal : AbortSignal.any(signals);
 
-  const wrap = async (
-    name: WorkerName,
-    fn: (s: AbortSignal) => Promise<void>,
-  ): Promise<void> => {
+  const wrap = async (name: WorkerName, fn: (s: AbortSignal) => Promise<void>): Promise<void> => {
     try {
       await fn(combined);
     } catch (e) {
