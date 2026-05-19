@@ -9,6 +9,7 @@ import type {
   DifficultyRecord,
   IndexerObservability,
   MinerHardwareRecord,
+  MinerStats,
 } from "../../src/types/telemetry";
 
 /**
@@ -17,66 +18,76 @@ import type {
  * nullability change, manual DB edit) would otherwise sail past TS's compile-
  * time types and produce NaN arithmetic downstream in `computeChainHealth`.
  *
- * Returns null on any parse or shape failure — the indexer overwrites on the
- * next poll, so a transient bad row shouldn't break the telemetry endpoint.
- * `source` is included in the warn so operators can tell sqlite from postgres.
+ * Returns null on any parse or top-level shape failure — the indexer
+ * overwrites on the next poll, so a transient bad row shouldn't break the
+ * telemetry endpoint. `minerStats` is best-effort: a malformed sub-object
+ * degrades to `null` rather than rejecting the whole record.
+ *
+ * The `_adapter` parameter is unused in v6 (no adapter-specific logic) but
+ * kept for API compatibility with sqlite/postgres callers.
  */
 export function parseIndexerObservability(
   raw: string,
-  source: "sqlite" | "postgres",
+  _adapter: "sqlite" | "postgres",
 ): IndexerObservability | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[db/${source}] corrupt indexer_observability (JSON parse): ${msg}`);
+  } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null) {
-    console.warn(`[db/${source}] corrupt indexer_observability: not an object`);
-    return null;
-  }
+  if (!parsed || typeof parsed !== "object") return null;
   const p = parsed as Record<string, unknown>;
-  const isFiniteInt = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
   const isStr = (v: unknown): v is string => typeof v === "string";
-  const isNullableStr = (v: unknown): v is string | null => v === null || isStr(v);
-  const isBool = (v: unknown): v is boolean => typeof v === "boolean";
-  if (
-    !isStr(p.nodeLatestEpoch) ||
-    !isFiniteInt(p.nodeLatestBlockIndex) ||
-    !isNullableStr(p.tipEpoch) ||
-    !isFiniteInt(p.tipBlockIndex) ||
-    !isNullableStr(p.backfillEpoch) ||
-    !isFiniteInt(p.backfillBlockIndex) ||
-    !isStr(p.lastStatusFetchAt) ||
-    !isNullableStr(p.lastBlockInsertAt) ||
-    !isNullableStr(p.nodesObservedAt) ||
-    // v5 fields. A v4 blob (missing these) is rejected so the indexer's
-    // next poll overwrites with a fresh v5 shape — same recovery pattern
-    // as the cursor schema bump in v4.
-    !isNullableStr(p.lastSubstrateEventAt) ||
-    !isNullableStr(p.bestBlockHeight) ||
-    !isNullableStr(p.finalizedBlockHeight) ||
-    !isBool(p.chainConnected)
-  ) {
-    console.warn(`[db/${source}] corrupt indexer_observability: shape mismatch`);
-    return null;
-  }
+  const isNullableStr = (v: unknown): v is string | null =>
+    v === null || typeof v === "string";
+
+  if (!isStr(p.lastStatusFetchAt)) return null;
+  if (!isNullableStr(p.lastBlockInsertAt)) return null;
+  if (!isNullableStr(p.lastSubstrateEventAt)) return null;
+  if (!isNullableStr(p.bestBlockHeight)) return null;
+  if (!isNullableStr(p.finalizedBlockHeight)) return null;
+  if (typeof p.chainConnected !== "boolean") return null;
+  if (!isNullableStr(p.chainHeadFromNode)) return null;
+
   return {
-    nodeLatestEpoch: p.nodeLatestEpoch,
-    nodeLatestBlockIndex: p.nodeLatestBlockIndex,
-    tipEpoch: p.tipEpoch,
-    tipBlockIndex: p.tipBlockIndex,
-    backfillEpoch: p.backfillEpoch,
-    backfillBlockIndex: p.backfillBlockIndex,
+    chainHeadFromNode: p.chainHeadFromNode,
     lastStatusFetchAt: p.lastStatusFetchAt,
     lastBlockInsertAt: p.lastBlockInsertAt,
-    nodesObservedAt: p.nodesObservedAt,
     lastSubstrateEventAt: p.lastSubstrateEventAt,
     bestBlockHeight: p.bestBlockHeight,
     finalizedBlockHeight: p.finalizedBlockHeight,
     chainConnected: p.chainConnected,
+    minerStats: parseMinerStats(p.minerStats),
+  };
+}
+
+/**
+ * Best-effort parse of the optional `minerStats` sub-object. Returns null if
+ * the payload is missing, not an object, or lacks the two required counters
+ * (`totalBlocksAttempted`, `totalBlocksWon`). Other numeric fields default to
+ * 0 when absent/non-finite so the UI never has to guard NaN.
+ */
+function parseMinerStats(raw: unknown): MinerStats | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const n = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const a = n(r.totalBlocksAttempted);
+  const w = n(r.totalBlocksWon);
+  if (a === null || w === null) return null;
+  return {
+    totalBlocksAttempted: a,
+    totalBlocksWon: w,
+    winRate: n(r.winRate) ?? 0,
+    totalMiningTime: n(r.totalMiningTime) ?? 0,
+    avgMiningTime: n(r.avgMiningTime) ?? 0,
+    headsObserved: n(r.headsObserved) ?? 0,
+    contextsDispatched: n(r.contextsDispatched) ?? 0,
+    resultsReceived: n(r.resultsReceived) ?? 0,
+    proofsSubmitted: n(r.proofsSubmitted) ?? 0,
+    staleDrops: n(r.staleDrops) ?? 0,
+    submissionErrors: n(r.submissionErrors) ?? 0,
   };
 }
 
