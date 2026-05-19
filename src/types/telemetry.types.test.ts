@@ -14,7 +14,7 @@ describe("v6 telemetry types", () => {
   test("BlockRecord drops epoch concept; substrate fields are non-null", () => {
     const b: BlockRecord = {
       blockHash: "0xpow",
-      substrateBlockNumber: 4500,
+      substrateBlockNumber: "4500",
       substrateBlockHash: "0xsub",
       substrateParentHash: "0xpar",
       timestamp: 1700000000,
@@ -33,7 +33,7 @@ describe("v6 telemetry types", () => {
       minSolutions: 5,
       finalized: false,
     };
-    expect(b.substrateBlockNumber).toBe(4500);
+    expect(b.substrateBlockNumber).toBe("4500");
     // @ts-expect-error - epoch is gone from v0.3
     b.epoch;
     // @ts-expect-error - blockIndex is gone from v0.3
@@ -44,6 +44,20 @@ describe("v6 telemetry types", () => {
     b.ecdsaPublicKey;
     // @ts-expect-error - isCanonical is gone (no more stale forks)
     b.isCanonical;
+
+    // String-encoded fields must reject numeric values.
+    const _r: BlockRecord = {
+      ...b,
+      // @ts-expect-error - reward is u128 as string
+      reward: 1000,
+    };
+    const _n: BlockRecord = {
+      ...b,
+      // @ts-expect-error - nonce is u64 as string
+      nonce: 42,
+    };
+    expect(_r.blockHash).toBe(b.blockHash);
+    expect(_n.blockHash).toBe(b.blockHash);
   });
 
   test("MinerHardwareRecord carries source enum for forward-compat", () => {
@@ -77,7 +91,7 @@ describe("v6 telemetry types", () => {
 
   test("IndexerObservability drops epoch cursors; carries minerStats", () => {
     const obs: IndexerObservability = {
-      chainHeadFromNode: 4939,
+      chainHeadFromNode: "4939",
       lastStatusFetchAt: "2026-05-19T00:00:00Z",
       lastBlockInsertAt: null,
       lastSubstrateEventAt: null,

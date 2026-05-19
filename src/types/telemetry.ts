@@ -10,9 +10,20 @@ export type MinerCategory = "CPU" | "GPU" | "QPU" | "OTHER";
 
 export type MinerHardwareSource = "self" | "peer-query" | "chain";
 
+/**
+ * A PoW block as recorded by the dashboard. Substrate is the canonical source
+ * in v0.3 — the substrate worker subscribes to quantum_pow's
+ * `BlockWinner` + `ProofAccepted` event pairs (in `on_finalize`) and inserts
+ * one row per substrate block whose PoW win is accepted. `blockHash` is the
+ * PoW solution hash and serves as the table PK. All substrate_* fields are
+ * populated at insert time — there is no two-phase enrichment in v0.3.
+ */
 export interface BlockRecord {
   blockHash: string;
-  substrateBlockNumber: number;
+  // u64 as string — substrate block heights kept as strings throughout the
+  // dashboard for consistency and u64-precision safety. Indexer/UI convert to
+  // Number for display/arithmetic at the boundary.
+  substrateBlockNumber: string;
   substrateBlockHash: string;
   substrateParentHash: string;
   timestamp: number;
@@ -22,7 +33,9 @@ export interface BlockRecord {
   numValidSolutions: number;
   qualityMilli: number;
   miningTime: number;
+  // u128 as string (token amount).
   reward: string;
+  // u64 as string — nonce can exceed Number.MAX_SAFE_INTEGER.
   nonce: string;
   numNodes: number;
   numEdges: number;
@@ -182,7 +195,9 @@ export interface MinerStats {
  *     can render miner tiles without a separate fetch.
  */
 export interface IndexerObservability {
-  chainHeadFromNode: number | null;
+  // u64 as string — substrate block heights kept as strings throughout the
+  // dashboard for consistency and u64-precision safety.
+  chainHeadFromNode: string | null;
   lastStatusFetchAt: string; // ISO 8601
   lastBlockInsertAt: string | null;
   lastSubstrateEventAt: string | null;
