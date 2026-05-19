@@ -9,153 +9,121 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
-  RuntimeVersion,
+  MinerHardwareRecord,
+  MinerStats,
   TelemetryResponse,
 } from "./telemetry";
 
-describe("v5 telemetry types", () => {
-  test("BlockRecord carries substrate-side fields incl. substrate_block_number", () => {
+describe("v6 telemetry types", () => {
+  test("BlockRecord drops epoch concept; substrate fields are non-null", () => {
     const b: BlockRecord = {
-      epoch: "abc",
-      blockIndex: 1,
-      blockHash: "0x00",
-      timestamp: 1,
-      previousHash: "0x00",
-      minerId: "m",
-      minerCategory: "CPU",
-      ecdsaPublicKey: "k",
-      energy: 0,
-      diversity: 0,
-      numValidSolutions: 0,
-      miningTime: 0,
-      nonce: "0",
-      numNodes: 0,
-      numEdges: 0,
-      difficultyEnergy: 0,
-      minDiversity: 0,
-      minSolutions: 0,
-      substrateBlockNumber: null,
-      substrateBlockHash: null,
-      substrateParentHash: null,
-      extrinsicsRoot: null,
-      stateRoot: null,
+      blockHash: "0xpow",
+      substrateBlockNumber: 4500,
+      substrateBlockHash: "0xsub",
+      substrateParentHash: "0xpar",
+      timestamp: 1700000000,
+      minerId: "5GPP…cF64",
+      energy: -2510,
+      diversity: 0.42,
+      numValidSolutions: 5,
+      qualityMilli: 850,
+      miningTime: 12,
+      reward: "1000000000000",
+      nonce: "42",
+      numNodes: 100,
+      numEdges: 200,
+      difficultyEnergy: -2500,
+      minDiversity: 0.2,
+      minSolutions: 5,
       finalized: false,
-      isCanonical: true,
     };
-    expect(b.finalized).toBe(false);
-    expect(b.isCanonical).toBe(true);
-    expect(b.substrateBlockNumber).toBeNull();
+    expect(b.substrateBlockNumber).toBe(4500);
+    // @ts-expect-error - epoch is gone from v0.3
+    b.epoch;
+    // @ts-expect-error - blockIndex is gone from v0.3
+    b.blockIndex;
+    // @ts-expect-error - minerCategory now lives on MinerHardwareRecord
+    b.minerCategory;
+    // @ts-expect-error - ecdsaPublicKey is gone from v0.3
+    b.ecdsaPublicKey;
+    // @ts-expect-error - isCanonical is gone (no more stale forks)
+    b.isCanonical;
   });
 
-  test("RuntimeVersion shape", () => {
-    const rv: RuntimeVersion = {
-      specName: "quip",
-      specVersion: 101,
-      transactionVersion: 2,
-      implName: "quip",
-      lastRuntimeUpgrade: null,
+  test("MinerHardwareRecord carries source enum for forward-compat", () => {
+    const m: MinerHardwareRecord = {
+      accountId: "5GPP…cF64",
+      nodeId: "quip-miner-pow",
+      miners: [{ id: "quip-miner-pow-CPU-1", type: "CPU" }],
+      primaryType: "CPU",
+      source: "self",
+      observedAt: "2026-05-19T00:00:00Z",
     };
-    expect(rv.specVersion).toBe(101);
+    expect(m.source).toBe("self");
   });
 
-  test("ChainHead shape", () => {
-    const head: ChainHead = {
-      bestBlockNumber: "100",
-      bestBlockHash: "0xabc",
-      finalizedBlockNumber: "98",
-      finalizedBlockHash: "0xdef",
-      finalityLag: 2,
-      runtime: {
-        specName: "quip",
-        specVersion: 101,
-        transactionVersion: 2,
-        implName: "quip",
-        lastRuntimeUpgrade: null,
-      },
-      updatedAt: "2026-05-15T00:00:00Z",
+  test("MinerStats mirrors /api/v1/stats payload", () => {
+    const s: MinerStats = {
+      totalBlocksAttempted: 23,
+      totalBlocksWon: 0,
+      winRate: 0.0,
+      totalMiningTime: 0.0,
+      avgMiningTime: 0.0,
+      headsObserved: 23,
+      contextsDispatched: 46,
+      resultsReceived: 0,
+      proofsSubmitted: 0,
+      staleDrops: 0,
+      submissionErrors: 0,
     };
-    expect(head.finalityLag).toBe(2);
+    expect(s.headsObserved).toBe(23);
   });
 
-  test("BabeEpochState distinguishes BABE epoch from PoW epoch", () => {
-    const e: BabeEpochState = {
-      epochIndex: 7,
-      currentSlot: "16801",
-      epochStartSlot: "16800",
-      slotsPerEpoch: 2400,
-      currentSlotInEpoch: 1,
-      authorityCount: 3,
-    };
-    expect(e.epochIndex).toBe(7);
-    expect(e.slotsPerEpoch).toBe(2400);
-  });
-
-  test("BabeAuthorityRecord is thin (no FRAME staking fields)", () => {
-    const a: BabeAuthorityRecord = {
-      accountId: "5GrwvaEF...",
-      displayName: null,
-    };
-    expect(a.accountId.startsWith("5")).toBe(true);
-  });
-
-  test("ChainMinerRecord carries on-chain miner stats", () => {
-    const m: ChainMinerRecord = {
-      accountId: "5GrwvaEF...",
-      deposit: "1000000000000",
-      proofsSubmitted: "42",
-      proofsWon: "7",
-      rewardsEarned: "7000000000000",
-      telemetryNodeAddress: null,
-    };
-    expect(m.proofsWon).toBe("7");
-  });
-
-  test("DifficultyRecord snapshot shape", () => {
-    const d: DifficultyRecord = {
-      observedAtBlock: "100",
-      difficultyEnergy: 12.5,
-      minDiversity: 0.5,
-      minSolutions: 3,
-      minQuality: 0.25,
-      observedAt: "2026-05-15T00:00:00Z",
-    };
-    expect(d.difficultyEnergy).toBe(12.5);
-    expect(d.minQuality).toBe(0.25);
-  });
-
-  test("IndexerObservability carries substrate heartbeat", () => {
+  test("IndexerObservability drops epoch cursors; carries minerStats", () => {
     const obs: IndexerObservability = {
-      nodeLatestEpoch: "a",
-      nodeLatestBlockIndex: 0,
-      tipEpoch: null,
-      tipBlockIndex: 0,
-      backfillEpoch: null,
-      backfillBlockIndex: 0,
-      lastStatusFetchAt: "2026-05-15T00:00:00Z",
+      chainHeadFromNode: 4939,
+      lastStatusFetchAt: "2026-05-19T00:00:00Z",
       lastBlockInsertAt: null,
-      nodesObservedAt: null,
       lastSubstrateEventAt: null,
       bestBlockHeight: null,
       finalizedBlockHeight: null,
       chainConnected: false,
+      minerStats: null,
     };
-    expect(obs.chainConnected).toBe(false);
+    expect(obs.minerStats).toBeNull();
+    // @ts-expect-error - epoch fields gone
+    obs.nodeLatestEpoch;
+    // @ts-expect-error - backfill cursor gone
+    obs.backfillEpoch;
+    // @ts-expect-error - nodes-related gone
+    obs.nodesObservedAt;
   });
 
-  test("TelemetryResponse carries chain head, BABE epoch, authorities, miners, difficulty", () => {
+  test("TelemetryResponse drops nodes; keeps selfAddress (now SS58)", () => {
     const r: TelemetryResponse = {
       blocks: [],
-      nodes: { updatedAt: "", nodeCount: 0, activeCount: 0, nodes: {} },
       selfAddress: null,
       indexer: null,
-      serverTime: "2026-05-15T00:00:00Z",
+      serverTime: "2026-05-19T00:00:00Z",
       chainHead: null,
       babeEpoch: null,
       babeAuthorities: [],
       chainMiners: [],
       recentDifficulty: [],
     };
-    expect(r.chainMiners).toEqual([]);
-    expect(r.recentDifficulty).toEqual([]);
+    // @ts-expect-error - nodes is gone
+    r.nodes;
+  });
+
+  test("ChainMinerRecord.telemetryNodeAddress now joined from miner_hardware", () => {
+    const m: ChainMinerRecord = {
+      accountId: "5GPP…cF64",
+      deposit: "1000000000000",
+      proofsSubmitted: "5",
+      proofsWon: "1",
+      rewardsEarned: "1000000000000",
+      telemetryNodeAddress: "quip-miner-pow",
+    };
+    expect(m.telemetryNodeAddress).toBe("quip-miner-pow");
   });
 });

@@ -1,60 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Types mirror the Quip node v0.1 telemetry REST API
-// (/api/v1/telemetry/*). Field names are camelCase on our side; the indexer
-// converts snake_case node payloads before storing.
+// Types for v0.3 dashboard. The chain (quip-protocol-rs spec >=101) is the
+// canonical source for per-block PoW data via the `quantum_pow` pallet's
+// `BlockWinner` + `ProofAccepted` events. The miner's `/api/v1/status` /
+// `/api/v1/system` / `/api/v1/stats` REST endpoints supply self-identity and
+// aggregate counters only — there is no peer-aggregation surface in v0.2/v0.3.
 
-export type MinerCategory = "CPU" | "GPU" | "QPU";
+export type MinerCategory = "CPU" | "GPU" | "QPU" | "OTHER";
 
-// Epoch IDs are 16-char hex hashes (e.g. "e0a08eef1dfff726") as of the node's
-// post-timestamp-cutover telemetry. They're opaque strings end-to-end —
-// never parse them to Number. Per-block time still lives in `timestamp`.
-export type EpochId = string;
-
-/**
- * Tag for `TelemetryIndex.epochs`: "live" is the single canonical-tip epoch
- * the node is currently extending; "stale_fork" is any indexed-but-abandoned
- * chain. Sourced from `/api/v1/telemetry/epochs`.
- */
-export type EpochStatus = "live" | "stale_fork";
+export type MinerHardwareSource = "self" | "peer-query" | "chain";
 
 export interface BlockRecord {
-  epoch: EpochId;
-  blockIndex: number;
   blockHash: string;
+  substrateBlockNumber: number;
+  substrateBlockHash: string;
+  substrateParentHash: string;
   timestamp: number;
-  previousHash: string;
   minerId: string;
-  minerCategory: MinerCategory;
-  ecdsaPublicKey: string;
   energy: number;
   diversity: number;
   numValidSolutions: number;
+  qualityMilli: number;
   miningTime: number;
-  // u64 — exceeds Number.MAX_SAFE_INTEGER, stored/transported as string
+  reward: string;
   nonce: string;
   numNodes: number;
   numEdges: number;
   difficultyEnergy: number;
   minDiversity: number;
   minSolutions: number;
-
-  // Substrate-side metadata (filled by substrate-worker; null until joined).
-  // The join is via `quantum_pow.BlockWinner` events on quip-protocol-rs: the
-  // event's `submitted_at` becomes substrateBlockNumber, then `chain.getBlock`
-  // fills the rest. Lookup keyed by (minerId, energy) within the event payload.
-  // u64 as string — substrate block heights exceed Number.MAX_SAFE_INTEGER.
-  substrateBlockNumber: string | null;
-  substrateBlockHash: string | null;
-  substrateParentHash: string | null;
-  extrinsicsRoot: string | null;
-  stateRoot: string | null;
-  // True once the substrate chain has finalized this PoW block's substrate
-  // counterpart. Finality is monotonic — once true, never reverts.
   finalized: boolean;
-  // False when this block is part of a stale_fork epoch. Default reads filter
-  // this out unless a view explicitly opts in.
-  isCanonical: boolean;
 }
 
 export interface RuntimeVersion {
@@ -84,9 +59,8 @@ export interface ChainHead {
 }
 
 /**
- * Substrate BABE epoch state. **Distinct from `EpochId` (PoW epoch)** — this
- * is the substrate-chain consensus rotation concept, slot-based, typically
- * ~2400 slots / ~4h on quip-protocol-rs spec_version 101.
+ * Substrate BABE epoch state — the substrate-chain consensus rotation concept,
+ * slot-based, typically ~2400 slots / ~4h on quip-protocol-rs spec_version 101.
  */
 export interface BabeEpochState {
   epochIndex: number;
@@ -128,9 +102,10 @@ export interface ChainMinerRecord {
   proofsWon: string;
   // u128 as string (token amount).
   rewardsEarned: string;
-  // Joined from the existing nodes snapshot when the chain account's ECDSA
-  // pubkey matches a known telemetry node. Null when no match (chain account
-  // isn't running a known node, or the chain hasn't published the mapping yet).
+  // Joined server-side from `miner_hardware.nodeId` when the chain account
+  // matches a known hardware row. Today only self has a miner_hardware row
+  // (source='self'); future peer-query/chain-surface versions populate other
+  // entries.
   telemetryNodeAddress: string | null;
 }
 
@@ -160,141 +135,56 @@ export interface DifficultyRecord {
   observedAt: string; // ISO 8601
 }
 
-export interface NodeRuntime {
-  python?: string;
-  quipVersion?: string;
-  protocolVersion?: number;
-  inDocker?: boolean;
-  dockerImage?: string;
+/**
+ * Per-miner hardware inventory. v0.3 only ever writes a single row with
+ * source='self' from the locally polled quip-node; peer-query and chain
+ * surfaces are reserved for later versions when the miner exposes peer
+ * inventories or the chain pallet publishes hardware metadata.
+ */
+export interface MinerHardwareRecord {
+  accountId: string;
+  nodeId: string;
+  miners: Array<{ id: string; type: MinerCategory }>;
+  // Dominant type across `miners[]`, derived by the writer (not the source).
+  primaryType: MinerCategory;
+  source: MinerHardwareSource;
+  observedAt: string;
 }
 
-export interface NodeSystemCpu {
-  logicalCores?: number;
-  physicalCores?: number;
-  brand?: string;
-  arch?: string;
-}
-
-export interface NodeSystemOs {
-  system?: string;
-  release?: string;
-  machine?: string;
-}
-
-export interface NodeSystemGpu {
-  index?: number;
-  vendor?: string;
-  name?: string;
-  memoryMb?: number;
-  observedUtilizationPct?: number;
-}
-
-export interface NodeSystemInfo {
-  os?: NodeSystemOs;
-  cpu?: NodeSystemCpu;
-  memoryMb?: number;
-  gpus?: NodeSystemGpu[];
-}
-
-export interface NodeMinerEntry {
-  kind: MinerCategory;
-  minerId: string;
-  // CPU-only
-  numCpus?: number;
-  // GPU-only
-  backend?: string;
-  deviceIndex?: number;
-  utilization?: number;
-  // QPU-only
-  provider?: string;
-  solver?: string;
-  dailyBudget?: string;
-}
-
-export interface NodeLocation {
-  country: string;
-  city?: string;
-  lat: number;
-  lng: number;
-}
-
-export interface NodeInfo {
-  address: string;
-  status: string;
-  firstSeen: number;
-  lastSeen: number;
-  lastHeartbeat: number | null;
-  ecdsaPublicKeyHex?: string;
-  nodeName?: string;
-  publicHost?: string;
-  publicPort?: number;
-  autoMine?: boolean;
-  logLevel?: string;
-  runtime?: NodeRuntime;
-  miners?: Record<string, NodeMinerEntry>;
-  systemInfo?: NodeSystemInfo;
-  // Populated by the server from a GeoLite2 lookup on publicHost; absent when
-  // no database is configured, DNS fails, or the IP is not in the DB.
-  location?: NodeLocation;
-}
-
-export interface NodesSnapshot {
-  updatedAt: string;
-  nodeCount: number;
-  activeCount: number;
-  nodes: Record<string, NodeInfo>;
+/**
+ * Aggregate counters from `/api/v1/stats` on the locally polled quip-miner.
+ * Flattened from the upstream `controller` sub-object so the dashboard tiles
+ * can read fields directly without re-shaping.
+ */
+export interface MinerStats {
+  totalBlocksAttempted: number;
+  totalBlocksWon: number;
+  winRate: number;
+  totalMiningTime: number;
+  avgMiningTime: number;
+  headsObserved: number;
+  contextsDispatched: number;
+  resultsReceived: number;
+  proofsSubmitted: number;
+  staleDrops: number;
+  submissionErrors: number;
 }
 
 /**
  * Observability snapshot written by the indexer on every successful poll.
- * Lets the server + UI distinguish "node has no new blocks" from "node has
- * new blocks but the indexer is behind".
- *
- * - nodeLatestEpoch / nodeLatestBlockIndex: tip last reported by the node
- *   via /api/v1/telemetry/status.
- * - tipEpoch / tipBlockIndex: how far the tip-follower has actually
- *   persisted on status.latestEpoch's owned range. Equal to the node's
- *   tip when caught up.
- * - backfillEpoch / backfillBlockIndex: the epoch (and block within it)
- *   currently being walked by the backfill worker. Null epoch means the
- *   backfill plan has no outstanding work.
- * - lastStatusFetchAt: ISO timestamp of the most recent status response.
- *   Acts as an "indexer alive" heartbeat — if this is >minutes old, the
- *   indexer process has stopped or is wedged.
- * - lastBlockInsertAt: ISO timestamp of the most recent insertBlock. null
- *   if no block has been inserted since the indexer was last restarted.
+ * v0.3 drops the dual-cursor epoch/blockIndex model — the chain is now the
+ * canonical block source, so we only track:
+ *   - REST heartbeat: `lastStatusFetchAt` ticks every /api/v1/status poll.
+ *   - Substrate heartbeat: `lastSubstrateEventAt` ticks on every head event.
+ *   - `chainHeadFromNode`: best block height the locally polled quip-node
+ *     reports via /api/v1/status.chain.head_number — null pre-first-fetch.
+ *   - `minerStats`: latest /api/v1/stats payload, attached here so the UI
+ *     can render miner tiles without a separate fetch.
  */
 export interface IndexerObservability {
-  nodeLatestEpoch: EpochId;
-  nodeLatestBlockIndex: number;
-
-  // Tip follower — cursor on status.latestEpoch's owned range.
-  // tipEpoch === nodeLatestEpoch && tipBlockIndex === nodeLatestBlockIndex
-  // means the tip is caught up.
-  tipEpoch: EpochId | null;
-  tipBlockIndex: number;
-
-  // Backfill worker — null when no outstanding plan work; otherwise the
-  // epoch currently being walked.
-  backfillEpoch: EpochId | null;
-  backfillBlockIndex: number;
-
-  lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
-  lastBlockInsertAt: string | null; // either worker's most recent insert
-
-  // ISO 8601 timestamp of the most recent NON-304 `/api/v1/telemetry/nodes`
-  // response — i.e. when we last got a fresh nodes snapshot from the node.
-  // 304 (Not Modified) responses do NOT advance this, so a UI surfacing
-  // node-data age can show "data N min old" even while the indexer is
-  // actively polling (lastStatusFetchAt ticks every poll regardless).
-  // Audit fix #6 — separates "indexer alive" from "nodes data fresh".
-  // Null until the first 200 from /nodes after a restart.
-  nodesObservedAt: string | null;
-
-  // Substrate worker heartbeat (null when QUIP_VALIDATOR_RPC_URL is unset).
-  // Most recent head event (new or finalized) received on the WSS subscription
-  // or BlockWinner event from system.events. Anchors substrate health checks
-  // in the SyncIndicator the same way lastStatusFetchAt anchors REST health.
+  chainHeadFromNode: number | null;
+  lastStatusFetchAt: string; // ISO 8601
+  lastBlockInsertAt: string | null;
   lastSubstrateEventAt: string | null;
   // Best/finalized substrate block heights, mirrored from chain_head for the
   // SyncIndicator. u64 as string. Null pre-first-event.
@@ -303,50 +193,28 @@ export interface IndexerObservability {
   // Live WSS socket state. Always false on a fresh process — only flips true
   // after the substrate worker's client emits a `connected` event.
   chainConnected: boolean;
+  minerStats: MinerStats | null;
 }
 
 export interface TelemetryResponse {
   blocks: BlockRecord[];
-  nodes: NodesSnapshot;
-  // Address of the quip-node this dashboard polls. Resolved by asking the
-  // node for its own peer-list key via GET /api/v1/status. null until the
-  // indexer has synced at least one nodes snapshot.
+  // SS58 of the locally polled quip-node, sourced from /api/v1/status.
+  // Null until the indexer has completed its first successful poll.
   selfAddress: string | null;
   // Indexer/node tip observability. null before the indexer has completed
   // its first successful /status poll after deploy.
   indexer: IndexerObservability | null;
   // ISO 8601 timestamp the server stamped this response. Lets the UI
-  // compute observability ages relative to server time, not client clock —
-  // fixes audit #3 (tab-visibility heartbeat skew).
+  // compute observability ages relative to server time, not client clock.
   serverTime: string;
   // Substrate-derived snapshots. Null/empty when QUIP_VALIDATOR_RPC_URL is
-  // unset on the indexer — degrades gracefully to PoW-only mode.
+  // unset on the indexer — degrades gracefully to chain-less mode.
   chainHead: ChainHead | null;
   babeEpoch: BabeEpochState | null;
   babeAuthorities: BabeAuthorityRecord[];
   chainMiners: ChainMinerRecord[];
-  // Recent DifficultyRecord snapshots (most recent first). Empty when no
-  // substrate worker; populated by Phase 1.
+  // Recent DifficultyRecord snapshots (most recent first).
   recentDifficulty: DifficultyRecord[];
-}
-
-export interface TelemetryIndex {
-  epochs: Array<{
-    epoch: EpochId;
-    blockCount: number;
-    status: EpochStatus;
-    // Timestamp (unix seconds) of block_index=1 in this epoch. Drives the
-    // "e0a08eef… · Apr 22 23:58" time cue in the EpochSelector. null when
-    // the DB has rows for this epoch but not block 1 — possible on partial
-    // mid-epoch backfills — in which case the UI renders the short hash only.
-    firstBlockTimestamp: number | null;
-  }>;
-  lastUpdated: string;
-}
-
-export interface IndexerCursor {
-  epoch: EpochId | null;
-  blockIndex: number;
 }
 
 export interface ErrorResponse {
