@@ -303,21 +303,30 @@ export interface DbConfig {
 // Drops vestigial `indexer_state` table. Operators on SQLite wipe
 // `data/telemetry.db`; Postgres production runs the forward migration in
 // `server/migrate.ts` (idempotent IF NOT EXISTS / IF EXISTS).
-export const SCHEMA_VERSION = 5;
+// v6: chain becomes canonical block source (v0.3.0 breaking release; targets
+// quip-protocol-rs spec_version >=101). Drops `epoch_status` (no PoW epoch
+// concept) and `nodes_snapshot` (no peer list — chain_miners replaces it).
+// Drops `epoch`, `block_index`, `is_canonical`, `miner_category`,
+// `ecdsa_public_key` columns from `blocks`; promotes `block_hash` to PK;
+// makes substrate_* columns NOT NULL; adds `quality_milli`, `reward` columns.
+// Adds `miner_hardware` table for hardware/category data with a `source` enum
+// (`self|peer-query|chain`) ready for future peer-query and chain-surface
+// upgrades. Operators on SQLite wipe `data/telemetry.db`; Postgres production
+// runs the forward migration in `server/migrate.ts`.
+export const SCHEMA_VERSION = 6;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
 // a Postgres database.
 export const OWNED_TABLES = [
   "blocks",
-  "nodes_snapshot",
-  "epoch_status",
   "meta",
   "chain_head",
   "babe_epochs",
   "babe_authorities",
   "chain_miners",
   "difficulty_history",
+  "miner_hardware",
 ] as const;
 
 const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres"]);

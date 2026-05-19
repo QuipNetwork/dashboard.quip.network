@@ -5,24 +5,6 @@ import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
 describe("schema v5", () => {
-  test("SCHEMA_VERSION is 5", () => {
-    expect(SCHEMA_VERSION).toBe(5);
-  });
-
-  test("OWNED_TABLES includes new substrate tables", () => {
-    expect([...OWNED_TABLES]).toEqual([
-      "blocks",
-      "nodes_snapshot",
-      "epoch_status",
-      "meta",
-      "chain_head",
-      "babe_epochs",
-      "babe_authorities",
-      "chain_miners",
-      "difficulty_history",
-    ]);
-  });
-
   test("DatabaseAdapter exposes substrate methods", () => {
     // Compile-time check: each name must be a key of DatabaseAdapter.
     // Stripping typecheck would catch a missing method via tsc, not at
@@ -46,4 +28,18 @@ describe("schema v5", () => {
     ];
     expect(required.length).toBe(14);
   });
+});
+
+test("schema v6: epoch and nodes tables gone, miner_hardware added", () => {
+  expect(SCHEMA_VERSION).toBe(6);
+  expect([...OWNED_TABLES]).toEqual([
+    "blocks",
+    "meta",
+    "chain_head",
+    "babe_epochs",
+    "babe_authorities",
+    "chain_miners",
+    "difficulty_history",
+    "miner_hardware",
+  ]);
 });
