@@ -16,7 +16,6 @@ import type {
 import {
   OWNED_TABLES,
   SCHEMA_VERSION,
-  isLocalDeployment,
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
@@ -145,7 +144,6 @@ const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
 export class PostgresAdapter implements DatabaseAdapter {
   private sql: Sql | null = null;
   private readonly url: string;
-  private readonly config: DbConfig;
 
   constructor(config: DbConfig) {
     const url = config.databaseUrl ?? process.env.DATABASE_URL;
@@ -153,7 +151,6 @@ export class PostgresAdapter implements DatabaseAdapter {
       throw new Error("postgres adapter requires DATABASE_URL or config.databaseUrl");
     }
     this.url = url;
-    this.config = { ...config, databaseUrl: url };
   }
 
   async connect(): Promise<void> {
@@ -186,14 +183,13 @@ export class PostgresAdapter implements DatabaseAdapter {
     `;
     const stored =
       rows[0]?.value !== undefined && rows[0].value !== null ? Number(rows[0].value) : null;
-    const local = isLocalDeployment(this.config);
 
-    if (stored !== SCHEMA_VERSION && local) {
-      // Local Postgres (e.g. docker-compose) — drop on drift. Remote Postgres
-      // (Supabase etc.) never drops; schema drift there must be handled out
-      // of band so production data is never wiped by a restart.
+    if (stored !== SCHEMA_VERSION) {
+      // Drop-on-drift runs unconditionally. The dashboard DB is purely indexer
+      // state derived from the chain + miner REST; nothing here is canonical,
+      // so a wipe is recoverable on the next indexer poll.
       console.warn(
-        `[db] SCHEMA DRIFT detected (stored=${stored ?? "none"}, code=${SCHEMA_VERSION}); dropping all owned tables on local deployment`,
+        `[db] SCHEMA DRIFT detected (stored=${stored ?? "none"}, code=${SCHEMA_VERSION}); dropping all owned tables`,
       );
       for (const table of OWNED_TABLES) {
         await sql.unsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);
@@ -637,9 +633,10 @@ function rowToMinerHardware(row: Record<string, unknown>): MinerHardwareRecord {
   // Stay defensive against a future driver change that hands back a parsed
   // object — only parse when the raw value is a string.
   const rawMiners = row.miners;
-  const miners = (
-    typeof rawMiners === "string" ? JSON.parse(rawMiners) : rawMiners
-  ) as Array<{ id: string; type: MinerCategory }>;
+  const miners = (typeof rawMiners === "string" ? JSON.parse(rawMiners) : rawMiners) as Array<{
+    id: string;
+    type: MinerCategory;
+  }>;
   return {
     accountId: String(row.account_id),
     nodeId: String(row.node_id),

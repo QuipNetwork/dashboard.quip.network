@@ -192,10 +192,11 @@ export interface DbConfig {
 }
 
 // Bump whenever any SCHEMA_STATEMENTS block in sqlite.ts / postgres.ts
-// changes shape (add/drop column, add/drop table, add/drop index). On local
-// deployments the adapter drops and recreates all tables on mismatch; on
-// remote (production) deployments the mismatch is a no-op and the schema
-// is expected to be managed externally.
+// changes shape (add/drop column, add/drop table, add/drop index). On any
+// version mismatch the adapter drops all OWNED_TABLES and recreates the
+// schema; the indexer rebuilds derived state from the chain + miner REST
+// on its next poll, so wipe-on-drift is the upgrade path for all
+// environments including production Postgres.
 //
 // v2: force local re-index after switching the indexer to chain-aware
 // attribution. Pre-v2 data tagged the same block under every epoch that
@@ -214,9 +215,8 @@ export interface DbConfig {
 // extrinsics_root, state_root, finalized, is_canonical). Adds new tables
 // `chain_head`, `babe_epochs`, `babe_authorities`, `chain_miners`,
 // `difficulty_history`. Adds `chain_anchor` column to `epoch_status`.
-// Drops vestigial `indexer_state` table. Operators on SQLite wipe
-// `data/telemetry.db`; Postgres production runs the forward migration in
-// `server/migrate.ts` (idempotent IF NOT EXISTS / IF EXISTS).
+// Drops vestigial `indexer_state` table. All environments wipe and rebuild
+// on version drift — the indexer repopulates from the chain on next poll.
 // v6: chain becomes canonical block source (v0.3.0 breaking release; targets
 // quip-protocol-rs spec_version >=101). Drops `epoch_status` (no PoW epoch
 // concept) and `nodes_snapshot` (no peer list — chain_miners replaces it).
@@ -225,8 +225,7 @@ export interface DbConfig {
 // makes substrate_* columns NOT NULL; adds `quality_milli`, `reward` columns.
 // Adds `miner_hardware` table for hardware/category data with a `source` enum
 // (`self|peer-query|chain`) ready for future peer-query and chain-surface
-// upgrades. Operators on SQLite wipe `data/telemetry.db`; Postgres production
-// runs the forward migration in `server/migrate.ts`.
+// upgrades. All environments wipe and rebuild on version drift.
 export const SCHEMA_VERSION = 6;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
@@ -242,15 +241,3 @@ export const OWNED_TABLES = [
   "difficulty_history",
   "miner_hardware",
 ] as const;
-
-const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres"]);
-
-export function isLocalDeployment(config: DbConfig): boolean {
-  if (config.adapter === "sqlite") return true;
-  if (!config.databaseUrl) return false;
-  try {
-    return LOCAL_POSTGRES_HOSTS.has(new URL(config.databaseUrl).hostname);
-  } catch {
-    return false;
-  }
-}

@@ -2,48 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { isLocalDeployment, parseIndexerObservability } from "./adapter";
-
-describe("isLocalDeployment", () => {
-  it("always returns true for sqlite", () => {
-    expect(isLocalDeployment({ adapter: "sqlite" })).toBe(true);
-    expect(isLocalDeployment({ adapter: "sqlite", sqlitePath: "/data/t.db" })).toBe(true);
-  });
-
-  it("returns true for Postgres on known local hostnames", () => {
-    for (const host of ["localhost", "127.0.0.1", "db", "postgres"]) {
-      expect(
-        isLocalDeployment({
-          adapter: "postgres",
-          databaseUrl: `postgresql://u:p@${host}:5432/quip`,
-        }),
-      ).toBe(true);
-    }
-  });
-
-  it("returns false for remote Postgres (e.g. Supabase)", () => {
-    expect(
-      isLocalDeployment({
-        adapter: "postgres",
-        databaseUrl: "postgresql://u:p@db.xyz.supabase.co:5432/postgres",
-      }),
-    ).toBe(false);
-    expect(
-      isLocalDeployment({
-        adapter: "postgres",
-        databaseUrl: "postgresql://u:p@aws-0-us-west-1.pooler.supabase.com:6543/postgres",
-      }),
-    ).toBe(false);
-  });
-
-  it("returns false for Postgres without a URL", () => {
-    expect(isLocalDeployment({ adapter: "postgres" })).toBe(false);
-  });
-
-  it("returns false for malformed Postgres URLs rather than throwing", () => {
-    expect(isLocalDeployment({ adapter: "postgres", databaseUrl: "not a url" })).toBe(false);
-  });
-});
+import { parseIndexerObservability } from "./adapter";
 
 describe("parseIndexerObservability", () => {
   it("parses a valid v5 blob with substrate fields", () => {
