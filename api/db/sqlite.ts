@@ -11,71 +11,69 @@ import type {
   ChainHead,
   ChainMinerRecord,
   DifficultyRecord,
-  EpochId,
-  EpochStatus,
-  IndexerCursor,
   IndexerObservability,
-  NodesSnapshot,
-  TelemetryIndex,
+  MinerCategory,
+  MinerHardwareRecord,
 } from "../../src/types/telemetry";
 import {
   OWNED_TABLES,
   SCHEMA_VERSION,
-  parseIndexerCursors,
-  parseIndexerCursorsOrDefault,
   parseIndexerObservability,
   type DatabaseAdapter,
   type DbConfig,
-  type EpochStatusEntry,
 } from "./adapter";
 
+// v5→v6 legacy tables that pre-existed the OWNED_TABLES drift sweep. Listed
+// explicitly so a fresh v0.3 migrate against a v0.2 DB drops them before the
+// new schema is created. After v6 ships everywhere, the inner DROPs become
+// no-ops on already-clean databases.
+const LEGACY_DROP_STATEMENTS: string[] = [
+  "DROP TABLE IF EXISTS epoch_status",
+  "DROP TABLE IF EXISTS nodes_snapshot",
+  "DROP TABLE IF EXISTS self_address",
+  "DROP TABLE IF EXISTS indexer_cursors",
+  "DROP TABLE IF EXISTS indexer_etags",
+];
+
 const SCHEMA_STATEMENTS: string[] = [
+  // Blocks: substrate worker is the sole writer in v6. Every column is
+  // populated at insert time — no two-phase enrichment, no canonical flag.
+  // substrate_block_number is TEXT (u64-as-string convention) but indexed
+  // via CAST so DESC ordering is numeric, not lexicographic.
   `CREATE TABLE IF NOT EXISTS blocks (
-     epoch                  TEXT NOT NULL,
-     block_index            INTEGER NOT NULL,
-     block_hash             TEXT NOT NULL,
-     timestamp              INTEGER NOT NULL,
-     previous_hash          TEXT NOT NULL,
-     miner_id               TEXT NOT NULL,
-     miner_category         TEXT NOT NULL,
-     ecdsa_public_key       TEXT NOT NULL,
-     energy                 REAL NOT NULL,
-     diversity              REAL NOT NULL,
-     num_valid_solutions    INTEGER NOT NULL,
-     mining_time            REAL NOT NULL,
-     nonce                  TEXT NOT NULL,
-     num_nodes              INTEGER NOT NULL,
-     num_edges              INTEGER NOT NULL,
-     difficulty_energy      REAL NOT NULL,
-     min_diversity          REAL NOT NULL,
-     min_solutions          INTEGER NOT NULL,
-     substrate_block_number TEXT,
-     substrate_block_hash   TEXT,
-     substrate_parent_hash  TEXT,
-     extrinsics_root        TEXT,
-     state_root             TEXT,
-     finalized              INTEGER NOT NULL DEFAULT 0,
-     is_canonical           INTEGER NOT NULL DEFAULT 1,
-     PRIMARY KEY (epoch, block_index)
+     block_hash              TEXT PRIMARY KEY,
+     substrate_block_number  TEXT NOT NULL,
+     substrate_block_hash    TEXT NOT NULL,
+     substrate_parent_hash   TEXT NOT NULL,
+     timestamp               INTEGER NOT NULL,
+     miner_id                TEXT NOT NULL,
+     energy                  REAL NOT NULL,
+     diversity               REAL NOT NULL,
+     num_valid_solutions     INTEGER NOT NULL,
+     quality_milli           INTEGER NOT NULL,
+     mining_time             REAL NOT NULL,
+     reward                  TEXT NOT NULL,
+     nonce                   TEXT NOT NULL,
+     num_nodes               INTEGER NOT NULL,
+     num_edges               INTEGER NOT NULL,
+     difficulty_energy       REAL NOT NULL,
+     min_diversity           REAL NOT NULL,
+     min_solutions           INTEGER NOT NULL,
+     finalized               INTEGER NOT NULL DEFAULT 0
    )`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks(timestamp)`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_miner ON blocks(miner_id)`,
-  // Composite supports the default canonical-only read path and the
-  // miner+energy join used by the substrate worker's BlockWinner
-  // correlation (findBlockByMinerAndEnergy).
-  `CREATE INDEX IF NOT EXISTS idx_blocks_canonical_ts ON blocks(is_canonical, timestamp)`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_substrate_hash ON blocks(substrate_block_hash)`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_substrate_number ON blocks(substrate_block_number)`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_finalized ON blocks(finalized)`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_miner_energy ON blocks(miner_id, energy, timestamp DESC)`,
-  `CREATE TABLE IF NOT EXISTS nodes_snapshot (
-     id         INTEGER PRIMARY KEY CHECK (id = 1),
-     payload    TEXT NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS epoch_status (
-     epoch         TEXT PRIMARY KEY,
-     status        TEXT NOT NULL CHECK (status IN ('live','stale_fork')),
-     chain_anchor  TEXT
+  `CREATE INDEX IF NOT EXISTS idx_blocks_substrate_number
+     ON blocks(CAST(substrate_block_number AS INTEGER) DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_blocks_miner_id
+     ON blocks(miner_id, CAST(substrate_block_number AS INTEGER) DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks(timestamp DESC)`,
+  // Per-miner hardware inventory. v0.3 only writes one row (source='self').
+  `CREATE TABLE IF NOT EXISTS miner_hardware (
+     account_id    TEXT PRIMARY KEY,
+     node_id       TEXT NOT NULL,
+     miners        TEXT NOT NULL,
+     primary_type  TEXT NOT NULL,
+     source        TEXT NOT NULL,
+     observed_at   TEXT NOT NULL
    )`,
   `CREATE TABLE IF NOT EXISTS meta (
      key   TEXT PRIMARY KEY,
@@ -139,72 +137,6 @@ const SCHEMA_STATEMENTS: string[] = [
 
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
-const INDEXER_CURSORS_KEY = "indexer_cursors";
-
-interface BlockRow {
-  epoch: string;
-  block_index: number;
-  block_hash: string;
-  timestamp: number;
-  previous_hash: string;
-  miner_id: string;
-  miner_category: string;
-  ecdsa_public_key: string;
-  energy: number;
-  diversity: number;
-  num_valid_solutions: number;
-  mining_time: number;
-  nonce: string;
-  num_nodes: number;
-  num_edges: number;
-  difficulty_energy: number;
-  min_diversity: number;
-  min_solutions: number;
-  substrate_block_number: string | null;
-  substrate_block_hash: string | null;
-  substrate_parent_hash: string | null;
-  extrinsics_root: string | null;
-  state_root: string | null;
-  finalized: number;
-  is_canonical: number;
-}
-
-interface EpochIndexRow {
-  epoch: string;
-  block_count: number;
-  status: string | null;
-  first_block_timestamp: number | null;
-}
-
-function rowToBlock(r: BlockRow): BlockRecord {
-  return {
-    epoch: r.epoch,
-    blockIndex: r.block_index,
-    blockHash: r.block_hash,
-    timestamp: r.timestamp,
-    previousHash: r.previous_hash,
-    minerId: r.miner_id,
-    minerCategory: r.miner_category as BlockRecord["minerCategory"],
-    ecdsaPublicKey: r.ecdsa_public_key,
-    energy: r.energy,
-    diversity: r.diversity,
-    numValidSolutions: r.num_valid_solutions,
-    miningTime: r.mining_time,
-    nonce: r.nonce,
-    numNodes: r.num_nodes,
-    numEdges: r.num_edges,
-    difficultyEnergy: r.difficulty_energy,
-    minDiversity: r.min_diversity,
-    minSolutions: r.min_solutions,
-    substrateBlockNumber: r.substrate_block_number,
-    substrateBlockHash: r.substrate_block_hash,
-    substrateParentHash: r.substrate_parent_hash,
-    extrinsicsRoot: r.extrinsics_root,
-    stateRoot: r.state_root,
-    finalized: r.finalized !== 0,
-    isCanonical: r.is_canonical !== 0,
-  };
-}
 
 export class SQLiteAdapter implements DatabaseAdapter {
   private db: Database | null = null;
@@ -239,13 +171,17 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async migrate(): Promise<void> {
     const db = this.requireDb();
+    // Drop v5/legacy tables before anything else. These were owned by workers
+    // that no longer exist in v0.3 (epoch_status, nodes_snapshot, self_address,
+    // indexer_cursors, indexer_etags). On a fresh database these are all
+    // no-ops; on a v0.2 SQLite file they clear the worker-state remnants.
+    for (const stmt of LEGACY_DROP_STATEMENTS) db.run(stmt);
     // meta must exist before we can read/write schema_version. Created as a
     // standalone CREATE IF NOT EXISTS so the drift check can run before we
     // apply the rest of SCHEMA_STATEMENTS.
     db.run(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
     // v4→v5 leftover: indexer_state was retired before v4 shipped and is
     // not in OWNED_TABLES, so it doesn't get dropped by the drift path.
-    // Sweep it once on every v5 migrate. After v5 ships, becomes a no-op.
     db.run(`DROP TABLE IF EXISTS indexer_state`);
     const row = db
       .query<{ value: string | null }, []>(`SELECT value FROM meta WHERE key = 'schema_version'`)
@@ -266,191 +202,83 @@ export class SQLiteAdapter implements DatabaseAdapter {
     ).run({ $v: String(SCHEMA_VERSION) });
   }
 
-  async insertBlock(b: BlockRecord): Promise<boolean> {
-    // Substrate-side fields (substrateBlockNumber/Hash/etc., finalized) are
-    // filled by the substrate worker via updateBlockSubstrateFields after
-    // insert. We write the explicit NULLs / defaults here so the row shape
-    // is uniform regardless of whether the BlockRecord carries them.
-    const result = this.requireDb()
+  // --- Blocks ---
+
+  async insertBlock(b: BlockRecord): Promise<void> {
+    // INSERT OR IGNORE: the substrate worker is the sole writer; a PK
+    // collision on block_hash is a programmatic duplicate (e.g., the same
+    // head emitted twice), not a normal flow — silently skip.
+    this.requireDb()
       .prepare(
         `INSERT OR IGNORE INTO blocks (
-           epoch, block_index, block_hash, timestamp, previous_hash,
-           miner_id, miner_category, ecdsa_public_key,
-           energy, diversity, num_valid_solutions, mining_time,
-           nonce, num_nodes, num_edges,
-           difficulty_energy, min_diversity, min_solutions,
-           substrate_block_number, substrate_block_hash, substrate_parent_hash,
-           extrinsics_root, state_root, finalized, is_canonical
+           block_hash, substrate_block_number, substrate_block_hash, substrate_parent_hash,
+           timestamp, miner_id,
+           energy, diversity, num_valid_solutions, quality_milli, mining_time,
+           reward, nonce, num_nodes, num_edges,
+           difficulty_energy, min_diversity, min_solutions, finalized
          ) VALUES (
-           $epoch, $blockIndex, $blockHash, $timestamp, $previousHash,
-           $minerId, $minerCategory, $ecdsaPublicKey,
-           $energy, $diversity, $numValidSolutions, $miningTime,
-           $nonce, $numNodes, $numEdges,
-           $difficultyEnergy, $minDiversity, $minSolutions,
-           $substrateBlockNumber, $substrateBlockHash, $substrateParentHash,
-           $extrinsicsRoot, $stateRoot, $finalized, $isCanonical
+           $blockHash, $substrateBlockNumber, $substrateBlockHash, $substrateParentHash,
+           $timestamp, $minerId,
+           $energy, $diversity, $numValidSolutions, $qualityMilli, $miningTime,
+           $reward, $nonce, $numNodes, $numEdges,
+           $difficultyEnergy, $minDiversity, $minSolutions, $finalized
          )`,
       )
       .run({
-        $epoch: b.epoch,
-        $blockIndex: b.blockIndex,
         $blockHash: b.blockHash,
+        $substrateBlockNumber: b.substrateBlockNumber,
+        $substrateBlockHash: b.substrateBlockHash,
+        $substrateParentHash: b.substrateParentHash,
         $timestamp: b.timestamp,
-        $previousHash: b.previousHash,
         $minerId: b.minerId,
-        $minerCategory: b.minerCategory,
-        $ecdsaPublicKey: b.ecdsaPublicKey,
         $energy: b.energy,
         $diversity: b.diversity,
         $numValidSolutions: b.numValidSolutions,
+        $qualityMilli: b.qualityMilli,
         $miningTime: b.miningTime,
+        $reward: b.reward,
         $nonce: b.nonce,
         $numNodes: b.numNodes,
         $numEdges: b.numEdges,
         $difficultyEnergy: b.difficultyEnergy,
         $minDiversity: b.minDiversity,
         $minSolutions: b.minSolutions,
-        $substrateBlockNumber: b.substrateBlockNumber,
-        $substrateBlockHash: b.substrateBlockHash,
-        $substrateParentHash: b.substrateParentHash,
-        $extrinsicsRoot: b.extrinsicsRoot,
-        $stateRoot: b.stateRoot,
         $finalized: b.finalized ? 1 : 0,
-        $isCanonical: b.isCanonical ? 1 : 0,
       });
-    return result.changes > 0;
   }
 
-  async getAllBlocks(): Promise<BlockRecord[]> {
-    // Default-filter stale-fork blocks (audit fix #5) — views that need
-    // all chains can call a future getAllBlocksIncludingForks helper.
+  async getRecentBlocks(limit: number, offset: number = 0): Promise<BlockRecord[]> {
     const rows = this.requireDb()
-      .query("SELECT * FROM blocks WHERE is_canonical = 1 ORDER BY timestamp, block_index")
-      .all() as BlockRow[];
-    return rows.map(rowToBlock);
+      .query<Record<string, unknown>, [number, number]>(
+        `SELECT * FROM blocks
+         ORDER BY CAST(substrate_block_number AS INTEGER) DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(limit, offset);
+    return rows.map(rowToBlockRecord);
   }
 
-  async getBlocksByEpoch(epoch: EpochId): Promise<BlockRecord[]> {
-    // No canonical filter here — caller asked for a specific epoch.
+  async getBlocksByMiner(minerId: string, limit: number): Promise<BlockRecord[]> {
     const rows = this.requireDb()
-      .query("SELECT * FROM blocks WHERE epoch = ? ORDER BY block_index")
-      .all(epoch) as BlockRow[];
-    return rows.map(rowToBlock);
-  }
-
-  async getIndex(): Promise<TelemetryIndex> {
-    const db = this.requireDb();
-    // LEFT JOIN epoch_status so rows survive if the indexer has blocks for
-    // an epoch but hasn't yet upserted its status (race between /epochs and
-    // /block writes). Status defaults to stale_fork in that case so the UI
-    // never spuriously badges an epoch as "live" before confirmation.
-    // firstBlockTimestamp derives from block_index=1; NULL if that block
-    // wasn't indexed — the UI handles the missing case.
-    const rows = db
-      .query(
-        `SELECT b.epoch AS epoch,
-                COUNT(*) AS block_count,
-                COALESCE(es.status, 'stale_fork') AS status,
-                MAX(CASE WHEN b.block_index = 1 THEN b.timestamp END) AS first_block_timestamp
-         FROM blocks b
-         LEFT JOIN epoch_status es ON es.epoch = b.epoch
-         GROUP BY b.epoch
-         ORDER BY first_block_timestamp IS NULL, first_block_timestamp DESC, b.epoch`,
+      .query<Record<string, unknown>, [string, number]>(
+        `SELECT * FROM blocks
+         WHERE miner_id = ?
+         ORDER BY CAST(substrate_block_number AS INTEGER) DESC
+         LIMIT ?`,
       )
-      .all() as EpochIndexRow[];
-    const lastUpdated = (await this.getNodes())?.updatedAt ?? new Date().toISOString();
-    return {
-      epochs: rows.map((r) => ({
-        epoch: r.epoch,
-        blockCount: r.block_count,
-        status: (r.status === "live" ? "live" : "stale_fork") as EpochStatus,
-        firstBlockTimestamp: r.first_block_timestamp,
-      })),
-      lastUpdated,
-    };
+      .all(minerId, limit);
+    return rows.map(rowToBlockRecord);
   }
 
-  async replaceEpochStatus(entries: EpochStatusEntry[]): Promise<void> {
-    const db = this.requireDb();
-    // One transaction: a partial write where a chain transition is only
-    // half-applied would momentarily show the wrong "live" epoch in the UI.
-    const tx = db.transaction((es: EpochStatusEntry[]) => {
-      db.run("DELETE FROM epoch_status");
-      const ins = db.prepare(`INSERT INTO epoch_status (epoch, status) VALUES ($epoch, $status)`);
-      for (const e of es) ins.run({ $epoch: e.epoch, $status: e.status });
-    });
-    tx(entries);
-  }
-
-  async upsertNodes(snapshot: NodesSnapshot): Promise<number> {
+  async markBlockFinalized(blockHash: string): Promise<void> {
+    // Monotonic: only flip 0 → 1. Idempotent — already-finalized rows and
+    // unknown hashes both become no-ops by the WHERE clause.
     this.requireDb()
-      .prepare(
-        `INSERT INTO nodes_snapshot (id, payload) VALUES (1, $p)
-         ON CONFLICT(id) DO UPDATE SET payload = excluded.payload`,
-      )
-      .run({ $p: JSON.stringify(snapshot) });
-    return Object.keys(snapshot.nodes).length;
+      .prepare("UPDATE blocks SET finalized = 1 WHERE block_hash = ? AND finalized = 0")
+      .run(blockHash);
   }
 
-  async getNodes(): Promise<NodesSnapshot | null> {
-    const row = this.requireDb()
-      .query<{ payload: string }, []>("SELECT payload FROM nodes_snapshot WHERE id = 1")
-      .get();
-    if (!row) return null;
-    try {
-      return JSON.parse(row.payload) as NodesSnapshot;
-    } catch (e) {
-      // Surface corruption loudly instead of silently returning an empty
-      // snapshot (which would make /api/health lie about sync state).
-      const head = row.payload.slice(0, 80);
-      throw new Error(
-        `[db] corrupt nodes_snapshot payload (${row.payload.length} bytes, starts with ${JSON.stringify(head)}): ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
-  }
-
-  async getCursors(): Promise<{ tip: IndexerCursor; backfill: IndexerCursor }> {
-    const row = this.requireDb()
-      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
-      .get(INDEXER_CURSORS_KEY);
-    return parseIndexerCursorsOrDefault(row?.value ?? null, "sqlite");
-  }
-
-  async saveCursors(
-    tip: IndexerCursor,
-    backfill: IndexerCursor,
-    etags: { nodes?: string | null },
-  ): Promise<void> {
-    const payload = JSON.stringify({
-      tip,
-      backfill,
-      etags: { nodes: etags.nodes ?? null },
-    });
-    this.requireDb()
-      .prepare(
-        `INSERT INTO meta (key, value) VALUES ($k, $v)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      )
-      .run({ $k: INDEXER_CURSORS_KEY, $v: payload });
-  }
-
-  async getEtags(): Promise<{ nodes: string | null }> {
-    const row = this.requireDb()
-      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
-      .get(INDEXER_CURSORS_KEY);
-    const parsed = parseIndexerCursors(row?.value ?? null);
-    return { nodes: parsed?.etags?.nodes ?? null };
-  }
-
-  /** @internal test-only — write a raw value under a meta key. */
-  async setMetaRaw(key: string, value: string): Promise<void> {
-    this.requireDb()
-      .prepare(
-        `INSERT INTO meta (key, value) VALUES ($k, $v)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      )
-      .run({ $k: key, $v: value });
-  }
+  // --- Self-identity ---
 
   async getSelfAddress(): Promise<string | null> {
     const row = this.requireDb()
@@ -467,6 +295,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
       )
       .run({ $k: SELF_ADDRESS_KEY, $v: address });
   }
+
+  // --- Indexer observability ---
 
   async getIndexerObservability(): Promise<IndexerObservability | null> {
     const row = this.requireDb()
@@ -485,7 +315,17 @@ export class SQLiteAdapter implements DatabaseAdapter {
       .run({ $k: INDEXER_OBSERVABILITY_KEY, $v: JSON.stringify(obs) });
   }
 
-  // --- Substrate-derived state (v5) ---
+  /** @internal test-only — write a raw value under a meta key. */
+  async setMetaRaw(key: string, value: string): Promise<void> {
+    this.requireDb()
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run({ $k: key, $v: value });
+  }
+
+  // --- Substrate-derived state (unchanged from v5) ---
 
   async upsertChainHead(head: ChainHead): Promise<void> {
     this.requireDb()
@@ -789,84 +629,47 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }));
   }
 
-  async updateBlockSubstrateFields(
-    epoch: EpochId,
-    blockIndex: number,
-    fields: Partial<{
-      substrateBlockNumber: string;
-      substrateBlockHash: string;
-      substrateParentHash: string;
-      extrinsicsRoot: string;
-      stateRoot: string;
-      finalized: boolean;
-    }>,
-  ): Promise<{ matched: boolean }> {
-    const setClauses: string[] = [];
-    const params: Array<string | number | null> = [];
-    if (fields.substrateBlockNumber !== undefined) {
-      setClauses.push("substrate_block_number = COALESCE(?, substrate_block_number)");
-      params.push(fields.substrateBlockNumber);
-    }
-    if (fields.substrateBlockHash !== undefined) {
-      setClauses.push("substrate_block_hash = COALESCE(?, substrate_block_hash)");
-      params.push(fields.substrateBlockHash);
-    }
-    if (fields.substrateParentHash !== undefined) {
-      setClauses.push("substrate_parent_hash = COALESCE(?, substrate_parent_hash)");
-      params.push(fields.substrateParentHash);
-    }
-    if (fields.extrinsicsRoot !== undefined) {
-      setClauses.push("extrinsics_root = COALESCE(?, extrinsics_root)");
-      params.push(fields.extrinsicsRoot);
-    }
-    if (fields.stateRoot !== undefined) {
-      setClauses.push("state_root = COALESCE(?, state_root)");
-      params.push(fields.stateRoot);
-    }
-    if (fields.finalized === true) {
-      // Monotonic: only flip 0 → 1. Never sets back to 0 here — that
-      // would require an explicit reorg path.
-      setClauses.push("finalized = 1");
-    }
-    if (setClauses.length === 0) {
-      return { matched: true };
-    }
-    params.push(epoch, blockIndex);
-    const result = this.requireDb()
-      .prepare(`UPDATE blocks SET ${setClauses.join(", ")} WHERE epoch = ? AND block_index = ?`)
-      .run(...params);
-    return { matched: result.changes > 0 };
+  // --- Miner hardware ---
+
+  async upsertMinerHardware(record: MinerHardwareRecord): Promise<void> {
+    this.requireDb()
+      .prepare(
+        `INSERT INTO miner_hardware (account_id, node_id, miners, primary_type, source, observed_at)
+         VALUES ($acct, $node, $miners, $primary, $source, $observedAt)
+         ON CONFLICT(account_id) DO UPDATE SET
+           node_id      = excluded.node_id,
+           miners       = excluded.miners,
+           primary_type = excluded.primary_type,
+           source       = excluded.source,
+           observed_at  = excluded.observed_at`,
+      )
+      .run({
+        $acct: record.accountId,
+        $node: record.nodeId,
+        $miners: JSON.stringify(record.miners),
+        $primary: record.primaryType,
+        $source: record.source,
+        $observedAt: record.observedAt,
+      });
   }
 
-  async findBlockByMinerAndEnergy(
-    minerId: string,
-    energy: number,
-  ): Promise<{ epoch: EpochId; blockIndex: number } | null> {
-    // Energy is a float; rely on exact equality (the REST API and the
-    // chain event report the same numeric value). If precision drift
-    // appears in production, switch to ABS(energy - ?) < 1e-6 here.
+  async getMinerHardware(accountId: string): Promise<MinerHardwareRecord | null> {
     const row = this.requireDb()
-      .query<
-        { epoch: string; block_index: number },
-        [string, number]
-      >("SELECT epoch, block_index FROM blocks WHERE miner_id = ? AND energy = ? ORDER BY timestamp DESC LIMIT 1")
-      .get(minerId, energy);
+      .query<Record<string, unknown>, [string]>(
+        "SELECT * FROM miner_hardware WHERE account_id = ?",
+      )
+      .get(accountId);
     if (!row) return null;
-    return { epoch: row.epoch, blockIndex: row.block_index };
+    return rowToMinerHardware(row);
   }
 
-  async markBlocksCanonical(epochs: EpochId[], canonical: boolean): Promise<void> {
-    if (epochs.length === 0) return;
-    const placeholders = epochs.map(() => "?").join(",");
-    this.requireDb()
-      .prepare(`UPDATE blocks SET is_canonical = ? WHERE epoch IN (${placeholders})`)
-      .run(canonical ? 1 : 0, ...epochs);
-  }
-
-  async updateEpochChainAnchor(epoch: EpochId, chainAnchor: string): Promise<void> {
-    this.requireDb()
-      .prepare("UPDATE epoch_status SET chain_anchor = ? WHERE epoch = ?")
-      .run(chainAnchor, epoch);
+  async getAllMinerHardware(): Promise<MinerHardwareRecord[]> {
+    const rows = this.requireDb()
+      .query<Record<string, unknown>, []>(
+        "SELECT * FROM miner_hardware ORDER BY observed_at DESC",
+      )
+      .all();
+    return rows.map(rowToMinerHardware);
   }
 
   private requireDb(): Database {
@@ -875,4 +678,40 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }
     return this.db;
   }
+}
+
+function rowToBlockRecord(row: Record<string, unknown>): BlockRecord {
+  return {
+    blockHash: String(row.block_hash),
+    substrateBlockNumber: String(row.substrate_block_number),
+    substrateBlockHash: String(row.substrate_block_hash),
+    substrateParentHash: String(row.substrate_parent_hash),
+    timestamp: Number(row.timestamp),
+    minerId: String(row.miner_id),
+    energy: Number(row.energy),
+    diversity: Number(row.diversity),
+    numValidSolutions: Number(row.num_valid_solutions),
+    qualityMilli: Number(row.quality_milli),
+    miningTime: Number(row.mining_time),
+    reward: String(row.reward),
+    nonce: String(row.nonce),
+    numNodes: Number(row.num_nodes),
+    numEdges: Number(row.num_edges),
+    difficultyEnergy: Number(row.difficulty_energy),
+    minDiversity: Number(row.min_diversity),
+    minSolutions: Number(row.min_solutions),
+    finalized: row.finalized === 1 || row.finalized === true,
+  };
+}
+
+function rowToMinerHardware(row: Record<string, unknown>): MinerHardwareRecord {
+  const miners = JSON.parse(String(row.miners)) as Array<{ id: string; type: MinerCategory }>;
+  return {
+    accountId: String(row.account_id),
+    nodeId: String(row.node_id),
+    miners,
+    primaryType: String(row.primary_type) as MinerCategory,
+    source: String(row.source) as MinerHardwareRecord["source"],
+    observedAt: String(row.observed_at),
+  };
 }
