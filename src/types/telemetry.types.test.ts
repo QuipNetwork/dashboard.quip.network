@@ -2,12 +2,8 @@
 
 import { describe, expect, test } from "bun:test";
 import type {
-  BabeAuthorityRecord,
-  BabeEpochState,
   BlockRecord,
-  ChainHead,
   ChainMinerRecord,
-  DifficultyRecord,
   IndexerObservability,
   MinerHardwareRecord,
   MinerStats,
