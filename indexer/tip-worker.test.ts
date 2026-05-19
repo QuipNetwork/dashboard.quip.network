@@ -201,11 +201,9 @@ describe("runTipIteration", () => {
     });
 
     await expect(
-      runTipIteration(
-        { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-        FIXED_MS,
-        { value: FIXED_MS },
-      ),
+      runTipIteration({ config: makeConfig(), client, db, state, now: () => FIXED_MS }, FIXED_MS, {
+        value: FIXED_MS,
+      }),
     ).rejects.toThrow(/502/);
 
     expect(db.observabilityWrites).toHaveLength(1);
