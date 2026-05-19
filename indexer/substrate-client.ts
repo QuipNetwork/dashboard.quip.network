@@ -246,9 +246,12 @@ export class PolkadotSubstrateClient implements SubstrateClient {
   ) {}
 
   async connect(): Promise<void> {
-    // autoReconnect = false: our substrate-worker owns the reconnect loop
+    // autoConnect = false: our substrate-worker owns the reconnect loop
     // (exponential backoff with jitter). WsProvider's built-in reconnect
-    // uses a fixed interval which doesn't match our policy.
+    // uses a fixed interval which doesn't match our policy. WITH
+    // autoConnect=false, the constructor does NOT initiate the socket —
+    // we must call provider.connect() ourselves, otherwise ApiPromise.create
+    // waits forever for a "connected" event that never fires.
     this.provider = new WsProvider(this.url, false, undefined, this.timeoutMs);
     this.provider.on("connected", () => {
       for (const cb of this.connectedCbs) cb();
@@ -256,6 +259,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     this.provider.on("disconnected", () => {
       for (const cb of this.disconnectedCbs) cb();
     });
+    await this.provider.connect();
     this.api = await ApiPromise.create({ provider: this.provider, throwOnConnect: true });
   }
 

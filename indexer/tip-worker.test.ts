@@ -182,6 +182,38 @@ describe("runTipIteration", () => {
     expect(db.inserted).toHaveLength(0);
   });
 
+  it("flushes observability (incl. substrate-side fields) even when /status throws", async () => {
+    // Regression: previously, getStatus() ran outside the try/finally and a
+    // 502 from the miner REST API would skip the observability flush. The
+    // substrate worker's in-memory chainConnected updates would then never
+    // reach the DB while the miner was offline, leaving the SyncIndicator
+    // permanently stuck on "Indexer offline" even though substrate was fine.
+    const db = new FakeDb();
+    const state = new IndexerState(db);
+    await state.load();
+    // Pretend the substrate worker has run and flipped state-cached health.
+    state.observability.chainConnected = true;
+    state.observability.lastSubstrateEventAt = "2026-05-19T17:00:00.000Z";
+
+    const client = makeClient((url) => {
+      if (url.endsWith("/api/v1/telemetry/status")) return { status: 502 };
+      return { status: 404 };
+    });
+
+    await expect(
+      runTipIteration(
+        { config: makeConfig(), client, db, state, now: () => FIXED_MS },
+        FIXED_MS,
+        { value: FIXED_MS },
+      ),
+    ).rejects.toThrow(/502/);
+
+    expect(db.observabilityWrites).toHaveLength(1);
+    expect(db.observability?.chainConnected).toBe(true);
+    expect(db.observability?.lastSubstrateEventAt).toBe("2026-05-19T17:00:00.000Z");
+    expect(db.observability?.lastStatusFetchAt).toBe(new Date(FIXED_MS).toISOString());
+  });
+
   it("calls replaceEpochStatus with every /epochs entry", async () => {
     const db = new FakeDb();
     const state = new IndexerState(db);

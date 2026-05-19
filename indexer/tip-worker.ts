@@ -84,18 +84,20 @@ export async function runTipIteration(
     status: null,
   };
 
-  const statusRes = await client.getStatus(null);
-  result.fetchedStatus = true;
-  const status = statusRes.body;
-  result.status = status;
-
-  if (status) {
-    updateStallTracker(state, status, nowMs);
-    maybeWarnStalled(state, config, nowMs);
-  }
-
+  // Status fetch + body wrapped in the same try so the observability flush
+  // happens even when /status 502s. Otherwise substrate-side observability
+  // updates (chainConnected, lastSubstrateEventAt) made by the substrate
+  // worker in memory never reach the DB while the REST node is unreachable.
+  let status: StatusBody | null = null;
   try {
+    const statusRes = await client.getStatus(null);
+    result.fetchedStatus = true;
+    status = statusRes.body;
+    result.status = status;
+
     if (status) {
+      updateStallTracker(state, status, nowMs);
+      maybeWarnStalled(state, config, nowMs);
       await runTipIterationBody(deps, lastNodesFetchMs, result, status, nowMs);
     }
   } finally {

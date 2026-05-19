@@ -292,13 +292,14 @@ async function pollBabeEpoch(
   if (hash === cache.babeEpochHash) return;
   cache.babeEpochHash = hash;
 
-  // currentSlotInEpoch = currentSlot - epochStartSlot. Slots can exceed
-  // Number.MAX_SAFE_INTEGER on long-running chains, but the delta within
-  // one epoch (≤ slotsPerEpoch = 2400 on quip-protocol-rs spec 101) fits
-  // in a small integer.
+  // currentSlotInEpoch via modulo. We can't subtract epochStartSlot because
+  // BABE slots are absolute (include genesisSlot) — `epochIndex *
+  // slotsPerEpoch` doesn't match the actual epoch boundary. Modulo gives
+  // the correct in-epoch offset regardless of when the chain started, and
+  // is bounded by slotsPerEpoch so it always fits in a small int.
   let currentSlotInEpoch = 0;
   try {
-    currentSlotInEpoch = Number(BigInt(info.currentSlot) - BigInt(info.epochStartSlot));
+    currentSlotInEpoch = Number(BigInt(info.currentSlot) % BigInt(info.slotsPerEpoch));
   } catch {
     // Malformed slot values — leave at 0 rather than throw; the BABE
     // progress bar will show empty until the next poll lands clean data.
