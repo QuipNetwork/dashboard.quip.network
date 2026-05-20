@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { ChartCard } from "../../layout/ChartCard";
+import { formatBalance, shortAddress } from "../../../lib/format-chain";
 import { formatDuration, formatNumber } from "../../../lib/format";
-import { SERIES_COLORS } from "../../../lib/colors";
 import { BlockDetailCard } from "./BlockDetailCard";
 import { useMyNode } from "./use-my-node";
-import { NeighborsList } from "./NeighborsList";
 import { StatTile } from "./StatTile";
+import { MinerStatsPanel } from "./MinerStatsPanel";
 
 export function MyNodeView() {
   const stats = useMyNode();
@@ -16,37 +15,21 @@ export function MyNodeView() {
       <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
         <p className="font-heading text-2xl text-brand-gray-5">Connecting to node…</p>
         <p className="mt-2 font-accent text-sm text-brand-gray-3">
-          The indexer hasn't matched the dashboard's configured node to the peer list yet.
-        </p>
-      </div>
-    );
-  }
-
-  if (!stats.node) {
-    return (
-      <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
-        <p className="font-heading text-2xl text-brand-gray-5">Node not in snapshot</p>
-        <p className="mt-2 font-accent text-sm text-brand-gray-3">
-          Self address <code>{stats.selfAddress}</code> is registered but missing from the latest
-          nodes snapshot.
+          The indexer hasn't received a response from /api/v1/status yet. Verify QUIP_NODE_URL is
+          reachable.
         </p>
       </div>
     );
   }
 
   const {
-    node,
-    entry,
-    rank,
-    totalMiners,
-    blocksMined,
-    uptimeMs,
-    neighbors,
+    selfAddress,
+    chainMinerEntry,
+    minerStats,
     lastWonBlock,
+    blocksMined,
     currentRequirements,
   } = stats;
-  const nodeLabel = node.nodeName ?? node.publicHost ?? node.address.slice(0, 16);
-  const typeColor = entry ? SERIES_COLORS[entry.minerCategory] : "#67E347";
   const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
 
   return (
@@ -56,76 +39,60 @@ export function MyNodeView() {
           <p className="font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
             Connected Node
           </p>
-          <h2 className="font-heading text-2xl text-brand-gray-6">{nodeLabel}</h2>
-          <p className="mt-1 font-accent text-xs text-brand-gray-3">
-            <span className="text-brand-gray-4">{node.address}</span>
-            {node.publicHost && <span className="ml-2">· {node.publicHost}</span>}
-            {node.status && <span className="ml-2">· {node.status}</span>}
-          </p>
+          <h2 className="font-heading text-2xl text-brand-gray-6">{shortAddress(selfAddress)}</h2>
+          <p className="mt-1 font-accent text-xs text-brand-gray-4">{selfAddress}</p>
         </div>
-        {node.runtime?.quipVersion && (
+        {chainMinerEntry && (
           <span className="inline-block rounded-md border border-brand-gray-2 px-2 py-1 font-accent text-xs text-brand-gray-4">
-            quip {node.runtime.quipVersion}
+            registered · deposit {formatBalance(chainMinerEntry.deposit)}
           </span>
         )}
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
         <StatTile
-          label="Blocks Mined"
-          value={formatNumber(blocksMined)}
-          sublabel={entry ? `Primary miner: ${entry.minerId}` : "Awaiting block data"}
-          accent={typeColor}
-        />
-        <StatTile
-          label="Time on Network"
-          value={uptimeMs != null ? formatDuration(uptimeMs) : "—"}
+          label="Blocks Won"
+          value={formatNumber(Number(blocksMined))}
           sublabel={
-            node.firstSeen > 0
-              ? `Since ${new Date(node.firstSeen * 1000).toLocaleDateString()}`
-              : undefined
+            chainMinerEntry
+              ? `${chainMinerEntry.proofsSubmitted} proofs submitted`
+              : "Not registered on chain"
           }
         />
         <StatTile
-          label="Network Rank"
-          value={rank != null ? `#${rank}` : "—"}
+          label="Rewards Earned"
+          value={chainMinerEntry ? formatBalance(chainMinerEntry.rewardsEarned) : "—"}
+          sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
+        />
+        <StatTile
+          label="Last Block Won"
+          value={lastWonBlock != null ? `#${lastWonBlock.substrateBlockNumber}` : "—"}
           sublabel={
-            rank != null && totalMiners > 0 ? `of ${totalMiners} miners` : "No blocks mined yet"
+            lastWonBlock != null && lastWonAgoMs != null
+              ? `${formatDuration(lastWonAgoMs)} ago · mining time ${lastWonBlock.miningTime} blocks`
+              : "No wins yet"
           }
         />
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <StatTile
-          label="Last Block Won"
-          value={lastWonBlock != null ? `#${lastWonBlock.blockIndex}` : "—"}
-          sublabel={
-            lastWonBlock != null && lastWonAgoMs != null
-              ? `${formatDuration(lastWonAgoMs)} ago · solved in ${formatDuration(lastWonBlock.miningTime * 1000)}`
-              : "No wins yet"
-          }
-          accent={typeColor}
-        />
+      <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
         <BlockDetailCard
-          label="Energy Details"
-          accent={typeColor}
+          label="Last Won Block Details"
           rows={
             lastWonBlock != null
               ? [
-                  { label: "Energy", value: lastWonBlock.energy.toFixed(1) },
+                  { label: "Energy", value: lastWonBlock.energy.toFixed(2) },
                   { label: "Diversity", value: lastWonBlock.diversity.toFixed(3) },
                   { label: "Solutions", value: formatNumber(lastWonBlock.numValidSolutions) },
-                  {
-                    label: "Mining Time",
-                    value: formatDuration(lastWonBlock.miningTime * 1000),
-                  },
+                  { label: "Quality", value: (lastWonBlock.qualityMilli / 1000).toFixed(3) },
+                  { label: "Reward", value: formatBalance(lastWonBlock.reward) },
                 ]
               : [{ label: "Status", value: "No wins yet" }]
           }
-          footer={lastWonBlock != null ? `From block #${lastWonBlock.blockIndex}` : undefined}
+          footer={lastWonBlock ? `nonce: ${lastWonBlock.nonce}` : undefined}
         />
         <BlockDetailCard
-          label="Current Block Requirements"
+          label="Current Difficulty"
           rows={
             currentRequirements != null
               ? [
@@ -133,23 +100,15 @@ export function MyNodeView() {
                     label: "Target Energy",
                     value: `≤ ${currentRequirements.difficultyEnergy.toFixed(1)}`,
                   },
-                  {
-                    label: "Min Diversity",
-                    value: currentRequirements.minDiversity.toFixed(3),
-                  },
-                  {
-                    label: "Min Solutions",
-                    value: formatNumber(currentRequirements.minSolutions),
-                  },
+                  { label: "Min Diversity", value: currentRequirements.minDiversity.toFixed(3) },
+                  { label: "Min Solutions", value: formatNumber(currentRequirements.minSolutions) },
                 ]
               : [{ label: "Status", value: "Awaiting first block" }]
           }
         />
       </div>
 
-      <ChartCard title="Rank-Adjacent Miners" subtitle="Your position in the network leaderboard">
-        <NeighborsList self={entry} neighbors={neighbors} />
-      </ChartCard>
+      {minerStats && <MinerStatsPanel stats={minerStats} />}
     </>
   );
 }
