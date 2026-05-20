@@ -4,7 +4,6 @@ import { SERIES_COLORS } from "../../lib/colors";
 import type { MinerCategory } from "../../types/telemetry";
 import { BabeEpochProgress } from "./BabeEpochProgress";
 import { CurrentBlockIndicator } from "./CurrentBlockIndicator";
-import { EpochSelector } from "./EpochSelector";
 import { SyncIndicator } from "./SyncIndicator";
 
 const TYPES: MinerCategory[] = ["CPU", "GPU", "QPU"];
@@ -99,10 +98,9 @@ export function Header() {
           <CurrentBlockIndicator />
         </div>
 
-        {/* Right: epoch filter */}
-        <div className="justify-self-center sm:justify-self-end">
-          <EpochSelector />
-        </div>
+        {/* Right column intentionally empty — preserves the 1fr_auto_1fr grid
+            so the center pill stays centered. */}
+        <div />
       </div>
 
       {/* Secondary row: per-type filters (Network + By Type only) */}

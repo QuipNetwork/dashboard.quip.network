@@ -3,8 +3,7 @@
 import { useTelemetryStore } from "../../store/telemetry-store";
 
 /**
- * Substrate BABE epoch progress pill. Distinct from the PoW `epoch` concept
- * the EpochSelector exposes — BABE epochs are the substrate chain's
+ * Substrate BABE epoch progress pill. BABE epochs are the substrate chain's
  * consensus rotation (~2400 slots / ~4h on quip-protocol-rs spec 101).
  *
  * Hides itself entirely when no `babeEpoch` is in the store (substrate
@@ -23,7 +22,7 @@ export function BabeEpochProgress() {
   return (
     <div
       className="flex items-center gap-2 font-accent text-[11px] text-brand-gray-3"
-      title={`Substrate BABE epoch — slot ${babeEpoch.currentSlotInEpoch} of ${babeEpoch.slotsPerEpoch}. Not the same as the PoW epoch shown in the selector.`}
+      title={`Substrate BABE epoch — slot ${babeEpoch.currentSlotInEpoch} of ${babeEpoch.slotsPerEpoch}.`}
     >
       <span>BABE #{babeEpoch.epochIndex}</span>
       <div className="h-1.5 w-24 overflow-hidden rounded-full bg-brand-gray-1">
