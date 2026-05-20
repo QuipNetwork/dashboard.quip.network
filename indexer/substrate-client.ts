@@ -55,7 +55,12 @@ export interface BlockEvents {
   timestamp: number; // unix seconds
   winner: BlockWinnerEvent;
   proofs: ProofAcceptedEvent[];
-  nonce: string; // u64 from the winning submit_proof extrinsic's proof.nonce
+  // u64 from the winning submit_proof extrinsic's proof.nonce, as a
+  // decimal string. `null` means we could not locate a matching extrinsic
+  // in the block (transient decode anomaly or signer/method mismatch);
+  // distinct from the string "0", which is a legal u64 value. The worker
+  // owns the policy decision (skip vs. default vs. log).
+  nonce: string | null;
 }
 
 // Aggregated topology counts derived from pallet-quantum-pow's
@@ -565,67 +570,78 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     // block writer path.
     const unsubFn = await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
       const blockNumber = header.number.toNumber();
-      const blockHash = header.hash.toHex();
-      const parentHash = header.parentHash.toHex();
-      const [signedBlock, eventsAtBlock, timestampAtBlock] = await Promise.all([
-        api.rpc.chain.getBlock(header.hash),
-        eventsAt(header.hash),
-        timestampAt(header.hash),
-      ]);
+      // Contain per-block failures so a transient RPC blip (getBlock
+      // timeout, decode mishap, downstream cb throw) doesn't let the
+      // rejection escape into polkadot.js — which is version-dependent
+      // and in the worst case silently degrades the subscription. Mirror
+      // the pattern used by substrate-worker.ts:flushChainHead. The next
+      // finalized head fires normally.
+      try {
+        const blockHash = header.hash.toHex();
+        const parentHash = header.parentHash.toHex();
+        const [signedBlock, eventsAtBlock, timestampAtBlock] = await Promise.all([
+          api.rpc.chain.getBlock(header.hash),
+          eventsAt(header.hash),
+          timestampAt(header.hash),
+        ]);
 
-      type EventRecord = {
-        event: {
-          section: string;
-          method: string;
-          data: Array<{ toString: () => string }>;
-        };
-      };
-      let winner: BlockWinnerEvent | null = null;
-      const proofs: ProofAcceptedEvent[] = [];
-      for (const rec of eventsAtBlock as unknown as EventRecord[]) {
-        const { section, method, data } = rec.event;
-        if (section !== "quantumPow") continue;
-        if (method === "BlockWinner") {
-          const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = data;
-          if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
-          winner = {
-            miner: minerCodec.toString(),
-            reward: rewardCodec.toString(),
-            energyMilli: Number(energyCodec.toString()),
-            submittedAt: submittedAtCodec.toString(),
+        type EventRecord = {
+          event: {
+            section: string;
+            method: string;
+            data: Array<{ toString: () => string }>;
           };
-        } else if (method === "ProofAccepted") {
-          const [minerCodec, energyCodec, diversityCodec, validCodec, qualityCodec] = data;
-          if (!minerCodec || !energyCodec || !diversityCodec || !validCodec || !qualityCodec) {
-            continue;
+        };
+        let winner: BlockWinnerEvent | null = null;
+        const proofs: ProofAcceptedEvent[] = [];
+        for (const rec of eventsAtBlock as unknown as EventRecord[]) {
+          const { section, method, data } = rec.event;
+          if (section !== "quantumPow") continue;
+          if (method === "BlockWinner") {
+            const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = data;
+            if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
+            winner = {
+              miner: minerCodec.toString(),
+              reward: rewardCodec.toString(),
+              energyMilli: Number(energyCodec.toString()),
+              submittedAt: submittedAtCodec.toString(),
+            };
+          } else if (method === "ProofAccepted") {
+            const [minerCodec, energyCodec, diversityCodec, validCodec, qualityCodec] = data;
+            if (!minerCodec || !energyCodec || !diversityCodec || !validCodec || !qualityCodec) {
+              continue;
+            }
+            proofs.push({
+              miner: minerCodec.toString(),
+              energyMilli: Number(energyCodec.toString()),
+              diversityMilli: Number(diversityCodec.toString()),
+              validSolutionCount: Number(validCodec.toString()),
+              qualityMilli: Number(qualityCodec.toString()),
+            });
           }
-          proofs.push({
-            miner: minerCodec.toString(),
-            energyMilli: Number(energyCodec.toString()),
-            diversityMilli: Number(diversityCodec.toString()),
-            validSolutionCount: Number(validCodec.toString()),
-            qualityMilli: Number(qualityCodec.toString()),
-          });
         }
+        // No BlockWinner means the block contained no winning proof; the
+        // canonical writer path has nothing to record for this block.
+        if (!winner) return;
+        const nonce = extractNonce(signedBlock, winner);
+        cb({
+          blockNumber,
+          blockHash,
+          parentHash,
+          // pallet_timestamp returns milliseconds; the indexer stores
+          // unix seconds (BlockRecord.timestamp) for parity with the
+          // legacy REST path. Truncate rather than round to keep
+          // ordering stable.
+          timestamp: Math.floor(
+            Number((timestampAtBlock as unknown as { toString: () => string }).toString()) / 1000,
+          ),
+          winner,
+          proofs,
+          nonce,
+        });
+      } catch (e) {
+        console.warn(`[substrate-client] subscribeBlockEvents block ${blockNumber} failed`, e);
       }
-      // No BlockWinner means the block contained no winning proof; the
-      // canonical writer path has nothing to record for this block.
-      if (!winner) return;
-      const nonce = extractNonce(signedBlock, winner);
-      cb({
-        blockNumber,
-        blockHash,
-        parentHash,
-        // pallet_timestamp returns milliseconds; the indexer stores unix
-        // seconds (BlockRecord.timestamp) for parity with the legacy REST
-        // path. Truncate rather than round to keep ordering stable.
-        timestamp: Math.floor(
-          Number((timestampAtBlock as unknown as { toString: () => string }).toString()) / 1000,
-        ),
-        winner,
-        proofs,
-        nonce,
-      });
     });
     return () => {
       (unsubFn as unknown as () => void)();
@@ -681,11 +697,17 @@ export class PolkadotSubstrateClient implements SubstrateClient {
  * miner field (types.rs:8-23). We match `ext.signer.toString() === winner.miner`
  * and pull `proof.nonce` (u64) from `ext.method.args[0]`.
  *
- * Returns "0" if no matching extrinsic is found, which lets the substrate
- * worker still record the block instead of dropping it on a transient
- * decode anomaly.
+ * Returns the decimal-string nonce on the first matching signed extrinsic
+ * (including `"0"` when the chain genuinely accepted nonce 0). Returns
+ * `null` when no matching extrinsic is found — this is the "no info"
+ * sentinel, distinct from the legal nonce value 0; the worker decides
+ * what to do (skip the block, default, log, etc.).
+ *
+ * Exported for direct unit testing — the helper is pure over the
+ * (signedBlock, winner) shape and warrants coverage independent of the
+ * subscribeBlockEvents wiring.
  */
-function extractNonce(signedBlock: unknown, winner: BlockWinnerEvent): string {
+export function extractNonce(signedBlock: unknown, winner: BlockWinnerEvent): string | null {
   type SignedExtrinsic = {
     isSigned: boolean;
     signer: { toString: () => string };
@@ -700,7 +722,7 @@ function extractNonce(signedBlock: unknown, winner: BlockWinnerEvent): string {
     if (ext.method.section !== "quantumPow" || ext.method.method !== "submit_proof") continue;
     if (ext.signer.toString() !== winner.miner) continue;
     const proof = ext.method.args[0] as unknown as { nonce?: { toString: () => string } };
-    return proof?.nonce?.toString() ?? "0";
+    return proof?.nonce?.toString() ?? null;
   }
-  return "0";
+  return null;
 }
