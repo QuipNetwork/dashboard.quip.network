@@ -87,9 +87,11 @@ maybeDescribe("PostgresAdapter.migrate schema-version drift", () => {
   test("writes SCHEMA_VERSION to meta on a fresh migrate", async () => {
     await db.migrate();
     // After migrate, meta.schema_version should equal the current code version.
-    const sql = (db as unknown as {
-      sql: (s: TemplateStringsArray) => Promise<Array<{ value: string }>>;
-    }).sql;
+    const sql = (
+      db as unknown as {
+        sql: (s: TemplateStringsArray) => Promise<Array<{ value: string }>>;
+      }
+    ).sql;
     const rows = await sql`SELECT value FROM meta WHERE key = 'schema_version'`;
     expect(rows[0]?.value).toBe(String(SCHEMA_VERSION));
   });

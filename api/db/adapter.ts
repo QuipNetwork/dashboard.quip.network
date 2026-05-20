@@ -39,8 +39,7 @@ export function parseIndexerObservability(
   if (!parsed || typeof parsed !== "object") return null;
   const p = parsed as Record<string, unknown>;
   const isStr = (v: unknown): v is string => typeof v === "string";
-  const isNullableStr = (v: unknown): v is string | null =>
-    v === null || typeof v === "string";
+  const isNullableStr = (v: unknown): v is string | null => v === null || typeof v === "string";
 
   if (!isStr(p.lastStatusFetchAt)) return null;
   if (!isNullableStr(p.lastBlockInsertAt)) return null;
@@ -71,8 +70,7 @@ export function parseIndexerObservability(
 function parseMinerStats(raw: unknown): MinerStats | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  const n = (v: unknown): number | null =>
-    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const n = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
   const a = n(r.totalBlocksAttempted);
   const w = n(r.totalBlocksWon);
   if (a === null || w === null) return null;

@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type {
-  MinerCategory,
-  MinerHardwareRecord,
-  MinerStats,
-} from "../src/types/telemetry";
+import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
 
 import { AuthError, QuipClient } from "./client";
 import type { IndexerConfig } from "./config";
@@ -32,10 +28,7 @@ export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Prom
       await runTipIteration(deps);
     } catch (e) {
       if (e instanceof AuthError) throw e;
-      console.error(
-        "[indexer/tip] iteration failed:",
-        e instanceof Error ? e.message : e,
-      );
+      console.error("[indexer/tip] iteration failed:", e instanceof Error ? e.message : e);
     }
     await sleep(intervalMs, signal);
   }
@@ -76,10 +69,7 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
     }
   } catch (e) {
     if (e instanceof AuthError) throw e;
-    console.warn(
-      "[indexer/tip] /api/v1/status failed:",
-      e instanceof Error ? e.message : e,
-    );
+    console.warn("[indexer/tip] /api/v1/status failed:", e instanceof Error ? e.message : e);
   }
 
   try {
@@ -87,10 +77,7 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
     state.observability.minerStats = stats;
   } catch (e) {
     if (e instanceof AuthError) throw e;
-    console.warn(
-      "[indexer/tip] /api/v1/stats failed:",
-      e instanceof Error ? e.message : e,
-    );
+    console.warn("[indexer/tip] /api/v1/stats failed:", e instanceof Error ? e.message : e);
   }
 
   // Always flush observability — heartbeat must advance even on poll

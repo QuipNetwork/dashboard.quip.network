@@ -164,9 +164,11 @@ maybeDescribe("Postgres v6 schema", () => {
 
   test("legacy tables are dropped on migrate", async () => {
     // pg_catalog should not list any v5 legacy tables in the public schema.
-    const sql = (db as unknown as {
-      sql: (s: TemplateStringsArray) => Promise<Array<{ tablename: string }>>;
-    }).sql;
+    const sql = (
+      db as unknown as {
+        sql: (s: TemplateStringsArray) => Promise<Array<{ tablename: string }>>;
+      }
+    ).sql;
     const rows = await sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`;
     const names = rows.map((r) => r.tablename);
     expect(names).not.toContain("epoch_status");

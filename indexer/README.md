@@ -83,12 +83,12 @@ bun test indexer/
 Tests stub `fetch` and use an in-memory fake `DatabaseAdapter`; they do not
 touch SQLite.
 
-| File                                | Covers                                                                                              |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `indexer/tip-worker.test.ts`        | tip iteration: self-identity poll, miner stats, observability heartbeat                             |
-| `indexer/substrate-worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                             |
-| `indexer/main.test.ts`              | orchestration: tip alone or with substrate; `AuthError` from tip aborts substrate; substrate failures are non-fatal |
-| `indexer/config.test.ts`            | flag / env parsing, validation, whitespace handling                                                 |
-| `indexer/client.test.ts`            | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                    |
-| `indexer/state.test.ts`             | `IndexerState` load, observability seeding on restart                                               |
-| `indexer/substrate-client.test.ts`  | substrate client transport, event parsing                                                           |
+| File                               | Covers                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `indexer/tip-worker.test.ts`       | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
+| `indexer/substrate-worker.test.ts` | substrate event subscription, canonical block writes, reconnect backoff                                             |
+| `indexer/main.test.ts`             | orchestration: tip alone or with substrate; `AuthError` from tip aborts substrate; substrate failures are non-fatal |
+| `indexer/config.test.ts`           | flag / env parsing, validation, whitespace handling                                                                 |
+| `indexer/client.test.ts`           | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |
+| `indexer/state.test.ts`            | `IndexerState` load, observability seeding on restart                                                               |
+| `indexer/substrate-client.test.ts` | substrate client transport, event parsing                                                                           |

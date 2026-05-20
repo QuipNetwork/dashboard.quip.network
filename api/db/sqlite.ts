@@ -655,9 +655,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getMinerHardware(accountId: string): Promise<MinerHardwareRecord | null> {
     const row = this.requireDb()
-      .query<Record<string, unknown>, [string]>(
-        "SELECT * FROM miner_hardware WHERE account_id = ?",
-      )
+      .query<Record<string, unknown>, [string]>("SELECT * FROM miner_hardware WHERE account_id = ?")
       .get(accountId);
     if (!row) return null;
     return rowToMinerHardware(row);
@@ -665,9 +663,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getAllMinerHardware(): Promise<MinerHardwareRecord[]> {
     const rows = this.requireDb()
-      .query<Record<string, unknown>, []>(
-        "SELECT * FROM miner_hardware ORDER BY observed_at DESC",
-      )
+      .query<Record<string, unknown>, []>("SELECT * FROM miner_hardware ORDER BY observed_at DESC")
       .all();
     return rows.map(rowToMinerHardware);
   }
