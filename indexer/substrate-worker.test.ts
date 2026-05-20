@@ -69,6 +69,7 @@ describe("substrate worker", () => {
       blockNumber: 100,
       blockHash: "0xsub",
       parentHash: "0xsub99",
+      author: "5Author",
       timestamp: 1700000000,
       winner: {
         miner: "5GPP",
@@ -146,6 +147,7 @@ describe("substrate worker", () => {
       blockNumber: 77,
       blockHash: "0xnononce",
       parentHash: "0xprev",
+      author: "5Author",
       timestamp: 1700000077,
       winner: {
         miner: "5GPP",
@@ -200,6 +202,7 @@ describe("substrate worker", () => {
       blockNumber: 42,
       blockHash: "0xnomatch",
       parentHash: "0xprev",
+      author: "5Author",
       timestamp: 1700000001,
       winner: {
         miner: "5GPP",
@@ -253,6 +256,7 @@ describe("substrate worker", () => {
       blockNumber: 5,
       blockHash: "0xfirst",
       parentHash: "0xgenesis",
+      author: "5Author",
       timestamp: 1700000002,
       winner: { miner: "5A", reward: "0", energyMilli: -100, submittedAt: "5" },
       proofs: [
@@ -600,6 +604,175 @@ describe("substrate worker", () => {
 
     const active = await db.getActiveBabeAuthorities();
     expect(active.map((a) => a.accountId)).toEqual(["5Auth1", "5Auth2"]);
+  });
+
+  test("records validator authorship on every finalized head with an author", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 0 };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    // Three finalized heads from two distinct authors: 5Auth1 wins one PoW
+    // and authors a winnerless head; 5Auth2 authors a winning block.
+    client.emitBlock({
+      blockNumber: 10,
+      blockHash: "0xa",
+      parentHash: "0x0",
+      author: "5Auth1",
+      timestamp: 1_700_000_000,
+      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "10" },
+      proofs: [
+        {
+          miner: "5M",
+          energyMilli: -100,
+          diversityMilli: 1,
+          validSolutionCount: 1,
+          qualityMilli: 1,
+        },
+      ],
+      nonce: "1",
+    });
+    client.emitBlock({
+      blockNumber: 11,
+      blockHash: "0xb",
+      parentHash: "0xa",
+      author: "5Auth1",
+      timestamp: 1_700_000_006,
+      winner: null,
+      proofs: [],
+      nonce: null,
+    });
+    client.emitBlock({
+      blockNumber: 12,
+      blockHash: "0xc",
+      parentHash: "0xb",
+      author: "5Auth2",
+      timestamp: 1_700_000_012,
+      winner: { miner: "5M", reward: "0", energyMilli: -200, submittedAt: "12" },
+      proofs: [
+        {
+          miner: "5M",
+          energyMilli: -200,
+          diversityMilli: 2,
+          validSolutionCount: 1,
+          qualityMilli: 2,
+        },
+      ],
+      nonce: "2",
+    });
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    const rows = await db.getValidatorAuthorship();
+    expect(rows).toHaveLength(2);
+    const auth1 = rows.find((r) => r.accountId === "5Auth1");
+    const auth2 = rows.find((r) => r.accountId === "5Auth2");
+    expect(auth1?.blocksAuthored).toBe(2);
+    expect(auth1?.blocksAuthoredWithPow).toBe(1);
+    expect(auth1?.lastAuthoredBlock).toBe("11");
+    expect(auth2?.blocksAuthored).toBe(1);
+    expect(auth2?.blocksAuthoredWithPow).toBe(1);
+    expect(auth2?.lastAuthoredBlock).toBe("12");
+  });
+
+  test("authorship-only head (winner=null) records authorship but does not insertBlock", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    client.emitBlock({
+      blockNumber: 50,
+      blockHash: "0xnowin",
+      parentHash: "0xprev",
+      author: "5Auth1",
+      timestamp: 1_700_000_500,
+      winner: null,
+      proofs: [],
+      nonce: null,
+    });
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    // No PoW row was written for the winnerless head.
+    expect(await db.getRecentBlocks(10, 0)).toHaveLength(0);
+    // But authorship was recorded with hasPow=false.
+    const rows = await db.getValidatorAuthorship();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.accountId).toBe("5Auth1");
+    expect(rows[0]?.blocksAuthored).toBe(1);
+    expect(rows[0]?.blocksAuthoredWithPow).toBe(0);
+  });
+
+  test("authorship is skipped when author is null (BABE digest decode failure)", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    client.emitBlock({
+      blockNumber: 99,
+      blockHash: "0xnoauth",
+      parentHash: "0xprev",
+      author: null,
+      timestamp: 1_700_000_990,
+      winner: null,
+      proofs: [],
+      nonce: null,
+    });
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    expect(await db.getValidatorAuthorship()).toHaveLength(0);
   });
 
   test("chain state poll is idempotent — no second write on unchanged miners", async () => {

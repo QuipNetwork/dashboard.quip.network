@@ -120,6 +120,7 @@ describe("v6 telemetry types", () => {
       babeAuthorities: [],
       chainMiners: [],
       recentDifficulty: [],
+      validators: [],
     };
     // @ts-expect-error - nodes is gone
     r.nodes;

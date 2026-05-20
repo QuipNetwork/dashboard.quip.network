@@ -44,22 +44,33 @@ export interface ProofAcceptedEvent {
 }
 
 // Aggregated per-finalized-block payload emitted by subscribeBlockEvents.
-// Pairs the winning BlockWinner event with every ProofAccepted event in
-// the same block, plus the nonce pulled from the winner's submit_proof
-// extrinsic. Timestamp is unix seconds (converted from substrate's
-// millisecond timestamp.now).
+// v0.3 fires once per finalized block (not just winning blocks) so the
+// worker can track validator authorship for every head. `winner` is null
+// when the block carried no `quantumPow.BlockWinner` event; `author` is
+// null only when BABE author derivation failed for that head.
+// Timestamp is unix seconds (converted from substrate's millisecond
+// timestamp.now).
 export interface BlockEvents {
   blockNumber: number;
   blockHash: string;
   parentHash: string;
+  // SS58 account ID of the block author, extracted via api.derive.chain
+  // (which reads the BABE digest item). `null` only when the chain didn't
+  // include a recognised digest item — the worker treats this as "no
+  // authorship to record" rather than fatal.
+  author: string | null;
   timestamp: number; // unix seconds
-  winner: BlockWinnerEvent;
+  // `null` when the finalized block contained no winning proof. The worker
+  // still observes the block (e.g., to record authorship) but skips the
+  // canonical-block-writer path.
+  winner: BlockWinnerEvent | null;
   proofs: ProofAcceptedEvent[];
   // u64 from the winning submit_proof extrinsic's proof.nonce, as a
   // decimal string. `null` means we could not locate a matching extrinsic
-  // in the block (transient decode anomaly or signer/method mismatch);
-  // distinct from the string "0", which is a legal u64 value. The worker
-  // owns the policy decision (skip vs. default vs. log).
+  // in the block (transient decode anomaly, signer/method mismatch, or
+  // simply no winner) — distinct from the string "0", which is a legal
+  // u64 value. The worker owns the policy decision (skip vs. default vs.
+  // log).
   nonce: string | null;
 }
 
@@ -617,20 +628,26 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 
   async subscribeBlockEvents(cb: (e: BlockEvents) => void): Promise<UnsubFn> {
     const api = this.requireApi();
-    // system.events and timestamp.now are present on every Substrate
-    // runtime; capture local refs once so the inner Promise.all stays
-    // narrowed under TS strict optional chaining.
-    const eventsAt = api.query.system?.events?.at;
+    // timestamp.now is present on every Substrate runtime; capture a
+    // local ref so the inner await stays narrowed under TS strict
+    // optional chaining.
     const timestampAt = api.query.timestamp?.now?.at;
-    if (!eventsAt || !timestampAt) {
-      throw new Error("[substrate-client] runtime missing system.events or timestamp.now");
+    if (!timestampAt) {
+      throw new Error("[substrate-client] runtime missing timestamp.now");
     }
-    // Finalized-only subscription. Trades ~6-12s latency for canonical
-    // ordering: a reorged-out block will never be observed, so the worker
-    // never writes a row it later has to roll back. New-head streams give
-    // the opposite tradeoff and are not appropriate for the canonical
-    // block writer path.
-    const unsubFn = await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
+    // Finalized-only subscription via `api.derive.chain.subscribeFinalizedHeads`
+    // — gap-fills any heads the bare RPC subscription would skip when
+    // finalization jumps ahead. Author is extracted via a follow-up
+    // `derive.chain.getHeader(hash)` call which returns a HeaderExtended.
+    // Trades ~6-12s latency for canonical ordering: a reorged-out block
+    // will never be observed, so the worker never writes a row it later
+    // has to roll back. Fires for EVERY finalized head (not just winning
+    // ones) so the worker can record validator authorship regardless of
+    // PoW outcome — `winner: null` signals "no PoW reward this block".
+    if (!api.derive.chain?.subscribeFinalizedHeads || !api.derive.chain?.getHeader) {
+      throw new Error("[substrate-client] api.derive.chain is unavailable");
+    }
+    const unsubFn = await api.derive.chain.subscribeFinalizedHeads(async (header) => {
       const blockNumber = header.number.toNumber();
       // Contain per-block failures so a transient RPC blip (getBlock
       // timeout, decode mishap, downstream cb throw) doesn't let the
@@ -641,11 +658,16 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       try {
         const blockHash = header.hash.toHex();
         const parentHash = header.parentHash.toHex();
-        const [signedBlock, eventsAtBlock, timestampAtBlock] = await Promise.all([
-          api.rpc.chain.getBlock(header.hash),
-          eventsAt(header.hash),
+        // SignedBlockExtended bundles author + events + extrinsics for
+        // the same finalized block; one fetch covers all three needs.
+        // Timestamp still requires a separate query since it's not in
+        // the extended block shape.
+        const [signedBlockExt, timestampAtBlock] = await Promise.all([
+          api.derive.chain.getBlock(header.hash),
           timestampAt(header.hash),
         ]);
+
+        const author = signedBlockExt.author ? signedBlockExt.author.toString() : null;
 
         type EventRecord = {
           event: {
@@ -656,7 +678,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
         };
         let winner: BlockWinnerEvent | null = null;
         const proofs: ProofAcceptedEvent[] = [];
-        for (const rec of eventsAtBlock as unknown as EventRecord[]) {
+        for (const rec of signedBlockExt.events as unknown as EventRecord[]) {
           const { section, method, data } = rec.event;
           if (section !== "quantumPow") continue;
           if (method === "BlockWinner") {
@@ -682,14 +704,15 @@ export class PolkadotSubstrateClient implements SubstrateClient {
             });
           }
         }
-        // No BlockWinner means the block contained no winning proof; the
-        // canonical writer path has nothing to record for this block.
-        if (!winner) return;
-        const nonce = extractNonce(signedBlock, winner);
+        // Nonce is only meaningful when there's a winner to attribute it
+        // to; skip extraction for winnerless heads so authorship-only
+        // events don't pay the extrinsics walk.
+        const nonce = winner ? extractNonce(signedBlockExt, winner) : null;
         cb({
           blockNumber,
           blockHash,
           parentHash,
+          author,
           // pallet_timestamp returns milliseconds; the indexer stores
           // unix seconds (BlockRecord.timestamp) for parity with the
           // legacy REST path. Truncate rather than round to keep

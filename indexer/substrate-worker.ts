@@ -158,13 +158,41 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
   unsubs.push(
     await client.subscribeBlockEvents(async (e) => {
       state.observability.lastSubstrateEventAt = nowIso(deps);
+
+      // (1) Authorship is recorded for EVERY finalized head where the
+      //     author is known, independent of the canonical block writer
+      //     path below. The validator may have authored a head without
+      //     a winning PoW proof; we still want to count it. Contained
+      //     in its own try/catch so a transient adapter error here
+      //     can't block the block-insert path that follows.
+      if (e.author !== null) {
+        try {
+          await db.recordValidatorAuthorship(
+            e.author,
+            String(e.blockNumber),
+            e.timestamp,
+            e.winner !== null,
+          );
+        } catch (err) {
+          console.warn(
+            `[indexer/substrate] block #${e.blockNumber}: validator authorship write failed:`,
+            err,
+          );
+        }
+      }
+
+      // (2) No BlockWinner: nothing more to do for the canonical block
+      //     writer path. Authorship-only heads land here.
+      if (e.winner === null) return;
+
       try {
+        const winnerEvent = e.winner;
         // Correlate winner with its matching ProofAccepted by
         // (miner, energyMilli). The chain emits both events from
         // on_finalize for every winning proof, so a missing match means
         // a decode anomaly — skip rather than write a half-populated row.
         const winningProof = e.proofs.find(
-          (p) => p.miner === e.winner.miner && p.energyMilli === e.winner.energyMilli,
+          (p) => p.miner === winnerEvent.miner && p.energyMilli === winnerEvent.energyMilli,
         );
         if (!winningProof) {
           console.warn(
@@ -210,13 +238,13 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
           substrateBlockHash: e.blockHash,
           substrateParentHash: e.parentHash,
           timestamp: e.timestamp,
-          minerId: e.winner.miner,
-          energy: e.winner.energyMilli / 1000,
+          minerId: winnerEvent.miner,
+          energy: winnerEvent.energyMilli / 1000,
           diversity: winningProof.diversityMilli / 1000,
           numValidSolutions: winningProof.validSolutionCount,
           qualityMilli: winningProof.qualityMilli,
           miningTime,
-          reward: e.winner.reward,
+          reward: winnerEvent.reward,
           nonce,
           numNodes: topology.nodeCount,
           numEdges: topology.edgeCount,

@@ -4,7 +4,14 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { TelemetryResponse } from "../src/types/telemetry";
+import type { TelemetryResponse, ValidatorAuthorshipRecord } from "../src/types/telemetry";
+
+// "Online" threshold for the Active Validators table. A validator counts
+// as online when its most recent authored head is within this window of
+// the request wall-clock. 3 minutes is roughly 30x the 6s block time on
+// quip-protocol-rs spec 101 — short enough to catch operator outages,
+// long enough that BABE slot skips don't briefly flap a healthy node.
+const VALIDATOR_ONLINE_WINDOW_MS = 3 * 60 * 1000;
 
 interface StaticOptions {
   root?: string;
@@ -40,6 +47,7 @@ export function createApp(options: CreateAppOptions): Hono {
       chainMiners,
       recentDifficulty,
       allHardware,
+      authorship,
     ] = await Promise.all([
       // Page-1 default; the UI can request later pages once pagination lands.
       db.getRecentBlocks(500, 0),
@@ -51,6 +59,7 @@ export function createApp(options: CreateAppOptions): Hono {
       db.getChainMiners(),
       db.getRecentDifficulty(50),
       db.getAllMinerHardware(),
+      db.getValidatorAuthorship(),
     ]);
 
     // Join chain_miners → miner_hardware on accountId so the UI can render
@@ -64,6 +73,27 @@ export function createApp(options: CreateAppOptions): Hono {
       hardware: hardwareByAccount.get(m.accountId) ?? null,
     }));
 
+    // Join the active BABE authority set → per-validator authorship stats.
+    // Validators that haven't authored a head the indexer has seen surface
+    // with 0 counters and `online: false`; the row still appears in the
+    // table so operators see their full authority set, not just the busy
+    // ones.
+    const authorshipByAccount = new Map(authorship.map((a) => [a.accountId, a]));
+    const nowMs = Date.now();
+    const validators: ValidatorAuthorshipRecord[] = babeAuthorities.map((a) => {
+      const stats = authorshipByAccount.get(a.accountId);
+      const lastAuthoredAt = stats?.lastAuthoredAt ?? null;
+      const ageMs = lastAuthoredAt ? nowMs - Date.parse(lastAuthoredAt) : Infinity;
+      return {
+        accountId: a.accountId,
+        blocksAuthored: stats?.blocksAuthored ?? 0,
+        blocksAuthoredWithPow: stats?.blocksAuthoredWithPow ?? 0,
+        lastAuthoredBlock: stats?.lastAuthoredBlock ?? null,
+        lastAuthoredAt,
+        online: ageMs < VALIDATOR_ONLINE_WINDOW_MS,
+      };
+    });
+
     return c.json({
       blocks,
       selfAddress,
@@ -74,6 +104,7 @@ export function createApp(options: CreateAppOptions): Hono {
       babeAuthorities,
       chainMiners: enrichedMiners,
       recentDifficulty,
+      validators,
     } satisfies TelemetryResponse);
   });
 

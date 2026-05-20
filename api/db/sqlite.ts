@@ -133,6 +133,19 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed
      ON difficulty_history(observed_at DESC)`,
+  // v7: per-validator authorship counters. Keyed by SS58; one row per
+  // author the substrate worker has observed. `last_authored_at` is ISO
+  // 8601 so the server can compute an online/offline window without
+  // adapter-specific timestamp handling.
+  `CREATE TABLE IF NOT EXISTS validator_authorship (
+     account_id                 TEXT PRIMARY KEY,
+     blocks_authored            INTEGER NOT NULL DEFAULT 0,
+     blocks_authored_with_pow   INTEGER NOT NULL DEFAULT 0,
+     last_authored_block        TEXT NOT NULL,
+     last_authored_at           TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_validator_authorship_authored
+     ON validator_authorship(blocks_authored DESC)`,
 ];
 
 const SELF_ADDRESS_KEY = "self_address";
@@ -668,6 +681,72 @@ export class SQLiteAdapter implements DatabaseAdapter {
       .query<Record<string, unknown>, []>("SELECT * FROM miner_hardware ORDER BY observed_at DESC")
       .all();
     return rows.map(rowToMinerHardware);
+  }
+
+  // --- Validator authorship (v7) ---
+
+  async recordValidatorAuthorship(
+    accountId: string,
+    blockNumber: string,
+    blockTimestamp: number,
+    hasPow: boolean,
+  ): Promise<void> {
+    // unix-seconds → ISO 8601 at the adapter boundary so callers don't have
+    // to know the storage format. The PoW counter increment is gated on
+    // hasPow via a 0/1 sentinel reused as both the initial insert value
+    // and the increment delta on conflict.
+    const powDelta = hasPow ? 1 : 0;
+    const lastAuthoredAt = new Date(blockTimestamp * 1000).toISOString();
+    this.requireDb()
+      .prepare(
+        `INSERT INTO validator_authorship (
+           account_id, blocks_authored, blocks_authored_with_pow,
+           last_authored_block, last_authored_at
+         ) VALUES ($acct, 1, $powInit, $block, $at)
+         ON CONFLICT(account_id) DO UPDATE SET
+           blocks_authored = validator_authorship.blocks_authored + 1,
+           blocks_authored_with_pow =
+             validator_authorship.blocks_authored_with_pow + $powDelta,
+           last_authored_block = excluded.last_authored_block,
+           last_authored_at = excluded.last_authored_at`,
+      )
+      .run({
+        $acct: accountId,
+        $powInit: powDelta,
+        $powDelta: powDelta,
+        $block: blockNumber,
+        $at: lastAuthoredAt,
+      });
+  }
+
+  async getValidatorAuthorship(): Promise<
+    Array<{
+      accountId: string;
+      blocksAuthored: number;
+      blocksAuthoredWithPow: number;
+      lastAuthoredBlock: string;
+      lastAuthoredAt: string;
+    }>
+  > {
+    const rows = this.requireDb()
+      .query<
+        {
+          account_id: string;
+          blocks_authored: number;
+          blocks_authored_with_pow: number;
+          last_authored_block: string;
+          last_authored_at: string;
+        },
+        []
+      >("SELECT * FROM validator_authorship ORDER BY blocks_authored DESC")
+      .all();
+    return rows.map((r) => ({
+      accountId: r.account_id,
+      blocksAuthored: r.blocks_authored,
+      blocksAuthoredWithPow: r.blocks_authored_with_pow,
+      lastAuthoredBlock: r.last_authored_block,
+      lastAuthoredAt: r.last_authored_at,
+    }));
   }
 
   private requireDb(): Database {

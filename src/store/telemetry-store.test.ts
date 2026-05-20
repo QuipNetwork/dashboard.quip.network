@@ -11,6 +11,7 @@ import type {
   DifficultyRecord,
   IndexerObservability,
   TelemetryResponse,
+  ValidatorAuthorshipRecord,
 } from "../types/telemetry";
 import {
   selectServerNowMs,
@@ -95,6 +96,15 @@ const MOCK_DIFFICULTY: DifficultyRecord = {
   observedAt: "2026-05-19T12:00:00Z",
 };
 
+const MOCK_VALIDATOR: ValidatorAuthorshipRecord = {
+  accountId: "5GAuth",
+  blocksAuthored: 12,
+  blocksAuthoredWithPow: 4,
+  lastAuthoredBlock: "100",
+  lastAuthoredAt: "2026-05-19T12:00:00Z",
+  online: true,
+};
+
 const MOCK_INDEXER: IndexerObservability = {
   chainHeadFromNode: "100",
   lastStatusFetchAt: "2026-05-19T12:00:00Z",
@@ -117,6 +127,7 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     babeAuthorities: [MOCK_BABE_AUTHORITY],
     chainMiners: [MOCK_CHAIN_MINER],
     recentDifficulty: [MOCK_DIFFICULTY],
+    validators: [MOCK_VALIDATOR],
     ...overrides,
   };
 }
@@ -132,6 +143,7 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
     babeAuthorities: [],
     chainMiners: [],
     recentDifficulty: [],
+    validators: [],
     loading: false,
     error: null,
     fetchTelemetry: async () => {},
@@ -173,6 +185,7 @@ function resetStore(): void {
     babeAuthorities: [],
     chainMiners: [],
     recentDifficulty: [],
+    validators: [],
     loading: true,
     error: null,
   });
@@ -213,6 +226,7 @@ describe("fetchTelemetry", () => {
     expect(s.babeAuthorities).toEqual([MOCK_BABE_AUTHORITY]);
     expect(s.chainMiners).toEqual([MOCK_CHAIN_MINER]);
     expect(s.recentDifficulty).toEqual([MOCK_DIFFICULTY]);
+    expect(s.validators).toEqual([MOCK_VALIDATOR]);
     expect(s.loading).toBe(false);
     expect(s.error).toBeNull();
   });

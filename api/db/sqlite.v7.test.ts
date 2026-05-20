@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { SQLiteAdapter } from "./sqlite";
 import type { BlockRecord, MinerHardwareRecord } from "../../src/types/telemetry";
 
-describe("SQLite v6 schema", () => {
+describe("SQLite v7 schema", () => {
   let db: SQLiteAdapter;
   let path: string;
   beforeEach(async () => {
@@ -152,6 +152,44 @@ describe("SQLite v6 schema", () => {
     expect(await db.getSelfAddress()).toBe("5OTHER");
   });
 
+  test("recordValidatorAuthorship inserts a new row with initial counts", async () => {
+    await db.recordValidatorAuthorship("5Auth1", "100", 1_700_000_000, false);
+    const rows = await db.getValidatorAuthorship();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      accountId: "5Auth1",
+      blocksAuthored: 1,
+      blocksAuthoredWithPow: 0,
+      lastAuthoredBlock: "100",
+      lastAuthoredAt: new Date(1_700_000_000 * 1000).toISOString(),
+    });
+  });
+
+  test("recordValidatorAuthorship increments PoW counter only when hasPow=true", async () => {
+    // First head: no PoW. Second head: PoW. PoW counter should be 1, total 2.
+    await db.recordValidatorAuthorship("5Auth1", "100", 1_700_000_000, false);
+    await db.recordValidatorAuthorship("5Auth1", "101", 1_700_000_006, true);
+    const rows = await db.getValidatorAuthorship();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.blocksAuthored).toBe(2);
+    expect(rows[0]?.blocksAuthoredWithPow).toBe(1);
+    expect(rows[0]?.lastAuthoredBlock).toBe("101");
+    expect(rows[0]?.lastAuthoredAt).toBe(new Date(1_700_000_006 * 1000).toISOString());
+  });
+
+  test("getValidatorAuthorship returns rows sorted DESC by blocksAuthored", async () => {
+    await db.recordValidatorAuthorship("5Auth1", "100", 1_700_000_000, true);
+    await db.recordValidatorAuthorship("5Auth2", "101", 1_700_000_006, false);
+    await db.recordValidatorAuthorship("5Auth2", "102", 1_700_000_012, false);
+    await db.recordValidatorAuthorship("5Auth2", "103", 1_700_000_018, true);
+    const rows = await db.getValidatorAuthorship();
+    expect(rows.map((r) => r.accountId)).toEqual(["5Auth2", "5Auth1"]);
+    expect(rows[0]?.blocksAuthored).toBe(3);
+    expect(rows[0]?.blocksAuthoredWithPow).toBe(1);
+    expect(rows[1]?.blocksAuthored).toBe(1);
+    expect(rows[1]?.blocksAuthoredWithPow).toBe(1);
+  });
+
   test("legacy tables are dropped on migrate", async () => {
     // sqlite_master should not list any of the v5 legacy tables
     const rows = (
@@ -167,9 +205,10 @@ describe("SQLite v6 schema", () => {
     expect(names).not.toContain("self_address");
     expect(names).not.toContain("indexer_cursors");
     expect(names).not.toContain("indexer_etags");
-    // v6 tables ARE present
+    // v7 tables ARE present
     expect(names).toContain("blocks");
     expect(names).toContain("miner_hardware");
     expect(names).toContain("chain_head");
+    expect(names).toContain("validator_authorship");
   });
 });

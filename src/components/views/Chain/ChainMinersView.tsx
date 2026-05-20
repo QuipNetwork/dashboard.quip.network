@@ -3,17 +3,16 @@
 import { formatBalance, shortAddress } from "../../../lib/format-chain";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 
-import { BabeAuthoritiesPanel } from "./BabeAuthoritiesPanel";
-import { DifficultyChart } from "./DifficultyChart";
-
 /**
  * On-chain miner table from `quantum_pow.Miners` storage. The cleanest
  * authoritative view of who's actually mining — distinct from the
  * telemetry-snapshot "nodes" list which is operator self-reported and
  * may include nodes that never submitted a successful proof.
  *
- * Extracted from ChainMinersView so the Compute Available view can embed
- * the same table without pulling in DifficultyChart / BabeAuthoritiesPanel.
+ * Lives here for historical reasons (extracted from the original
+ * `ChainMinersView` wrapper); embedded by `ComputeAvailableView` since
+ * v0.3. The Chain tab itself now renders the validator-centric
+ * `ChainView` from `./ChainView`.
  */
 export function ChainMinersTable() {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
@@ -69,40 +68,6 @@ export function ChainMinersTable() {
           </table>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Chain view composing the difficulty chart, on-chain miners table, and
- * BABE authorities panel. Renders an empty-state when neither chain miners
- * nor authorities are populated — that's the signal that
- * `QUIP_VALIDATOR_RPC_URL` is unset on the indexer.
- */
-export function ChainMinersView() {
-  const chainMiners = useTelemetryStore((s) => s.chainMiners);
-  const babeAuthorities = useTelemetryStore((s) => s.babeAuthorities);
-
-  if (chainMiners.length === 0 && babeAuthorities.length === 0) {
-    return (
-      <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
-        <p className="font-heading text-2xl text-brand-gray-5">No substrate data</p>
-        <p className="mt-2 font-accent text-sm text-brand-gray-3">
-          Set <code>QUIP_VALIDATOR_RPC_URL</code> on the indexer to surface on-chain miner state and
-          validator authorities here.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Difficulty chart sits at the top — most visually informative and
-          ties the rest of the chain surface to the BlockRecord requirements
-          already familiar from the Network view. */}
-      <DifficultyChart />
-      <ChainMinersTable />
-      <BabeAuthoritiesPanel />
     </div>
   );
 }

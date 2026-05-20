@@ -4,8 +4,8 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v6: epoch and nodes tables gone, miner_hardware added", () => {
-  expect(SCHEMA_VERSION).toBe(6);
+test("schema v7: validator_authorship table added", () => {
+  expect(SCHEMA_VERSION).toBe(7);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
@@ -15,10 +15,11 @@ test("schema v6: epoch and nodes tables gone, miner_hardware added", () => {
     "chain_miners",
     "difficulty_history",
     "miner_hardware",
+    "validator_authorship",
   ]);
 });
 
-test("v6 DatabaseAdapter surface: epoch/nodes methods gone, miner_hardware added", () => {
+test("v7 DatabaseAdapter surface: validator_authorship methods added", () => {
   type Methods = keyof DatabaseAdapter;
   const required: Methods[] = [
     "connect",
@@ -46,10 +47,13 @@ test("v6 DatabaseAdapter surface: epoch/nodes methods gone, miner_hardware added
     "getChainMiners",
     "insertDifficultySnapshot",
     "getRecentDifficulty",
-    // NEW: hardware identity
+    // hardware identity (v6)
     "upsertMinerHardware",
     "getMinerHardware",
     "getAllMinerHardware",
+    // validator authorship (v7)
+    "recordValidatorAuthorship",
+    "getValidatorAuthorship",
   ];
-  expect(required.length).toBe(24);
+  expect(required.length).toBe(26);
 });

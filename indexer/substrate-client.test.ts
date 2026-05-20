@@ -117,6 +117,7 @@ describe("FakeSubstrateClient", () => {
       blockNumber: 100,
       blockHash: "0xsub",
       parentHash: "0xsub99",
+      author: "5Author",
       timestamp: 1700000000,
       winner: {
         miner: "5GPPxx",
@@ -136,8 +137,32 @@ describe("FakeSubstrateClient", () => {
       nonce: "42",
     });
     expect(seen).toHaveLength(1);
-    expect(seen[0]?.winner.energyMilli).toBe(-2510);
+    expect(seen[0]?.author).toBe("5Author");
+    expect(seen[0]?.winner?.energyMilli).toBe(-2510);
     expect(seen[0]?.proofs).toHaveLength(1);
+  });
+
+  test("subscribeBlockEvents still fires when winner is null (authorship-only head)", async () => {
+    const c = new FakeSubstrateClient();
+    await c.connect();
+    const seen: BlockEvents[] = [];
+    await c.subscribeBlockEvents((e) => {
+      seen.push(e);
+    });
+    // No PoW winner this block — author is still recorded.
+    c.emitBlock({
+      blockNumber: 101,
+      blockHash: "0xnowin",
+      parentHash: "0xsub",
+      author: "5Author",
+      timestamp: 1700000006,
+      winner: null,
+      proofs: [],
+      nonce: null,
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.winner).toBeNull();
+    expect(seen[0]?.author).toBe("5Author");
   });
 
   test("getLastProofBlockAt returns programmed value", async () => {

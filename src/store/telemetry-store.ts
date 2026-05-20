@@ -10,6 +10,7 @@ import type {
   DifficultyRecord,
   IndexerObservability,
   TelemetryResponse,
+  ValidatorAuthorshipRecord,
 } from "../types/telemetry";
 
 export interface TelemetryState {
@@ -25,6 +26,7 @@ export interface TelemetryState {
   babeAuthorities: BabeAuthorityRecord[];
   chainMiners: ChainMinerRecord[];
   recentDifficulty: DifficultyRecord[];
+  validators: ValidatorAuthorshipRecord[];
   loading: boolean;
   error: string | null;
 
@@ -41,6 +43,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   babeAuthorities: [],
   chainMiners: [],
   recentDifficulty: [],
+  validators: [],
   loading: true,
   error: null,
   fetchTelemetry: async () => {
@@ -64,6 +67,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         babeAuthorities: data.babeAuthorities,
         chainMiners: data.chainMiners,
         recentDifficulty: data.recentDifficulty,
+        validators: data.validators,
         loading: false,
         error: null,
       });

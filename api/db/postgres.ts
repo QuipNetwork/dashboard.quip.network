@@ -136,6 +136,18 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed
      ON difficulty_history(observed_at DESC)`,
+  // v7: per-validator authorship counters. BIGINT counters since long-
+  // running validators easily exceed INTEGER range; TIMESTAMPTZ for
+  // last_authored_at so DESC ordering is calendar-correct.
+  `CREATE TABLE IF NOT EXISTS validator_authorship (
+     account_id                 TEXT PRIMARY KEY,
+     blocks_authored            BIGINT NOT NULL DEFAULT 0,
+     blocks_authored_with_pow   BIGINT NOT NULL DEFAULT 0,
+     last_authored_block        NUMERIC NOT NULL,
+     last_authored_at           TIMESTAMPTZ NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_validator_authorship_authored
+     ON validator_authorship(blocks_authored DESC)`,
 ];
 
 const SELF_ADDRESS_KEY = "self_address";
@@ -591,6 +603,66 @@ export class PostgresAdapter implements DatabaseAdapter {
       SELECT * FROM miner_hardware ORDER BY observed_at DESC
     `;
     return rows.map(rowToMinerHardware);
+  }
+
+  // --- Validator authorship (v7) ---
+
+  async recordValidatorAuthorship(
+    accountId: string,
+    blockNumber: string,
+    blockTimestamp: number,
+    hasPow: boolean,
+  ): Promise<void> {
+    // unix-seconds → ISO 8601 at the adapter boundary; the TIMESTAMPTZ
+    // column accepts ISO strings without explicit casts. PoW counter
+    // increments by 0 or 1 keyed on `hasPow`.
+    const powDelta = hasPow ? 1 : 0;
+    const lastAuthoredAt = new Date(blockTimestamp * 1000).toISOString();
+    await this.requireSql()`
+      INSERT INTO validator_authorship (
+        account_id, blocks_authored, blocks_authored_with_pow,
+        last_authored_block, last_authored_at
+      ) VALUES (
+        ${accountId}, 1, ${powDelta}, ${blockNumber}, ${lastAuthoredAt}
+      )
+      ON CONFLICT (account_id) DO UPDATE SET
+        blocks_authored = validator_authorship.blocks_authored + 1,
+        blocks_authored_with_pow =
+          validator_authorship.blocks_authored_with_pow + ${powDelta},
+        last_authored_block = EXCLUDED.last_authored_block,
+        last_authored_at = EXCLUDED.last_authored_at
+    `;
+  }
+
+  async getValidatorAuthorship(): Promise<
+    Array<{
+      accountId: string;
+      blocksAuthored: number;
+      blocksAuthoredWithPow: number;
+      lastAuthoredBlock: string;
+      lastAuthoredAt: string;
+    }>
+  > {
+    const rows = await this.requireSql()<
+      {
+        account_id: string;
+        // BIGINT comes back as string from postgres-js by default.
+        blocks_authored: string;
+        blocks_authored_with_pow: string;
+        last_authored_block: string;
+        last_authored_at: Date;
+      }[]
+    >`SELECT * FROM validator_authorship ORDER BY blocks_authored DESC`;
+    return rows.map((r) => ({
+      accountId: r.account_id,
+      blocksAuthored: Number(r.blocks_authored),
+      blocksAuthoredWithPow: Number(r.blocks_authored_with_pow),
+      lastAuthoredBlock: r.last_authored_block,
+      lastAuthoredAt:
+        r.last_authored_at instanceof Date
+          ? r.last_authored_at.toISOString()
+          : String(r.last_authored_at),
+    }));
   }
 
   private requireSql(): Sql {

@@ -52,6 +52,7 @@ const MOCK_RESPONSE: TelemetryResponse = {
   babeAuthorities: [],
   chainMiners: [],
   recentDifficulty: [],
+  validators: [],
 };
 
 let container: HTMLDivElement;

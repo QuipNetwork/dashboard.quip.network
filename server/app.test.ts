@@ -74,11 +74,55 @@ describe("server app", () => {
     expect(body.babeAuthorities).toEqual([]);
     expect(body.chainMiners).toEqual([]);
     expect(body.recentDifficulty).toEqual([]);
+    expect(body.validators).toEqual([]);
 
     // v5 keys must be gone — the dashboard no longer surfaces a peer list or
     // an epoch catalog.
     expect("nodes" in body).toBe(false);
     expect("epochs" in body).toBe(false);
+  });
+
+  test("GET /api/telemetry returns validators joined with the active BABE set", async () => {
+    // Seed: two BABE authorities for epoch 7. One has authored 5 heads (3
+    // with PoW) recently; the other has authored 1 head, but long enough
+    // ago that the online window expires.
+    await db.upsertBabeEpoch({
+      epochIndex: 7,
+      currentSlot: "16801",
+      epochStartSlot: "16800",
+      slotsPerEpoch: 2400,
+      currentSlotInEpoch: 1,
+      authorityCount: 3,
+    });
+    await db.upsertBabeAuthorities(7, [
+      { accountId: "5Active", displayName: null },
+      { accountId: "5Stale", displayName: null },
+      { accountId: "5Idle", displayName: null },
+    ]);
+    const recentTs = Math.floor(Date.now() / 1000);
+    // 1 hour ago: outside the 3-minute online window.
+    const oldTs = Math.floor(Date.now() / 1000) - 60 * 60;
+    for (let i = 0; i < 5; i++) {
+      await db.recordValidatorAuthorship("5Active", String(100 + i), recentTs, i < 3);
+    }
+    await db.recordValidatorAuthorship("5Stale", "50", oldTs, true);
+    // 5Idle never authored.
+
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(body.validators).toHaveLength(3);
+    const active = body.validators.find((v) => v.accountId === "5Active");
+    const stale = body.validators.find((v) => v.accountId === "5Stale");
+    const idle = body.validators.find((v) => v.accountId === "5Idle");
+    expect(active?.blocksAuthored).toBe(5);
+    expect(active?.blocksAuthoredWithPow).toBe(3);
+    expect(active?.online).toBe(true);
+    expect(active?.lastAuthoredBlock).toBe("104");
+    expect(stale?.blocksAuthored).toBe(1);
+    expect(stale?.online).toBe(false);
+    expect(idle?.blocksAuthored).toBe(0);
+    expect(idle?.lastAuthoredAt).toBeNull();
+    expect(idle?.online).toBe(false);
   });
 
   test("GET /api/telemetry surfaces indexer observability once written", async () => {

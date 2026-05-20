@@ -16,7 +16,7 @@ interface SqlClient {
   unsafe: (sql: string) => Promise<unknown>;
 }
 
-maybeDescribe("Postgres v6 schema", () => {
+maybeDescribe("Postgres v7 schema", () => {
   let db: PostgresAdapter;
 
   beforeEach(async () => {
@@ -24,11 +24,11 @@ maybeDescribe("Postgres v6 schema", () => {
     await db.connect();
     await db.migrate();
     // Wipe to ensure isolation between tests (the test DB persists across
-    // tests, unlike the temp-file SQLite fixture). Truncate every v6 table
+    // tests, unlike the temp-file SQLite fixture). Truncate every v7 table
     // including meta so setSelfAddress/observability start clean.
     const sql = (db as unknown as { sql: SqlClient }).sql;
     await sql.unsafe(
-      "TRUNCATE blocks, miner_hardware, meta, chain_head, babe_epochs, babe_authorities, chain_miners, difficulty_history",
+      "TRUNCATE blocks, miner_hardware, meta, chain_head, babe_epochs, babe_authorities, chain_miners, difficulty_history, validator_authorship",
     );
   });
 
@@ -162,6 +162,43 @@ maybeDescribe("Postgres v6 schema", () => {
     expect(await db.getSelfAddress()).toBe("5OTHER");
   });
 
+  test("recordValidatorAuthorship inserts a new row with initial counts", async () => {
+    await db.recordValidatorAuthorship("5Auth1", "100", 1_700_000_000, false);
+    const rows = await db.getValidatorAuthorship();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      accountId: "5Auth1",
+      blocksAuthored: 1,
+      blocksAuthoredWithPow: 0,
+      lastAuthoredBlock: "100",
+      lastAuthoredAt: new Date(1_700_000_000 * 1000).toISOString(),
+    });
+  });
+
+  test("recordValidatorAuthorship increments PoW counter only when hasPow=true", async () => {
+    await db.recordValidatorAuthorship("5Auth1", "100", 1_700_000_000, false);
+    await db.recordValidatorAuthorship("5Auth1", "101", 1_700_000_006, true);
+    const rows = await db.getValidatorAuthorship();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.blocksAuthored).toBe(2);
+    expect(rows[0]?.blocksAuthoredWithPow).toBe(1);
+    expect(rows[0]?.lastAuthoredBlock).toBe("101");
+    expect(rows[0]?.lastAuthoredAt).toBe(new Date(1_700_000_006 * 1000).toISOString());
+  });
+
+  test("getValidatorAuthorship returns rows sorted DESC by blocksAuthored", async () => {
+    await db.recordValidatorAuthorship("5Auth1", "100", 1_700_000_000, true);
+    await db.recordValidatorAuthorship("5Auth2", "101", 1_700_000_006, false);
+    await db.recordValidatorAuthorship("5Auth2", "102", 1_700_000_012, false);
+    await db.recordValidatorAuthorship("5Auth2", "103", 1_700_000_018, true);
+    const rows = await db.getValidatorAuthorship();
+    expect(rows.map((r) => r.accountId)).toEqual(["5Auth2", "5Auth1"]);
+    expect(rows[0]?.blocksAuthored).toBe(3);
+    expect(rows[0]?.blocksAuthoredWithPow).toBe(1);
+    expect(rows[1]?.blocksAuthored).toBe(1);
+    expect(rows[1]?.blocksAuthoredWithPow).toBe(1);
+  });
+
   test("legacy tables are dropped on migrate", async () => {
     // pg_catalog should not list any v5 legacy tables in the public schema.
     const sql = (
@@ -176,9 +213,10 @@ maybeDescribe("Postgres v6 schema", () => {
     expect(names).not.toContain("self_address");
     expect(names).not.toContain("indexer_cursors");
     expect(names).not.toContain("indexer_etags");
-    // v6 tables ARE present
+    // v7 tables ARE present
     expect(names).toContain("blocks");
     expect(names).toContain("miner_hardware");
     expect(names).toContain("chain_head");
+    expect(names).toContain("validator_authorship");
   });
 });

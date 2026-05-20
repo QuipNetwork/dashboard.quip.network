@@ -215,6 +215,30 @@ export interface IndexerObservability {
   minerStats: MinerStats | null;
 }
 
+/**
+ * Per-validator authorship payload joined against the active BABE authority
+ * set. Each row corresponds to one BABE authority for the current session;
+ * the server fills `blocksAuthored` / `blocksAuthoredWithPow` from the
+ * `validator_authorship` aggregate table and computes `online` at read
+ * time from `lastAuthoredAt`. Counters are 0 and timestamps are null for
+ * authorities that have not yet authored a block the indexer has seen.
+ */
+export interface ValidatorAuthorshipRecord {
+  accountId: string;
+  blocksAuthored: number;
+  blocksAuthoredWithPow: number;
+  // Substrate block number of the most recent head this validator authored,
+  // as a u64-as-string. Null until the indexer has observed at least one
+  // authored head from this account.
+  lastAuthoredBlock: string | null;
+  // ISO 8601. Null when no authored head has been observed.
+  lastAuthoredAt: string | null;
+  // True when `lastAuthoredAt` is within the freshness window (3 minutes
+  // at the time of writing). Computed server-side against the request
+  // wall-clock so the SPA doesn't have to choose a clock.
+  online: boolean;
+}
+
 export interface TelemetryResponse {
   blocks: BlockRecord[];
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
@@ -234,6 +258,9 @@ export interface TelemetryResponse {
   chainMiners: ChainMinerRecord[];
   // Recent DifficultyRecord snapshots (most recent first).
   recentDifficulty: DifficultyRecord[];
+  // Active BABE authority set joined with per-validator authorship counters.
+  // Empty when no BABE epoch has been polled yet.
+  validators: ValidatorAuthorshipRecord[];
 }
 
 export interface ErrorResponse {

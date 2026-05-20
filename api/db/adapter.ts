@@ -194,6 +194,43 @@ export interface DatabaseAdapter {
    * — callers re-sort against `chain_miners` for the UI.
    */
   getAllMinerHardware(): Promise<MinerHardwareRecord[]>;
+
+  // --- Validator authorship (v7) ---
+  // Per-validator aggregate counters. The substrate worker calls
+  // recordValidatorAuthorship() once per finalized head it can attribute to
+  // an author (via api.derive.chain.* author extraction). `hasPow=true`
+  // when the head also carried a `quantumPow.BlockWinner` event, so the
+  // dashboard can split "validator that authored" vs "validator that also
+  // won a PoW reward" without a separate join.
+
+  /**
+   * Increment authorship counters for `accountId` by 1; also increment the
+   * PoW counter by 1 when `hasPow=true`. Updates `last_authored_block` and
+   * `last_authored_at` to reflect the most recent observed head. Idempotency
+   * is at the caller — the worker should only fire this once per finalized
+   * head it sees.
+   */
+  recordValidatorAuthorship(
+    accountId: string,
+    blockNumber: string,
+    blockTimestamp: number,
+    hasPow: boolean,
+  ): Promise<void>;
+
+  /**
+   * Bulk read for the server's `/api/telemetry` join against the active
+   * BABE authority set. Sorted DESC by `blocksAuthored` so the most active
+   * authors are surfaced first. `lastAuthoredAt` is ISO 8601.
+   */
+  getValidatorAuthorship(): Promise<
+    Array<{
+      accountId: string;
+      blocksAuthored: number;
+      blocksAuthoredWithPow: number;
+      lastAuthoredBlock: string;
+      lastAuthoredAt: string;
+    }>
+  >;
 }
 
 export interface DbConfig {
@@ -237,7 +274,13 @@ export interface DbConfig {
 // Adds `miner_hardware` table for hardware/category data with a `source` enum
 // (`self|peer-query|chain`) ready for future peer-query and chain-surface
 // upgrades. All environments wipe and rebuild on version drift.
-export const SCHEMA_VERSION = 6;
+// v7: per-validator authorship counters. Adds `validator_authorship` table
+// keyed by SS58 account; the substrate worker UPSERTs an increment on every
+// finalized head whose author it can determine, with a separate counter for
+// heads that also carried a `quantumPow.BlockWinner` event. The server joins
+// this against the active BABE authority set for the new Active Validators
+// view. Same drop-on-drift policy as prior bumps.
+export const SCHEMA_VERSION = 7;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
@@ -251,4 +294,5 @@ export const OWNED_TABLES = [
   "chain_miners",
   "difficulty_history",
   "miner_hardware",
+  "validator_authorship",
 ] as const;
