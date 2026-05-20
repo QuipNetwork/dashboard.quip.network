@@ -114,6 +114,62 @@ describe("substrate worker", () => {
     expect(b.minDiversity).toBeCloseTo(0.2, 5);
     expect(b.minSolutions).toBe(5);
     expect(b.finalized).toBe(true); // subscribed to finalized heads
+    expect(state.observability.lastBlockInsertAt).toBe("2026-05-19T00:00:00.000Z");
+    expect(state.observability.lastSubstrateEventAt).toBe("2026-05-19T00:00:00.000Z");
+  });
+
+  test("subscribeBlockEvents skips insert when nonce is null", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 5, edgeCount: 10 };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateRpcUrl: "ws://x",
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    // Winner + matching ProofAccepted, but extractNonce returned null —
+    // skip rather than collide nonce "0" with the no-info sentinel.
+    client.emitBlock({
+      blockNumber: 77,
+      blockHash: "0xnononce",
+      parentHash: "0xprev",
+      timestamp: 1700000077,
+      winner: {
+        miner: "5GPP",
+        reward: "1000",
+        energyMilli: -500,
+        submittedAt: "77",
+      },
+      proofs: [
+        {
+          miner: "5GPP",
+          energyMilli: -500,
+          diversityMilli: 200,
+          validSolutionCount: 2,
+          qualityMilli: 300,
+        },
+      ],
+      nonce: null,
+    });
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    const blocks = await db.getRecentBlocks(10, 0);
+    expect(blocks).toHaveLength(0);
   });
 
   test("subscribeBlockEvents skips insert when winner has no matching ProofAccepted", async () => {

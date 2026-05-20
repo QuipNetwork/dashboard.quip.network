@@ -173,6 +173,19 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
           return;
         }
 
+        // Nonce is null when extractNonce couldn't locate a matching
+        // submit_proof extrinsic (transient decode anomaly). The
+        // BlockRecord.nonce column is NOT NULL, and a "0" sentinel would
+        // collide with the legitimate u64 value 0 — skip instead, parallel
+        // to the missing-ProofAccepted skip above.
+        const nonce = e.nonce;
+        if (nonce === null) {
+          console.warn(
+            `[indexer/substrate] block #${e.blockNumber}: BlockWinner without recoverable submit_proof nonce; skipping insert`,
+          );
+          return;
+        }
+
         // Mining time: substrate-blocks since the previous winning proof.
         // Read LastProofBlock AT THE PARENT block hash; on_finalize
         // updates it in-block, so reading the parent gives us the prior
@@ -204,11 +217,7 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
           qualityMilli: winningProof.qualityMilli,
           miningTime,
           reward: e.winner.reward,
-          // Nonce is null when extractNonce couldn't locate a matching
-          // submit_proof extrinsic (transient decode anomaly). Persist
-          // "0" as the sentinel — the column is NOT NULL and "0" is
-          // visually distinct from a legitimate small nonce.
-          nonce: e.nonce ?? "0",
+          nonce,
           numNodes: topology.nodeCount,
           numEdges: topology.edgeCount,
           difficultyEnergy: d.maxEnergyMilli / 1000,
