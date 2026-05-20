@@ -1,21 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Substrate worker (Phase 1 MVP): subscribes to chain head, finality, and
-// quantum_pow.BlockWinner events on a quip-protocol-rs validator. Enriches
-// the existing PoW BlockRecord rows with substrate-side metadata, writes
-// chain_head, and surfaces health into IndexerObservability for the
-// SyncIndicator.
+// Substrate worker (v0.3): the canonical block writer. Subscribes to
+// quantum_pow's per-block (BlockWinner + ProofAccepted) event pairs via
+// `subscribeBlockEvents` and writes one BlockRecord per finalized winning
+// block. Also writes chain_head on every head event and polls BABE epoch,
+// chain miners, BABE authorities, and difficulty snapshots on a cadence.
 //
-// Phase 2/3 add periodic polling of BABE epoch state, chain miners,
-// validator set, and difficulty history. This file's `runSubstrateLoop`
-// is shaped to host those polls inline — set up in Task 1.5, populated
-// in 2.1 / 2.2 / 3.1 / 3.2.
+// Before v0.3 the substrate worker was an enrichment side-channel that
+// filled in `substrate_*` columns on rows the tip worker had already
+// written from REST telemetry. In v0.3 the chain is the sole source of
+// per-block data — REST is identity+stats only — so this worker writes
+// the full row at insert time, with no two-phase enrichment race.
 
 import type { DatabaseAdapter } from "../api/db/adapter";
+import type { BlockRecord } from "../src/types/telemetry";
 
 import type { IndexerConfig } from "./config";
-import { IndexerState, type PendingWinnerEvent, type WinnerKey } from "./state";
-import type { BlockWinnerEvent, SubstrateClient, SubstrateHead, UnsubFn } from "./substrate-client";
+import type { IndexerState } from "./state";
+import type {
+  DifficultyInfo,
+  SubstrateClient,
+  SubstrateHead,
+  TopologyInfo,
+  UnsubFn,
+} from "./substrate-client";
 
 export interface SubstrateWorkerDeps {
   config: IndexerConfig;
@@ -41,51 +49,6 @@ function backoffMs(attempt: number, capMs: number): number {
   const base = Math.min(1000 * 2 ** attempt, capMs);
   const jitter = base * 0.2 * (Math.random() * 2 - 1);
   return Math.max(0, base + jitter);
-}
-
-/**
- * Mark every block whose substrate_block_number is ≤ finalizedNumber as
- * finalized. Single statement — concurrency-safe since `finalized` is
- * monotonic (only sets, never clears).
- */
-async function markFinalizedThrough(db: DatabaseAdapter, finalizedNumber: string): Promise<void> {
-  // The adapter's updateBlockSubstrateFields is per-row; finality is a
-  // bulk operation. Use a direct query via the adapter's internal API
-  // would couple to adapter internals. Instead we walk pending rows
-  // through a single query using getAllBlocks() filtered in memory —
-  // acceptable for the dashboard's block volumes (~10s of thousands at
-  // most). For larger scales, add a bulk markFinalized adapter method.
-  const blocks = await db.getAllBlocks();
-  const target = BigInt(finalizedNumber);
-  for (const b of blocks) {
-    if (b.finalized) continue;
-    if (b.substrateBlockNumber == null) continue;
-    try {
-      if (BigInt(b.substrateBlockNumber) <= target) {
-        await db.updateBlockSubstrateFields(b.epoch, b.blockIndex, { finalized: true });
-      }
-    } catch {
-      // Skip rows whose substrate_block_number doesn't parse — they were
-      // never enriched (or carry corrupt data).
-    }
-  }
-}
-
-/**
- * Enqueue a BlockWinner event whose matching PoW block hasn't landed yet.
- * Bounded LRU: when full, drops the oldest entry via Map insertion order.
- */
-function bufferWinnerEvent(state: IndexerState, ev: PendingWinnerEvent): void {
-  const limit = IndexerState.PENDING_WINNER_LIMIT;
-  const key: WinnerKey = `${ev.miner}:${ev.energy}`;
-  // Refresh insertion order if already present.
-  if (state.pendingWinnerEvents.has(key)) state.pendingWinnerEvents.delete(key);
-  state.pendingWinnerEvents.set(key, ev);
-  while (state.pendingWinnerEvents.size > limit) {
-    const oldest = state.pendingWinnerEvents.keys().next().value;
-    if (oldest === undefined) break;
-    state.pendingWinnerEvents.delete(oldest);
-  }
 }
 
 /**
@@ -180,19 +143,85 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
       state.observability.lastSubstrateEventAt = nowIso(deps);
       state.observability.finalizedBlockHeight = h.number;
       scheduleChainHead();
-      // Async finality flip — don't block the subscription callback.
-      void markFinalizedThrough(db, h.number).catch((e) => {
-        console.warn("[indexer/substrate] markFinalizedThrough failed:", e);
-      });
     }),
   );
 
+  // --- Canonical block writer ---
+  // Prime topology and difficulty before the first block event so the
+  // writer has non-zero fallbacks if the per-block refreshes lag. Topology
+  // changes infrequently enough that we don't refresh it per block;
+  // difficulty refreshes on every block (cheap storage read).
+  const cachedTopology = await client.getTopology().catch(() => null);
+  const topology: TopologyInfo = cachedTopology ?? { nodeCount: 0, edgeCount: 0 };
+  let lastDifficulty: DifficultyInfo | null = await client.getDifficulty().catch(() => null);
+
   unsubs.push(
-    await client.subscribeBlockWinnerEvents((ev: BlockWinnerEvent) => {
+    await client.subscribeBlockEvents(async (e) => {
       state.observability.lastSubstrateEventAt = nowIso(deps);
-      void enrichOnBlockWinner(deps, ev).catch((e) => {
-        console.warn("[indexer/substrate] BlockWinner enrichment failed:", e);
-      });
+      try {
+        // Correlate winner with its matching ProofAccepted by
+        // (miner, energyMilli). The chain emits both events from
+        // on_finalize for every winning proof, so a missing match means
+        // a decode anomaly — skip rather than write a half-populated row.
+        const winningProof = e.proofs.find(
+          (p) => p.miner === e.winner.miner && p.energyMilli === e.winner.energyMilli,
+        );
+        if (!winningProof) {
+          console.warn(
+            `[indexer/substrate] block #${e.blockNumber}: BlockWinner without matching ProofAccepted; skipping insert`,
+          );
+          return;
+        }
+
+        // Mining time: substrate-blocks since the previous winning proof.
+        // Read LastProofBlock AT THE PARENT block hash; on_finalize
+        // updates it in-block, so reading the parent gives us the prior
+        // value to subtract from this block's number.
+        const lastProofBlock = await client.getLastProofBlockAt(e.parentHash);
+        const miningTime = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
+
+        // Refresh the difficulty snapshot for this block. Topology is
+        // cached at boot — much more stable than difficulty.
+        const currentDifficulty = await client.getDifficulty().catch(() => null);
+        if (currentDifficulty) lastDifficulty = currentDifficulty;
+        const d: DifficultyInfo = lastDifficulty ?? {
+          maxEnergyMilli: 0,
+          minDiversityMilli: 0,
+          minSolutions: 0,
+          minQualityMilli: 0,
+        };
+
+        const record: BlockRecord = {
+          blockHash: e.blockHash,
+          substrateBlockNumber: String(e.blockNumber),
+          substrateBlockHash: e.blockHash,
+          substrateParentHash: e.parentHash,
+          timestamp: e.timestamp,
+          minerId: e.winner.miner,
+          energy: e.winner.energyMilli / 1000,
+          diversity: winningProof.diversityMilli / 1000,
+          numValidSolutions: winningProof.validSolutionCount,
+          qualityMilli: winningProof.qualityMilli,
+          miningTime,
+          reward: e.winner.reward,
+          // Nonce is null when extractNonce couldn't locate a matching
+          // submit_proof extrinsic (transient decode anomaly). Persist
+          // "0" as the sentinel — the column is NOT NULL and "0" is
+          // visually distinct from a legitimate small nonce.
+          nonce: e.nonce ?? "0",
+          numNodes: topology.nodeCount,
+          numEdges: topology.edgeCount,
+          difficultyEnergy: d.maxEnergyMilli / 1000,
+          minDiversity: d.minDiversityMilli / 1000,
+          minSolutions: d.minSolutions,
+          finalized: true, // subscribed to finalized stream
+        };
+
+        await db.insertBlock(record);
+        state.observability.lastBlockInsertAt = nowIso(deps);
+      } catch (err) {
+        console.warn(`[indexer/substrate] block #${e.blockNumber} writer failed:`, err);
+      }
     }),
   );
 
@@ -409,50 +438,6 @@ async function pollChainState(
       await deps.db.upsertBabeAuthorities(epoch.epochIndex, sortedAuthorities);
     }
   }
-}
-
-/**
- * Enrich the PoW BlockRecord that matches this BlockWinner event. If the
- * REST side hasn't landed the block yet, buffer the enrichment so the
- * tip worker can replay it after insertBlock.
- */
-async function enrichOnBlockWinner(deps: SubstrateWorkerDeps, ev: BlockWinnerEvent): Promise<void> {
-  const { client, db, state } = deps;
-  const energy = ev.energyMilli / 1000;
-
-  // Look up the substrate header up front; cache it for either the
-  // immediate update path or the buffered drain path.
-  const header = await client.getBlockHeader(ev.submittedAt);
-  if (!header) {
-    // Chain didn't return a header for this block number — log once and
-    // skip rather than buffering. Submitted_at should always resolve;
-    // if it doesn't, the event is malformed.
-    console.warn(`[indexer/substrate] no header for submittedAt=${ev.submittedAt}; skipping`);
-    return;
-  }
-
-  const fields = {
-    substrateBlockNumber: ev.submittedAt,
-    substrateBlockHash: header.hash,
-    substrateParentHash: header.parentHash,
-    extrinsicsRoot: header.extrinsicsRoot,
-    stateRoot: header.stateRoot,
-  };
-
-  const match = await db.findBlockByMinerAndEnergy(ev.miner, energy);
-  if (!match) {
-    bufferWinnerEvent(state, {
-      miner: ev.miner,
-      energy,
-      submittedAt: ev.submittedAt,
-      substrateBlockHash: header.hash,
-      substrateParentHash: header.parentHash,
-      extrinsicsRoot: header.extrinsicsRoot,
-      stateRoot: header.stateRoot,
-    });
-    return;
-  }
-  await db.updateBlockSubstrateFields(match.epoch, match.blockIndex, fields);
 }
 
 /**
