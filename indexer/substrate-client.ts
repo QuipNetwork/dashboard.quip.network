@@ -31,6 +31,42 @@ export interface BlockWinnerEvent {
   submittedAt: string; // substrate block number (u64 as string)
 }
 
+// Emitted by pallet-quantum-pow on `submit_proof` (verified in
+// quip-protocol-rs/pallets/quantum-pow/src/lib.rs:152-158). The substrate
+// worker collects all proofs accepted within a finalized block alongside
+// the single winning BlockWinner event so per-miner stats can be derived.
+export interface ProofAcceptedEvent {
+  miner: string; // SS58 account ID
+  energyMilli: number; // signed integer; lower is better (more negative)
+  diversityMilli: number;
+  validSolutionCount: number;
+  qualityMilli: number;
+}
+
+// Aggregated per-finalized-block payload emitted by subscribeBlockEvents.
+// Pairs the winning BlockWinner event with every ProofAccepted event in
+// the same block, plus the nonce pulled from the winner's submit_proof
+// extrinsic. Timestamp is unix seconds (converted from substrate's
+// millisecond timestamp.now).
+export interface BlockEvents {
+  blockNumber: number;
+  blockHash: string;
+  parentHash: string;
+  timestamp: number; // unix seconds
+  winner: BlockWinnerEvent;
+  proofs: ProofAcceptedEvent[];
+  nonce: string; // u64 from the winning submit_proof extrinsic's proof.nonce
+}
+
+// Aggregated topology counts derived from pallet-quantum-pow's
+// DefaultTopology → RegisteredTopologies lookup (lib.rs:107-111). Pallet
+// stores the actual nodes/edges vectors; the indexer only needs the
+// cardinality to surface in /api/telemetry.
+export interface TopologyInfo {
+  nodeCount: number;
+  edgeCount: number;
+}
+
 export interface BabeEpochInfo {
   epochIndex: number;
   currentSlot: string;
@@ -95,6 +131,22 @@ export interface SubstrateClient {
   subscribeNewHeads(cb: (h: SubstrateHead) => void): Promise<UnsubFn>;
   subscribeBlockWinnerEvents(cb: (e: BlockWinnerEvent) => void): Promise<UnsubFn>;
 
+  // Aggregated per-block subscription used by the substrate worker as the
+  // sole block writer. Fires once per finalized block that contained at
+  // least one BlockWinner event; carries the winner, all sibling
+  // ProofAccepted events, the block timestamp, and the nonce extracted
+  // from the winning submit_proof extrinsic.
+  subscribeBlockEvents(cb: (e: BlockEvents) => void): Promise<UnsubFn>;
+
+  // Storage read at a specific historical block hash. Returns 0 when the
+  // chain has never accepted a winning proof (matches the pallet's
+  // ValueQuery default — see lib.rs:129).
+  getLastProofBlockAt(blockHash: string): Promise<number>;
+
+  // Best-effort topology counts. Returns null when no default topology is
+  // registered on the chain (lib.rs:111).
+  getTopology(): Promise<TopologyInfo | null>;
+
   // Storage queries (poll path). Each returns null/empty when the
   // corresponding storage item is absent on the connected chain —
   // supports capability-detection so a missing pallet degrades to "no
@@ -128,12 +180,15 @@ export class FakeSubstrateClient implements SubstrateClient {
   private finalizedCbs = new Set<(h: SubstrateHead) => void>();
   private newCbs = new Set<(h: SubstrateHead) => void>();
   private winnerCbs = new Set<(e: BlockWinnerEvent) => void>();
+  private blockEventCbs = new Set<(e: BlockEvents) => void>();
   private headers = new Map<string, SubstrateHead>();
 
   public babeEpoch: BabeEpochInfo | null = null;
   public babeAuthorities: BabeAuthorityInfo[] = [];
   public chainMiners: ChainMinerInfo[] = [];
   public difficulty: DifficultyInfo | null = null;
+  public lastProofBlockByHash = new Map<string, number>();
+  public topology: TopologyInfo | null = null;
   public runtimeVersion: RuntimeVersionInfo = {
     specName: "quip",
     specVersion: 101,
@@ -183,6 +238,18 @@ export class FakeSubstrateClient implements SubstrateClient {
       this.winnerCbs.delete(cb);
     };
   }
+  async subscribeBlockEvents(cb: (e: BlockEvents) => void): Promise<UnsubFn> {
+    this.blockEventCbs.add(cb);
+    return () => {
+      this.blockEventCbs.delete(cb);
+    };
+  }
+  async getLastProofBlockAt(blockHash: string): Promise<number> {
+    return this.lastProofBlockByHash.get(blockHash) ?? 0;
+  }
+  async getTopology(): Promise<TopologyInfo | null> {
+    return this.topology;
+  }
   async getBabeEpoch(): Promise<BabeEpochInfo | null> {
     return this.babeEpoch;
   }
@@ -215,6 +282,9 @@ export class FakeSubstrateClient implements SubstrateClient {
   }
   emitBlockWinner(e: BlockWinnerEvent): void {
     for (const cb of this.winnerCbs) cb(e);
+  }
+  emitBlock(e: BlockEvents): void {
+    for (const cb of this.blockEventCbs) cb(e);
   }
   setHeader(h: SubstrateHead): void {
     this.headers.set(h.number, h);
@@ -477,4 +547,160 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       stateRoot: header.stateRoot.toHex(),
     };
   }
+
+  async subscribeBlockEvents(cb: (e: BlockEvents) => void): Promise<UnsubFn> {
+    const api = this.requireApi();
+    // system.events and timestamp.now are present on every Substrate
+    // runtime; capture local refs once so the inner Promise.all stays
+    // narrowed under TS strict optional chaining.
+    const eventsAt = api.query.system?.events?.at;
+    const timestampAt = api.query.timestamp?.now?.at;
+    if (!eventsAt || !timestampAt) {
+      throw new Error("[substrate-client] runtime missing system.events or timestamp.now");
+    }
+    // Finalized-only subscription. Trades ~6-12s latency for canonical
+    // ordering: a reorged-out block will never be observed, so the worker
+    // never writes a row it later has to roll back. New-head streams give
+    // the opposite tradeoff and are not appropriate for the canonical
+    // block writer path.
+    const unsubFn = await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
+      const blockNumber = header.number.toNumber();
+      const blockHash = header.hash.toHex();
+      const parentHash = header.parentHash.toHex();
+      const [signedBlock, eventsAtBlock, timestampAtBlock] = await Promise.all([
+        api.rpc.chain.getBlock(header.hash),
+        eventsAt(header.hash),
+        timestampAt(header.hash),
+      ]);
+
+      type EventRecord = {
+        event: {
+          section: string;
+          method: string;
+          data: Array<{ toString: () => string }>;
+        };
+      };
+      let winner: BlockWinnerEvent | null = null;
+      const proofs: ProofAcceptedEvent[] = [];
+      for (const rec of eventsAtBlock as unknown as EventRecord[]) {
+        const { section, method, data } = rec.event;
+        if (section !== "quantumPow") continue;
+        if (method === "BlockWinner") {
+          const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = data;
+          if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
+          winner = {
+            miner: minerCodec.toString(),
+            reward: rewardCodec.toString(),
+            energyMilli: Number(energyCodec.toString()),
+            submittedAt: submittedAtCodec.toString(),
+          };
+        } else if (method === "ProofAccepted") {
+          const [minerCodec, energyCodec, diversityCodec, validCodec, qualityCodec] = data;
+          if (!minerCodec || !energyCodec || !diversityCodec || !validCodec || !qualityCodec) {
+            continue;
+          }
+          proofs.push({
+            miner: minerCodec.toString(),
+            energyMilli: Number(energyCodec.toString()),
+            diversityMilli: Number(diversityCodec.toString()),
+            validSolutionCount: Number(validCodec.toString()),
+            qualityMilli: Number(qualityCodec.toString()),
+          });
+        }
+      }
+      // No BlockWinner means the block contained no winning proof; the
+      // canonical writer path has nothing to record for this block.
+      if (!winner) return;
+      const nonce = extractNonce(signedBlock, winner);
+      cb({
+        blockNumber,
+        blockHash,
+        parentHash,
+        // pallet_timestamp returns milliseconds; the indexer stores unix
+        // seconds (BlockRecord.timestamp) for parity with the legacy REST
+        // path. Truncate rather than round to keep ordering stable.
+        timestamp: Math.floor(
+          Number((timestampAtBlock as unknown as { toString: () => string }).toString()) / 1000,
+        ),
+        winner,
+        proofs,
+        nonce,
+      });
+    });
+    return () => {
+      (unsubFn as unknown as () => void)();
+    };
+  }
+
+  async getLastProofBlockAt(blockHash: string): Promise<number> {
+    const api = this.requireApi();
+    // Verified storage item: quip-protocol-rs/pallets/quantum-pow/src/lib.rs:129
+    // LastProofBlock: StorageValue<_, BlockNumberFor<T>, ValueQuery> → u32/u64.
+    if (!api.query.quantumPow?.lastProofBlock) return 0;
+    const codec = await api.query.quantumPow.lastProofBlock.at(blockHash);
+    return Number(codec.toString());
+  }
+
+  async getTopology(): Promise<TopologyInfo | null> {
+    const api = this.requireApi();
+    // No singleton "RegisteredTopology" exists on the pallet. The chain
+    // exposes DefaultTopology: Option<H256> (lib.rs:111) pointing into
+    // RegisteredTopologies: StorageMap<H256, TopologyMeta> (lib.rs:107).
+    // We materialise (node_count, edge_count) by reading the default
+    // topology's TopologyMeta and counting its nodes/edges vectors.
+    if (!api.query.quantumPow?.defaultTopology || !api.query.quantumPow?.registeredTopologies) {
+      return null;
+    }
+    const defaultCodec = await api.query.quantumPow.defaultTopology();
+    const defaultOpt = defaultCodec as unknown as {
+      isSome?: boolean;
+      unwrap?: () => { toHex: () => string };
+    };
+    if (!defaultOpt.isSome || !defaultOpt.unwrap) return null;
+    const topologyHash = defaultOpt.unwrap().toHex();
+    const metaCodec = await api.query.quantumPow.registeredTopologies(topologyHash);
+    const metaOpt = metaCodec as unknown as {
+      isSome?: boolean;
+      unwrap?: () => { nodes: { length: number }; edges: { length: number } };
+    };
+    if (!metaOpt.isSome || !metaOpt.unwrap) return null;
+    const meta = metaOpt.unwrap();
+    return {
+      nodeCount: meta.nodes.length,
+      edgeCount: meta.edges.length,
+    };
+  }
+}
+
+/**
+ * Pull the nonce out of the winning `quantumPow.submit_proof` extrinsic.
+ *
+ * Identification follows the pallet contract: `submit_proof` is `ensure_signed`
+ * (quip-protocol-rs/pallets/quantum-pow/src/lib.rs:346) and the miner is
+ * the extrinsic's signer — the `QuantumProof` struct itself carries no
+ * miner field (types.rs:8-23). We match `ext.signer.toString() === winner.miner`
+ * and pull `proof.nonce` (u64) from `ext.method.args[0]`.
+ *
+ * Returns "0" if no matching extrinsic is found, which lets the substrate
+ * worker still record the block instead of dropping it on a transient
+ * decode anomaly.
+ */
+function extractNonce(signedBlock: unknown, winner: BlockWinnerEvent): string {
+  type SignedExtrinsic = {
+    isSigned: boolean;
+    signer: { toString: () => string };
+    method: { section: string; method: string; args: Array<{ toString: () => string }> };
+  };
+  const block = (signedBlock as { block: { extrinsics: SignedExtrinsic[] } }).block;
+  for (const ext of block.extrinsics) {
+    if (!ext.isSigned) continue;
+    // Polkadot.js exposes call names as defined in the runtime metadata.
+    // pallet-quantum-pow declares the call as `submit_proof`; the metadata
+    // dispatcher exposes it under the same name.
+    if (ext.method.section !== "quantumPow" || ext.method.method !== "submit_proof") continue;
+    if (ext.signer.toString() !== winner.miner) continue;
+    const proof = ext.method.args[0] as unknown as { nonce?: { toString: () => string } };
+    return proof?.nonce?.toString() ?? "0";
+  }
+  return "0";
 }

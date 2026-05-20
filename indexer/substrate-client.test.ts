@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   FakeSubstrateClient,
   PolkadotSubstrateClient,
+  type BlockEvents,
   type SubstrateHead,
 } from "./substrate-client";
 
@@ -101,6 +102,52 @@ describe("FakeSubstrateClient", () => {
   test("getBlockHeader returns null for unknown block numbers", async () => {
     const c = new FakeSubstrateClient();
     expect(await c.getBlockHeader("missing")).toBeNull();
+  });
+
+  test("subscribeBlockEvents groups events per block", async () => {
+    const c = new FakeSubstrateClient();
+    await c.connect();
+    const seen: BlockEvents[] = [];
+    await c.subscribeBlockEvents((e) => {
+      seen.push(e);
+    });
+    c.emitBlock({
+      blockNumber: 100,
+      blockHash: "0xsub",
+      parentHash: "0xsub99",
+      timestamp: 1700000000,
+      winner: {
+        miner: "5GPPxx",
+        reward: "1000",
+        energyMilli: -2510,
+        submittedAt: "100",
+      },
+      proofs: [
+        {
+          miner: "5GPPxx",
+          energyMilli: -2510,
+          diversityMilli: 420,
+          validSolutionCount: 5,
+          qualityMilli: 850,
+        },
+      ],
+      nonce: "42",
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.winner.energyMilli).toBe(-2510);
+    expect(seen[0]?.proofs).toHaveLength(1);
+  });
+
+  test("getLastProofBlockAt returns programmed value", async () => {
+    const c = new FakeSubstrateClient();
+    c.lastProofBlockByHash.set("0xsub99", 94);
+    expect(await c.getLastProofBlockAt("0xsub99")).toBe(94);
+  });
+
+  test("getTopology returns configured nodes/edges", async () => {
+    const c = new FakeSubstrateClient();
+    c.topology = { nodeCount: 100, edgeCount: 200 };
+    expect(await c.getTopology()).toEqual({ nodeCount: 100, edgeCount: 200 });
   });
 
   test("unsubscribe removes the callback", async () => {
