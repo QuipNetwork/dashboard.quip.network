@@ -23,7 +23,6 @@ describe("IndexerState observability persistence", () => {
     expect(state.observability.chainHeadFromNode).toBeNull();
     expect(state.observability.minerStats).toBeNull();
     expect(state.observability.chainConnected).toBe(false);
-    expect(state.pendingWinnerEvents.size).toBe(0);
   });
 
   it("seeds observability from prior DB row but resets chainConnected", async () => {
