@@ -2,7 +2,6 @@
 
 import { createAdapter } from "../api/db";
 
-import { runBackfillLoop } from "./backfill-worker";
 import { AuthError, QuipClient } from "./client";
 import { parseConfig } from "./config";
 import { IndexerState } from "./state";
@@ -12,20 +11,19 @@ import { runTipLoop } from "./tip-worker";
 
 export interface WorkerRunner {
   runTip: (signal: AbortSignal) => Promise<void>;
-  runBackfill: (signal: AbortSignal) => Promise<void>;
   // Optional. Configured only when QUIP_VALIDATOR_RPC_URL is set; absence
   // means the indexer runs in REST-only degraded mode (dashboard chain
   // surfaces stay null/empty).
   runSubstrate?: (signal: AbortSignal) => Promise<void>;
 }
 
-type WorkerName = "tip" | "backfill" | "substrate";
+type WorkerName = "tip" | "substrate";
 
 /**
  * Run the configured workers concurrently. Each worker receives a composed
  * {@link AbortSignal} that fires when either:
- *   - a fatal worker (tip/backfill) throws an {@link AuthError} or other
- *     fatal — this aborts every sibling
+ *   - the tip worker throws an {@link AuthError} or other fatal — this
+ *     aborts every sibling
  *   - the optional {@link parentSignal} (typically a process-level SIGINT
  *     controller) aborts
  *
@@ -66,10 +64,7 @@ export async function runWorkers(
     }
   };
 
-  const promises: Promise<void>[] = [
-    wrap("tip", runners.runTip),
-    wrap("backfill", runners.runBackfill),
-  ];
+  const promises: Promise<void>[] = [wrap("tip", runners.runTip)];
   if (runners.runSubstrate) {
     promises.push(wrap("substrate", runners.runSubstrate));
   }
@@ -84,19 +79,14 @@ async function main(): Promise<number> {
   console.log(
     `[indexer] starting node=${config.nodeUrl} poll=${config.pollIntervalSec}s` +
       ` nodesRefresh=${config.nodesRefreshSec}s stallWarnAfter=${config.stallWarnAfterSec}s` +
-      ` backfillIdleRecheck=${config.backfillIdleRecheckSec}s once=${config.once}` +
-      ` substrate=${config.substrateRpcUrl ?? "disabled"}`,
+      ` once=${config.once} substrate=${config.substrateRpcUrl ?? "disabled"}`,
   );
 
   const db = await createAdapter();
   await db.connect();
   await db.migrate();
 
-  // Separate QuipClient instances so the two workers can't deadlock each
-  // other on a shared in-flight request (not strictly required today — the
-  // client is stateless across calls — but cheap insurance).
   const tipClient = new QuipClient({ baseUrl: config.nodeUrl, token: config.token });
-  const backfillClient = new QuipClient({ baseUrl: config.nodeUrl, token: config.token });
   const state = new IndexerState(db);
   await state.load();
 
@@ -123,13 +113,10 @@ async function main(): Promise<number> {
     exitCode = await runWorkers(
       {
         runTip: (signal) => runTipLoop({ config, client: tipClient, db, state }, signal),
-        runBackfill: (signal) =>
-          runBackfillLoop({ config, client: backfillClient, db, state }, signal),
         ...(runSubstrate ? { runSubstrate } : {}),
       },
       processAc.signal,
     );
-    await state.save();
   } catch (e) {
     exitCode = 1;
     const label = e instanceof AuthError ? "auth failed" : "workers failed";
