@@ -4,13 +4,7 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type {
-  ChainMinerRecord,
-  NodeInfo,
-  NodesSnapshot,
-  TelemetryResponse,
-} from "../src/types/telemetry";
-import { getGeoIpEnricher, type GeoIpEnricher } from "./geo-ip";
+import type { TelemetryResponse } from "../src/types/telemetry";
 
 interface StaticOptions {
   root?: string;
@@ -29,35 +23,26 @@ export interface CreateAppOptions {
    * the Netlify runtime (Node) cannot load Bun-only adapters at module scope.
    */
   serveStatic?: ServeStaticFactory;
-  /** Test hook; production callers use the module-level singleton. */
-  geoIp?: GeoIpEnricher;
 }
 
-const emptySnapshot: NodesSnapshot = {
-  updatedAt: new Date(0).toISOString(),
-  nodeCount: 0,
-  activeCount: 0,
-  nodes: {},
-};
-
 export function createApp(options: CreateAppOptions): Hono {
-  const { db, enableStatic = false, staticDir = "./dist", serveStatic, geoIp } = options;
+  const { db, enableStatic = false, staticDir = "./dist", serveStatic } = options;
   const app = new Hono();
 
   app.get("/api/telemetry", async (c) => {
     const [
       blocks,
-      nodes,
       selfAddress,
       indexer,
       chainHead,
       babeEpoch,
       babeAuthorities,
-      rawChainMiners,
+      chainMiners,
       recentDifficulty,
+      allHardware,
     ] = await Promise.all([
-      db.getAllBlocks(),
-      db.getNodes(),
+      // Page-1 default; the UI can request later pages once pagination lands.
+      db.getRecentBlocks(500, 0),
       db.getSelfAddress(),
       db.getIndexerObservability(),
       db.getChainHead(),
@@ -65,62 +50,43 @@ export function createApp(options: CreateAppOptions): Hono {
       db.getActiveBabeAuthorities(),
       db.getChainMiners(),
       db.getRecentDifficulty(50),
+      db.getAllMinerHardware(),
     ]);
-    const rawSnapshot = nodes ?? emptySnapshot;
-    const enricher = geoIp ?? (await getGeoIpEnricher());
-    const enrichedNodes: Record<string, NodeInfo> = enricher.enabled
-      ? await enricher.enrichSnapshot(rawSnapshot.nodes)
-      : rawSnapshot.nodes;
 
-    // Chain miners → telemetry node join. quip-protocol-rs spec 101 does
-    // not currently expose an ECDSA pubkey alongside the SS58 account_id,
-    // so the join cannot fire — telemetryNodeAddress stays null. The
-    // ChainMinerRecord type + UI plumbing are in place ahead of the chain
-    // side adding that mapping (see plan rev 2 Task 0.8 follow-up).
-    const chainMiners: ChainMinerRecord[] = rawChainMiners.map((m) => ({
+    // Join chain_miners → miner_hardware on accountId so the UI can render
+    // a per-row "telemetry node" link without a second fetch. Today only
+    // self has a miner_hardware row (source='self'); future peer-query and
+    // chain-surface upgrades populate other entries.
+    const hardwareByAccount = new Map(allHardware.map((h) => [h.accountId, h]));
+    const enrichedMiners = chainMiners.map((m) => ({
       ...m,
-      telemetryNodeAddress: null,
+      telemetryNodeAddress: hardwareByAccount.get(m.accountId)?.nodeId ?? null,
     }));
 
-    const body: TelemetryResponse = {
+    return c.json({
       blocks,
-      nodes: { ...rawSnapshot, nodes: enrichedNodes },
       selfAddress,
       indexer,
       serverTime: new Date().toISOString(),
       chainHead,
       babeEpoch,
       babeAuthorities,
-      chainMiners,
+      chainMiners: enrichedMiners,
       recentDifficulty,
-    };
-    return c.json(body);
-  });
-
-  app.get("/api/telemetry/index", async (c) => {
-    const index = await db.getIndex();
-    return c.json(index);
-  });
-
-  app.get("/api/telemetry/epochs/:epoch", async (c) => {
-    // Epoch IDs are opaque 16-char hex hashes (e.g. e0a08eef1dfff726).
-    // Only rough-validate the shape so an obvious path-injection attempt
-    // produces 400 rather than a DB roundtrip with a bogus key.
-    const epoch = c.req.param("epoch");
-    if (!/^[0-9a-f]{8,64}$/i.test(epoch)) {
-      return c.json({ error: "invalid epoch", detail: epoch }, 400);
-    }
-    const blocks = await db.getBlocksByEpoch(epoch);
-    return c.json({ blocks });
+    } satisfies TelemetryResponse);
   });
 
   app.get("/api/health", async (c) => {
-    const [cursors, nodes] = await Promise.all([db.getCursors(), db.getNodes()]);
+    // v6 drops the dual-cursor epoch model and the peer list. Health is now
+    // an indexer-heartbeat surface — null fields mean the indexer has not
+    // completed its first poll yet (or chain WSS has never connected).
+    const obs = await db.getIndexerObservability();
     return c.json({
       ok: true,
-      tipCursor: cursors.tip,
-      backfillCursor: cursors.backfill,
-      lastSync: nodes?.updatedAt ?? null,
+      lastStatusFetchAt: obs?.lastStatusFetchAt ?? null,
+      lastBlockInsertAt: obs?.lastBlockInsertAt ?? null,
+      lastSubstrateEventAt: obs?.lastSubstrateEventAt ?? null,
+      chainConnected: obs?.chainConnected ?? false,
     });
   });
 

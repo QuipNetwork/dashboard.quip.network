@@ -7,79 +7,33 @@ import { join } from "node:path";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
 import { SQLiteAdapter } from "../api/db/sqlite";
-import type {
-  BlockRecord,
-  NodeInfo,
-  NodesSnapshot,
-  TelemetryIndex,
-  TelemetryResponse,
-} from "../src/types/telemetry";
+import type { BlockRecord, TelemetryResponse } from "../src/types/telemetry";
 import { createApp } from "./app";
-import type { GeoIpEnricher } from "./geo-ip";
 
-// Keep tests hermetic: never touch the module-level mmdb singleton.
-const NOOP_GEOIP: GeoIpEnricher = {
-  enabled: false,
-  async enrich(n) {
-    return n;
-  },
-  async enrichSnapshot(n) {
-    return n;
-  },
-};
-
-function makeBlock(
-  overrides: Partial<BlockRecord> & Pick<BlockRecord, "blockIndex" | "epoch">,
-): BlockRecord {
+function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
   return {
-    blockHash: `hash-${overrides.epoch}-${overrides.blockIndex}`,
-    timestamp: 1_700_000_000 + overrides.blockIndex,
-    previousHash: `prev-${overrides.blockIndex}`,
-    minerId: "miner-1",
-    minerCategory: "CPU",
-    ecdsaPublicKey: "04deadbeef",
-    energy: 0.5,
-    diversity: 0.25,
-    numValidSolutions: 1,
-    miningTime: 10,
+    blockHash: "0xpow1",
+    substrateBlockNumber: "100",
+    substrateBlockHash: "0xsub1",
+    substrateParentHash: "0xsub0",
+    timestamp: 1_700_000_000,
+    minerId: "5GPP",
+    energy: -2510,
+    diversity: 0.42,
+    numValidSolutions: 5,
+    qualityMilli: 850,
+    miningTime: 6,
+    reward: "1000000000000",
     nonce: "42",
-    numNodes: 16,
-    numEdges: 32,
-    difficultyEnergy: 0.4,
+    numNodes: 100,
+    numEdges: 200,
+    difficultyEnergy: -2500,
     minDiversity: 0.2,
-    minSolutions: 1,
-    substrateBlockNumber: null,
-    substrateBlockHash: null,
-    substrateParentHash: null,
-    extrinsicsRoot: null,
-    stateRoot: null,
+    minSolutions: 5,
     finalized: false,
-    isCanonical: true,
     ...overrides,
   };
 }
-
-const SNAPSHOT: NodesSnapshot = {
-  updatedAt: "2025-01-01T00:00:00.000Z",
-  nodeCount: 2,
-  activeCount: 1,
-  nodes: {
-    "node-a": {
-      address: "node-a",
-      status: "online",
-      firstSeen: 1_700_000_000,
-      lastSeen: 1_700_000_100,
-      lastHeartbeat: 1_700_000_100,
-    },
-    "node-b": {
-      address: "node-b",
-      status: "offline",
-      firstSeen: 1_700_000_000,
-      lastSeen: 1_700_000_050,
-      lastHeartbeat: null,
-    },
-  },
-};
 
 let tmpDir: string;
 let db: DatabaseAdapter;
@@ -91,17 +45,7 @@ beforeEach(async () => {
   await db.connect();
   await db.migrate();
 
-  await db.insertBlock(makeBlock({ epoch: "1700000000", blockIndex: 0 }));
-  await db.insertBlock(makeBlock({ epoch: "1700000000", blockIndex: 1 }));
-  await db.insertBlock(makeBlock({ epoch: "1700000060", blockIndex: 0 }));
-  await db.upsertNodes(SNAPSHOT);
-  await db.saveCursors(
-    { epoch: "1700000060", blockIndex: 0 },
-    { epoch: null, blockIndex: 0 },
-    { nodes: null },
-  );
-
-  app = createApp({ db, enableStatic: false, geoIp: NOOP_GEOIP });
+  app = createApp({ db, enableStatic: false });
 });
 
 afterEach(async () => {
@@ -110,54 +54,50 @@ afterEach(async () => {
 });
 
 describe("server app", () => {
-  test("GET /api/telemetry returns seeded blocks and nodes", async () => {
+  test("GET /api/telemetry returns the v6 payload shape", async () => {
+    await db.insertBlock(makeBlock());
+
     const res = await app.fetch(new Request("http://test/api/telemetry"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as TelemetryResponse;
-    expect(body.blocks).toHaveLength(3);
-    expect(body.nodes.nodeCount).toBe(2);
-    expect(body.nodes.activeCount).toBe(1);
-    expect(body.nodes.nodes["node-a"]?.status).toBe("online");
+
+    expect(body.blocks).toHaveLength(1);
+    expect(body.blocks[0]?.blockHash).toBe("0xpow1");
     expect(body.selfAddress).toBeNull();
     // Indexer observability is null until the indexer writes its first
     // snapshot. The test seed does not invoke the indexer.
     expect(body.indexer).toBeNull();
-  });
-
-  test("GET /api/telemetry surfaces indexer observability once written", async () => {
-    await db.setIndexerObservability({
-      nodeLatestEpoch: "1700000060",
-      nodeLatestBlockIndex: 42,
-      tipEpoch: "1700000060",
-      tipBlockIndex: 40,
-      backfillEpoch: null,
-      backfillBlockIndex: 0,
-      lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
-      lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
-      nodesObservedAt: null,
-      lastSubstrateEventAt: null,
-      bestBlockHeight: null,
-      finalizedBlockHeight: null,
-      chainConnected: false,
-    });
-    const res = await app.fetch(new Request("http://test/api/telemetry"));
-    const body = (await res.json()) as TelemetryResponse;
-    expect(body.indexer).not.toBeNull();
-    expect(body.indexer?.nodeLatestBlockIndex).toBe(42);
-    expect(body.indexer?.tipBlockIndex).toBe(40);
-    expect(body.indexer?.lastStatusFetchAt).toBe("2026-04-22T12:00:00.000Z");
-    expect(body.indexer?.chainConnected).toBe(false);
-  });
-
-  test("GET /api/telemetry returns v5 substrate keys (null/empty in degraded mode)", async () => {
-    const res = await app.fetch(new Request("http://test/api/telemetry"));
-    const body = (await res.json()) as TelemetryResponse;
     expect(typeof body.serverTime).toBe("string");
+    expect(body.serverTime).toMatch(/T/); // ISO 8601
     expect(body.chainHead).toBeNull();
     expect(body.babeEpoch).toBeNull();
     expect(body.babeAuthorities).toEqual([]);
     expect(body.chainMiners).toEqual([]);
     expect(body.recentDifficulty).toEqual([]);
+
+    // v5 keys must be gone — the dashboard no longer surfaces a peer list or
+    // an epoch catalog.
+    expect("nodes" in body).toBe(false);
+    expect("epochs" in body).toBe(false);
+  });
+
+  test("GET /api/telemetry surfaces indexer observability once written", async () => {
+    await db.setIndexerObservability({
+      chainHeadFromNode: "4939",
+      lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
+      lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
+      lastSubstrateEventAt: "2026-04-22T11:58:30.000Z",
+      bestBlockHeight: "4939",
+      finalizedBlockHeight: "4937",
+      chainConnected: true,
+      minerStats: null,
+    });
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(body.indexer).not.toBeNull();
+    expect(body.indexer?.lastStatusFetchAt).toBe("2026-04-22T12:00:00.000Z");
+    expect(body.indexer?.chainHeadFromNode).toBe("4939");
+    expect(body.indexer?.chainConnected).toBe(true);
   });
 
   test("GET /api/telemetry returns chainHead/babeEpoch/chainMiners when populated", async () => {
@@ -214,83 +154,105 @@ describe("server app", () => {
     expect(body.babeAuthorities.map((a) => a.accountId)).toEqual(["5GrwvaEF1", "5GrwvaEF2"]);
     expect(body.chainMiners).toHaveLength(1);
     expect(body.chainMiners[0]?.proofsWon).toBe("3");
-    // telemetryNodeAddress join stays null until the chain side ships
-    // an ECDSA-pubkey → account_id mapping (see plan note in Task 0.8).
+    // No miner_hardware row for this accountId, so the join returns null.
     expect(body.chainMiners[0]?.telemetryNodeAddress).toBeNull();
     expect(body.recentDifficulty).toHaveLength(1);
     expect(body.recentDifficulty[0]?.difficultyEnergy).toBe(12.5);
   });
 
   test("GET /api/telemetry surfaces the configured self address", async () => {
-    await db.setSelfAddress("node-a");
+    await db.setSelfAddress("5GPP");
     const res = await app.fetch(new Request("http://test/api/telemetry"));
     const body = (await res.json()) as TelemetryResponse;
-    expect(body.selfAddress).toBe("node-a");
+    expect(body.selfAddress).toBe("5GPP");
   });
 
-  test("GET /api/telemetry applies geo-IP enrichment when provided", async () => {
-    const stubbed: GeoIpEnricher = {
-      enabled: true,
-      async enrich(n) {
-        return n;
+  test("chainMiners.telemetryNodeAddress is populated from miner_hardware when a row exists", async () => {
+    await db.upsertChainMiners([
+      {
+        accountId: "5GPP",
+        deposit: "1000000000000",
+        proofsSubmitted: "5",
+        proofsWon: "1",
+        rewardsEarned: "1000000000000",
       },
-      async enrichSnapshot(nodes) {
-        const out: Record<string, NodeInfo> = {};
-        for (const [addr, info] of Object.entries(nodes)) {
-          out[addr] = {
-            ...info,
-            location: { country: "US", city: "New York", lat: 40.7, lng: -74.0 },
-          };
-        }
-        return out;
-      },
-    };
-    const appWithGeo = createApp({ db, enableStatic: false, geoIp: stubbed });
-    const res = await appWithGeo.fetch(new Request("http://test/api/telemetry"));
+    ]);
+    await db.upsertMinerHardware({
+      accountId: "5GPP",
+      nodeId: "quip-miner-pow",
+      miners: [{ id: "quip-miner-pow-CPU-1", type: "CPU" }],
+      primaryType: "CPU",
+      source: "self",
+      observedAt: "2026-05-19T00:00:00.000Z",
+    });
+
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
     const body = (await res.json()) as TelemetryResponse;
-    expect(body.nodes.nodes["node-a"]?.location?.country).toBe("US");
-    expect(body.nodes.nodes["node-b"]?.location?.lat).toBe(40.7);
+    const entry = body.chainMiners.find((m) => m.accountId === "5GPP");
+    expect(entry?.telemetryNodeAddress).toBe("quip-miner-pow");
   });
 
-  test("GET /api/telemetry/epochs/:epoch filters by epoch", async () => {
+  test("chainMiners.telemetryNodeAddress is null when no miner_hardware row exists", async () => {
+    await db.upsertChainMiners([
+      {
+        accountId: "5UNKNOWN",
+        deposit: "0",
+        proofsSubmitted: "0",
+        proofsWon: "0",
+        rewardsEarned: "0",
+      },
+    ]);
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    const entry = body.chainMiners.find((m) => m.accountId === "5UNKNOWN");
+    expect(entry?.telemetryNodeAddress).toBeNull();
+  });
+
+  test("GET /api/telemetry/index returns 404 (route removed in v0.3)", async () => {
+    const res = await app.fetch(new Request("http://test/api/telemetry/index"));
+    expect(res.status).toBe(404);
+  });
+
+  test("GET /api/telemetry/epochs/:epoch returns 404 (route removed in v0.3)", async () => {
     const res = await app.fetch(new Request("http://test/api/telemetry/epochs/1700000000"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { blocks: BlockRecord[] };
-    expect(body.blocks).toHaveLength(2);
-    for (const b of body.blocks) expect(b.epoch).toBe("1700000000");
+    expect(res.status).toBe(404);
   });
 
-  test("GET /api/telemetry/epochs rejects a non-hex epoch id", async () => {
-    // Post-v4 epoch IDs are hex hashes; anything outside /^[0-9a-f]{8,64}$/i
-    // is rejected before the DB roundtrip.
-    const res = await app.fetch(new Request("http://test/api/telemetry/epochs/not-a-hash"));
-    expect(res.status).toBe(400);
-  });
-
-  test("GET /api/health returns tip/backfill cursors and lastSync", async () => {
+  test("GET /api/health returns ok + indexer heartbeat fields", async () => {
+    await db.setIndexerObservability({
+      chainHeadFromNode: "4939",
+      lastStatusFetchAt: "2026-04-22T12:00:00.000Z",
+      lastBlockInsertAt: "2026-04-22T11:58:33.000Z",
+      lastSubstrateEventAt: "2026-04-22T11:58:30.000Z",
+      bestBlockHeight: "4939",
+      finalizedBlockHeight: "4937",
+      chainConnected: true,
+      minerStats: null,
+    });
     const res = await app.fetch(new Request("http://test/api/health"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ok: boolean;
-      tipCursor: { epoch: string | null; blockIndex: number };
-      backfillCursor: { epoch: string | null; blockIndex: number };
-      lastSync: string | null;
+      lastStatusFetchAt: string | null;
+      lastSubstrateEventAt: string | null;
+      chainConnected: boolean;
     };
     expect(body.ok).toBe(true);
-    expect(body.tipCursor.epoch).toBe("1700000060");
-    expect(body.tipCursor.blockIndex).toBe(0);
-    expect(body.backfillCursor.epoch).toBeNull();
-    expect(body.backfillCursor.blockIndex).toBe(0);
-    expect(body.lastSync).toBe(SNAPSHOT.updatedAt);
+    expect(body.lastStatusFetchAt).toBe("2026-04-22T12:00:00.000Z");
+    expect(body.lastSubstrateEventAt).toBe("2026-04-22T11:58:30.000Z");
+    expect(body.chainConnected).toBe(true);
   });
 
-  test("GET /api/telemetry/index returns epoch list", async () => {
-    const res = await app.fetch(new Request("http://test/api/telemetry/index"));
+  test("GET /api/health returns ok=true with null fields before the indexer writes", async () => {
+    const res = await app.fetch(new Request("http://test/api/health"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as TelemetryIndex;
-    const epochs = body.epochs.map((e) => e.epoch).sort();
-    expect(epochs).toEqual(["1700000000", "1700000060"]);
-    const first = body.epochs.find((e) => e.epoch === "1700000000");
-    expect(first?.blockCount).toBe(2);
+    const body = (await res.json()) as {
+      ok: boolean;
+      lastStatusFetchAt: string | null;
+      chainConnected: boolean;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.lastStatusFetchAt).toBeNull();
+    expect(body.chainConnected).toBe(false);
   });
 });
