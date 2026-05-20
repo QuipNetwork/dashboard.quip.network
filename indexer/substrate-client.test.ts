@@ -232,7 +232,9 @@ function makeSubmitProofExtrinsic(opts: {
     signer: { toString: () => opts.signer },
     method: {
       section: opts.section ?? "quantumPow",
-      method: opts.method ?? "submit_proof",
+      // Polkadot.js exposes runtime call names in camelCase (`submit_proof`
+      // in pallet code → `submitProof` from `ext.method.method`).
+      method: opts.method ?? "submitProof",
       args: [
         {
           // extractNonce reads `args[0].nonce.toString()`; the codec's own
@@ -257,7 +259,7 @@ const winnerOf = (miner: string): BlockWinnerEvent => ({
 });
 
 describe("extractNonce", () => {
-  test("returns the nonce from the matching signed submit_proof extrinsic", () => {
+  test("returns the nonce from the matching signed submitProof extrinsic", () => {
     const signed = makeSignedBlock([makeSubmitProofExtrinsic({ signer: "5GPPxx", nonce: "42" })]);
     expect(extractNonce(signed, winnerOf("5GPPxx"))).toBe("42");
   });

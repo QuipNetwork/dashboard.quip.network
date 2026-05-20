@@ -301,9 +301,56 @@ export class FakeSubstrateClient implements SubstrateClient {
 // ---------------------------------------------------------------------------
 
 import { ApiPromise, WsProvider } from "@polkadot/api";
+import { GenericExtrinsicSignatureV4 } from "@polkadot/types/extrinsic/v4/ExtrinsicSignature";
+import { GenericExtrinsicSignatureV5 } from "@polkadot/types/extrinsic/v5/ExtrinsicSignature";
+
+// quip-protocol-rs replaces stock `MultiSignature` with `HybridTxSignature`
+// (a plain `{public: [u8;1344], signature: [u8;2484]}` struct — see
+// quip-protocol-rs/crates/transaction-crypto/src/lib.rs). The chain's V16
+// metadata exposes the type at `quip_transaction_crypto::HybridTxSignature`
+// (type id 106 on spec 101) and polkadot.js auto-resolves
+// `ExtrinsicSignature` to it via the metadata lookup. We do NOT need to
+// register the type ourselves.
+//
+// However: polkadot.js v16.5.6's `GenericExtrinsicSignatureV{4,5}` computes
+// `isSigned` from `!this.signature.isEmpty`, which only works for the stock
+// `MultiSignature` enum (empty bytes → no variant → isEmpty=true). For our
+// concrete (non-enum) struct signature, default bytes are 1344+2484 zeros
+// — non-empty — so isSigned is incorrectly always true. That cascades into
+// `GenericExtrinsic.version` throwing "Signed Extrinsics are currently only
+// available for ExtrinsicV4" even for V5 *unsigned* timestamp inherents.
+//
+// The fix: subclass the V4/V5 signature codecs and track `isSigned` from
+// the constructor option (which polkadot.js sets correctly from the
+// extrinsic's preamble byte) instead of inferring it from field bytes.
+class HybridExtrinsicSignatureV4 extends GenericExtrinsicSignatureV4 {
+  #isExplicitlySigned: boolean;
+  // The base class' constructor signature uses positional args we forward
+  // as-is; the third arg is `{ isSigned }`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(registry: any, value: unknown, opts: { isSigned?: boolean } = {}) {
+    super(registry, value as never, opts as never);
+    this.#isExplicitlySigned = Boolean(opts.isSigned);
+  }
+  override get isSigned(): boolean {
+    return this.#isExplicitlySigned;
+  }
+}
+
+class HybridExtrinsicSignatureV5 extends GenericExtrinsicSignatureV5 {
+  #isExplicitlySigned: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(registry: any, value: unknown, opts: { isSigned?: boolean } = {}) {
+    super(registry, value as never, opts as never);
+    this.#isExplicitlySigned = Boolean(opts.isSigned);
+  }
+  override get isSigned(): boolean {
+    return this.#isExplicitlySigned;
+  }
+}
 
 /**
- * @polkadot/api-backed implementation. Pinned to 15.9.1 in package.json so
+ * @polkadot/api-backed implementation. Pinned to 16.5.6 in package.json so
  * @polkadot/types stays in lockstep (a mismatch produces opaque decode
  * errors). Storage queries assume quip-protocol-rs spec_version 101 —
  * later runtime upgrades may rename items; capability checks (`?.`)
@@ -336,6 +383,21 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     });
     await this.provider.connect();
     this.api = await ApiPromise.create({ provider: this.provider, throwOnConnect: true });
+    // Override extrinsic signature codecs so that polkadot.js v16's
+    // `isSigned` derivation works with quip's `HybridTxSignature` struct.
+    // See HybridExtrinsicSignatureV{4,5} above for the rationale.
+    // The polkadot.js type for `register(name, class)` is `CodecClass`, but
+    // our subclass extends `Struct` (which IS a CodecClass at runtime); the
+    // generic signature is too tight to accept a `Struct` subclass directly.
+    type AnyCodecClass = Parameters<typeof this.api.registry.register>[1];
+    this.api.registry.register(
+      "ExtrinsicSignatureV4",
+      HybridExtrinsicSignatureV4 as unknown as AnyCodecClass,
+    );
+    this.api.registry.register(
+      "ExtrinsicSignatureV5",
+      HybridExtrinsicSignatureV5 as unknown as AnyCodecClass,
+    );
   }
 
   async disconnect(): Promise<void> {
@@ -716,10 +778,10 @@ export function extractNonce(signedBlock: unknown, winner: BlockWinnerEvent): st
   const block = (signedBlock as { block: { extrinsics: SignedExtrinsic[] } }).block;
   for (const ext of block.extrinsics) {
     if (!ext.isSigned) continue;
-    // Polkadot.js exposes call names as defined in the runtime metadata.
-    // pallet-quantum-pow declares the call as `submit_proof`; the metadata
-    // dispatcher exposes it under the same name.
-    if (ext.method.section !== "quantumPow" || ext.method.method !== "submit_proof") continue;
+    // Polkadot.js converts snake_case call names to camelCase when
+    // exposing them through the metadata dispatcher (the runtime declares
+    // `submit_proof`; polkadot.js surfaces it as `submitProof`).
+    if (ext.method.section !== "quantumPow" || ext.method.method !== "submitProof") continue;
     if (ext.signer.toString() !== winner.miner) continue;
     const proof = ext.method.args[0] as unknown as { nonce?: { toString: () => string } };
     return proof?.nonce?.toString() ?? null;
