@@ -17,6 +17,7 @@ const miner = (accountId: string, rewardsEarned: string): ChainMinerRecord => ({
   proofsWon: "3",
   rewardsEarned,
   telemetryNodeAddress: null,
+  hardware: null,
 });
 
 const authority = (accountId: string): BabeAuthorityRecord => ({

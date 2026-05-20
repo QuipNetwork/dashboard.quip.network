@@ -120,6 +120,10 @@ export interface ChainMinerRecord {
   // (source='self'); future peer-query/chain-surface versions populate other
   // entries.
   telemetryNodeAddress: string | null;
+  // Full hardware record joined server-side from `miner_hardware` when an
+  // entry exists for this accountId. Null when no hardware data exists
+  // (most miners today — only self is populated until peer-query lands).
+  hardware: MinerHardwareRecord | null;
 }
 
 /**

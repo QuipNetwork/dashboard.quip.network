@@ -45,6 +45,7 @@ function makeChainMiner(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRe
     proofsWon: "3",
     rewardsEarned: "300",
     telemetryNodeAddress: null,
+    hardware: null,
     ...overrides,
   };
 }

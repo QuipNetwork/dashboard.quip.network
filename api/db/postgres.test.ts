@@ -62,7 +62,7 @@ const sampleAuthority = (accountId: string): BabeAuthorityRecord => ({
 const sampleMiner = (
   accountId: string,
   rewardsEarned = "0",
-): Omit<ChainMinerRecord, "telemetryNodeAddress"> => ({
+): Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware"> => ({
   accountId,
   deposit: "1000000000000",
   proofsSubmitted: "42",

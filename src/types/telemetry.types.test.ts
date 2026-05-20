@@ -133,6 +133,7 @@ describe("v6 telemetry types", () => {
       proofsWon: "1",
       rewardsEarned: "1000000000000",
       telemetryNodeAddress: "quip-miner-pow",
+      hardware: null,
     };
     expect(m.telemetryNodeAddress).toBe("quip-miner-pow");
   });

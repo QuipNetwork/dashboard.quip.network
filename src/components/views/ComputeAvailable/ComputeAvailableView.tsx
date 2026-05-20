@@ -1,31 +1,91 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { useTelemetryStore } from "../../../store/telemetry-store";
+import { shortAddress } from "../../../lib/format-chain";
+import { formatDuration } from "../../../lib/format";
+import { ChartCard } from "../../layout/ChartCard";
+import { ChainMinersTable } from "../Chain/ChainMinersView";
+import { DifficultyChart } from "../Chain/DifficultyChart";
 
-/**
- * Compute Available view — v0.3 degraded mode.
- *
- * In v0.2 this view aggregated per-node hardware (CPUs/GPUs/QPUs, FP32
- * TFLOPS estimates, geo-located map) sourced from the `/api/telemetry`
- * response's `nodes` snapshot. v0.3 drops that surface — the substrate
- * worker is now the canonical block writer and `quip-miner-pow /api/v1/*`
- * only reports self-identity. Peer-query / chain-surface hardware
- * publication is reserved for a future version (v0.4+).
- *
- * Until then this view renders a placeholder explaining the gap so the
- * Compute tab in the header doesn't silently break.
- */
+const sourceLabel = (src: string | undefined): string => {
+  if (src === "self") return "this node";
+  if (src === "peer-query") return "peer query";
+  if (src === "chain") return "on-chain";
+  return "peer-query pending";
+};
+
 export function ComputeAvailableView() {
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const serverTime = useTelemetryStore((s) => s.serverTime);
+  const now = serverTime ? Date.parse(serverTime) : Date.now();
+
+  const sorted = [...chainMiners].sort((a, b) => {
+    const aHas = a.hardware !== null;
+    const bHas = b.hardware !== null;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    return a.accountId.localeCompare(b.accountId);
+  });
+
   return (
-    <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-8 backdrop-blur-xl">
-      <h2 className="mb-2 font-heading text-lg text-brand-gray-5">Compute Availability</h2>
-      <p className="font-accent text-sm text-brand-gray-3">
-        Network-wide hardware inventory isn't published on chain yet. The dashboard only learns
-        about the locally polled quip-miner via <code>/api/v1/system</code>, so it can't render an
-        aggregate compute picture in v0.3.
-      </p>
-      <p className="mt-3 font-accent text-xs text-brand-gray-3">
-        A future release will restore this view once miners publish hardware inventories on chain
-        (or expose a peer-query surface).
-      </p>
-    </div>
+    <>
+      <ChartCard
+        title="Hardware Inventory"
+        subtitle="On-chain miners with available hardware data; others marked Unknown until peer-query lands."
+        className="mb-5"
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="text-left font-accent text-xs uppercase tracking-wider text-brand-gray-3">
+                <th className="py-2 pr-4">Account</th>
+                <th className="py-2 pr-4">Hardware</th>
+                <th className="py-2 pr-4">Source</th>
+                <th className="py-2">Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="py-6 text-center font-accent text-sm text-brand-gray-3"
+                  >
+                    No on-chain miners registered yet.
+                  </td>
+                </tr>
+              ) : (
+                sorted.map((m) => (
+                  <tr key={m.accountId} className="border-t border-brand-gray-2">
+                    <td className="py-2 pr-4 font-mono text-sm text-brand-gray-6">
+                      {shortAddress(m.accountId)}
+                    </td>
+                    <td className="py-2 pr-4 text-sm">
+                      {m.hardware ? (
+                        m.hardware.miners.map((mn) => `${mn.type}×1`).join(" + ")
+                      ) : (
+                        <span className="italic text-brand-gray-3">Unknown</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4 text-sm text-brand-gray-4">
+                      {sourceLabel(m.hardware?.source)}
+                    </td>
+                    <td className="py-2 text-sm text-brand-gray-4">
+                      {m.hardware
+                        ? `${formatDuration(now - Date.parse(m.hardware.observedAt))} ago`
+                        : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </ChartCard>
+
+      <div className="mb-5">
+        <ChainMinersTable />
+      </div>
+
+      <DifficultyChart />
+    </>
   );
 }

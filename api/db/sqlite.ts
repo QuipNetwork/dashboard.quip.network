@@ -524,7 +524,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
   }
 
   async upsertChainMiners(
-    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>,
+    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">>,
   ): Promise<void> {
     const db = this.requireDb();
     const upsert = db.prepare(
@@ -557,7 +557,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     })();
   }
 
-  async getChainMiners(): Promise<Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>> {
+  async getChainMiners(): Promise<
+    Array<Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">>
+  > {
     const rows = this.requireDb()
       .query<
         {

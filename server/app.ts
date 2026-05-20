@@ -61,6 +61,7 @@ export function createApp(options: CreateAppOptions): Hono {
     const enrichedMiners = chainMiners.map((m) => ({
       ...m,
       telemetryNodeAddress: hardwareByAccount.get(m.accountId)?.nodeId ?? null,
+      hardware: hardwareByAccount.get(m.accountId) ?? null,
     }));
 
     return c.json({

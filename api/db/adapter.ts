@@ -163,8 +163,10 @@ export interface DatabaseAdapter {
   // On-chain miner state from quantum_pow.Miners. The hardware/category
   // join happens at read time in the server, not write time — keep this
   // table chain-pure.
-  upsertChainMiners(miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>): Promise<void>;
-  getChainMiners(): Promise<Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>>;
+  upsertChainMiners(
+    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">>,
+  ): Promise<void>;
+  getChainMiners(): Promise<Array<Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">>>;
 
   // Append-only difficulty snapshots. Worker dedupes against most recent
   // before calling; ON CONFLICT DO NOTHING covers the race where two

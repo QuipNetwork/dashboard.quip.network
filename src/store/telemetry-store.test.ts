@@ -83,6 +83,7 @@ const MOCK_CHAIN_MINER: ChainMinerRecord = {
   proofsWon: "3",
   rewardsEarned: "300",
   telemetryNodeAddress: null,
+  hardware: null,
 };
 
 const MOCK_DIFFICULTY: DifficultyRecord = {

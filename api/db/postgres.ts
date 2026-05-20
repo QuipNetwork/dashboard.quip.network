@@ -472,7 +472,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   async upsertChainMiners(
-    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>,
+    miners: Array<Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">>,
   ): Promise<void> {
     const sql = this.requireSql();
     const now = new Date().toISOString();
@@ -500,7 +500,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     });
   }
 
-  async getChainMiners(): Promise<Array<Omit<ChainMinerRecord, "telemetryNodeAddress">>> {
+  async getChainMiners(): Promise<
+    Array<Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">>
+  > {
     const rows = await this.requireSql()<
       {
         account_id: string;
