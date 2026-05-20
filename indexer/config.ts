@@ -11,10 +11,6 @@ export interface IndexerConfig {
   // after which the indexer emits a WARN that the polled node looks stalled.
   // 0 disables the check.
   stallWarnAfterSec: number;
-  // Interval (seconds) the backfill worker sleeps between plan re-checks when
-  // idle (plan fully indexed). Guards against a chain that was the tip mid-walk
-  // and became a dead fork before being fully indexed.
-  backfillIdleRecheckSec: number;
 
   // --- Substrate (quip-protocol-rs validator) RPC options ---
   // null = no substrate worker, degraded mode (the indexer still polls REST
@@ -38,7 +34,6 @@ const DEFAULTS = {
   pollIntervalSec: 8,
   nodesRefreshSec: 45,
   stallWarnAfterSec: 600, // 10 minutes — longer than typical QPU block time.
-  backfillIdleRecheckSec: 300,
   substrateRpcTimeoutMs: 15000,
   substrateReconnectMaxBackoffMs: 60000,
   substrateBabePollSec: 30,
@@ -84,7 +79,6 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
   const stallFlag = takeFlag(argv, "--stall-warn-after");
-  const backfillIdleFlag = takeFlag(argv, "--backfill-idle-recheck");
 
   const nodeUrl =
     (typeof nodeUrlFlag === "string" ? nodeUrlFlag : undefined) ??
@@ -123,18 +117,6 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
         : DEFAULTS.stallWarnAfterSec;
   if (stallWarnAfterSec < 0) {
     throw new Error(`[indexer] --stall-warn-after must be >= 0, got: ${stallWarnAfterSec}`);
-  }
-
-  const backfillIdleRecheckSec =
-    typeof backfillIdleFlag === "string"
-      ? parseIntStrict("--backfill-idle-recheck", backfillIdleFlag)
-      : process.env.BACKFILL_IDLE_RECHECK_SEC
-        ? parseIntStrict("BACKFILL_IDLE_RECHECK_SEC", process.env.BACKFILL_IDLE_RECHECK_SEC)
-        : DEFAULTS.backfillIdleRecheckSec;
-  if (backfillIdleRecheckSec <= 0) {
-    throw new Error(
-      `[indexer] --backfill-idle-recheck must be > 0, got: ${backfillIdleRecheckSec}`,
-    );
   }
 
   // --- Substrate options ---
@@ -211,7 +193,6 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     once,
     verbose,
     stallWarnAfterSec,
-    backfillIdleRecheckSec,
     substrateRpcUrl,
     substrateRpcTimeoutMs,
     substrateReconnectMaxBackoffMs,

@@ -12,7 +12,6 @@ const TOUCHED_ENV = [
   "POLL_INTERVAL_SEC",
   "NODES_REFRESH_SEC",
   "STALL_WARN_AFTER_SEC",
-  "BACKFILL_IDLE_RECHECK_SEC",
   "VERBOSE",
   "QUIP_VALIDATOR_RPC_URL",
   "QUIP_VALIDATOR_RPC_TIMEOUT_MS",
@@ -93,28 +92,6 @@ describe("parseConfig", () => {
     // Copy-paste and YAML quoting artefacts shouldn't break startup.
     process.env.STALL_WARN_AFTER_SEC = "  600  ";
     expect(parseConfig([]).stallWarnAfterSec).toBe(600);
-  });
-
-  it("parses --backfill-idle-recheck flag", () => {
-    const cfg = parseConfig(["--backfill-idle-recheck", "120"]);
-    expect(cfg.backfillIdleRecheckSec).toBe(120);
-  });
-
-  it("reads BACKFILL_IDLE_RECHECK_SEC env var", () => {
-    const orig = process.env.BACKFILL_IDLE_RECHECK_SEC;
-    process.env.BACKFILL_IDLE_RECHECK_SEC = "60";
-    try {
-      const cfg = parseConfig([]);
-      expect(cfg.backfillIdleRecheckSec).toBe(60);
-    } finally {
-      if (orig === undefined) delete process.env.BACKFILL_IDLE_RECHECK_SEC;
-      else process.env.BACKFILL_IDLE_RECHECK_SEC = orig;
-    }
-  });
-
-  it("defaults backfillIdleRecheckSec to 300", () => {
-    const cfg = parseConfig([]);
-    expect(cfg.backfillIdleRecheckSec).toBe(300);
   });
 
   it("defaults substrateRpcUrl to null (degraded mode)", () => {

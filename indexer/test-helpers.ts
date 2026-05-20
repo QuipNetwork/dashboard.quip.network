@@ -24,7 +24,6 @@ export function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfi
     token: undefined,
     pollIntervalSec: 8,
     nodesRefreshSec: 45,
-    backfillIdleRecheckSec: 300,
     once: false,
     verbose: false,
     stallWarnAfterSec: 600,
