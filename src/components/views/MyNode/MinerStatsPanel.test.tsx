@@ -13,9 +13,9 @@ import { MinerStatsPanel } from "./MinerStatsPanel";
 // panel deliberately omits totalMiningTime, resultsReceived, and staleDrops
 // because they're not in the operator-relevant view.
 const TILE_LABELS = [
-  "Blocks Attempted",
-  "Blocks Won",
-  "Win Rate",
+  "Solutions Attempted",
+  "Solutions Computed",
+  "Solution Rate",
   "Avg Mining Time",
   "Heads Observed",
   "Contexts Dispatched",

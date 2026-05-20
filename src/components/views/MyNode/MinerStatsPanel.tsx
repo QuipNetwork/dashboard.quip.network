@@ -8,12 +8,12 @@ export function MinerStatsPanel({ stats }: { stats: MinerStats }) {
   return (
     <ChartCard
       title="Mining Performance"
-      subtitle="Aggregate counters from this node's /api/v1/stats"
+      subtitle="Local mining performance — solutions computed by this node (different from on-chain blocks won)."
     >
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-        <StatTile label="Blocks Attempted" value={formatNumber(stats.totalBlocksAttempted)} />
-        <StatTile label="Blocks Won" value={formatNumber(stats.totalBlocksWon)} />
-        <StatTile label="Win Rate" value={`${(stats.winRate * 100).toFixed(2)}%`} />
+        <StatTile label="Solutions Attempted" value={formatNumber(stats.totalBlocksAttempted)} />
+        <StatTile label="Solutions Computed" value={formatNumber(stats.totalBlocksWon)} />
+        <StatTile label="Solution Rate" value={`${(stats.winRate * 100).toFixed(2)}%`} />
         <StatTile label="Avg Mining Time" value={`${stats.avgMiningTime.toFixed(2)}s`} />
         <StatTile label="Heads Observed" value={formatNumber(stats.headsObserved)} />
         <StatTile label="Contexts Dispatched" value={formatNumber(stats.contextsDispatched)} />

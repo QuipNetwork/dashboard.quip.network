@@ -55,7 +55,7 @@ export function MyNodeView() {
           value={formatNumber(Number(blocksMined))}
           sublabel={
             chainMinerEntry
-              ? `${chainMinerEntry.proofsSubmitted} proofs submitted`
+              ? `${chainMinerEntry.proofsSubmitted} proofs submitted · chain-confirmed`
               : "Not registered on chain"
           }
         />
