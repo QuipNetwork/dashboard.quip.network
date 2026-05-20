@@ -142,9 +142,10 @@ export function ChainView() {
           Active Validators ({validators.length})
         </h2>
         <p className="mt-1 font-accent text-xs text-brand-gray-3">
-          BABE authority set from <code>session.validators</code>. Counters incremented per
-          finalized head; PoW column counts heads that also won a{" "}
-          <code>quantumPow.BlockWinner</code>.
+          BABE authority set from <code>session.validators</code> when available, falling back to{" "}
+          <code>babe.authorities</code> until <code>pallet-session</code> lands on quip-protocol-rs.
+          Counters increment per finalized head once author derivation is wired up; the PoW column
+          counts heads that also won a <code>quantumPow.BlockWinner</code>.
         </p>
       </header>
       <div className="overflow-x-auto">

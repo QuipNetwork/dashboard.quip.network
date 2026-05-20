@@ -524,25 +524,35 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     // epoch_start_slot is not directly exposed by stock BABE; derive from
     // epoch_index * slots_per_epoch which is exact when no epoch was skipped.
     const epochStartSlot = (BigInt(epochIndex) * BigInt(slotsPerEpoch)).toString();
-    // authorityCount = session.validators().length (session rotates per BABE epoch).
-    let authorityCount = 0;
-    if (api.query.session?.validators) {
-      const validators = await api.query.session.validators();
-      authorityCount = Array.isArray(validators)
-        ? validators.length
-        : ((validators as unknown as { length?: number }).length ?? 0);
-    }
+    const authorityCount = (await this.getBabeAuthorities()).length;
     return { epochIndex, currentSlot, epochStartSlot, slotsPerEpoch, authorityCount };
   }
 
   async getBabeAuthorities(): Promise<BabeAuthorityInfo[]> {
     const api = this.requireApi();
-    if (!api.query.session?.validators) return [];
-    const codec = await api.query.session.validators();
-    const list = codec as unknown as Array<{ toString: () => string }>;
-    // Identity pallet not enabled on quip-protocol-rs spec 101 — displayName
-    // stays null. When it ships, layer in a per-account identityOf() lookup.
-    return list.map((id) => ({ accountId: id.toString(), displayName: null }));
+    // Preferred source is `session.validators` — it returns full AccountIds
+    // that join cleanly against `quantumPow.miners` and `validator_authorship`.
+    if (api.query.session?.validators) {
+      const codec = await api.query.session.validators();
+      const list = codec as unknown as Array<{ toString: () => string }>;
+      return list.map((id) => ({ accountId: id.toString(), displayName: null }));
+    }
+    // TODO(v0.2): drop this fallback once quip-protocol-rs ships `pallet-session`
+    // (chain-side fix is merged and queued for the next runtime upgrade). The
+    // dashboard MR for v0.2 should track this — the BABE pubkey we surface
+    // here is NOT the miner's hybrid AccountId, so the Chain and Compute
+    // tabs use different identifiers until session lands. `derive.chain`
+    // also can't compute `author` without session, so `validator_authorship`
+    // stays empty and `blocksAuthored` reads as 0 across the board.
+    if (api.query.babe?.authorities) {
+      const codec = await api.query.babe.authorities();
+      const list = codec as unknown as Array<Array<{ toString: () => string }>>;
+      return list.map((tuple) => ({
+        accountId: tuple[0]!.toString(),
+        displayName: null,
+      }));
+    }
+    return [];
   }
 
   async getChainMiners(): Promise<ChainMinerInfo[]> {
@@ -644,7 +654,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     // has to roll back. Fires for EVERY finalized head (not just winning
     // ones) so the worker can record validator authorship regardless of
     // PoW outcome — `winner: null` signals "no PoW reward this block".
-    if (!api.derive.chain?.subscribeFinalizedHeads || !api.derive.chain?.getHeader) {
+    if (!api.derive.chain?.subscribeFinalizedHeads || !api.derive.chain?.getBlock) {
       throw new Error("[substrate-client] api.derive.chain is unavailable");
     }
     const unsubFn = await api.derive.chain.subscribeFinalizedHeads(async (header) => {
