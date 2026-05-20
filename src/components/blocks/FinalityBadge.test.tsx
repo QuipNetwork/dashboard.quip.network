@@ -11,31 +11,25 @@ import { FinalityBadge } from "./FinalityBadge";
 
 function block(overrides: Partial<BlockRecord> = {}): BlockRecord {
   return {
-    epoch: "abc",
-    blockIndex: 1,
     blockHash: "h",
+    substrateBlockNumber: "1",
+    substrateBlockHash: "sh",
+    substrateParentHash: "ph",
     timestamp: 1,
-    previousHash: "p",
     minerId: "m",
-    minerCategory: "CPU",
-    ecdsaPublicKey: "k",
     energy: 0,
     diversity: 0,
     numValidSolutions: 0,
+    qualityMilli: 0,
     miningTime: 0,
+    reward: "0",
     nonce: "0",
     numNodes: 0,
     numEdges: 0,
     difficultyEnergy: 0,
     minDiversity: 0,
     minSolutions: 0,
-    substrateBlockNumber: null,
-    substrateBlockHash: null,
-    substrateParentHash: null,
-    extrinsicsRoot: null,
-    stateRoot: null,
     finalized: false,
-    isCanonical: true,
     ...overrides,
   };
 }
@@ -55,14 +49,7 @@ afterEach(() => {
 });
 
 describe("FinalityBadge", () => {
-  test("renders nothing when substrate block isn't joined yet", () => {
-    act(() => {
-      root.render(createElement(FinalityBadge, { block: block({ substrateBlockNumber: null }) }));
-    });
-    expect(container.textContent).toBe("");
-  });
-
-  test("renders 'pending' when substrate block known but not finalized", () => {
+  test("renders 'pending' when not finalized", () => {
     act(() => {
       root.render(
         createElement(FinalityBadge, {

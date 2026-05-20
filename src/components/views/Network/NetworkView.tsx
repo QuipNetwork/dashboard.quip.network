@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useMemo } from "react";
-
 import { ChartCard } from "../../layout/ChartCard";
 import { BlocksOverTimeChart } from "../../charts/blocks-over-time/BlocksOverTimeChart";
 import { MiningTimeChart } from "../../charts/mining-time/MiningTimeChart";
@@ -27,32 +25,15 @@ import { useCumulativeBlocksThreshold } from "../../charts/cumulative-blocks-thr
 import { useLeaderboard } from "../../charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
-import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { RecentBlocksTable } from "./RecentBlocksTable";
 
 export function NetworkView() {
   const byType = useUIStore((s) => s.aggregationMode) === "byType";
-  const selectedEpoch = useUIStore((s) => s.selectedEpoch);
-  const allBlocks = useTelemetryStore((s) => s.blocks);
+  // v0.3 substrate worker is the sole writer — all blocks in the store are
+  // canonical-by-construction (finalized substrate blocks only). The store
+  // ships DESC by substrate_block_number, which is the order the table wants.
+  const blocks = useTelemetryStore((s) => s.blocks);
   const indexer = useTelemetryStore((s) => s.indexer);
-  const filtered = useFilteredBlocks();
-
-  // When a specific epoch is selected, show every block in it — a single
-  // epoch is narrow enough that fork interleaving is rare in practice, and
-  // users expect the header control to actually scope this table. When "All"
-  // is selected, fall back to tip-epoch filtering so the server's default
-  // ORDER BY (timestamp, block_index) doesn't interleave abandoned branches
-  // that share timestamps with the winning chain.
-  const canonicalChainBlocks = useMemo(() => {
-    if (allBlocks.length === 0) return allBlocks;
-    if (selectedEpoch !== "all") {
-      return [...filtered].sort((a, b) => a.blockIndex - b.blockIndex);
-    }
-    const tipEpoch = allBlocks[allBlocks.length - 1]!.epoch;
-    return allBlocks
-      .filter((b) => b.epoch === tipEpoch)
-      .sort((a, b) => a.blockIndex - b.blockIndex);
-  }, [allBlocks, filtered, selectedEpoch]);
 
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();
@@ -73,7 +54,7 @@ export function NetworkView() {
         subtitle="Last 10 completed blocks on the current chain tip"
         className="mb-5"
       >
-        <RecentBlocksTable blocks={canonicalChainBlocks} indexer={indexer} />
+        <RecentBlocksTable blocks={blocks} indexer={indexer} />
       </ChartCard>
 
       <ChartCard

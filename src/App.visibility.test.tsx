@@ -64,7 +64,6 @@ afterEach(() => {
   container.remove();
   useTelemetryStore.setState({
     blocks: [],
-    nodes: null,
     ...(originalFetchTelemetry ? { fetchTelemetry: originalFetchTelemetry } : {}),
   });
   originalFetchTelemetry = null;

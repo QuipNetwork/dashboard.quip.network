@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useMemo } from "react";
+import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-category";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
-import { buildUnitCountIndex, getUnitCount } from "../../../lib/units";
 
 export interface ComputeUsedEntry {
   [key: string]: string | number;
@@ -10,27 +12,34 @@ export interface ComputeUsedEntry {
   compute: number;
 }
 
+/**
+ * "Compute used" was originally `miningTime × unitCount`, where unitCount
+ * came from the per-node hardware snapshot (CPUs/GPUs/QPUs). v0.3 drops
+ * that snapshot — until hardware inventory returns via peer-query, this
+ * chart degrades to raw `miningTime` accumulation (unit count = 1).
+ */
 export function useComputeUsed(): ComputeUsedEntry[] {
   const blocks = useFilteredBlocks();
-  const nodes = useTelemetryStore((s) => s.nodes);
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const unitIndex = buildUnitCountIndex(nodes);
+    const catIndex = buildMinerCategoryIndex(chainMiners);
     const totals: Record<string, number> = {};
-    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
 
     for (const block of blocks) {
-      if (mode === "byType" && !selectedTypes.includes(block.minerCategory)) continue;
       const key = getKey(block);
-      const units = getUnitCount(block, unitIndex);
-      totals[key] = (totals[key] ?? 0) + block.miningTime * units;
+      if (mode === "byType" && !selectedTypes.includes(categoryFor(block.minerId, catIndex)))
+        continue;
+      totals[key] = (totals[key] ?? 0) + block.miningTime;
     }
 
     const keys = mode === "byType" ? [...selectedTypes] : Object.keys(totals);
     return keys
       .filter((k) => totals[k] !== undefined)
       .map((k) => ({ minerType: k, compute: totals[k]! }));
-  }, [blocks, nodes, selectedTypes, mode]);
+  }, [blocks, chainMiners, selectedTypes, mode]);
 }

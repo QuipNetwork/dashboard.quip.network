@@ -8,19 +8,18 @@ interface FinalityBadgeProps {
 
 /**
  * Compact chip indicating whether the substrate chain has finalized this
- * PoW block. Three render states:
+ * PoW block. Two render states:
  *
- *   - Not joined: substrateBlockNumber is null. The substrate worker
- *     hasn't observed a matching BlockWinner event yet (or substrate is
- *     unconfigured). Render nothing — operators on REST-only deployments
- *     shouldn't see a placeholder for data they don't have.
- *   - Pending: substrate block known, finalized=false. Yellow chip; the
- *     chain has produced this block but Grandpa hasn't finalized it yet.
+ *   - Pending: finalized=false. Yellow chip; the chain has produced this
+ *     block but Grandpa hasn't finalized it yet.
  *   - Finalized: green chip. Finalization is monotonic; once shown, the
  *     chain has committed.
+ *
+ * v0.3 substrate-canonical model: every BlockRecord has a non-null
+ * substrate block number by construction, so there is no "not joined"
+ * intermediate state.
  */
 export function FinalityBadge({ block }: FinalityBadgeProps) {
-  if (block.substrateBlockNumber === null) return null;
   if (block.finalized) {
     return (
       <span

@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useMemo } from "react";
+import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-category";
+import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
 
@@ -17,15 +21,20 @@ const NUM_POINTS = 50;
 
 export function useEnergyCdf(): EnergyCdfResult {
   const blocks = useFilteredBlocks();
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
+    const catIndex = buildMinerCategoryIndex(chainMiners);
     const filtered =
-      mode === "byType" ? blocks.filter((b) => selectedTypes.includes(b.minerCategory)) : blocks;
+      mode === "byType"
+        ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
+        : blocks;
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
 
     // Sort energies and remove outliers via IQR
     const sortedEnergies = filtered.map((b) => b.energy).sort((a, b) => a - b);
@@ -82,5 +91,5 @@ export function useEnergyCdf(): EnergyCdfResult {
     });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, selectedTypes, mode]);
+  }, [blocks, chainMiners, selectedTypes, mode]);
 }

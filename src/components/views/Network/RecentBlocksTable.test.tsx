@@ -83,12 +83,26 @@ describe("RecentBlocksTable banner", () => {
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
-  // The two stale-tip banner cases (3h-old block) live in
-  // src/lib/staleness.test.ts now — they exercise computeChainHealth, not
-  // anything table-specific. The library still reads v0.2 cursor fields that
-  // were removed from IndexerObservability in v0.3; Task 3.7 reinstates the
-  // tip-age path. Keeping a table-level smoke test here would just couple us
-  // to that bug fix without adding coverage.
+  test("renders a stalled banner in red when the tip is 3h old", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const blocks = [makeBlock(10, nowSec - 3 * 60 * 60)];
+    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
+    const banner = container.querySelector('[role="status"]');
+    expect(banner).not.toBeNull();
+    expect(banner?.className).toMatch(/red-500/);
+  });
+
+  test("uses observational 'seen' wording, not 'produced', for a stalled chain", () => {
+    // Load-bearing: the dashboard only knows what the node reports, so the
+    // copy must not claim the node failed to *produce* a block — only that
+    // no new block has been *seen*. Reverting this wording is a regression.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const blocks = [makeBlock(10, nowSec - 3 * 60 * 60)];
+    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
+    const banner = container.querySelector('[role="status"]');
+    expect(banner?.textContent).toMatch(/hasn't seen/);
+    expect(banner?.textContent).not.toMatch(/produced/);
+  });
 
   test("renders 'indexer hasn't polled' when the heartbeat is stale", () => {
     // The whole point of lastStatusFetchAt — surface a wedged indexer so the

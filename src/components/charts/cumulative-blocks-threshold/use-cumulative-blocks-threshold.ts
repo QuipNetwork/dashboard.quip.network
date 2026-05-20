@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useMemo } from "react";
+import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-category";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
-import { buildUnitCountIndex, getUnitCount } from "../../../lib/units";
 
 export interface CumulativeBlocksThresholdSeries {
   id: string;
@@ -17,19 +19,26 @@ export interface CumulativeBlocksThresholdResult {
 
 const NUM_POINTS = 50;
 
+/**
+ * v0.3 transitional: per-miner unit counts came from the v0.2 `nodes`
+ * snapshot. Each block contributes a single sample (units=1).
+ */
 export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult {
   const blocks = useFilteredBlocks();
-  const nodes = useTelemetryStore((s) => s.nodes);
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const unitIndex = buildUnitCountIndex(nodes);
+    const catIndex = buildMinerCategoryIndex(chainMiners);
     const filtered =
-      mode === "byType" ? blocks.filter((b) => selectedTypes.includes(b.minerCategory)) : blocks;
+      mode === "byType"
+        ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
+        : blocks;
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
 
     // Sort energies and remove outliers via IQR
     const sortedEnergies = filtered.map((b) => b.energy).sort((a, b) => a - b);
@@ -46,15 +55,14 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
     const min = Math.min(...cleanedEnergies);
     const max = Math.max(...cleanedEnergies);
 
-    // Group blocks by key with their energy and unit count
+    // Group blocks by key with their energy (unit count = 1 in v0.3).
     const byKey: Record<string, Array<{ energy: number; units: number }>> = {};
     const totalUnits: Record<string, number> = {};
 
     for (const b of cleaned) {
       const key = getKey(b);
-      const units = getUnitCount(b, unitIndex);
-      (byKey[key] ??= []).push({ energy: b.energy, units });
-      totalUnits[key] = (totalUnits[key] ?? 0) + units;
+      (byKey[key] ??= []).push({ energy: b.energy, units: 1 });
+      totalUnits[key] = (totalUnits[key] ?? 0) + 1;
     }
 
     const keys =
@@ -93,5 +101,5 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
     });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, nodes, selectedTypes, mode]);
+  }, [blocks, chainMiners, selectedTypes, mode]);
 }

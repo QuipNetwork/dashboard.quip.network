@@ -101,7 +101,7 @@ describe("MinerStatsPanel", () => {
       (p) => p.textContent === label,
     );
     if (labelParas.length === 0) return null;
-    return labelParas[0].parentElement as HTMLElement | null;
+    return labelParas[0]?.parentElement ?? null;
   }
 
   test("submission errors tile picks up the danger accent when non-zero", () => {

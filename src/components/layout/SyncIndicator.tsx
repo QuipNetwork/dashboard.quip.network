@@ -38,13 +38,6 @@ const STYLES: Record<
     dotColor: "#4CE0FF",
     dotAnim: "pulse",
   },
-  backfilling: {
-    bg: "bg-[#F5A623]/10",
-    border: "border-[#F5A623]/40",
-    text: "text-[#F5A623]",
-    dotColor: "#F5A623",
-    dotAnim: "pulse",
-  },
   caught_up: {
     bg: "bg-[#67E347]/10",
     border: "border-[#67E347]/40",
@@ -66,12 +59,9 @@ function composeText(stage: SyncStage, detail: string | null): string {
     case "connecting":
       return detail ?? "Connecting to node…";
     case "synchronizing":
-      // detail is either "N blocks behind" or "Catching up to new epoch".
-      if (detail === null) return "Synchronizing";
-      if (detail.startsWith("Catching")) return detail;
-      return `Synchronizing · ${detail}`;
-    case "backfilling":
-      return "Backfilling history";
+      // Reserved for future use; no synchronization stages exist in v0.3
+      // (substrate worker is the sole writer). Detail still flows through.
+      return detail === null ? "Synchronizing" : `Synchronizing · ${detail}`;
     case "caught_up":
       return "Live";
     case "stalled":
@@ -106,24 +96,16 @@ export function SyncIndicator() {
   // the first telemetry response lands.
   const nowMs = useTelemetryStore(selectServerNowMs);
 
-  // Audit fix #11: depend on the primitive fields computeChainHealth /
+  // Depend on the primitive fields computeChainHealth /
   // computeSubstrateHealth actually read, not on the `indexer` object
-  // reference. The Zustand selector returns the same object reference
-  // between polls when no data changed, BUT if a parent re-renders with
-  // an explicit key or a wrapper layer maps to a new object, the
-  // reference-based dep would re-fire the memo for free. Primitive deps
-  // make the memo invalidate exactly when the output could change.
+  // reference. Primitive deps make the memo invalidate exactly when the
+  // output could change.
   const health = useMemo(
     () => computeChainHealth({ nowMs, tipBlockTimestampMs, indexer }),
     [
       nowMs,
       tipBlockTimestampMs,
       indexer?.lastStatusFetchAt,
-      indexer?.tipEpoch,
-      indexer?.tipBlockIndex,
-      indexer?.nodeLatestEpoch,
-      indexer?.nodeLatestBlockIndex,
-      indexer?.backfillEpoch,
       indexer, // keep for the `indexer === null` branch
     ],
   );

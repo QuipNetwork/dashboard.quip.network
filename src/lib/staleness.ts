@@ -3,7 +3,7 @@
 import type { IndexerObservability } from "../types/telemetry";
 
 export type HealthLevel = "healthy" | "warning" | "stalled";
-export type SyncStage = "connecting" | "synchronizing" | "backfilling" | "caught_up" | "stalled";
+export type SyncStage = "connecting" | "synchronizing" | "caught_up" | "stalled";
 
 /** Substrate worker health (separate dimension from REST chain health). */
 export type SubstrateHealthLevel = "disabled" | "ok" | "stale" | "offline";
@@ -25,7 +25,6 @@ export interface ChainHealth {
   stage: SyncStage;
   detail: string | null;
   blockAgeMs: number | null;
-  tipLagBlocks: number | null;
 }
 
 export interface ChainHealthInputs {
@@ -38,13 +37,13 @@ const WARN_BLOCK_AGE_MS = 30 * 60 * 1000;
 const STALLED_BLOCK_AGE_MS = 2 * 60 * 60 * 1000;
 const INDEXER_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
 
-// Heartbeat-stale must precede every other check because a dead indexer's
-// last-written cursor can equal its last-observed node tip (= looks caught-up).
+// Heartbeat-stale must precede the block-age check because a dead indexer
+// can leave a fresh-looking tip in the cached telemetry response. Surface the
+// wedged indexer first so operators debug the right component.
 function checkHeartbeatStale(
   indexer: IndexerObservability,
   nowMs: number,
   blockAgeMs: number | null,
-  tipLagBlocks: number | null,
 ): ChainHealth | null {
   const heartbeatMs = Date.parse(indexer.lastStatusFetchAt);
   if (!Number.isFinite(heartbeatMs)) return null;
@@ -57,44 +56,12 @@ function checkHeartbeatStale(
     stage: "stalled",
     detail: `${mins}m`,
     blockAgeMs,
-    tipLagBlocks,
   };
-}
-
-function checkTipSync(
-  indexer: IndexerObservability,
-  blockAgeMs: number | null,
-  tipLagBlocks: number | null,
-): ChainHealth | null {
-  if (indexer.tipEpoch !== null && indexer.tipEpoch !== indexer.nodeLatestEpoch) {
-    return {
-      level: "warning",
-      reason: "Indexer catching up to a new epoch from the node.",
-      stage: "synchronizing",
-      detail: "Catching up to new epoch",
-      blockAgeMs,
-      tipLagBlocks: null,
-    };
-  }
-  if (tipLagBlocks !== null && tipLagBlocks > 0) {
-    return {
-      level: "warning",
-      reason: `Indexer is ${tipLagBlocks} block${tipLagBlocks === 1 ? "" : "s"} behind the polled node.`,
-      stage: "synchronizing",
-      detail: `${tipLagBlocks} block${tipLagBlocks === 1 ? "" : "s"} behind`,
-      blockAgeMs,
-      tipLagBlocks,
-    };
-  }
-  return null;
 }
 
 // Clock-skew handling: require a finite, non-negative blockAgeMs before
 // escalating. The *indexer* is fine here; the node just isn't producing.
-function checkCaughtUpBlockAge(
-  blockAgeMs: number | null,
-  tipLagBlocks: number | null,
-): ChainHealth | null {
+function checkCaughtUpBlockAge(blockAgeMs: number | null): ChainHealth | null {
   if (blockAgeMs === null || !Number.isFinite(blockAgeMs) || blockAgeMs < 0) {
     return null;
   }
@@ -105,7 +72,6 @@ function checkCaughtUpBlockAge(
       stage: "caught_up",
       detail: null,
       blockAgeMs,
-      tipLagBlocks,
     };
   }
   if (blockAgeMs >= WARN_BLOCK_AGE_MS) {
@@ -115,18 +81,28 @@ function checkCaughtUpBlockAge(
       stage: "caught_up",
       detail: null,
       blockAgeMs,
-      tipLagBlocks,
     };
   }
   return null;
 }
 
+/**
+ * Compute chain health from the v0.3 IndexerObservability shape.
+ *
+ * v0.3 removed the dual-cursor (`tipEpoch`/`nodeLatestEpoch`) model — the
+ * substrate worker is the sole block writer, so there's no longer a
+ * meaningful "indexer is N blocks behind the node" dimension. Health
+ * collapses to two checks:
+ *
+ *   1. Is the indexer process alive? (heartbeat from `lastStatusFetchAt`)
+ *   2. Is the chain producing? (`blockAgeMs` from the latest stored block)
+ *
+ * Heartbeat-stale wins ties — a wedged indexer with a recent cached tip
+ * could otherwise hide behind "healthy".
+ */
 export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
   const { nowMs, tipBlockTimestampMs, indexer } = inputs;
   const blockAgeMs = tipBlockTimestampMs !== null ? nowMs - tipBlockTimestampMs : null;
-  const sameEpoch = indexer !== null && indexer.tipEpoch === indexer.nodeLatestEpoch;
-  const tipLagBlocks =
-    indexer !== null && sameEpoch ? indexer.nodeLatestBlockIndex - indexer.tipBlockIndex : null;
 
   // 1. Connecting — no poll has completed yet.
   if (indexer === null) {
@@ -136,33 +112,16 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
       stage: "connecting",
       detail: "Connecting to node…",
       blockAgeMs,
-      tipLagBlocks: null,
     };
   }
 
   // 2. Heartbeat-stale must precede every other check — a dead indexer's
-  //    last-written cursor can equal its last-observed node tip (looks caught-up).
-  const stalled = checkHeartbeatStale(indexer, nowMs, blockAgeMs, tipLagBlocks);
+  //    cached response can show a fresh tip from before it died.
+  const stalled = checkHeartbeatStale(indexer, nowMs, blockAgeMs);
   if (stalled) return stalled;
 
-  // 3. Tip still catching up (either epoch mismatch or same-epoch block lag).
-  const syncing = checkTipSync(indexer, blockAgeMs, tipLagBlocks);
-  if (syncing) return syncing;
-
-  // 4. Backfill in flight — tip is caught up, historical work pending.
-  if (indexer.backfillEpoch !== null) {
-    return {
-      level: "healthy",
-      reason: "",
-      stage: "backfilling",
-      detail: null,
-      blockAgeMs,
-      tipLagBlocks,
-    };
-  }
-
-  // 5. Tip caught up, backfill idle. Escalate level on block-age thresholds.
-  const ageEscalated = checkCaughtUpBlockAge(blockAgeMs, tipLagBlocks);
+  // 3. Tip caught up; escalate level on block-age thresholds.
+  const ageEscalated = checkCaughtUpBlockAge(blockAgeMs);
   if (ageEscalated) return ageEscalated;
 
   return {
@@ -171,7 +130,6 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
     stage: "caught_up",
     detail: null,
     blockAgeMs,
-    tipLagBlocks,
   };
 }
 
