@@ -50,8 +50,8 @@ export function NetworkView() {
   return (
     <>
       <ChartCard
-        title="Recent Blocks"
-        subtitle="Last 10 completed blocks on the current chain tip"
+        title="Recent Solutions"
+        subtitle="Last 10 mined solutions on the current chain tip"
         className="mb-5"
       >
         <RecentBlocksTable blocks={blocks} indexer={indexer} />
@@ -59,7 +59,7 @@ export function NetworkView() {
 
       <ChartCard
         title="Mining Leaderboard"
-        subtitle="Top performing nodes by blocks mined"
+        subtitle="Top performing miners by solutions"
         className="mb-5"
       >
         <Leaderboard data={leaderboard} />
@@ -67,14 +67,14 @@ export function NetworkView() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard
-          title="Blocks Mined Over Time"
-          subtitle={byType ? "Cumulative blocks per unit type" : "Cumulative blocks per miner"}
+          title="Solutions Mined Over Time"
+          subtitle={byType ? "Cumulative solutions per unit type" : "Cumulative blocks per miner"}
         >
           <BlocksOverTimeChart data={blocksOverTime} />
         </ChartCard>
 
         <ChartCard
-          title="Mining Time per Block"
+          title="Mining Time per Solution"
           subtitle={byType ? "Time to solution by processor type" : "Time to solution by miner"}
         >
           <MiningTimeChart data={miningTime} />
@@ -149,10 +149,10 @@ export function NetworkView() {
         </ChartCard>
 
         <ChartCard
-          title="Cumulative Blocks by Threshold"
+          title="Cumulative Solutions by Threshold"
           subtitle={
             byType
-              ? "Blocks meeting energy threshold per unit"
+              ? "Solutions meeting energy threshold per type"
               : "Blocks meeting energy threshold per miner"
           }
         >

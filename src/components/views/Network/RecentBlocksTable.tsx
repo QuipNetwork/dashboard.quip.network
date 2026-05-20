@@ -37,7 +37,7 @@ export function RecentBlocksTable({ blocks, indexer = null }: RecentBlocksTableP
       <>
         <HealthBanner health={health} />
         <p className="flex h-full items-center justify-center font-accent text-sm text-brand-gray-3">
-          No blocks yet
+          No solutions yet
         </p>
       </>
     );

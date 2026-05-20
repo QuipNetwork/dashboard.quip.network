@@ -63,7 +63,7 @@ export function CumulativeBlocksThresholdChart({ data }: CumulativeBlocksThresho
           legendPosition: "middle",
         }}
         axisLeft={{
-          legend: "Cumulative Blocks / Unit",
+          legend: "Cumulative Solutions / Type",
           legendOffset: -50,
           legendPosition: "middle",
         }}
