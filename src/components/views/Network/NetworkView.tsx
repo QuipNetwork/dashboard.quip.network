@@ -68,7 +68,7 @@ export function NetworkView() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard
           title="Solutions Mined Over Time"
-          subtitle={byType ? "Cumulative solutions per unit type" : "Cumulative blocks per miner"}
+          subtitle={byType ? "Cumulative solutions per unit type" : "Cumulative solutions per miner"}
         >
           <BlocksOverTimeChart data={blocksOverTime} />
         </ChartCard>
@@ -153,7 +153,7 @@ export function NetworkView() {
           subtitle={
             byType
               ? "Solutions meeting energy threshold per type"
-              : "Blocks meeting energy threshold per miner"
+              : "Solutions meeting energy threshold per miner"
           }
         >
           <CumulativeBlocksThresholdChart data={cumulativeBlocks} />
