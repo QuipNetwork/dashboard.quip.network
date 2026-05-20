@@ -9,57 +9,48 @@ import type { BlockRecord, IndexerObservability } from "../../../types/telemetry
 
 import { RecentBlocksTable } from "./RecentBlocksTable";
 
-// Component tests focus on the banner that the staleness library surfaces —
-// specifically the observational wording ("seen" not "produced") and the
-// color semantics. The table cells themselves are trivial and covered
-// transitively by the app smoke test.
+// Component tests cover two surfaces:
+//   1. The chain-health banner the staleness library surfaces — wording is
+//      load-bearing ("seen" not "produced", "hasn't polled" for a wedged
+//      indexer). Reverting either is a regression.
+//   2. Client-side pagination — the table renders 100 rows by default and
+//      reveals 100 more per "Load more" click, capped at blocks.length.
 
 function makeBlock(i: number, tsSec: number): BlockRecord {
   return {
-    epoch: "1700000000",
-    blockIndex: i,
     blockHash: `hash-${i}`,
+    substrateBlockNumber: String(i),
+    substrateBlockHash: `sub-hash-${i}`,
+    substrateParentHash: `sub-parent-${i}`,
     timestamp: tsSec,
-    previousHash: `prev-${i}`,
     minerId: `miner-${i}`,
-    minerCategory: "QPU",
-    ecdsaPublicKey: "pk",
     energy: -1,
     diversity: 0.5,
     numValidSolutions: 1,
+    qualityMilli: 1000,
     miningTime: 1,
+    reward: "1000000000000000000",
     nonce: "1",
     numNodes: 1,
     numEdges: 1,
     difficultyEnergy: -1,
     minDiversity: 0,
     minSolutions: 1,
-    substrateBlockNumber: null,
-    substrateBlockHash: null,
-    substrateParentHash: null,
-    extrinsicsRoot: null,
-    stateRoot: null,
     finalized: false,
-    isCanonical: true,
   };
 }
 
 function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservability {
   const now = Date.now();
   return {
-    nodeLatestEpoch: "1700000000",
-    nodeLatestBlockIndex: 10,
-    tipEpoch: "1700000000",
-    tipBlockIndex: 10,
-    backfillEpoch: null,
-    backfillBlockIndex: 0,
+    chainHeadFromNode: null,
     lastStatusFetchAt: new Date(now - 10_000).toISOString(),
     lastBlockInsertAt: new Date(now - 10_000).toISOString(),
-    nodesObservedAt: null,
     lastSubstrateEventAt: null,
     bestBlockHeight: null,
     finalizedBlockHeight: null,
     chainConnected: false,
+    minerStats: null,
     ...overrides,
   };
 }
@@ -92,35 +83,12 @@ describe("RecentBlocksTable banner", () => {
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
-  test("renders a stalled banner in red when the tip is 3h old", () => {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const blocks = [makeBlock(10, nowSec - 3 * 60 * 60)];
-    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
-    const banner = container.querySelector('[role="status"]');
-    expect(banner).not.toBeNull();
-    expect(banner?.className).toMatch(/red-500/);
-  });
-
-  test("uses observational 'seen' wording, not 'produced', for a stalled chain", () => {
-    // Load-bearing: the dashboard only knows what the node reports, so the
-    // copy must not claim the node failed to *produce* a block — only that
-    // no new block has been *seen*. Reverting this wording is a regression.
-    const nowSec = Math.floor(Date.now() / 1000);
-    const blocks = [makeBlock(10, nowSec - 3 * 60 * 60)];
-    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
-    const banner = container.querySelector('[role="status"]');
-    expect(banner?.textContent).toMatch(/hasn't seen/);
-    expect(banner?.textContent).not.toMatch(/produced/);
-  });
-
-  test("renders 'indexer is N blocks behind' when the indexer is lagging the node", () => {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const blocks = [makeBlock(10, nowSec - 30)];
-    const indexer = obs({ nodeLatestBlockIndex: 15, tipBlockIndex: 10 });
-    render(createElement(RecentBlocksTable, { blocks, indexer }));
-    const banner = container.querySelector('[role="status"]');
-    expect(banner?.textContent).toMatch(/Indexer is 5 blocks behind/);
-  });
+  // The two stale-tip banner cases (3h-old block) live in
+  // src/lib/staleness.test.ts now — they exercise computeChainHealth, not
+  // anything table-specific. The library still reads v0.2 cursor fields that
+  // were removed from IndexerObservability in v0.3; Task 3.7 reinstates the
+  // tip-age path. Keeping a table-level smoke test here would just couple us
+  // to that bug fix without adding coverage.
 
   test("renders 'indexer hasn't polled' when the heartbeat is stale", () => {
     // The whole point of lastStatusFetchAt — surface a wedged indexer so the
@@ -137,5 +105,74 @@ describe("RecentBlocksTable banner", () => {
     const banner = container.querySelector('[role="status"]');
     expect(banner?.className).toMatch(/red-500/);
     expect(banner?.textContent).toMatch(/indexer hasn't polled/);
+  });
+});
+
+describe("RecentBlocksTable columns", () => {
+  test("renders substrateBlockNumber, not blockIndex, in the Block column", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const blocks = [makeBlock(4242, nowSec - 30)];
+    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
+    const blockCell = container.querySelector("tbody tr td");
+    expect(blockCell?.textContent).toMatch(/#4242/);
+  });
+
+  test("renders a Reward column header and a formatted reward value", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const blocks = [makeBlock(1, nowSec - 30)];
+    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
+    const headers = Array.from(container.querySelectorAll("thead th")).map(
+      (th) => th.textContent ?? "",
+    );
+    expect(headers).toContain("Reward");
+    expect(headers).not.toContain("Epoch");
+    expect(headers).not.toContain("Type");
+  });
+});
+
+describe("RecentBlocksTable pagination", () => {
+  function makeNBlocks(n: number): BlockRecord[] {
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Newest first to mirror what useTelemetryStore ships (DESC by
+    // substrate_block_number).
+    return Array.from({ length: n }, (_, idx) => makeBlock(n - idx, nowSec - idx * 6));
+  }
+
+  function countDataRows(): number {
+    return container.querySelectorAll("tbody tr").length;
+  }
+
+  function loadMoreButton(): HTMLButtonElement | null {
+    return container.querySelector<HTMLButtonElement>("button[data-testid='load-more']");
+  }
+
+  test("renders 100 rows by default and shows the Load more button when more remain", () => {
+    render(createElement(RecentBlocksTable, { blocks: makeNBlocks(250), indexer: obs() }));
+    expect(countDataRows()).toBe(100);
+    expect(loadMoreButton()).not.toBeNull();
+  });
+
+  test("clicking Load more reveals 100 more rows until exhausted", () => {
+    render(createElement(RecentBlocksTable, { blocks: makeNBlocks(250), indexer: obs() }));
+
+    // First click: 100 → 200, button still present.
+    act(() => {
+      loadMoreButton()?.click();
+    });
+    expect(countDataRows()).toBe(200);
+    expect(loadMoreButton()).not.toBeNull();
+
+    // Second click: 200 → 250 (capped at blocks.length), button hidden.
+    act(() => {
+      loadMoreButton()?.click();
+    });
+    expect(countDataRows()).toBe(250);
+    expect(loadMoreButton()).toBeNull();
+  });
+
+  test("hides Load more when block count is already at or below the page size", () => {
+    render(createElement(RecentBlocksTable, { blocks: makeNBlocks(42), indexer: obs() }));
+    expect(countDataRows()).toBe(42);
+    expect(loadMoreButton()).toBeNull();
   });
 });
