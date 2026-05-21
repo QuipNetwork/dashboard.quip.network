@@ -2,128 +2,112 @@
 
 import { useMemo } from "react";
 
+import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
+import type { BlockRecord, ChainMinerRecord, MinerStats } from "../../../types/telemetry";
 import {
   computeLeaderboard,
   type LeaderboardEntry,
 } from "../../charts/leaderboard/use-leaderboard";
-import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
-import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
-import type { BlockRecord, NodeInfo } from "../../../types/telemetry";
 
-export interface CurrentDifficulty {
+export interface CurrentRequirements {
   difficultyEnergy: number;
   minDiversity: number;
   minSolutions: number;
 }
 
 export interface MyNodeStats {
-  // null when we can't identify "us" yet (indexer hasn't synced, or the
-  // configured QUIP_NODE_URL doesn't appear in its own peer list).
-  node: NodeInfo | null;
   selfAddress: string | null;
-  blocksMined: number;
-  uptimeMs: number | null;
-  rank: number | null;
-  totalMiners: number;
-  entry: LeaderboardEntry | null;
-  // Ranks rank-1 .. rank+2 in the unfiltered network leaderboard, excluding self.
-  neighbors: LeaderboardEntry[];
-  // Most recent block whose minerId matches this node; null if never won.
+  chainMinerEntry: ChainMinerRecord | null;
+  minerStats: MinerStats | null;
   lastWonBlock: BlockRecord | null;
-  // Active mining requirements from the chain tip; null before any block has synced.
-  currentRequirements: CurrentDifficulty | null;
+  // Total blocks won by self (from chain_miners.proofsWon, u64 string-safe).
+  blocksMined: string;
+  currentRequirements: CurrentRequirements | null;
+  // Operator's own row in the network-wide (unfiltered) leaderboard. Null
+  // until selfAddress is known *and* the operator has won at least one block
+  // the indexer has captured.
+  self: LeaderboardEntry | null;
+  // Rank-adjacent miners (±NEIGHBOR_WINDOW around `self.rank`, self
+  // excluded). Empty when `self` is null.
+  neighbors: LeaderboardEntry[];
 }
 
+// How many ranks above and below self to surface in the rank-neighbor table.
+// 2 above + 2 below + self = 5-row window, which fits the typical sidebar
+// width without scrolling on desktop.
 const NEIGHBOR_WINDOW = 2;
 
 export function useMyNode(): MyNodeStats {
-  const blocks = useFilteredBlocks();
-  const nodes = useTelemetryStore((s) => s.nodes);
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
-  // Select the tip block itself (stable reference) rather than a derived
-  // object — zustand's default equality is reference-based, and a selector
-  // that builds a fresh object each call would force infinite re-renders.
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
+  const blocks = useTelemetryStore((s) => s.blocks);
+  const indexer = useTelemetryStore((s) => s.indexer);
   const tipBlock = useTelemetryStore(selectTipBlock);
+  // Most recent `current_difficulty()` poll. With quip-protocol-rs v0.2 this
+  // is the runtime API call that returns the decayed live threshold the
+  // pallet currently checks proofs against — fresher than tipBlock's
+  // per-block snapshot, which can be the threshold from a winning proof
+  // many hours ago. Survives wipe-on-drift restarts where `blocks` starts
+  // empty but the indexer's first difficulty poll fires within 300s.
+  const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
 
   return useMemo<MyNodeStats>(() => {
-    const currentRequirements: CurrentDifficulty | null = tipBlock
-      ? {
-          difficultyEnergy: tipBlock.difficultyEnergy,
-          minDiversity: tipBlock.minDiversity,
-          minSolutions: tipBlock.minSolutions,
-        }
+    const chainMinerEntry = selfAddress
+      ? (chainMiners.find((m) => m.accountId === selfAddress) ?? null)
       : null;
-
-    const node = selfAddress ? (nodes?.nodes[selfAddress] ?? null) : null;
-
-    // Canonical (unfiltered) ranking — "my rank" must not flip when the user
-    // toggles type filters on the Network view.
-    const leaderboard = computeLeaderboard(blocks);
-
-    // A node may run several miner processes (one GPU + one CPU, say).
-    // Match any leaderboard row whose minerId belongs to this node, using
-    // three complementary rules — the upstream uses inconsistent shapes:
-    //   1. block.minerId === node.nodeName            (most common)
-    //   2. block.minerId === miner.minerId            (exact, rare)
-    //   3. miner.minerId.startsWith(block.minerId)    (backend-suffixed:
-    //      e.g. miner.minerId="qpu1.quip-QPU-DWAVE-1" for block.minerId="qpu1.quip")
-    const minerIdMatchers: string[] = [];
-    if (node?.nodeName) minerIdMatchers.push(node.nodeName);
-    for (const miner of Object.values(node?.miners ?? {})) {
-      if (miner.minerId) minerIdMatchers.push(miner.minerId);
-    }
-    const isMine = (minerId: string): boolean => {
-      for (const m of minerIdMatchers) {
-        if (m === minerId) return true;
-        if (m.startsWith(minerId + "-")) return true;
-      }
-      return false;
-    };
-    const myRows = leaderboard.filter((e) => isMine(e.minerId));
-    const blocksMined = myRows.reduce((sum, r) => sum + r.blockCount, 0);
-
-    // Prefer the "primary" miner entry: the highest-ranking one that's
-    // actually present in the snapshot. If the node has no miners in the
-    // snapshot yet, there's no rank to show.
-    const entry = myRows[0] ?? null;
-    const rank = entry?.rank ?? null;
-
+    const lastWonBlock = selfAddress
+      ? (blocks.find((b) => b.minerId === selfAddress) ?? null)
+      : null;
+    // Prefer the larger of (local block count, chain_miners.proofsWon).
+    // Local blocks update instantly when a new finalized winning head is
+    // captured; chain_miners.proofsWon is the authoritative lifetime
+    // counter (covers wins from before the indexer session, no 500-row
+    // cap). max() picks whichever is fresher — typically the local count
+    // jumps first after a new win, then chain_miners catches up on its
+    // next poll.
+    const localWins = selfAddress
+      ? blocks.reduce((n, b) => (b.minerId === selfAddress ? n + 1 : n), 0)
+      : 0;
+    const chainWins = Number(chainMinerEntry?.proofsWon ?? "0");
+    const blocksMined = String(Math.max(localWins, chainWins));
+    const liveDifficulty = recentDifficulty[0] ?? null;
+    const currentRequirements: CurrentRequirements | null = liveDifficulty
+      ? {
+          difficultyEnergy: liveDifficulty.difficultyEnergy,
+          minDiversity: liveDifficulty.minDiversity,
+          minSolutions: liveDifficulty.minSolutions,
+        }
+      : tipBlock
+        ? {
+            difficultyEnergy: tipBlock.difficultyEnergy,
+            minDiversity: tipBlock.minDiversity,
+            minSolutions: tipBlock.minSolutions,
+          }
+        : null;
+    // Network-wide unfiltered leaderboard for rank-neighbor lookup. We
+    // deliberately ignore the UI store's `selectedTypes` filter here —
+    // the operator's rank in the network is not category-scoped.
+    const leaderboard = computeLeaderboard(blocks, chainMiners, undefined, nodeDescriptors);
+    const self = selfAddress ? (leaderboard.find((e) => e.minerId === selfAddress) ?? null) : null;
     const neighbors =
-      entry != null
+      self != null
         ? leaderboard.filter(
             (e) =>
-              e.rank >= entry.rank - NEIGHBOR_WINDOW &&
-              e.rank <= entry.rank + NEIGHBOR_WINDOW &&
-              !isMine(e.minerId),
+              e.rank >= self.rank - NEIGHBOR_WINDOW &&
+              e.rank <= self.rank + NEIGHBOR_WINDOW &&
+              e.minerId !== self.minerId,
           )
         : [];
-
-    const uptimeMs = node ? Date.now() - node.firstSeen * 1000 : null;
-
-    // Walk blocks from newest to oldest until we hit one this node won.
-    // Blocks arrive sorted ascending by (timestamp, block_index), so iterate
-    // from the end. Using the filtered blocks keeps this consistent with the
-    // "Blocks Mined" count above when an epoch filter is active.
-    let lastWonBlock: BlockRecord | null = null;
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      const b = blocks[i]!;
-      if (isMine(b.minerId)) {
-        lastWonBlock = b;
-        break;
-      }
-    }
-
     return {
-      node,
       selfAddress,
-      blocksMined,
-      uptimeMs,
-      rank,
-      totalMiners: leaderboard.length,
-      entry,
-      neighbors,
+      chainMinerEntry,
+      minerStats: indexer?.minerStats ?? null,
       lastWonBlock,
+      blocksMined,
       currentRequirements,
+      self,
+      neighbors,
     };
-  }, [blocks, nodes, selfAddress, tipBlock]);
+  }, [selfAddress, chainMiners, nodeDescriptors, blocks, indexer, tipBlock, recentDifficulty]);
 }

@@ -4,8 +4,9 @@ import { createAdapter, getConfigFromEnv } from "../api/db/index";
 
 async function main(): Promise<void> {
   const cfg = getConfigFromEnv();
-  const db = await createAdapter(cfg);
   console.log(`[server] migrating adapter=${cfg.adapter}`);
+
+  const db = await createAdapter(cfg);
   try {
     await db.connect();
     await db.migrate();

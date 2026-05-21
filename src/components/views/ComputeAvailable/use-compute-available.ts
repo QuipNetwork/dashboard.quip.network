@@ -12,6 +12,18 @@ export interface ModelBreakdown {
   tflops: number;
 }
 
+export interface PerNodeTflops {
+  address: string;
+  nodeName: string;
+  tflops: number;
+}
+
+/**
+ * A geo-located node ready for the world map. Subset of NodeInfo +
+ * estimated TFLOPS so the map can size each marker by compute share.
+ * Only nodes whose `publicHost` resolved to a lat/lng end up here;
+ * unresolved nodes feed `unlocatedCount` instead.
+ */
 export interface LocatedNode {
   address: string;
   nodeName: string;
@@ -19,12 +31,6 @@ export interface LocatedNode {
   city?: string;
   lat: number;
   lng: number;
-  tflops: number;
-}
-
-export interface PerNodeTflops {
-  address: string;
-  nodeName: string;
   tflops: number;
 }
 
@@ -36,8 +42,6 @@ export interface ComputeAvailability {
   totalPetaflops: number;
   cpuModels: ModelBreakdown[];
   gpuModels: ModelBreakdown[];
-  locatedNodes: LocatedNode[];
-  unlocatedCount: number;
   perNodeTflops: PerNodeTflops[]; // sorted desc by tflops
   topNode: PerNodeTflops | null;
   medianNodeTflops: number;
@@ -57,6 +61,13 @@ export interface ComputeAvailability {
   // Seconds elapsed since the last tip block closed — companion to
   // currentBlockPflopSeconds so the UI can render both.
   currentBlockElapsedSeconds: number | null;
+  // Nodes the server's geo-IP enricher resolved into a lat/lng marker.
+  // Ordered by tflops desc so the world map's z-stack draws the biggest
+  // markers last (most visible).
+  locatedNodes: LocatedNode[];
+  // Count of nodes with a `publicHost` that didn't geo-resolve. Drives the
+  // map's "N nodes unlocated" footer so the operator can see the gap.
+  unlocatedCount: number;
 }
 
 export function useComputeAvailable(): ComputeAvailability {
@@ -72,9 +83,9 @@ export function useComputeAvailable(): ComputeAvailability {
     let totalTflops = 0;
     const cpuCounts = new Map<string, { count: number; tflops: number }>();
     const gpuCounts = new Map<string, { count: number; tflops: number }>();
-    const located: LocatedNode[] = [];
     const perNode: PerNodeTflops[] = [];
-    let unlocated = 0;
+    const located: LocatedNode[] = [];
+    let unlocatedCount = 0;
 
     for (const node of Object.values(nodes.nodes)) {
       totalCpus += countCpus(node);
@@ -84,11 +95,31 @@ export function useComputeAvailable(): ComputeAvailability {
       const flops = estimateNodeFlops(node);
       totalTflops += flops.totalTflops;
 
+      const displayName = node.nodeName ?? node.address.slice(0, 10);
       perNode.push({
         address: node.address,
-        nodeName: node.nodeName ?? node.address.slice(0, 10),
+        nodeName: displayName,
         tflops: flops.totalTflops,
       });
+
+      if (node.location) {
+        located.push({
+          address: node.address,
+          nodeName: displayName,
+          country: node.location.country,
+          city: node.location.city,
+          lat: node.location.lat,
+          lng: node.location.lng,
+          tflops: flops.totalTflops,
+        });
+      } else if (node.publicHost) {
+        // publicHost was set but the geo-IP enricher returned no record —
+        // count it toward the "unlocated" tally so the map's footer
+        // explains the gap. Nodes without publicHost don't contribute
+        // (they had nothing to resolve, so the gap isn't operationally
+        // interesting).
+        unlocatedCount++;
+      }
 
       // CPU buckets
       const cpuMatch = lookupCpu(node.systemInfo?.cpu);
@@ -101,25 +132,11 @@ export function useComputeAvailable(): ComputeAvailability {
         const match = lookupGpu(gpu.name);
         bump(gpuCounts, match.canonical, 1, match.tflops);
       }
-
-      if (node.location) {
-        located.push({
-          address: node.address,
-          nodeName: node.nodeName ?? node.address.slice(0, 10),
-          country: node.location.country,
-          city: node.location.city,
-          lat: node.location.lat,
-          lng: node.location.lng,
-          tflops: flops.totalTflops,
-        });
-      } else if (node.publicHost) {
-        // publicHost exists but couldn't be geo-located — counts toward the
-        // "unlocated" tally so the map's empty state explains the gap.
-        unlocated += 1;
-      }
     }
 
     perNode.sort((a, b) => b.tflops - a.tflops);
+    // Sort located so the largest markers draw last (on top).
+    located.sort((a, b) => a.tflops - b.tflops);
 
     // Block-ceiling estimates. "PFLOP-seconds" = TFLOPS × seconds ÷ 1000.
     // Interprets the network running at full theoretical FP32 throughput for
@@ -139,8 +156,6 @@ export function useComputeAvailable(): ComputeAvailability {
       totalPetaflops: totalTflops / 1000,
       cpuModels: toBreakdown(cpuCounts),
       gpuModels: toBreakdown(gpuCounts),
-      locatedNodes: located,
-      unlocatedCount: unlocated,
       perNodeTflops: perNode,
       topNode: perNode[0] ?? null,
       medianNodeTflops: median(perNode.map((n) => n.tflops)),
@@ -149,6 +164,8 @@ export function useComputeAvailable(): ComputeAvailability {
       lastBlockPflopSeconds,
       currentBlockPflopSeconds,
       currentBlockElapsedSeconds,
+      locatedNodes: located,
+      unlocatedCount,
     };
   }, [nodes, lastBlock]);
 }
@@ -161,8 +178,6 @@ const EMPTY: ComputeAvailability = {
   totalPetaflops: 0,
   cpuModels: [],
   gpuModels: [],
-  locatedNodes: [],
-  unlocatedCount: 0,
   perNodeTflops: [],
   topNode: null,
   medianNodeTflops: 0,
@@ -171,6 +186,8 @@ const EMPTY: ComputeAvailability = {
   lastBlockPflopSeconds: null,
   currentBlockPflopSeconds: null,
   currentBlockElapsedSeconds: null,
+  locatedNodes: [],
+  unlocatedCount: 0,
 };
 
 function countCpus(node: NodeInfo): number {

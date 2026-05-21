@@ -5,7 +5,10 @@ import { SERIES_COLORS } from "../../../lib/colors";
 import { formatDuration, formatNumber } from "../../../lib/format";
 import { useUIStore } from "../../../store/ui-store";
 import { StatTile } from "../MyNode/StatTile";
+import { ChainMinersTable } from "../Chain/ChainMinersView";
+import { DifficultyChart } from "../Chain/DifficultyChart";
 import { HardwareBreakdown } from "./HardwareBreakdown";
+import { NodeIdentitiesPanel } from "./NodeIdentitiesPanel";
 import { NodeLeaderboard } from "./NodeLeaderboard";
 import { NodeLocationMap } from "./NodeLocationMap";
 import { useComputeAvailable } from "./use-compute-available";
@@ -81,7 +84,7 @@ export function ComputeAvailableView() {
           }
           sublabel={
             compute.lastBlock != null
-              ? `#${compute.lastBlock.blockIndex} · solved in ${formatDuration(compute.lastBlock.miningTime * 1000)}`
+              ? `#${compute.lastBlock.substrateBlockNumber} · solved in ${formatDuration(compute.lastBlock.miningTime * 1000)}`
               : "Awaiting first block"
           }
           accent={SERIES_COLORS.GPU}
@@ -95,7 +98,7 @@ export function ComputeAvailableView() {
           }
           sublabel={
             compute.lastBlock != null && compute.currentBlockElapsedSeconds != null
-              ? `#${compute.lastBlock.blockIndex + 1} · ${formatDuration(compute.currentBlockElapsedSeconds * 1000)} and counting`
+              ? `#${Number(compute.lastBlock.substrateBlockNumber) + 1} · ${formatDuration(compute.currentBlockElapsedSeconds * 1000)} and counting`
               : "Awaiting first block"
           }
           accent={SERIES_COLORS.QPU}
@@ -133,17 +136,26 @@ export function ComputeAvailableView() {
         </div>
       )}
 
-      <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-5 backdrop-blur-xl">
-        <div className="mb-4">
-          <h2 className="font-heading text-lg text-brand-gray-5">Node Locations</h2>
-          <p className="font-accent text-xs text-brand-gray-3">
-            Geo-IP derived from <code>publicHost</code>; marker size scales with estimated TFLOPS
-          </p>
-        </div>
-        <div className="h-[440px]">
+      {/* v0.2 additions: chain-side miners table + difficulty chart land
+          under the same view since they describe network-wide compute state. */}
+      <ChartCard
+        title="Node Locations"
+        subtitle={`${compute.locatedNodes.length} of ${compute.totalNodes} nodes geo-located via publicHost`}
+      >
+        <div className="h-[440px] w-full">
           <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
         </div>
+      </ChartCard>
+
+      <div className="mb-5">
+        <ChainMinersTable />
       </div>
+
+      <div className="mb-5">
+        <NodeIdentitiesPanel />
+      </div>
+
+      <DifficultyChart />
     </>
   );
 }

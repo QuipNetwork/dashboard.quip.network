@@ -1,53 +1,248 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Types mirror the Quip node v0.1 telemetry REST API
-// (/api/v1/telemetry/*). Field names are camelCase on our side; the indexer
-// converts snake_case node payloads before storing.
+// Types for v0.3 dashboard. The chain (quip-protocol-rs spec >=101) is the
+// canonical source for per-block PoW data via the `quantum_pow` pallet's
+// `BlockWinner` + `ProofAccepted` events. The miner's `/api/v1/status` /
+// `/api/v1/system` / `/api/v1/stats` REST endpoints supply self-identity and
+// aggregate counters only — there is no peer-aggregation surface in v0.2/v0.3.
 
-export type MinerCategory = "CPU" | "GPU" | "QPU";
+export type MinerCategory = "CPU" | "GPU" | "QPU" | "OTHER";
 
-// Epoch IDs are 16-char hex hashes (e.g. "e0a08eef1dfff726") as of the node's
-// post-timestamp-cutover telemetry. They're opaque strings end-to-end —
-// never parse them to Number. Per-block time still lives in `timestamp`.
-export type EpochId = string;
+export type MinerHardwareSource = "self" | "peer-query" | "chain";
 
 /**
- * Tag for `TelemetryIndex.epochs`: "live" is the single canonical-tip epoch
- * the node is currently extending; "stale_fork" is any indexed-but-abandoned
- * chain. Sourced from `/api/v1/telemetry/epochs`.
+ * A PoW block as recorded by the dashboard. Substrate is the canonical source
+ * in v0.3 — the substrate worker subscribes to quantum_pow's
+ * `BlockWinner` + `ProofAccepted` event pairs (in `on_finalize`) and inserts
+ * one row per substrate block whose PoW win is accepted. `blockHash` is the
+ * PoW solution hash and serves as the table PK. All substrate_* fields are
+ * populated at insert time — there is no two-phase enrichment in v0.3.
  */
-export type EpochStatus = "live" | "stale_fork";
-
 export interface BlockRecord {
-  epoch: EpochId;
-  blockIndex: number;
   blockHash: string;
+  // u64 as string — substrate block heights kept as strings throughout the
+  // dashboard for consistency and u64-precision safety. Indexer/UI convert to
+  // Number for display/arithmetic at the boundary.
+  substrateBlockNumber: string;
+  substrateBlockHash: string;
+  substrateParentHash: string;
   timestamp: number;
-  previousHash: string;
   minerId: string;
-  minerCategory: MinerCategory;
-  ecdsaPublicKey: string;
   energy: number;
   diversity: number;
   numValidSolutions: number;
   miningTime: number;
-  // u64 — exceeds Number.MAX_SAFE_INTEGER, stored/transported as string
+  // u128 as string (token amount).
+  reward: string;
+  // u64 as string — nonce can exceed Number.MAX_SAFE_INTEGER.
   nonce: string;
   numNodes: number;
   numEdges: number;
   difficultyEnergy: number;
   minDiversity: number;
   minSolutions: number;
+  finalized: boolean;
 }
 
-export interface NodeRuntime {
-  python?: string;
-  quipVersion?: string;
-  protocolVersion?: number;
-  inDocker?: boolean;
-  dockerImage?: string;
+export interface RuntimeVersion {
+  specName: string;
+  specVersion: number;
+  transactionVersion: number;
+  implName: string;
+  // Block number (u64 as string) at which the active runtime was last
+  // upgraded. Null when the chain has never upgraded since genesis.
+  lastRuntimeUpgrade: string | null;
 }
 
+/**
+ * Best/finalized substrate chain heads + runtime version. Single-row snapshot
+ * written by the substrate worker on every head event (debounced). Null on
+ * /api/telemetry when QUIP_VALIDATOR_RPC_URL is unset on the indexer.
+ */
+export interface ChainHead {
+  bestBlockNumber: string;
+  bestBlockHash: string;
+  finalizedBlockNumber: string;
+  finalizedBlockHash: string;
+  // bestBlockNumber - finalizedBlockNumber, precomputed for the UI.
+  finalityLag: number;
+  runtime: RuntimeVersion;
+  updatedAt: string;
+}
+
+/**
+ * Substrate BABE epoch state — the substrate-chain consensus rotation concept,
+ * slot-based, typically ~2400 slots / ~4h on quip-protocol-rs spec_version 101.
+ */
+export interface BabeEpochState {
+  epochIndex: number;
+  // u64 as string — BABE slot can exceed Number.MAX_SAFE_INTEGER on long-running chains.
+  currentSlot: string;
+  // u64 as string. The slot at which this epoch began.
+  epochStartSlot: string;
+  // Constant from `api.consts.babe.epochDuration`. Typically 2400 on quip.
+  slotsPerEpoch: number;
+  // currentSlot - epochStartSlot, precomputed for the UI progress bar.
+  currentSlotInEpoch: number;
+  // Number of BABE authorities active in this epoch. Sourced from
+  // `api.query.session.validators().length` since BABE rotates per session.
+  authorityCount: number;
+}
+
+/**
+ * Thin record for a BABE authority. quip-protocol-rs spec 101 does not use
+ * FRAME staking, so there is no commission/exposure/nominator concept — just
+ * the account ID that has authority to author blocks in the current session.
+ */
+export interface BabeAuthorityRecord {
+  accountId: string;
+  // Optional display name from `api.query.identity.identityOf()` if the
+  // identity pallet is enabled. Null on quip-protocol-rs spec 101.
+  displayName: string | null;
+}
+
+/**
+ * Rich on-chain miner state from `pallet-quantum-pow`'s `Miners` storage.
+ * This is the high-value chain surface for the dashboard's mining audience.
+ */
+export interface ChainMinerRecord {
+  accountId: string;
+  // Token deposit locked by the miner to participate. u128 as string.
+  deposit: string;
+  // Lifetime counters. u64 as string.
+  proofsSubmitted: string;
+  proofsWon: string;
+  // u128 as string (token amount).
+  rewardsEarned: string;
+  // Joined server-side from `miner_hardware.nodeId` when the chain account
+  // matches a known hardware row. Today only self has a miner_hardware row
+  // (source='self'); future peer-query/chain-surface versions populate other
+  // entries.
+  telemetryNodeAddress: string | null;
+  // Full hardware record joined server-side from `miner_hardware` when an
+  // entry exists for this accountId. Null when no hardware data exists
+  // (most miners today — only self is populated until peer-query lands).
+  hardware: MinerHardwareRecord | null;
+}
+
+/**
+ * Snapshot of `quantum_pow.Difficulty` at a specific substrate block.
+ * Adjusted every `QuantumPowEpochLength` blocks (~100 = ~10min on spec 101).
+ * Stored append-only in `difficulty_history` for the chart surface.
+ *
+ * Field names mirror BlockRecord (energy/diversity/solutions) for cross-table
+ * consistency. The substrate worker divides the chain's `*_milli` integer
+ * encoding by 1000 before writing.
+ */
+export interface DifficultyRecord {
+  // u64 as string — substrate block number at which this snapshot was taken.
+  observedAtBlock: string;
+  // From chain `max_energy_milli / 1000` — proof energy must be ≤ this.
+  // Named `difficultyEnergy` to match the field on BlockRecord.
+  difficultyEnergy: number;
+  // From chain `min_diversity_milli / 1000`.
+  minDiversity: number;
+  // From chain `min_solutions` (already integer-units; no conversion).
+  minSolutions: number;
+  observedAt: string; // ISO 8601
+}
+
+/**
+ * Per-miner hardware inventory. v0.3 only ever writes a single row with
+ * source='self' from the locally polled quip-node; peer-query and chain
+ * surfaces are reserved for later versions when the miner exposes peer
+ * inventories or the chain pallet publishes hardware metadata.
+ */
+export interface MinerHardwareRecord {
+  accountId: string;
+  nodeId: string;
+  miners: Array<{ id: string; type: MinerCategory }>;
+  // Dominant type across `miners[]`, derived by the writer (not the source).
+  primaryType: MinerCategory;
+  source: MinerHardwareSource;
+  observedAt: string;
+}
+
+/**
+ * Aggregate counters from `/api/v1/stats` on the locally polled quip-miner.
+ * Flattened from the upstream `controller` sub-object so the dashboard tiles
+ * can read fields directly without re-shaping.
+ */
+export interface MinerStats {
+  totalBlocksAttempted: number;
+  totalBlocksWon: number;
+  winRate: number;
+  totalMiningTime: number;
+  avgMiningTime: number;
+  headsObserved: number;
+  contextsDispatched: number;
+  resultsReceived: number;
+  proofsSubmitted: number;
+  staleDrops: number;
+  submissionErrors: number;
+}
+
+/**
+ * Observability snapshot written by the indexer on every successful poll.
+ * v0.3 drops the dual-cursor epoch/blockIndex model — the chain is now the
+ * canonical block source, so we only track:
+ *   - REST heartbeat: `lastStatusFetchAt` ticks every /api/v1/status poll.
+ *   - Substrate heartbeat: `lastSubstrateEventAt` ticks on every head event.
+ *   - `chainHeadFromNode`: best block height the locally polled quip-node
+ *     reports via /api/v1/status.chain.head_number — null pre-first-fetch.
+ *   - `minerStats`: latest /api/v1/stats payload, attached here so the UI
+ *     can render miner tiles without a separate fetch.
+ */
+export interface IndexerObservability {
+  // u64 as string — substrate block heights kept as strings throughout the
+  // dashboard for consistency and u64-precision safety.
+  chainHeadFromNode: string | null;
+  lastStatusFetchAt: string; // ISO 8601
+  lastBlockInsertAt: string | null;
+  lastSubstrateEventAt: string | null;
+  // Best/finalized substrate block heights, mirrored from chain_head for the
+  // SyncIndicator. u64 as string. Null pre-first-event.
+  bestBlockHeight: string | null;
+  finalizedBlockHeight: string | null;
+  // Live WSS socket state. Always false on a fresh process — only flips true
+  // after the substrate worker's client emits a `connected` event.
+  chainConnected: boolean;
+  minerStats: MinerStats | null;
+}
+
+/**
+ * Per-validator authorship payload joined against the active BABE authority
+ * set. Each row corresponds to one BABE authority for the current session;
+ * the server fills `blocksAuthored` / `blocksAuthoredWithPow` from the
+ * `validator_authorship` aggregate table and computes `online` at read
+ * time from `lastAuthoredAt`. Counters are 0 and timestamps are null for
+ * authorities that have not yet authored a block the indexer has seen.
+ */
+export interface ValidatorAuthorshipRecord {
+  accountId: string;
+  blocksAuthored: number;
+  blocksAuthoredWithPow: number;
+  // Substrate block number of the most recent head this validator authored,
+  // as a u64-as-string. Null until the indexer has observed at least one
+  // authored head from this account.
+  lastAuthoredBlock: string | null;
+  // ISO 8601. Null when no authored head has been observed.
+  lastAuthoredAt: string | null;
+  // True when `lastAuthoredAt` is within the freshness window (3 minutes
+  // at the time of writing). Computed server-side against the request
+  // wall-clock so the SPA doesn't have to choose a clock.
+  online: boolean;
+}
+
+/**
+ * Operator-published node descriptor — the canonical identity record for
+ * a miner, sourced from a `System.remark_with_event` extrinsic signed by
+ * the operator's chain account. Shape mirrors `quip.node_descriptor.v1`
+ * defined in `shared/system_info.py` on the miner side; see
+ * `DASHBOARDPLAN.md` for the indexing spec. Dashboard-owned fields
+ * (`address`, `firstSeen`, `lastSeen`) live on NodeInfo, not here —
+ * descriptors are the operator's self-asserted side, joined at read time.
+ */
 export interface NodeSystemCpu {
   logicalCores?: number;
   physicalCores?: number;
@@ -76,6 +271,14 @@ export interface NodeSystemInfo {
   gpus?: NodeSystemGpu[];
 }
 
+export interface NodeRuntime {
+  python?: string;
+  quipVersion?: string;
+  protocolVersion?: number;
+  inDocker?: boolean;
+  dockerImage?: string;
+}
+
 export interface NodeMinerEntry {
   kind: MinerCategory;
   minerId: string;
@@ -91,6 +294,17 @@ export interface NodeMinerEntry {
   dailyBudget?: string;
 }
 
+/**
+ * Geo-IP enrichment for a node's `publicHost`. Resolved server-side at
+ * /api/telemetry time via DNS → MaxMind GeoLite2 (bundled or
+ * GEOIP_DB_PATH override). Null/absent when:
+ *   - `publicHost` is missing on the descriptor
+ *   - DNS resolution fails (NXDOMAIN, timeout)
+ *   - The resolved IP isn't in the geo database (private ranges,
+ *     reserved blocks, MMDB miss)
+ * `country` is an ISO-3166 alpha-2 code; "??" is a sentinel for "we got
+ * a record but no country was set" (rare, but the MMDB schema permits it).
+ */
 export interface NodeLocation {
   country: string;
   city?: string;
@@ -113,8 +327,9 @@ export interface NodeInfo {
   runtime?: NodeRuntime;
   miners?: Record<string, NodeMinerEntry>;
   systemInfo?: NodeSystemInfo;
-  // Populated by the server from a GeoLite2 lookup on publicHost; absent when
-  // no database is configured, DNS fails, or the IP is not in the DB.
+  // Geo-IP enrichment of `publicHost`. Absent when the lookup failed or
+  // when geo is disabled (no geoip-lite + no GEOIP_DB_PATH). The UI's
+  // map silently omits markers for nodes without location.
   location?: NodeLocation;
 }
 
@@ -126,72 +341,79 @@ export interface NodesSnapshot {
 }
 
 /**
- * Observability snapshot written by the indexer on every successful poll.
- * Lets the server + UI distinguish "node has no new blocks" from "node has
- * new blocks but the indexer is behind".
- *
- * - nodeLatestEpoch / nodeLatestBlockIndex: tip last reported by the node
- *   via /api/v1/telemetry/status.
- * - tipEpoch / tipBlockIndex: how far the tip-follower has actually
- *   persisted on status.latestEpoch's owned range. Equal to the node's
- *   tip when caught up.
- * - backfillEpoch / backfillBlockIndex: the epoch (and block within it)
- *   currently being walked by the backfill worker. Null epoch means the
- *   backfill plan has no outstanding work.
- * - lastStatusFetchAt: ISO timestamp of the most recent status response.
- *   Acts as an "indexer alive" heartbeat — if this is >minutes old, the
- *   indexer process has stopped or is wedged.
- * - lastBlockInsertAt: ISO timestamp of the most recent insertBlock. null
- *   if no block has been inserted since the indexer was last restarted.
+ * Raw signed payload an operator emits via `quip-miner identify`. Field
+ * names use camelCase (the indexer normalises from the chain's snake_case
+ * JSON at decode time). Pass-through of `descriptorVersion` lets future
+ * versions ride a parallel handler without mutating this shape.
  */
-export interface IndexerObservability {
-  nodeLatestEpoch: EpochId;
-  nodeLatestBlockIndex: number;
+export interface NodeDescriptor {
+  schema: "quip.node_descriptor.v1";
+  descriptorVersion: 1;
+  nodeName: string;
+  publicHost?: string;
+  publicPort?: number;
+  rpcEndpoints?: string[];
+  autoMine?: boolean;
+  logLevel?: string;
+  runtime?: NodeRuntime;
+  miners?: Record<string, NodeMinerEntry>;
+  systemInfo?: NodeSystemInfo;
+}
 
-  // Tip follower — cursor on status.latestEpoch's owned range.
-  // tipEpoch === nodeLatestEpoch && tipBlockIndex === nodeLatestBlockIndex
-  // means the tip is caught up.
-  tipEpoch: EpochId | null;
-  tipBlockIndex: number;
-
-  // Backfill worker — null when no outstanding plan work; otherwise the
-  // epoch currently being walked.
-  backfillEpoch: EpochId | null;
-  backfillBlockIndex: number;
-
-  lastStatusFetchAt: string; // tip-worker heartbeat (ISO 8601)
-  lastBlockInsertAt: string | null; // either worker's most recent insert
+/**
+ * Indexed descriptor row — one per chain account, holding the most recent
+ * valid payload plus provenance (block + extrinsic position used by the
+ * upsert tie-breaker). `observedAt` is when the indexer wrote the row,
+ * NOT when the extrinsic was signed; use `blockNumber` for chain-time.
+ */
+export interface NodeDescriptorRecord {
+  accountId: string;
+  blockNumber: string;
+  blockHash: string;
+  extrinsicIndex: number;
+  // Block timestamp of the *most recent* descriptor for this account
+  // (newer one wins on upsert).
+  blockTimestamp: number;
+  // Block timestamp of the *first* descriptor we ever observed for this
+  // account — preserved across upserts so the NodeInfo projection can
+  // populate `firstSeen` distinctly from `lastSeen`.
+  firstBlockTimestamp: number;
+  descriptor: NodeDescriptor;
+  observedAt: string;
 }
 
 export interface TelemetryResponse {
   blocks: BlockRecord[];
-  nodes: NodesSnapshot;
-  // Address of the quip-node this dashboard polls. Resolved by asking the
-  // node for its own peer-list key via GET /api/v1/status. null until the
-  // indexer has synced at least one nodes snapshot.
+  // SS58 of the locally polled quip-node, sourced from /api/v1/status.
+  // Null until the indexer has completed its first successful poll.
   selfAddress: string | null;
   // Indexer/node tip observability. null before the indexer has completed
   // its first successful /status poll after deploy.
   indexer: IndexerObservability | null;
-}
-
-export interface TelemetryIndex {
-  epochs: Array<{
-    epoch: EpochId;
-    blockCount: number;
-    status: EpochStatus;
-    // Timestamp (unix seconds) of block_index=1 in this epoch. Drives the
-    // "e0a08eef… · Apr 22 23:58" time cue in the EpochSelector. null when
-    // the DB has rows for this epoch but not block 1 — possible on partial
-    // mid-epoch backfills — in which case the UI renders the short hash only.
-    firstBlockTimestamp: number | null;
-  }>;
-  lastUpdated: string;
-}
-
-export interface IndexerCursor {
-  epoch: EpochId | null;
-  blockIndex: number;
+  // ISO 8601 timestamp the server stamped this response. Lets the UI
+  // compute observability ages relative to server time, not client clock.
+  serverTime: string;
+  // Substrate-derived snapshots. Null/empty when QUIP_VALIDATOR_RPC_URL is
+  // unset on the indexer — degrades gracefully to chain-less mode.
+  chainHead: ChainHead | null;
+  babeEpoch: BabeEpochState | null;
+  babeAuthorities: BabeAuthorityRecord[];
+  chainMiners: ChainMinerRecord[];
+  // Recent DifficultyRecord snapshots (most recent first).
+  recentDifficulty: DifficultyRecord[];
+  // Active BABE authority set joined with per-validator authorship counters.
+  // Empty when no BABE epoch has been polled yet.
+  validators: ValidatorAuthorshipRecord[];
+  // Snapshot of network nodes, projected server-side from the
+  // `node_descriptors` table the indexer populates from
+  // `System.remark_with_event` extrinsics. Null when no descriptor has
+  // been observed yet (fresh chain or pre-deploy operators). Drives the
+  // Compute Available view's TFLOPS/PFLOPS surfaces.
+  nodes: NodesSnapshot | null;
+  // Per-account indexed descriptors — raw signed payloads plus provenance.
+  // Empty when no `quip-miner identify` extrinsic has been seen. Drives
+  // the Node Identities panel and joins into ChainMinersTable.
+  nodeDescriptors: NodeDescriptorRecord[];
 }
 
 export interface ErrorResponse {

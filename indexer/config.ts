@@ -11,10 +11,32 @@ export interface IndexerConfig {
   // after which the indexer emits a WARN that the polled node looks stalled.
   // 0 disables the check.
   stallWarnAfterSec: number;
-  // Interval (seconds) the backfill worker sleeps between plan re-checks when
-  // idle (plan fully indexed). Guards against a chain that was the tip mid-walk
-  // and became a dead fork before being fully indexed.
-  backfillIdleRecheckSec: number;
+
+  // --- Substrate (quip-protocol-rs validator) RPC options ---
+  // null = no substrate worker, degraded mode (the indexer still polls REST
+  // and the dashboard surfaces null/empty for chain fields). All other
+  // substrate options are inert when this is null.
+  substrateRpcUrl: string | null;
+  // Per-request timeout for WsProvider handshake + RPC calls.
+  substrateRpcTimeoutMs: number;
+  // Upper bound on the exponential-backoff reconnect loop (±20% jitter).
+  substrateReconnectMaxBackoffMs: number;
+  // Cadence at which we re-poll BABE epoch state (cheap; epoch changes are
+  // ~hourly on quip-protocol-rs spec 101). Also re-polled on every finalized head.
+  substrateBabePollSec: number;
+  // Cadence at which we re-poll the bigger chain surfaces — quantum_pow.Miners,
+  // quantum_pow.Difficulty, session.validators. More expensive: O(miners) RPCs.
+  substrateChainPollSec: number;
+
+  // --- Node descriptor indexer (v0.2) ---
+  // Substrate block number (as decimal string, u64-precision-safe) the
+  // descriptor worker starts scanning from on a fresh database. Resume-
+  // from-checkpoint takes over once the first iteration completes; this
+  // bound only matters on a never-indexed DB. Default "1" backfills from
+  // genesis — acceptable for short-lived testnets; long-running chains
+  // should set QUIP_DESCRIPTOR_START_BLOCK to a recent block height to
+  // avoid an O(history) catch-up walk.
+  descriptorStartBlock: string;
 }
 
 const DEFAULTS = {
@@ -22,7 +44,17 @@ const DEFAULTS = {
   pollIntervalSec: 8,
   nodesRefreshSec: 45,
   stallWarnAfterSec: 600, // 10 minutes — longer than typical QPU block time.
-  backfillIdleRecheckSec: 300,
+  substrateRpcTimeoutMs: 15000,
+  substrateReconnectMaxBackoffMs: 60000,
+  substrateBabePollSec: 30,
+  // Matches BABE slot duration (6s on quip-protocol-rs) so chain_miners
+  // and difficulty_history poll once per block. The reads are cheap
+  // storage hits and the UI's "Problems Won" tile would otherwise show a
+  // ~5min stale snapshot of `quantum_pow.Miners`.
+  substrateChainPollSec: 6,
+  // "1" backfills from genesis. Operators on long-lived chains override
+  // via QUIP_DESCRIPTOR_START_BLOCK.
+  descriptorStartBlock: "1",
 };
 
 function parseIntStrict(name: string, raw: string): number {
@@ -64,7 +96,6 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
   const stallFlag = takeFlag(argv, "--stall-warn-after");
-  const backfillIdleFlag = takeFlag(argv, "--backfill-idle-recheck");
 
   const nodeUrl =
     (typeof nodeUrlFlag === "string" ? nodeUrlFlag : undefined) ??
@@ -105,15 +136,87 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     throw new Error(`[indexer] --stall-warn-after must be >= 0, got: ${stallWarnAfterSec}`);
   }
 
-  const backfillIdleRecheckSec =
-    typeof backfillIdleFlag === "string"
-      ? parseIntStrict("--backfill-idle-recheck", backfillIdleFlag)
-      : process.env.BACKFILL_IDLE_RECHECK_SEC
-        ? parseIntStrict("BACKFILL_IDLE_RECHECK_SEC", process.env.BACKFILL_IDLE_RECHECK_SEC)
-        : DEFAULTS.backfillIdleRecheckSec;
-  if (backfillIdleRecheckSec <= 0) {
+  // --- Substrate options ---
+  const substrateRpcUrlFlag = takeFlag(argv, "--substrate-rpc-url");
+  const substrateRpcTimeoutFlag = takeFlag(argv, "--substrate-rpc-timeout");
+  const substrateBackoffFlag = takeFlag(argv, "--substrate-reconnect-max-backoff");
+  const substrateBabePollFlag = takeFlag(argv, "--substrate-babe-poll");
+  const substrateChainPollFlag = takeFlag(argv, "--substrate-chain-poll");
+
+  const substrateRpcUrlRaw =
+    (typeof substrateRpcUrlFlag === "string" ? substrateRpcUrlFlag : undefined) ??
+    process.env.QUIP_VALIDATOR_RPC_URL;
+  // Reject empty string explicitly — operators usually mean "leave unset" but
+  // a stray `--substrate-rpc-url=` would otherwise produce a connect-time
+  // failure deep in the substrate worker.
+  if (substrateRpcUrlRaw !== undefined && substrateRpcUrlRaw.trim() === "") {
     throw new Error(
-      `[indexer] --backfill-idle-recheck must be > 0, got: ${backfillIdleRecheckSec}`,
+      `[indexer] --substrate-rpc-url cannot be empty (omit the flag/env to disable substrate)`,
+    );
+  }
+  const substrateRpcUrl =
+    substrateRpcUrlRaw !== undefined ? substrateRpcUrlRaw.replace(/\/+$/, "") : null;
+
+  const substrateRpcTimeoutMs =
+    typeof substrateRpcTimeoutFlag === "string"
+      ? parseIntStrict("--substrate-rpc-timeout", substrateRpcTimeoutFlag)
+      : process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS
+        ? parseIntStrict("QUIP_VALIDATOR_RPC_TIMEOUT_MS", process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS)
+        : DEFAULTS.substrateRpcTimeoutMs;
+  if (substrateRpcTimeoutMs <= 0) {
+    throw new Error(`[indexer] substrate RPC timeout must be > 0, got: ${substrateRpcTimeoutMs}`);
+  }
+
+  const substrateReconnectMaxBackoffMs =
+    typeof substrateBackoffFlag === "string"
+      ? parseIntStrict("--substrate-reconnect-max-backoff", substrateBackoffFlag)
+      : process.env.QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS
+        ? parseIntStrict(
+            "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
+            process.env.QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS,
+          )
+        : DEFAULTS.substrateReconnectMaxBackoffMs;
+  if (substrateReconnectMaxBackoffMs <= 0) {
+    throw new Error(
+      `[indexer] substrate reconnect backoff must be > 0, got: ${substrateReconnectMaxBackoffMs}`,
+    );
+  }
+
+  const substrateBabePollSec =
+    typeof substrateBabePollFlag === "string"
+      ? parseIntStrict("--substrate-babe-poll", substrateBabePollFlag)
+      : process.env.QUIP_VALIDATOR_BABE_POLL_SEC
+        ? parseIntStrict("QUIP_VALIDATOR_BABE_POLL_SEC", process.env.QUIP_VALIDATOR_BABE_POLL_SEC)
+        : DEFAULTS.substrateBabePollSec;
+  if (substrateBabePollSec <= 0) {
+    throw new Error(`[indexer] --substrate-babe-poll must be > 0, got: ${substrateBabePollSec}`);
+  }
+
+  const substrateChainPollSec =
+    typeof substrateChainPollFlag === "string"
+      ? parseIntStrict("--substrate-chain-poll", substrateChainPollFlag)
+      : process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC
+        ? parseIntStrict("QUIP_VALIDATOR_CHAIN_POLL_SEC", process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC)
+        : DEFAULTS.substrateChainPollSec;
+  if (substrateChainPollSec <= 0) {
+    throw new Error(`[indexer] --substrate-chain-poll must be > 0, got: ${substrateChainPollSec}`);
+  }
+
+  const descriptorStartFlag = takeFlag(argv, "--descriptor-start-block");
+  const descriptorStartRaw =
+    (typeof descriptorStartFlag === "string" ? descriptorStartFlag : undefined) ??
+    process.env.QUIP_DESCRIPTOR_START_BLOCK ??
+    DEFAULTS.descriptorStartBlock;
+  // Validate via parseIntStrict to reject hex/scientific/whitespace
+  // (consistent with other numeric config), then re-stringify so the
+  // worker's BigInt() call doesn't see exotic shapes. We keep it as a
+  // string in the IndexerConfig type for u64-precision-safety.
+  const descriptorStartBlock = String(
+    parseIntStrict("QUIP_DESCRIPTOR_START_BLOCK", descriptorStartRaw),
+  );
+  if (Number(descriptorStartBlock) < 1) {
+    throw new Error(
+      `[indexer] QUIP_DESCRIPTOR_START_BLOCK must be >= 1, got: ${descriptorStartBlock}`,
     );
   }
 
@@ -125,6 +228,11 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     once,
     verbose,
     stallWarnAfterSec,
-    backfillIdleRecheckSec,
+    substrateRpcUrl,
+    substrateRpcTimeoutMs,
+    substrateReconnectMaxBackoffMs,
+    substrateBabePollSec,
+    substrateChainPollSec,
+    descriptorStartBlock,
   };
 }

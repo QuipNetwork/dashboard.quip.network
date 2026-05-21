@@ -1,4 +1,5 @@
 import { Header } from "../components/layout/Header";
+import { ChainView } from "../components/views/Chain/ChainView";
 import { ComputeAvailableView } from "../components/views/ComputeAvailable/ComputeAvailableView";
 import { MyNodeView } from "../components/views/MyNode/MyNodeView";
 import { NetworkView } from "../components/views/Network/NetworkView";
@@ -25,6 +26,7 @@ export function Dashboard() {
               {viewMode === "my-node" && <MyNodeView />}
               {viewMode === "network" && <NetworkView />}
               {viewMode === "compute" && <ComputeAvailableView />}
+              {viewMode === "chain" && <ChainView />}
             </>
           )}
         </main>

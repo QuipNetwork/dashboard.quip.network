@@ -7,7 +7,7 @@ import { createLineTooltip } from "../common/LineTooltip";
 import type { MiningTimeSeries } from "./use-mining-time";
 
 const tooltip = createLineTooltip({
-  xLabel: "Block",
+  xLabel: "Solution",
   yLabel: "Mining Time",
   yFormat: (v) => `${v.toFixed(1)}s`,
 });

@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useMemo } from "react";
+import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-category";
+import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
 
@@ -17,17 +21,23 @@ const NUM_BANDS = 12;
 
 export function useMiningTimeByDifficulty(): MiningTimeByDifficultyResult {
   const blocks = useFilteredBlocks();
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const filtered =
       mode === "byType"
-        ? blocks.filter((b) => selectedTypes.includes(b.minerCategory) && b.miningTime > 0)
+        ? blocks.filter(
+            (b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)) && b.miningTime > 0,
+          )
         : blocks.filter((b) => b.miningTime > 0);
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const getKey = (b: (typeof blocks)[0]) => (mode === "byType" ? b.minerCategory : b.minerId);
+    const getKey = (b: (typeof blocks)[0]) =>
+      mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
 
     const sorted = [...filtered].sort((a, b) => a.difficultyEnergy - b.difficultyEnergy);
 
@@ -82,5 +92,5 @@ export function useMiningTimeByDifficulty(): MiningTimeByDifficultyResult {
     const xMax = cleaned[cleaned.length - 1]!.difficultyEnergy;
 
     return { series: result, xMin: Math.floor(xMin), xMax: Math.ceil(xMax) };
-  }, [blocks, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
 }
