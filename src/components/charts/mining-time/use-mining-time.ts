@@ -14,11 +14,12 @@ export interface MiningTimeSeries {
 export function useMiningTime(): MiningTimeSeries[] {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const filtered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
@@ -40,5 +41,5 @@ export function useMiningTime(): MiningTimeSeries[] {
 
     const keys = mode === "byType" ? [...selectedTypes] : Object.keys(grouped);
     return keys.filter((k) => grouped[k]?.length).map((k) => ({ id: k, data: grouped[k]! }));
-  }, [blocks, chainMiners, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
 }

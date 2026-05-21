@@ -20,7 +20,6 @@ const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   energy: -1,
   diversity: 0.1,
   numValidSolutions: 1,
-  qualityMilli: 850,
   miningTime: 1,
   reward: "1000000000000",
   nonce: "1",

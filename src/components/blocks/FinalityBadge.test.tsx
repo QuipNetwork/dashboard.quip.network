@@ -20,7 +20,6 @@ function block(overrides: Partial<BlockRecord> = {}): BlockRecord {
     energy: 0,
     diversity: 0,
     numValidSolutions: 0,
-    qualityMilli: 0,
     miningTime: 0,
     reward: "0",
     nonce: "0",

@@ -12,6 +12,8 @@ import type {
   IndexerObservability,
   MinerCategory,
   MinerHardwareRecord,
+  NodeDescriptor,
+  NodeDescriptorRecord,
 } from "../../src/types/telemetry";
 import {
   OWNED_TABLES,
@@ -27,6 +29,8 @@ import {
 // no-ops on already-clean databases.
 const LEGACY_DROP_STATEMENTS: string[] = [
   "DROP TABLE IF EXISTS epoch_status CASCADE",
+  // v10's HTTP-fanout survey table. v11 sources NodesSnapshot from
+  // `node_descriptors` projected at read time.
   "DROP TABLE IF EXISTS nodes_snapshot CASCADE",
   "DROP TABLE IF EXISTS self_address CASCADE",
   "DROP TABLE IF EXISTS indexer_cursors CASCADE",
@@ -50,7 +54,6 @@ const SCHEMA_STATEMENTS: string[] = [
      energy                  DOUBLE PRECISION NOT NULL,
      diversity               DOUBLE PRECISION NOT NULL,
      num_valid_solutions     INTEGER NOT NULL,
-     quality_milli           INTEGER NOT NULL,
      mining_time             DOUBLE PRECISION NOT NULL,
      reward                  NUMERIC NOT NULL,
      nonce                   NUMERIC NOT NULL,
@@ -131,7 +134,6 @@ const SCHEMA_STATEMENTS: string[] = [
      difficulty_energy  DOUBLE PRECISION NOT NULL,
      min_diversity      DOUBLE PRECISION NOT NULL,
      min_solutions      INTEGER NOT NULL,
-     min_quality        DOUBLE PRECISION NOT NULL,
      observed_at        TIMESTAMPTZ NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed
@@ -148,7 +150,26 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_validator_authorship_authored
      ON validator_authorship(blocks_authored DESC)`,
+  // v11: per-account chain-signed identity. One row per AccountId, sourced
+  // from `System.remark_with_event` extrinsics by the descriptor worker.
+  // (block_number, extrinsic_index) is the upsert tie-breaker so a later
+  // descriptor in the same block wins. `first_block_timestamp` is preserved
+  // across upserts to support "first observed" without keeping history.
+  `CREATE TABLE IF NOT EXISTS node_descriptors (
+     account_id              TEXT PRIMARY KEY,
+     block_number            NUMERIC NOT NULL,
+     block_hash              TEXT NOT NULL,
+     extrinsic_index         INTEGER NOT NULL,
+     block_timestamp         BIGINT NOT NULL,
+     first_block_timestamp   BIGINT NOT NULL,
+     descriptor              JSONB NOT NULL,
+     observed_at             TIMESTAMPTZ NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
+     ON node_descriptors(block_number DESC)`,
 ];
+
+const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
 
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
@@ -228,13 +249,13 @@ export class PostgresAdapter implements DatabaseAdapter {
       INSERT INTO blocks (
         block_hash, substrate_block_number, substrate_block_hash, substrate_parent_hash,
         timestamp, miner_id,
-        energy, diversity, num_valid_solutions, quality_milli, mining_time,
+        energy, diversity, num_valid_solutions, mining_time,
         reward, nonce, num_nodes, num_edges,
         difficulty_energy, min_diversity, min_solutions, finalized
       ) VALUES (
         ${b.blockHash}, ${b.substrateBlockNumber}, ${b.substrateBlockHash}, ${b.substrateParentHash},
         ${b.timestamp}, ${b.minerId},
-        ${b.energy}, ${b.diversity}, ${b.numValidSolutions}, ${b.qualityMilli}, ${b.miningTime},
+        ${b.energy}, ${b.diversity}, ${b.numValidSolutions}, ${b.miningTime},
         ${b.reward}, ${b.nonce}, ${b.numNodes}, ${b.numEdges},
         ${b.difficultyEnergy}, ${b.minDiversity}, ${b.minSolutions}, ${b.finalized}
       )
@@ -536,11 +557,11 @@ export class PostgresAdapter implements DatabaseAdapter {
   async insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void> {
     await this.requireSql()`
       INSERT INTO difficulty_history
-        (observed_at_block, difficulty_energy, min_diversity, min_solutions, min_quality, observed_at)
+        (observed_at_block, difficulty_energy, min_diversity, min_solutions, observed_at)
       VALUES (
         ${snapshot.observedAtBlock}, ${snapshot.difficultyEnergy},
         ${snapshot.minDiversity}, ${snapshot.minSolutions},
-        ${snapshot.minQuality}, ${snapshot.observedAt}
+        ${snapshot.observedAt}
       )
       ON CONFLICT (observed_at_block) DO NOTHING
     `;
@@ -553,7 +574,6 @@ export class PostgresAdapter implements DatabaseAdapter {
         difficulty_energy: number;
         min_diversity: number;
         min_solutions: number;
-        min_quality: number;
         observed_at: Date;
       }[]
     >`SELECT * FROM difficulty_history ORDER BY observed_at DESC LIMIT ${limit}`;
@@ -562,7 +582,6 @@ export class PostgresAdapter implements DatabaseAdapter {
       difficultyEnergy: r.difficulty_energy,
       minDiversity: r.min_diversity,
       minSolutions: r.min_solutions,
-      minQuality: r.min_quality,
       observedAt:
         r.observed_at instanceof Date ? r.observed_at.toISOString() : String(r.observed_at),
     }));
@@ -665,6 +684,72 @@ export class PostgresAdapter implements DatabaseAdapter {
     }));
   }
 
+  // --- Node descriptors (v11) ---
+
+  async upsertNodeDescriptor(record: NodeDescriptorRecord): Promise<void> {
+    // Tuple ordering — newer block, or same block + later extrinsic, wins.
+    // NUMERIC vs INTEGER tuple comparison Just Works in postgres.
+    // first_block_timestamp is excluded from the UPDATE SET so the original
+    // first-observed value sticks; every other column moves to the new row.
+    await this.requireSql()`
+      INSERT INTO node_descriptors (
+        account_id, block_number, block_hash, extrinsic_index,
+        block_timestamp, first_block_timestamp, descriptor, observed_at
+      ) VALUES (
+        ${record.accountId}, ${record.blockNumber}, ${record.blockHash}, ${record.extrinsicIndex},
+        ${record.blockTimestamp}, ${record.blockTimestamp},
+        ${JSON.stringify(record.descriptor)}::jsonb, ${record.observedAt}
+      )
+      ON CONFLICT (account_id) DO UPDATE SET
+        block_number     = EXCLUDED.block_number,
+        block_hash       = EXCLUDED.block_hash,
+        extrinsic_index  = EXCLUDED.extrinsic_index,
+        block_timestamp  = EXCLUDED.block_timestamp,
+        descriptor       = EXCLUDED.descriptor,
+        observed_at      = EXCLUDED.observed_at
+      WHERE
+        (node_descriptors.block_number, node_descriptors.extrinsic_index)
+          < (EXCLUDED.block_number, EXCLUDED.extrinsic_index)
+    `;
+  }
+
+  async getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]> {
+    const rows = await this.requireSql()<
+      {
+        account_id: string;
+        block_number: string;
+        block_hash: string;
+        extrinsic_index: number;
+        block_timestamp: string;
+        first_block_timestamp: string;
+        descriptor: unknown;
+        observed_at: Date;
+      }[]
+    >`
+      SELECT * FROM node_descriptors
+      ORDER BY COALESCE(descriptor->>'nodeName', account_id)
+    `;
+    return rows.map(rowToNodeDescriptorRecord);
+  }
+
+  async getDescriptorCheckpoint(): Promise<string | null> {
+    const rows = await this.requireSql()<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = ${DESCRIPTOR_CHECKPOINT_KEY}
+    `;
+    return rows[0]?.value ?? null;
+  }
+
+  async setDescriptorCheckpoint(blockNumber: string): Promise<void> {
+    // Monotonic advance only. NUMERIC cast keeps the comparison numeric
+    // when the stored value is a TEXT u64.
+    await this.requireSql()`
+      INSERT INTO meta (key, value)
+      VALUES (${DESCRIPTOR_CHECKPOINT_KEY}, ${blockNumber})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      WHERE CAST(meta.value AS NUMERIC) < CAST(EXCLUDED.value AS NUMERIC)
+    `;
+  }
+
   private requireSql(): Sql {
     if (!this.sql) {
       throw new Error("PostgresAdapter not connected. Call connect() first.");
@@ -688,7 +773,6 @@ function rowToBlockRecord(row: Record<string, unknown>): BlockRecord {
     energy: Number(row.energy),
     diversity: Number(row.diversity),
     numValidSolutions: Number(row.num_valid_solutions),
-    qualityMilli: Number(row.quality_milli),
     miningTime: Number(row.mining_time),
     reward: String(row.reward),
     nonce: String(row.nonce),
@@ -698,6 +782,36 @@ function rowToBlockRecord(row: Record<string, unknown>): BlockRecord {
     minDiversity: Number(row.min_diversity),
     minSolutions: Number(row.min_solutions),
     finalized: Boolean(row.finalized),
+  };
+}
+
+function rowToNodeDescriptorRecord(row: {
+  account_id: string;
+  block_number: string;
+  block_hash: string;
+  extrinsic_index: number;
+  block_timestamp: string;
+  first_block_timestamp: string;
+  descriptor: unknown;
+  observed_at: Date | string;
+}): NodeDescriptorRecord {
+  // JSONB comes back as a parsed object from postgres-js; defensively parse
+  // a TEXT fallback for legacy rows.
+  const descriptor =
+    typeof row.descriptor === "string"
+      ? (JSON.parse(row.descriptor) as NodeDescriptor)
+      : (row.descriptor as NodeDescriptor);
+  return {
+    accountId: row.account_id,
+    blockNumber: String(row.block_number),
+    blockHash: row.block_hash,
+    extrinsicIndex: row.extrinsic_index,
+    // BIGINT comes back as string; convert at the boundary.
+    blockTimestamp: Number(row.block_timestamp),
+    firstBlockTimestamp: Number(row.first_block_timestamp),
+    descriptor,
+    observedAt:
+      row.observed_at instanceof Date ? row.observed_at.toISOString() : String(row.observed_at),
   };
 }
 

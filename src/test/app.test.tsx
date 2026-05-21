@@ -19,7 +19,6 @@ function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId"
     energy: 0.5,
     diversity: 0.3,
     numValidSolutions: 1,
-    qualityMilli: 800,
     miningTime: 12,
     reward: "1000000000000",
     nonce: "42",
@@ -53,6 +52,8 @@ const MOCK_RESPONSE: TelemetryResponse = {
   chainMiners: [],
   recentDifficulty: [],
   validators: [],
+  nodes: null,
+  nodeDescriptors: [],
 };
 
 let container: HTMLDivElement;

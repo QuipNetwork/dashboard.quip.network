@@ -36,7 +36,6 @@ describe("SQLite v7 schema", () => {
     energy: -2510,
     diversity: 0.42,
     numValidSolutions: 5,
-    qualityMilli: 850,
     miningTime: 6,
     reward: "1000000000000",
     nonce: "42",
@@ -201,7 +200,6 @@ describe("SQLite v7 schema", () => {
       .all();
     const names = rows.map((r) => r.name);
     expect(names).not.toContain("epoch_status");
-    expect(names).not.toContain("nodes_snapshot");
     expect(names).not.toContain("self_address");
     expect(names).not.toContain("indexer_cursors");
     expect(names).not.toContain("indexer_etags");
@@ -210,5 +208,9 @@ describe("SQLite v7 schema", () => {
     expect(names).toContain("miner_hardware");
     expect(names).toContain("chain_head");
     expect(names).toContain("validator_authorship");
+    // v11 dropped nodes_snapshot (survey-worker is gone) and added
+    // node_descriptors keyed by AccountId for chain-signed identity.
+    expect(names).not.toContain("nodes_snapshot");
+    expect(names).toContain("node_descriptors");
   });
 });

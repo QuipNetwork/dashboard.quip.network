@@ -5,7 +5,12 @@ import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-categor
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
-import type { BlockRecord, ChainMinerRecord, MinerCategory } from "../../../types/telemetry";
+import type {
+  BlockRecord,
+  ChainMinerRecord,
+  MinerCategory,
+  NodeDescriptorRecord,
+} from "../../../types/telemetry";
 
 export interface LeaderboardEntry {
   rank: number;
@@ -36,8 +41,9 @@ export function computeLeaderboard(
   blocks: readonly BlockRecord[],
   chainMiners: readonly ChainMinerRecord[],
   filter?: LeaderboardFilter,
+  nodeDescriptors: readonly NodeDescriptorRecord[] = [],
 ): LeaderboardEntry[] {
-  const catIndex = buildMinerCategoryIndex(chainMiners);
+  const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
   const stats = new Map<
     string,
     {
@@ -85,6 +91,7 @@ export function computeLeaderboard(
 export function useLeaderboard(): LeaderboardEntry[] {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
@@ -94,7 +101,8 @@ export function useLeaderboard(): LeaderboardEntry[] {
         blocks,
         chainMiners,
         mode === "byType" ? { categories: new Set(selectedTypes) } : undefined,
+        nodeDescriptors,
       ),
-    [blocks, chainMiners, selectedTypes, mode],
+    [blocks, chainMiners, nodeDescriptors, selectedTypes, mode],
   );
 }

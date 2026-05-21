@@ -110,7 +110,6 @@ maybeDescribe("PostgresAdapter.migrate schema-version drift", () => {
       energy: 0,
       diversity: 0,
       numValidSolutions: 0,
-      qualityMilli: 0,
       miningTime: 0,
       reward: "0",
       nonce: "0",
@@ -183,7 +182,6 @@ maybeDescribe("PostgresAdapter v5 substrate state (kept in v6)", () => {
       difficultyEnergy: 12.5,
       minDiversity: 0.5,
       minSolutions: 3,
-      minQuality: 0.25,
       observedAt: "2026-05-15T00:00:00.000Z",
     });
     await db.insertDifficultySnapshot({
@@ -191,7 +189,6 @@ maybeDescribe("PostgresAdapter v5 substrate state (kept in v6)", () => {
       difficultyEnergy: 13.0,
       minDiversity: 0.5,
       minSolutions: 3,
-      minQuality: 0.25,
       observedAt: "2026-05-15T00:10:00.000Z",
     });
     // Duplicate observed_at_block — ON CONFLICT DO NOTHING swallows this.
@@ -200,7 +197,6 @@ maybeDescribe("PostgresAdapter v5 substrate state (kept in v6)", () => {
       difficultyEnergy: 999,
       minDiversity: 0.5,
       minSolutions: 3,
-      minQuality: 0.25,
       observedAt: "2026-05-15T00:20:00.000Z",
     });
     const recent = await db.getRecentDifficulty(10);

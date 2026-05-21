@@ -4,13 +4,12 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v8: per-block difficulty sourced from quantumPowApi.winning_solution", () => {
-  // v8 doesn't add tables — the bump triggers wipe-on-drift so existing
-  // `blocks` rows (which carried approximate per-block difficulty from a
-  // separate poll cadence) are refreshed with the per-block snapshot from
-  // `WinningSolutions[block_number].difficulty`. OWNED_TABLES unchanged
-  // from v7.
-  expect(SCHEMA_VERSION).toBe(8);
+test("schema v11: node_descriptors replaces nodes_snapshot", () => {
+  // v11 drops the v10 nodes_snapshot blob (HTTP-fanout survey-worker is
+  // gone) and adds `node_descriptors` — one row per AccountId, sourced
+  // from `System.remark_with_event` extrinsics carrying a
+  // `quip.node_descriptor.v1` payload. See DASHBOARDPLAN.md.
+  expect(SCHEMA_VERSION).toBe(11);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
@@ -21,10 +20,11 @@ test("schema v8: per-block difficulty sourced from quantumPowApi.winning_solutio
     "difficulty_history",
     "miner_hardware",
     "validator_authorship",
+    "node_descriptors",
   ]);
 });
 
-test("v8 DatabaseAdapter surface: validator_authorship methods (unchanged from v7)", () => {
+test("DatabaseAdapter v11 surface: descriptor methods + dropped survey methods", () => {
   type Methods = keyof DatabaseAdapter;
   const required: Methods[] = [
     "connect",
@@ -38,7 +38,7 @@ test("v8 DatabaseAdapter surface: validator_authorship methods (unchanged from v
     // Self-identity (slim)
     "setSelfAddress",
     "getSelfAddress",
-    // Indexer observability (now carries minerStats)
+    // Indexer observability (carries minerStats)
     "setIndexerObservability",
     "getIndexerObservability",
     // Substrate-derived (unchanged from v5)
@@ -59,6 +59,11 @@ test("v8 DatabaseAdapter surface: validator_authorship methods (unchanged from v
     // validator authorship (v7)
     "recordValidatorAuthorship",
     "getValidatorAuthorship",
+    // node descriptors (v11) — replaces v10's nodes_snapshot ingest path.
+    "upsertNodeDescriptor",
+    "getAllNodeDescriptors",
+    "getDescriptorCheckpoint",
+    "setDescriptorCheckpoint",
   ];
-  expect(required.length).toBe(26);
+  expect(required.length).toBe(30);
 });

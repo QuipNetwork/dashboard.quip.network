@@ -9,6 +9,8 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
+  NodeDescriptorRecord,
+  NodesSnapshot,
   TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "../types/telemetry";
@@ -27,6 +29,13 @@ export interface TelemetryState {
   chainMiners: ChainMinerRecord[];
   recentDifficulty: DifficultyRecord[];
   validators: ValidatorAuthorshipRecord[];
+  // Snapshot of network nodes, projected server-side from chain-signed
+  // `node_descriptors`. Null until the descriptor worker has observed at
+  // least one valid `quip-miner identify` extrinsic.
+  nodes: NodesSnapshot | null;
+  // Per-account chain-signed descriptors with provenance. Drives the
+  // Node Identities panel and the ChainMinersTable join on accountId.
+  nodeDescriptors: NodeDescriptorRecord[];
   loading: boolean;
   error: string | null;
 
@@ -44,6 +53,8 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   chainMiners: [],
   recentDifficulty: [],
   validators: [],
+  nodes: null,
+  nodeDescriptors: [],
   loading: true,
   error: null,
   fetchTelemetry: async () => {
@@ -57,17 +68,24 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       const res = await fetch("/api/telemetry");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as TelemetryResponse;
+      // Defensive coercion: a rolling deploy (or a stale dev-server that
+      // hasn't been restarted past a schema bump) can return a response
+      // missing newly-added fields. Without these defaults, downstream
+      // hooks crash on `undefined.map` / `undefined.length` instead of
+      // gracefully degrading to "no data yet".
       set({
-        blocks: data.blocks,
-        selfAddress: data.selfAddress,
-        indexer: data.indexer,
+        blocks: data.blocks ?? [],
+        selfAddress: data.selfAddress ?? null,
+        indexer: data.indexer ?? null,
         serverTime: data.serverTime,
-        chainHead: data.chainHead,
-        babeEpoch: data.babeEpoch,
-        babeAuthorities: data.babeAuthorities,
-        chainMiners: data.chainMiners,
-        recentDifficulty: data.recentDifficulty,
-        validators: data.validators,
+        chainHead: data.chainHead ?? null,
+        babeEpoch: data.babeEpoch ?? null,
+        babeAuthorities: data.babeAuthorities ?? [],
+        chainMiners: data.chainMiners ?? [],
+        recentDifficulty: data.recentDifficulty ?? [],
+        validators: data.validators ?? [],
+        nodes: data.nodes ?? null,
+        nodeDescriptors: data.nodeDescriptors ?? [],
         loading: false,
         error: null,
       });

@@ -16,10 +16,11 @@ export interface ActiveNodesEntry {
 export function useActiveNodes(): ActiveNodesEntry[] {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     // Initialise each selected bucket so the chart renders zero-count
     // categories rather than collapsing them.
     const miners: Record<string, Set<string>> = {};
@@ -34,5 +35,5 @@ export function useActiveNodes(): ActiveNodesEntry[] {
       minerType: type,
       count: miners[type]?.size ?? 0,
     }));
-  }, [blocks, chainMiners, selectedTypes]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes]);
 }

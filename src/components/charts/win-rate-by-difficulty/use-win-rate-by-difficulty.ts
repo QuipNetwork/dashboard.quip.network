@@ -22,10 +22,11 @@ const NUM_BANDS = 12;
 export function useWinRateByDifficulty(): WinRateByDifficultyResult {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const filtered = blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)));
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
@@ -85,5 +86,5 @@ export function useWinRateByDifficulty(): WinRateByDifficultyResult {
     const xMax = cleaned[cleaned.length - 1]!.difficultyEnergy;
 
     return { series: result, xMin: Math.floor(xMin), xMax: Math.ceil(xMax) };
-  }, [blocks, chainMiners, selectedTypes]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes]);
 }

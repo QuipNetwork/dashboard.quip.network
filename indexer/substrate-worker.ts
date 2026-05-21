@@ -18,6 +18,7 @@ import type { BlockRecord } from "../src/types/telemetry";
 import type { IndexerConfig } from "./config";
 import type { IndexerState } from "./state";
 import type {
+  BlockEvents,
   DifficultyInfo,
   SubstrateClient,
   SubstrateHead,
@@ -155,117 +156,133 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
   const topology: TopologyInfo = cachedTopology ?? { nodeCount: 0, edgeCount: 0 };
   let lastDifficulty: DifficultyInfo | null = await client.getDifficulty().catch(() => null);
 
-  unsubs.push(
-    await client.subscribeBlockEvents(async (e) => {
-      state.observability.lastSubstrateEventAt = nowIso(deps);
+  // Block-events writer. Used by both the live finalized-head subscription
+  // and the startup historical backfill. Same shape, same writes —
+  // backfilled rows look identical to live-captured rows. `db.insertBlock`
+  // is INSERT OR IGNORE, so a backfilled block that races with a live
+  // subscription firing on the same height is a no-op duplicate.
+  const writeBlockEvents = async (e: BlockEvents): Promise<void> => {
+    state.observability.lastSubstrateEventAt = nowIso(deps);
 
-      // (1) Authorship is recorded for EVERY finalized head where the
-      //     author is known, independent of the canonical block writer
-      //     path below. The validator may have authored a head without
-      //     a winning PoW proof; we still want to count it. Contained
-      //     in its own try/catch so a transient adapter error here
-      //     can't block the block-insert path that follows.
-      if (e.author !== null) {
-        try {
-          await db.recordValidatorAuthorship(
-            e.author,
-            String(e.blockNumber),
-            e.timestamp,
-            e.winner !== null,
-          );
-        } catch (err) {
-          console.warn(
-            `[indexer/substrate] block #${e.blockNumber}: validator authorship write failed:`,
-            err,
-          );
-        }
+    // (1) Authorship is recorded for EVERY finalized head where the
+    //     author is known, independent of the canonical block writer
+    //     path below. The validator may have authored a head without
+    //     a winning PoW proof; we still want to count it. Contained
+    //     in its own try/catch so a transient adapter error here
+    //     can't block the block-insert path that follows.
+    if (e.author !== null) {
+      try {
+        await db.recordValidatorAuthorship(
+          e.author,
+          String(e.blockNumber),
+          e.timestamp,
+          e.winner !== null,
+        );
+      } catch (err) {
+        console.warn(
+          `[indexer/substrate] block #${e.blockNumber}: validator authorship write failed:`,
+          err,
+        );
+      }
+    }
+
+    // (2) No BlockWinner: nothing more to do for the canonical block
+    //     writer path. Authorship-only heads land here.
+    if (e.winner === null) return;
+
+    try {
+      const winnerEvent = e.winner;
+      // Correlate winner with its matching ProofAccepted by
+      // (miner, energyMilli). The chain emits both events from
+      // on_finalize for every winning proof, so a missing match means
+      // a decode anomaly — skip rather than write a half-populated row.
+      const winningProof = e.proofs.find(
+        (p) => p.miner === winnerEvent.miner && p.energyMilli === winnerEvent.energyMilli,
+      );
+      if (!winningProof) {
+        console.warn(
+          `[indexer/substrate] block #${e.blockNumber}: BlockWinner without matching ProofAccepted; skipping insert`,
+        );
+        return;
       }
 
-      // (2) No BlockWinner: nothing more to do for the canonical block
-      //     writer path. Authorship-only heads land here.
-      if (e.winner === null) return;
-
-      try {
-        const winnerEvent = e.winner;
-        // Correlate winner with its matching ProofAccepted by
-        // (miner, energyMilli). The chain emits both events from
-        // on_finalize for every winning proof, so a missing match means
-        // a decode anomaly — skip rather than write a half-populated row.
-        const winningProof = e.proofs.find(
-          (p) => p.miner === winnerEvent.miner && p.energyMilli === winnerEvent.energyMilli,
+      // Nonce is null when extractNonce couldn't locate a matching
+      // submit_proof extrinsic (transient decode anomaly). The
+      // BlockRecord.nonce column is NOT NULL, and a "0" sentinel would
+      // collide with the legitimate u64 value 0 — skip instead, parallel
+      // to the missing-ProofAccepted skip above.
+      const nonce = e.nonce;
+      if (nonce === null) {
+        console.warn(
+          `[indexer/substrate] block #${e.blockNumber}: BlockWinner without recoverable submit_proof nonce; skipping insert`,
         );
-        if (!winningProof) {
-          console.warn(
-            `[indexer/substrate] block #${e.blockNumber}: BlockWinner without matching ProofAccepted; skipping insert`,
-          );
-          return;
-        }
+        return;
+      }
 
-        // Nonce is null when extractNonce couldn't locate a matching
-        // submit_proof extrinsic (transient decode anomaly). The
-        // BlockRecord.nonce column is NOT NULL, and a "0" sentinel would
-        // collide with the legitimate u64 value 0 — skip instead, parallel
-        // to the missing-ProofAccepted skip above.
-        const nonce = e.nonce;
-        if (nonce === null) {
-          console.warn(
-            `[indexer/substrate] block #${e.blockNumber}: BlockWinner without recoverable submit_proof nonce; skipping insert`,
-          );
-          return;
-        }
+      // Mining time: substrate-blocks since the previous winning proof.
+      // Read LastProofBlock AT THE PARENT block hash; on_finalize
+      // updates it in-block, so reading the parent gives us the prior
+      // value to subtract from this block's number.
+      const lastProofBlock = await client.getLastProofBlockAt(e.parentHash);
+      const miningTime = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
 
-        // Mining time: substrate-blocks since the previous winning proof.
-        // Read LastProofBlock AT THE PARENT block hash; on_finalize
-        // updates it in-block, so reading the parent gives us the prior
-        // value to subtract from this block's number.
-        const lastProofBlock = await client.getLastProofBlockAt(e.parentHash);
-        const miningTime = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
-
-        // Per-block difficulty snapshot. v0.2 chain persists the exact
-        // threshold each winning proof cleared in `WinningSolutions[N]`
-        // — sourced via `QuantumPowApi::winning_solution(blockNumber)`.
-        // Falls back to the most recent live `current_difficulty()` poll
-        // for pre-v0.2 chains, then to zeros, so the writer never blocks
-        // on missing per-block data.
-        const winSol = await client.getWinningSolution(String(e.blockNumber)).catch(() => null);
-        if (winSol?.difficulty) lastDifficulty = winSol.difficulty;
-        const d: DifficultyInfo = winSol?.difficulty ??
-          lastDifficulty ?? {
-            maxEnergyMilli: 0,
-            minDiversityMilli: 0,
-            minSolutions: 0,
-            minQualityMilli: 0,
-          };
-
-        const record: BlockRecord = {
-          blockHash: e.blockHash,
-          substrateBlockNumber: String(e.blockNumber),
-          substrateBlockHash: e.blockHash,
-          substrateParentHash: e.parentHash,
-          timestamp: e.timestamp,
-          minerId: winnerEvent.miner,
-          energy: winnerEvent.energyMilli / 1000,
-          diversity: winningProof.diversityMilli / 1000,
-          numValidSolutions: winningProof.validSolutionCount,
-          qualityMilli: winningProof.qualityMilli,
-          miningTime,
-          reward: winnerEvent.reward,
-          nonce,
-          numNodes: topology.nodeCount,
-          numEdges: topology.edgeCount,
-          difficultyEnergy: d.maxEnergyMilli / 1000,
-          minDiversity: d.minDiversityMilli / 1000,
-          minSolutions: d.minSolutions,
-          finalized: true, // subscribed to finalized stream
+      // Per-block difficulty snapshot. v0.2 chain persists the exact
+      // threshold each winning proof cleared in `WinningSolutions[N]`
+      // — sourced via `QuantumPowApi::winning_solution(blockNumber)`.
+      // Falls back to the most recent live `current_difficulty()` poll
+      // for pre-v0.2 chains, then to zeros, so the writer never blocks
+      // on missing per-block data.
+      const winSol = await client.getWinningSolution(String(e.blockNumber)).catch(() => null);
+      if (winSol?.difficulty) lastDifficulty = winSol.difficulty;
+      const d: DifficultyInfo = winSol?.difficulty ??
+        lastDifficulty ?? {
+          maxEnergyMilli: 0,
+          minDiversityMilli: 0,
+          minSolutions: 0,
         };
 
-        await db.insertBlock(record);
-        state.observability.lastBlockInsertAt = nowIso(deps);
-      } catch (err) {
-        console.warn(`[indexer/substrate] block #${e.blockNumber} writer failed:`, err);
-      }
-    }),
-  );
+      const record: BlockRecord = {
+        blockHash: e.blockHash,
+        substrateBlockNumber: String(e.blockNumber),
+        substrateBlockHash: e.blockHash,
+        substrateParentHash: e.parentHash,
+        timestamp: e.timestamp,
+        minerId: winnerEvent.miner,
+        energy: winnerEvent.energyMilli / 1000,
+        diversity: winningProof.diversityMilli / 1000,
+        numValidSolutions: winningProof.validSolutionCount,
+        miningTime,
+        reward: winnerEvent.reward,
+        nonce,
+        numNodes: topology.nodeCount,
+        numEdges: topology.edgeCount,
+        difficultyEnergy: d.maxEnergyMilli / 1000,
+        minDiversity: d.minDiversityMilli / 1000,
+        minSolutions: d.minSolutions,
+        finalized: true, // backfill operates on finalized history; subscribe is finalized-only
+      };
+
+      await db.insertBlock(record);
+      state.observability.lastBlockInsertAt = nowIso(deps);
+    } catch (err) {
+      console.warn(`[indexer/substrate] block #${e.blockNumber} writer failed:`, err);
+    }
+  };
+
+  unsubs.push(await client.subscribeBlockEvents(writeBlockEvents));
+
+  // Startup backfill: for each block number recorded in the chain's
+  // `quantum_pow.WinningSolutions` storage map but NOT yet in our local
+  // `blocks` table, fetch and decode the block, then route through the
+  // same writer. This recovers historical wins that fired before our
+  // finalized-heads subscription started receiving events. Fire-and-forget
+  // so a long backfill doesn't block live subscription wiring or
+  // chain_head writes; ordering doesn't matter because each block's
+  // mining_time is computed against the chain (LastProofBlock at parent),
+  // not against the local insert order.
+  void backfillHistoricalWins(deps, writeBlockEvents).catch((e) => {
+    console.warn("[indexer/substrate] historical backfill failed:", e);
+  });
 
   // --- Polling: BABE epoch + difficulty + (Phase 3) chain miners/authorities ---
   // Worker-level idempotency cache so polls that observe no change avoid
@@ -333,6 +350,56 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
   }
 }
 
+/**
+ * Walk `quantum_pow.WinningSolutions` storage to find historical winning
+ * blocks that aren't in our local `blocks` table yet, then fetch and write
+ * each through the same path the live subscription uses.
+ *
+ * Called once on every successful connect. With INSERT OR IGNORE
+ * idempotency on `blocks.block_hash`, repeated runs over already-backfilled
+ * blocks are no-ops; the work is bounded by the number of unique winning
+ * blocks the chain has ever emitted, which is small (≤ chain height).
+ */
+async function backfillHistoricalWins(
+  deps: SubstrateWorkerDeps,
+  write: (e: BlockEvents) => Promise<void>,
+): Promise<void> {
+  const { client, db } = deps;
+  const winning = await client.getWinningBlockNumbers();
+  if (winning.length === 0) return;
+
+  // Snapshot existing block numbers in one go. The store's rolling cap is
+  // ~500 rows; chain-lifetime winners can exceed that, so we read a
+  // generous chunk to avoid backfilling blocks we already have. Anything
+  // beyond the chunk that's a duplicate is harmless — INSERT OR IGNORE.
+  const existingNums = new Set(
+    (await db.getRecentBlocks(10_000, 0)).map((b) => b.substrateBlockNumber),
+  );
+  const missing = winning.filter((n) => !existingNums.has(n)).sort((a, b) => Number(a) - Number(b));
+  if (missing.length === 0) return;
+
+  console.log(
+    `[indexer/substrate] backfilling ${missing.length} historical winning blocks (of ${winning.length} total)`,
+  );
+
+  // Sequential walk to keep RPC pressure low. Each block requires a
+  // getBlockHash + derive.chain.getBlock + timestamp.now.at + 1 runtime
+  // API call — ~4 RPCs per missing block. A chain with 1000 historical
+  // wins backfills in seconds.
+  for (const n of missing) {
+    try {
+      const events = await client.processFinalizedBlock(n);
+      if (events === null) {
+        console.warn(`[indexer/substrate] backfill: block #${n} not found on chain; skipping`);
+        continue;
+      }
+      await write(events);
+    } catch (err) {
+      console.warn(`[indexer/substrate] backfill: block #${n} failed:`, err);
+    }
+  }
+}
+
 interface PollIdempotencyCache {
   // Hash of (epochIndex, currentSlot) — bumped on every observed change.
   babeEpochHash: string | null;
@@ -389,8 +456,8 @@ async function pollBabeEpoch(
 /**
  * Poll `quantum_pow.Difficulty` and append a row to `difficulty_history`
  * when the snapshot has changed. Converts chain's milli-encoded floats
- * (max_energy_milli, min_diversity_milli, min_quality_milli) into the
- * "human" units the dashboard's BlockRecord already uses.
+ * (max_energy_milli, min_diversity_milli) into the "human" units the
+ * dashboard's BlockRecord already uses.
  *
  * `observed_at_block` is the substrate finalized height we know at poll
  * time. When the chain hasn't emitted a finalized head yet
@@ -409,8 +476,7 @@ async function pollDifficulty(
   // stores u32/i64 milli-encodings to avoid floating-point in consensus).
   const difficultyEnergy = info.maxEnergyMilli / 1000;
   const minDiversity = info.minDiversityMilli / 1000;
-  const minQuality = info.minQualityMilli / 1000;
-  const hash = `${difficultyEnergy}:${minDiversity}:${info.minSolutions}:${minQuality}`;
+  const hash = `${difficultyEnergy}:${minDiversity}:${info.minSolutions}`;
   if (hash === cache.difficultyHash) return;
   cache.difficultyHash = hash;
 
@@ -419,7 +485,6 @@ async function pollDifficulty(
     difficultyEnergy,
     minDiversity,
     minSolutions: info.minSolutions,
-    minQuality,
     observedAt: nowIso(deps),
   });
 }

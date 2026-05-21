@@ -129,7 +129,6 @@ describe("FakeSubstrateClient", () => {
           energyMilli: -2510,
           diversityMilli: 420,
           validSolutionCount: 5,
-          qualityMilli: 850,
         },
       ],
       nonce: "42",
@@ -251,7 +250,6 @@ describe("FakeSubstrateClient.getWinningSolution", () => {
         maxEnergyMilli: -1200,
         minDiversityMilli: 200,
         minSolutions: 5,
-        minQualityMilli: 0,
       },
     });
     const sol = await c.getWinningSolution("77");

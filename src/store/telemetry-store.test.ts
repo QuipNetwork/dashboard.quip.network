@@ -33,7 +33,6 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     energy: -100,
     diversity: 0.5,
     numValidSolutions: 1,
-    qualityMilli: 800,
     miningTime: 60,
     reward: "1000000000000",
     nonce: "1",
@@ -92,7 +91,6 @@ const MOCK_DIFFICULTY: DifficultyRecord = {
   difficultyEnergy: -110,
   minDiversity: 0.1,
   minSolutions: 1,
-  minQuality: 0.8,
   observedAt: "2026-05-19T12:00:00Z",
 };
 
@@ -128,6 +126,8 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     chainMiners: [MOCK_CHAIN_MINER],
     recentDifficulty: [MOCK_DIFFICULTY],
     validators: [MOCK_VALIDATOR],
+    nodes: null,
+    nodeDescriptors: [],
     ...overrides,
   };
 }
@@ -144,6 +144,8 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
     chainMiners: [],
     recentDifficulty: [],
     validators: [],
+    nodes: null,
+    nodeDescriptors: [],
     loading: false,
     error: null,
     fetchTelemetry: async () => {},
@@ -186,6 +188,8 @@ function resetStore(): void {
     chainMiners: [],
     recentDifficulty: [],
     validators: [],
+    nodes: null,
+    nodeDescriptors: [],
     loading: true,
     error: null,
   });
@@ -231,9 +235,11 @@ describe("fetchTelemetry", () => {
     expect(s.error).toBeNull();
   });
 
-  it("does not expose nodes or telemetryIndex fields on state", () => {
+  it("exposes nodes (NodesSnapshot | null) but not the deleted telemetryIndex field", () => {
     const s = useTelemetryStore.getState() as unknown as Record<string, unknown>;
-    expect("nodes" in s).toBe(false);
+    expect("nodes" in s).toBe(true);
+    expect(s.nodes).toBeNull();
+    // PoW-epoch abstraction stayed deleted per the v0.2 resurrection plan.
     expect("telemetryIndex" in s).toBe(false);
   });
 

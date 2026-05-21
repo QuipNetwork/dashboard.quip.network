@@ -23,7 +23,6 @@ function recentBlock(): BlockRecord {
     energy: -1,
     diversity: 0.5,
     numValidSolutions: 1,
-    qualityMilli: 1000,
     miningTime: 1,
     reward: "1000000000000",
     nonce: "1",

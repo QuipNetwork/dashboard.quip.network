@@ -14,11 +14,12 @@ export interface BlocksOverTimeSeries {
 export function useBlocksOverTime(): BlocksOverTimeSeries[] {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const filtered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
@@ -49,5 +50,5 @@ export function useBlocksOverTime(): BlocksOverTimeSeries[] {
     return keys
       .filter((k) => (grouped[k]?.length ?? 0) > 0)
       .map((k) => ({ id: k, data: grouped[k]! }));
-  }, [blocks, chainMiners, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
 }

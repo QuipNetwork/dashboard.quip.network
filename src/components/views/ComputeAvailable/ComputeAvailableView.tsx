@@ -1,88 +1,158 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import { shortAddress } from "../../../lib/format-chain";
-import { formatDuration } from "../../../lib/format";
+
 import { ChartCard } from "../../layout/ChartCard";
+import { SERIES_COLORS } from "../../../lib/colors";
+import { formatDuration, formatNumber } from "../../../lib/format";
+import { useUIStore } from "../../../store/ui-store";
+import { StatTile } from "../MyNode/StatTile";
 import { ChainMinersTable } from "../Chain/ChainMinersView";
 import { DifficultyChart } from "../Chain/DifficultyChart";
-
-const sourceLabel = (src: string | undefined): string => {
-  if (src === "self") return "this node";
-  if (src === "peer-query") return "peer query";
-  if (src === "chain") return "on-chain";
-  return "peer-query pending";
-};
+import { HardwareBreakdown } from "./HardwareBreakdown";
+import { NodeIdentitiesPanel } from "./NodeIdentitiesPanel";
+import { NodeLeaderboard } from "./NodeLeaderboard";
+import { NodeLocationMap } from "./NodeLocationMap";
+import { useComputeAvailable } from "./use-compute-available";
 
 export function ComputeAvailableView() {
-  const chainMiners = useTelemetryStore((s) => s.chainMiners);
-  const serverTime = useTelemetryStore((s) => s.serverTime);
-  const now = serverTime ? Date.parse(serverTime) : Date.now();
-
-  const sorted = [...chainMiners].sort((a, b) => {
-    const aHas = a.hardware !== null;
-    const bHas = b.hardware !== null;
-    if (aHas !== bHas) return aHas ? -1 : 1;
-    return a.accountId.localeCompare(b.accountId);
-  });
+  const compute = useComputeAvailable();
+  const byNode = useUIStore((s) => s.aggregationMode) === "byNode";
 
   return (
     <>
+      <div className="mb-5 grid grid-cols-2 gap-5 lg:grid-cols-4">
+        {byNode ? (
+          <>
+            <StatTile
+              label="Total Nodes"
+              value={formatNumber(compute.totalNodes)}
+              sublabel="Unique nodes reporting"
+            />
+            <StatTile
+              label="Top Node"
+              value={compute.topNode ? `${compute.topNode.tflops.toFixed(1)} TFLOPS` : "—"}
+              sublabel={compute.topNode?.nodeName ?? "No data"}
+              accent={SERIES_COLORS.GPU}
+            />
+            <StatTile
+              label="Median Node"
+              value={`${compute.medianNodeTflops.toFixed(1)} TFLOPS`}
+              sublabel="Per-node p50"
+            />
+            <StatTile
+              label="Est. PFLOPS"
+              value={compute.totalPetaflops.toFixed(2)}
+              sublabel={`Across ${compute.totalNodes} nodes`}
+            />
+          </>
+        ) : (
+          <>
+            <StatTile
+              label="Total CPUs"
+              value={formatNumber(compute.totalCpus)}
+              sublabel="Logical cores across network"
+              accent={SERIES_COLORS.CPU}
+            />
+            <StatTile
+              label="Total GPUs"
+              value={formatNumber(compute.totalGpus)}
+              sublabel="Devices across network"
+              accent={SERIES_COLORS.GPU}
+            />
+            <StatTile
+              label="Total QPUs"
+              value={formatNumber(compute.totalQpus)}
+              sublabel="Active quantum miners"
+              accent={SERIES_COLORS.QPU}
+            />
+            <StatTile
+              label="Est. PFLOPS"
+              value={compute.totalPetaflops.toFixed(2)}
+              sublabel={`Across ${compute.totalNodes} nodes`}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Block-ceiling FLOPS — orthogonal to By Node / By Type, visible in both modes */}
+      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <StatTile
+          label="Last Block FLOPS"
+          value={
+            compute.lastBlockPflopSeconds != null
+              ? `${compute.lastBlockPflopSeconds.toFixed(1)} PFLOP·s`
+              : "—"
+          }
+          sublabel={
+            compute.lastBlock != null
+              ? `#${compute.lastBlock.substrateBlockNumber} · solved in ${formatDuration(compute.lastBlock.miningTime * 1000)}`
+              : "Awaiting first block"
+          }
+          accent={SERIES_COLORS.GPU}
+        />
+        <StatTile
+          label="Current Block FLOPS"
+          value={
+            compute.currentBlockPflopSeconds != null
+              ? `${compute.currentBlockPflopSeconds.toFixed(1)} PFLOP·s`
+              : "—"
+          }
+          sublabel={
+            compute.lastBlock != null && compute.currentBlockElapsedSeconds != null
+              ? `#${Number(compute.lastBlock.substrateBlockNumber) + 1} · ${formatDuration(compute.currentBlockElapsedSeconds * 1000)} and counting`
+              : "Awaiting first block"
+          }
+          accent={SERIES_COLORS.QPU}
+        />
+      </div>
+
+      {byNode ? (
+        <div className="mb-5 rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-5 backdrop-blur-xl">
+          <div className="mb-4">
+            <h2 className="font-heading text-lg text-brand-gray-5">Node Compute Contribution</h2>
+            <p className="font-accent text-xs text-brand-gray-3">
+              Theoretical FP32 TFLOPS per node — {compute.perNodeTflops.length} nodes, sorted by
+              contribution
+            </p>
+          </div>
+          <NodeLeaderboard nodes={compute.perNodeTflops} accent="#67E347" />
+        </div>
+      ) : (
+        <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ChartCard title="CPU Model Breakdown" subtitle="Logical CPU populations on the network">
+            <HardwareBreakdown
+              data={compute.cpuModels}
+              accent={SERIES_COLORS.CPU}
+              emptyLabel="No CPU model data reported"
+            />
+          </ChartCard>
+
+          <ChartCard title="GPU Model Breakdown" subtitle="Devices by model across all nodes">
+            <HardwareBreakdown
+              data={compute.gpuModels}
+              accent={SERIES_COLORS.GPU}
+              emptyLabel="No GPU devices reported"
+            />
+          </ChartCard>
+        </div>
+      )}
+
+      {/* v0.2 additions: chain-side miners table + difficulty chart land
+          under the same view since they describe network-wide compute state. */}
       <ChartCard
-        title="Hardware Inventory"
-        subtitle="On-chain miners with available hardware data; others marked Unknown until peer-query lands."
-        className="mb-5"
+        title="Node Locations"
+        subtitle={`${compute.locatedNodes.length} of ${compute.totalNodes} nodes geo-located via publicHost`}
       >
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="text-left font-accent text-xs uppercase tracking-wider text-brand-gray-3">
-                <th className="py-2 pr-4">Account</th>
-                <th className="py-2 pr-4">Hardware</th>
-                <th className="py-2 pr-4">Source</th>
-                <th className="py-2">Last Seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="py-6 text-center font-accent text-sm text-brand-gray-3"
-                  >
-                    No on-chain miners registered yet.
-                  </td>
-                </tr>
-              ) : (
-                sorted.map((m) => (
-                  <tr key={m.accountId} className="border-t border-brand-gray-2">
-                    <td className="py-2 pr-4 font-mono text-sm text-brand-gray-6">
-                      {shortAddress(m.accountId)}
-                    </td>
-                    <td className="py-2 pr-4 text-sm">
-                      {m.hardware ? (
-                        m.hardware.miners.map((mn) => `${mn.type}×1`).join(" + ")
-                      ) : (
-                        <span className="italic text-brand-gray-3">Unknown</span>
-                      )}
-                    </td>
-                    <td className="py-2 pr-4 text-sm text-brand-gray-4">
-                      {sourceLabel(m.hardware?.source)}
-                    </td>
-                    <td className="py-2 text-sm text-brand-gray-4">
-                      {m.hardware
-                        ? `${formatDuration(now - Date.parse(m.hardware.observedAt))} ago`
-                        : "—"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="h-[440px] w-full">
+          <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
         </div>
       </ChartCard>
 
       <div className="mb-5">
         <ChainMinersTable />
+      </div>
+
+      <div className="mb-5">
+        <NodeIdentitiesPanel />
       </div>
 
       <DifficultyChart />

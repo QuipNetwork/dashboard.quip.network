@@ -23,7 +23,6 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     energy: -100,
     diversity: 0.5,
     numValidSolutions: 1,
-    qualityMilli: 800,
     miningTime: 60,
     reward: "1000000000000",
     nonce: "1",

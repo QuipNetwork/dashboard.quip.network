@@ -22,11 +22,12 @@ const NUM_BANDS = 12;
 export function useMiningTimeByDifficulty(): MiningTimeByDifficultyResult {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const filtered =
       mode === "byType"
         ? blocks.filter(
@@ -91,5 +92,5 @@ export function useMiningTimeByDifficulty(): MiningTimeByDifficultyResult {
     const xMax = cleaned[cleaned.length - 1]!.difficultyEnergy;
 
     return { series: result, xMin: Math.floor(xMin), xMax: Math.ceil(xMax) };
-  }, [blocks, chainMiners, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
 }

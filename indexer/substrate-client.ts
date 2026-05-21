@@ -40,7 +40,6 @@ export interface ProofAcceptedEvent {
   energyMilli: number; // signed integer; lower is better (more negative)
   diversityMilli: number;
   validSolutionCount: number;
-  qualityMilli: number;
 }
 
 // Aggregated per-finalized-block payload emitted by subscribeBlockEvents.
@@ -127,7 +126,6 @@ export interface DifficultyInfo {
   maxEnergyMilli: number;
   minDiversityMilli: number;
   minSolutions: number;
-  minQualityMilli: number;
 }
 
 // Per-block winning solution snapshot returned by quip-protocol-rs v0.2's
@@ -203,6 +201,49 @@ export interface SubstrateClient {
   // Null when the block had no winner OR the chain pre-dates v0.2 (no
   // `quantumPowApi` runtime trait registered).
   getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null>;
+
+  // Lists the block numbers (as decimal strings) for which a
+  // `quantum_pow.WinningSolutions` entry exists on chain. Used at indexer
+  // startup to backfill historical wins that fired before `subscribeBlockEvents`
+  // started receiving live heads. Returns empty when the storage map is
+  // absent (pre-v0.2) or empty (no wins yet).
+  getWinningBlockNumbers(): Promise<string[]>;
+
+  // Decode events, author, and timestamp for a specific finalized block,
+  // returning the same shape `subscribeBlockEvents` delivers on a live head.
+  // Returns null when the block isn't found. Used by the startup backfill
+  // path to route historical winning blocks through the worker's writer.
+  processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null>;
+
+  // Extract every `System.remark{,_with_event}` extrinsic from a finalized
+  // block. Returns one record per call, in extrinsic order, with the
+  // sender's SS58 (extrinsic origin), the raw remark body as a UTF-8
+  // string, and provenance fields (block number, hash, extrinsic index)
+  // the descriptor worker uses for ordered upserts. Returns null when the
+  // block is not found on chain.
+  //
+  // We accept BOTH `remark` and `remark_with_event` because the FRAME
+  // version on the connected chain dictates which one operators sign;
+  // collapsing them under a single decoder simplifies the worker. The
+  // event-stream optimisation (filter `System.Remarked` first) buys
+  // nothing here — we already have to fetch the whole block to recover
+  // the extrinsic body, and most blocks carry zero remarks.
+  getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null>;
+}
+
+/**
+ * One `System.remark{,_with_event}` call extracted from a finalized block.
+ * `body` is the UTF-8 decoded remark argument; the descriptor worker hands
+ * it to `parseAndValidateDescriptor` which guards against non-UTF-8 and
+ * non-JSON payloads itself, so we don't pre-filter here.
+ */
+export interface RemarkRecord {
+  sender: string;
+  body: string;
+  blockNumber: string;
+  blockHash: string;
+  blockTimestamp: number;
+  extrinsicIndex: number;
 }
 
 /**
@@ -319,6 +360,22 @@ export class FakeSubstrateClient implements SubstrateClient {
   }
   async getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null> {
     return this.winningSolutionsByBlock.get(blockNumber) ?? null;
+  }
+  async getWinningBlockNumbers(): Promise<string[]> {
+    return [...this.winningSolutionsByBlock.keys()];
+  }
+  // Tests populate `historicalBlocks` (keyed by blockNumber string) for any
+  // historical winning block the backfill loop should be able to fetch.
+  public historicalBlocks = new Map<string, BlockEvents>();
+  async processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null> {
+    return this.historicalBlocks.get(blockNumber) ?? null;
+  }
+  // Tests populate `remarksByBlock` (keyed by blockNumber string) with the
+  // pre-decoded remark records the descriptor worker should observe.
+  public remarksByBlock = new Map<string, RemarkRecord[] | null>();
+  async getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null> {
+    const v = this.remarksByBlock.get(blockNumber);
+    return v === undefined ? [] : v;
   }
 
   emitFinalized(h: SubstrateHead): void {
@@ -708,112 +765,137 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 
   async subscribeBlockEvents(cb: (e: BlockEvents) => void): Promise<UnsubFn> {
     const api = this.requireApi();
-    // timestamp.now is present on every Substrate runtime; capture a
-    // local ref so the inner await stays narrowed under TS strict
-    // optional chaining.
-    const timestampAt = api.query.timestamp?.now?.at;
-    if (!timestampAt) {
-      throw new Error("[substrate-client] runtime missing timestamp.now");
-    }
-    // Finalized-only subscription via `api.derive.chain.subscribeFinalizedHeads`
-    // — gap-fills any heads the bare RPC subscription would skip when
-    // finalization jumps ahead. Author is extracted via a follow-up
-    // `derive.chain.getHeader(hash)` call which returns a HeaderExtended.
-    // Trades ~6-12s latency for canonical ordering: a reorged-out block
-    // will never be observed, so the worker never writes a row it later
-    // has to roll back. Fires for EVERY finalized head (not just winning
-    // ones) so the worker can record validator authorship regardless of
-    // PoW outcome — `winner: null` signals "no PoW reward this block".
-    if (!api.derive.chain?.subscribeFinalizedHeads || !api.derive.chain?.getBlock) {
-      throw new Error("[substrate-client] api.derive.chain is unavailable");
-    }
-    const unsubFn = await api.derive.chain.subscribeFinalizedHeads(async (header) => {
-      const blockNumber = header.number.toNumber();
-      // Contain per-block failures so a transient RPC blip (getBlock
-      // timeout, decode mishap, downstream cb throw) doesn't let the
-      // rejection escape into polkadot.js — which is version-dependent
-      // and in the worst case silently degrades the subscription. Mirror
-      // the pattern used by substrate-worker.ts:flushChainHead. The next
-      // finalized head fires normally.
+    // Finalized-only subscription via the bare `api.rpc.chain.subscribeFinalizedHeads`.
+    // We previously used `api.derive.chain.subscribeFinalizedHeads` (which gap-fills
+    // skipped heads when finalization jumps ahead), but its callback was
+    // silently never invoked against quip-protocol-rs v0.2 chains — finalizedBlockHeight
+    // updated fine via the bare RPC subscription, but the derive wrapper
+    // ate every head. The bare subscription is what every other path in this
+    // file already uses; per-block enrichment (author + events) still happens
+    // via `derive.chain.getBlock(hash)` inside the callback through
+    // `decodeFinalizedBlock`, so the eventual shape is unchanged.
+    const unsubFn = await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
       try {
-        const blockHash = header.hash.toHex();
-        const parentHash = header.parentHash.toHex();
-        // SignedBlockExtended bundles author + events + extrinsics for
-        // the same finalized block; one fetch covers all three needs.
-        // Timestamp still requires a separate query since it's not in
-        // the extended block shape.
-        const [signedBlockExt, timestampAtBlock] = await Promise.all([
-          api.derive.chain.getBlock(header.hash),
-          timestampAt(header.hash),
-        ]);
-
-        const author = signedBlockExt.author ? signedBlockExt.author.toString() : null;
-
-        type EventRecord = {
-          event: {
-            section: string;
-            method: string;
-            data: Array<{ toString: () => string }>;
-          };
-        };
-        let winner: BlockWinnerEvent | null = null;
-        const proofs: ProofAcceptedEvent[] = [];
-        for (const rec of signedBlockExt.events as unknown as EventRecord[]) {
-          const { section, method, data } = rec.event;
-          if (section !== "quantumPow") continue;
-          if (method === "BlockWinner") {
-            const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = data;
-            if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
-            winner = {
-              miner: minerCodec.toString(),
-              reward: rewardCodec.toString(),
-              energyMilli: Number(energyCodec.toString()),
-              submittedAt: submittedAtCodec.toString(),
-            };
-          } else if (method === "ProofAccepted") {
-            const [minerCodec, energyCodec, diversityCodec, validCodec, qualityCodec] = data;
-            if (!minerCodec || !energyCodec || !diversityCodec || !validCodec || !qualityCodec) {
-              continue;
-            }
-            proofs.push({
-              miner: minerCodec.toString(),
-              energyMilli: Number(energyCodec.toString()),
-              diversityMilli: Number(diversityCodec.toString()),
-              validSolutionCount: Number(validCodec.toString()),
-              qualityMilli: Number(qualityCodec.toString()),
-            });
-          }
-        }
-        // Nonce sourced from quip-protocol-rs v0.2's
-        // `QuantumPowApi::winning_solution(block)` — the runtime computes
-        // the BLAKE3 digest server-side, so callers no longer walk
-        // extrinsics to recover it. Null for winnerless heads (no fetch
-        // performed) and for chains pre-v0.2 (capability absent).
-        const nonce = winner
-          ? ((await this.getWinningSolution(String(blockNumber)))?.nonce ?? null)
-          : null;
-        cb({
-          blockNumber,
-          blockHash,
-          parentHash,
-          author,
-          // pallet_timestamp returns milliseconds; the indexer stores
-          // unix seconds (BlockRecord.timestamp) for parity with the
-          // legacy REST path. Truncate rather than round to keep
-          // ordering stable.
-          timestamp: Math.floor(
-            Number((timestampAtBlock as unknown as { toString: () => string }).toString()) / 1000,
-          ),
-          winner,
-          proofs,
-          nonce,
-        });
+        const events = await this.decodeFinalizedBlock(
+          header.hash.toHex(),
+          header.parentHash.toHex(),
+          header.number.toNumber(),
+        );
+        if (events) cb(events);
       } catch (e) {
-        console.warn(`[substrate-client] subscribeBlockEvents block ${blockNumber} failed`, e);
+        // Contain per-block failures so a transient RPC blip (getBlock
+        // timeout, decode mishap, downstream cb throw) doesn't let the
+        // rejection escape into polkadot.js — which is version-dependent
+        // and in the worst case silently degrades the subscription. The
+        // next finalized head fires normally.
+        const num = header.number.toNumber();
+        console.warn(`[substrate-client] subscribeBlockEvents block ${num} failed`, e);
       }
     });
     return () => {
       (unsubFn as unknown as () => void)();
+    };
+  }
+
+  async getWinningBlockNumbers(): Promise<string[]> {
+    const api = this.requireApi();
+    // Capability check — pre-v0.2 chains don't have this storage map.
+    if (!api.query.quantumPow?.winningSolutions?.entries) return [];
+    const entries = (await api.query.quantumPow.winningSolutions.entries()) as unknown as Array<
+      [{ args: Array<{ toString: () => string }> }, unknown]
+    >;
+    return entries.map(([key]) => key.args[0]!.toString());
+  }
+
+  async processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null> {
+    const api = this.requireApi();
+    const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
+    const blockHash = hashCodec.toHex();
+    // BlockHash("0x00…00") is the chain_getBlockHash sentinel for
+    // "block not found"; nothing to decode.
+    if (/^0x0+$/.test(blockHash)) return null;
+    const header = await api.rpc.chain.getHeader(hashCodec);
+    return this.decodeFinalizedBlock(blockHash, header.parentHash.toHex(), Number(blockNumber));
+  }
+
+  // Shared decoder for both live finalized heads (via subscribe) and
+  // historical backfill blocks (via processFinalizedBlock). Pulls
+  // SignedBlockExtended (author + events + extrinsics) plus the block's
+  // timestamp inherent, parses out BlockWinner / ProofAccepted events, and
+  // resolves the winner's nonce via the v0.2 runtime API. Throws on RPC
+  // failures so the caller can decide how to surface them.
+  private async decodeFinalizedBlock(
+    blockHash: string,
+    parentHash: string,
+    blockNumber: number,
+  ): Promise<BlockEvents | null> {
+    const api = this.requireApi();
+    const timestampAt = api.query.timestamp?.now?.at;
+    if (!timestampAt) {
+      throw new Error("[substrate-client] runtime missing timestamp.now");
+    }
+    if (!api.derive.chain?.getBlock) {
+      throw new Error("[substrate-client] api.derive.chain.getBlock is unavailable");
+    }
+    const [signedBlockExt, timestampAtBlock] = await Promise.all([
+      api.derive.chain.getBlock(blockHash),
+      timestampAt(blockHash),
+    ]);
+    const author = signedBlockExt.author ? signedBlockExt.author.toString() : null;
+
+    type EventRecord = {
+      event: {
+        section: string;
+        method: string;
+        data: Array<{ toString: () => string }>;
+      };
+    };
+    let winner: BlockWinnerEvent | null = null;
+    const proofs: ProofAcceptedEvent[] = [];
+    for (const rec of signedBlockExt.events as unknown as EventRecord[]) {
+      const { section, method, data } = rec.event;
+      if (section !== "quantumPow") continue;
+      if (method === "BlockWinner") {
+        const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = data;
+        if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
+        winner = {
+          miner: minerCodec.toString(),
+          reward: rewardCodec.toString(),
+          energyMilli: Number(energyCodec.toString()),
+          submittedAt: submittedAtCodec.toString(),
+        };
+      } else if (method === "ProofAccepted") {
+        const [minerCodec, energyCodec, diversityCodec, validCodec] = data;
+        if (!minerCodec || !energyCodec || !diversityCodec || !validCodec) continue;
+        proofs.push({
+          miner: minerCodec.toString(),
+          energyMilli: Number(energyCodec.toString()),
+          diversityMilli: Number(diversityCodec.toString()),
+          validSolutionCount: Number(validCodec.toString()),
+        });
+      }
+    }
+    // Nonce sourced from quip-protocol-rs v0.2's
+    // `QuantumPowApi::winning_solution(block)` — the runtime computes the
+    // BLAKE3 digest server-side. Null for winnerless heads (no fetch
+    // performed) and for chains pre-v0.2 (capability absent).
+    const nonce = winner
+      ? ((await this.getWinningSolution(String(blockNumber)))?.nonce ?? null)
+      : null;
+    return {
+      blockNumber,
+      blockHash,
+      parentHash,
+      author,
+      // pallet_timestamp returns milliseconds; the indexer stores unix
+      // seconds (BlockRecord.timestamp) for parity with the legacy REST
+      // path. Truncate rather than round to keep ordering stable.
+      timestamp: Math.floor(
+        Number((timestampAtBlock as unknown as { toString: () => string }).toString()) / 1000,
+      ),
+      winner,
+      proofs,
+      nonce,
     };
   }
 
@@ -824,6 +906,57 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     if (!api.query.quantumPow?.lastProofBlock) return 0;
     const codec = await api.query.quantumPow.lastProofBlock.at(blockHash);
     return Number(codec.toString());
+  }
+
+  async getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null> {
+    const api = this.requireApi();
+    const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
+    const blockHash = hashCodec.toHex();
+    // chain_getBlockHash returns the zero hash sentinel for unknown blocks.
+    if (/^0x0+$/.test(blockHash)) return null;
+
+    const timestampAt = api.query.timestamp?.now?.at;
+    if (!timestampAt) {
+      throw new Error("[substrate-client] runtime missing timestamp.now");
+    }
+    const [signed, timestampCodec] = await Promise.all([
+      api.rpc.chain.getBlock(hashCodec),
+      timestampAt(hashCodec),
+    ]);
+    const blockTimestamp = Math.floor(
+      Number((timestampCodec as unknown as { toString: () => string }).toString()) / 1000,
+    );
+
+    const records: RemarkRecord[] = [];
+    const extrinsics = signed.block.extrinsics;
+    for (let i = 0; i < extrinsics.length; i++) {
+      const ext = extrinsics[i];
+      if (!ext) continue;
+      const section = ext.method.section;
+      const method = ext.method.method;
+      if (section !== "system") continue;
+      // polkadot.js exposes the call method as camelCase irrespective of
+      // the FRAME-side `remark_with_event` snake_case naming.
+      if (method !== "remark" && method !== "remarkWithEvent") continue;
+      // Unsigned remarks have no extrinsic origin; without a signer there's
+      // no canonical identity to attribute the descriptor to. Skip rather
+      // than guess.
+      if (!ext.isSigned) continue;
+      const sender = ext.signer.toString();
+      const args = ext.method.args;
+      if (args.length === 0) continue;
+      const body = decodeRemarkBody(args[0]);
+      if (body === null) continue;
+      records.push({
+        sender,
+        body,
+        blockNumber,
+        blockHash,
+        blockTimestamp,
+        extrinsicIndex: i,
+      });
+    }
+    return records;
   }
 
   async getTopology(): Promise<TopologyInfo | null> {
@@ -864,6 +997,31 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 // instead. Less brittle: no dependency on extrinsic decoding or the custom
 // HybridTxSignature codec.
 
+/**
+ * Decode a polkadot.js `Bytes` codec (the argument to `system.remark` /
+ * `system.remarkWithEvent`) into a UTF-8 string. Returns null when the
+ * payload isn't valid UTF-8 — caller treats that as "skip this extrinsic".
+ *
+ * polkadot.js exposes `.toHex()` reliably across versions; the alternative
+ * `.toUtf8()` is method-name-unstable. Routing through hex keeps this
+ * portable across @polkadot/types versions.
+ */
+function decodeRemarkBody(arg: unknown): string | null {
+  const hex = (arg as { toHex?: () => string })?.toHex?.();
+  if (typeof hex !== "string") return null;
+  const cleaned = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return null;
+  const u8 = new Uint8Array(cleaned.length / 2);
+  for (let i = 0; i < cleaned.length; i += 2) {
+    u8[i / 2] = parseInt(cleaned.slice(i, i + 2), 16);
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(u8);
+  } catch {
+    return null;
+  }
+}
+
 // Decode a polkadot.js codec for a v0.2 `DifficultyConfig` struct into the
 // dashboard's normalised `DifficultyInfo` shape. Tolerates camelCase
 // (toJSON) and snake_case (toHuman) field surfacing.
@@ -876,6 +1034,5 @@ function decodeDifficulty(codec: unknown): DifficultyInfo {
     maxEnergyMilli: Number(json.maxEnergyMilli ?? json.max_energy_milli ?? 0),
     minDiversityMilli: Number(json.minDiversityMilli ?? json.min_diversity_milli ?? 0),
     minSolutions: Number(json.minSolutions ?? json.min_solutions ?? 0),
-    minQualityMilli: Number(json.minQualityMilli ?? json.min_quality_milli ?? 0),
   };
 }

@@ -7,13 +7,24 @@ export function CurrentBlockIndicator() {
   // than a derived coord object, which would be a fresh object each call and
   // trigger an infinite re-render loop with zustand's default equality check.
   const tip = useTelemetryStore(selectTipBlock);
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
   if (!tip) return null;
-  // v0.3 has no PoW epoch concept — substrate block height is the canonical
-  // chain coordinate. The "mining now" cue points at the next substrate block.
-  const next = Number(tip.substrateBlockNumber) + 1;
+  // BABE authors most blocks without a PoW solution attached, so the
+  // "problem number" the network is currently racing to solve isn't tied
+  // to the substrate block height. It's the count of proofs ever won
+  // across all chain miners + 1. `quantum_pow.Miners[*].proofs_won` is the
+  // authoritative lifetime counter.
+  const tipNum = Number(tip.substrateBlockNumber);
+  const totalProofsWon = chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0);
+  const nextProblem = totalProofsWon + 1;
   return (
-    <p className="mt-2 text-center font-accent text-xs text-brand-gray-3">
-      Mining block <span className="text-brand-gray-5">#{next}</span>
-    </p>
+    <div className="mt-2 text-center font-accent text-xs text-brand-gray-3">
+      <p>
+        Mining Problem <span className="text-brand-gray-5">#{nextProblem}</span>
+      </p>
+      <p className="mt-0.5 text-brand-gray-3">
+        Current Block: <span className="text-brand-gray-4">#{tipNum}</span>
+      </p>
+    </div>
   );
 }

@@ -31,7 +31,6 @@ export interface BlockRecord {
   energy: number;
   diversity: number;
   numValidSolutions: number;
-  qualityMilli: number;
   miningTime: number;
   // u128 as string (token amount).
   reward: string;
@@ -131,9 +130,9 @@ export interface ChainMinerRecord {
  * Adjusted every `QuantumPowEpochLength` blocks (~100 = ~10min on spec 101).
  * Stored append-only in `difficulty_history` for the chart surface.
  *
- * Field names mirror BlockRecord (energy/diversity/solutions/quality) for
- * cross-table consistency. The substrate worker divides the chain's
- * `*_milli` integer encoding by 1000 before writing.
+ * Field names mirror BlockRecord (energy/diversity/solutions) for cross-table
+ * consistency. The substrate worker divides the chain's `*_milli` integer
+ * encoding by 1000 before writing.
  */
 export interface DifficultyRecord {
   // u64 as string — substrate block number at which this snapshot was taken.
@@ -145,10 +144,6 @@ export interface DifficultyRecord {
   minDiversity: number;
   // From chain `min_solutions` (already integer-units; no conversion).
   minSolutions: number;
-  // From chain `min_quality_milli / 1000`. Surfaces a fourth dimension of
-  // difficulty that BlockRecord doesn't track (proofs have a quality score
-  // distinct from energy/diversity).
-  minQuality: number;
   observedAt: string; // ISO 8601
 }
 
@@ -239,6 +234,154 @@ export interface ValidatorAuthorshipRecord {
   online: boolean;
 }
 
+/**
+ * Operator-published node descriptor — the canonical identity record for
+ * a miner, sourced from a `System.remark_with_event` extrinsic signed by
+ * the operator's chain account. Shape mirrors `quip.node_descriptor.v1`
+ * defined in `shared/system_info.py` on the miner side; see
+ * `DASHBOARDPLAN.md` for the indexing spec. Dashboard-owned fields
+ * (`address`, `firstSeen`, `lastSeen`) live on NodeInfo, not here —
+ * descriptors are the operator's self-asserted side, joined at read time.
+ */
+export interface NodeSystemCpu {
+  logicalCores?: number;
+  physicalCores?: number;
+  brand?: string;
+  arch?: string;
+}
+
+export interface NodeSystemOs {
+  system?: string;
+  release?: string;
+  machine?: string;
+}
+
+export interface NodeSystemGpu {
+  index?: number;
+  vendor?: string;
+  name?: string;
+  memoryMb?: number;
+  observedUtilizationPct?: number;
+}
+
+export interface NodeSystemInfo {
+  os?: NodeSystemOs;
+  cpu?: NodeSystemCpu;
+  memoryMb?: number;
+  gpus?: NodeSystemGpu[];
+}
+
+export interface NodeRuntime {
+  python?: string;
+  quipVersion?: string;
+  protocolVersion?: number;
+  inDocker?: boolean;
+  dockerImage?: string;
+}
+
+export interface NodeMinerEntry {
+  kind: MinerCategory;
+  minerId: string;
+  // CPU-only
+  numCpus?: number;
+  // GPU-only
+  backend?: string;
+  deviceIndex?: number;
+  utilization?: number;
+  // QPU-only
+  provider?: string;
+  solver?: string;
+  dailyBudget?: string;
+}
+
+/**
+ * Geo-IP enrichment for a node's `publicHost`. Resolved server-side at
+ * /api/telemetry time via DNS → MaxMind GeoLite2 (bundled or
+ * GEOIP_DB_PATH override). Null/absent when:
+ *   - `publicHost` is missing on the descriptor
+ *   - DNS resolution fails (NXDOMAIN, timeout)
+ *   - The resolved IP isn't in the geo database (private ranges,
+ *     reserved blocks, MMDB miss)
+ * `country` is an ISO-3166 alpha-2 code; "??" is a sentinel for "we got
+ * a record but no country was set" (rare, but the MMDB schema permits it).
+ */
+export interface NodeLocation {
+  country: string;
+  city?: string;
+  lat: number;
+  lng: number;
+}
+
+export interface NodeInfo {
+  address: string;
+  status: string;
+  firstSeen: number;
+  lastSeen: number;
+  lastHeartbeat: number | null;
+  ecdsaPublicKeyHex?: string;
+  nodeName?: string;
+  publicHost?: string;
+  publicPort?: number;
+  autoMine?: boolean;
+  logLevel?: string;
+  runtime?: NodeRuntime;
+  miners?: Record<string, NodeMinerEntry>;
+  systemInfo?: NodeSystemInfo;
+  // Geo-IP enrichment of `publicHost`. Absent when the lookup failed or
+  // when geo is disabled (no geoip-lite + no GEOIP_DB_PATH). The UI's
+  // map silently omits markers for nodes without location.
+  location?: NodeLocation;
+}
+
+export interface NodesSnapshot {
+  updatedAt: string;
+  nodeCount: number;
+  activeCount: number;
+  nodes: Record<string, NodeInfo>;
+}
+
+/**
+ * Raw signed payload an operator emits via `quip-miner identify`. Field
+ * names use camelCase (the indexer normalises from the chain's snake_case
+ * JSON at decode time). Pass-through of `descriptorVersion` lets future
+ * versions ride a parallel handler without mutating this shape.
+ */
+export interface NodeDescriptor {
+  schema: "quip.node_descriptor.v1";
+  descriptorVersion: 1;
+  nodeName: string;
+  publicHost?: string;
+  publicPort?: number;
+  rpcEndpoints?: string[];
+  autoMine?: boolean;
+  logLevel?: string;
+  runtime?: NodeRuntime;
+  miners?: Record<string, NodeMinerEntry>;
+  systemInfo?: NodeSystemInfo;
+}
+
+/**
+ * Indexed descriptor row — one per chain account, holding the most recent
+ * valid payload plus provenance (block + extrinsic position used by the
+ * upsert tie-breaker). `observedAt` is when the indexer wrote the row,
+ * NOT when the extrinsic was signed; use `blockNumber` for chain-time.
+ */
+export interface NodeDescriptorRecord {
+  accountId: string;
+  blockNumber: string;
+  blockHash: string;
+  extrinsicIndex: number;
+  // Block timestamp of the *most recent* descriptor for this account
+  // (newer one wins on upsert).
+  blockTimestamp: number;
+  // Block timestamp of the *first* descriptor we ever observed for this
+  // account — preserved across upserts so the NodeInfo projection can
+  // populate `firstSeen` distinctly from `lastSeen`.
+  firstBlockTimestamp: number;
+  descriptor: NodeDescriptor;
+  observedAt: string;
+}
+
 export interface TelemetryResponse {
   blocks: BlockRecord[];
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
@@ -261,6 +404,16 @@ export interface TelemetryResponse {
   // Active BABE authority set joined with per-validator authorship counters.
   // Empty when no BABE epoch has been polled yet.
   validators: ValidatorAuthorshipRecord[];
+  // Snapshot of network nodes, projected server-side from the
+  // `node_descriptors` table the indexer populates from
+  // `System.remark_with_event` extrinsics. Null when no descriptor has
+  // been observed yet (fresh chain or pre-deploy operators). Drives the
+  // Compute Available view's TFLOPS/PFLOPS surfaces.
+  nodes: NodesSnapshot | null;
+  // Per-account indexed descriptors — raw signed payloads plus provenance.
+  // Empty when no `quip-miner identify` extrinsic has been seen. Drives
+  // the Node Identities panel and joins into ChainMinersTable.
+  nodeDescriptors: NodeDescriptorRecord[];
 }
 
 export interface ErrorResponse {

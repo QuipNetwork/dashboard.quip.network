@@ -14,6 +14,8 @@ import type {
   IndexerObservability,
   MinerCategory,
   MinerHardwareRecord,
+  NodeDescriptor,
+  NodeDescriptorRecord,
 } from "../../src/types/telemetry";
 import {
   OWNED_TABLES,
@@ -29,6 +31,8 @@ import {
 // no-ops on already-clean databases.
 const LEGACY_DROP_STATEMENTS: string[] = [
   "DROP TABLE IF EXISTS epoch_status",
+  // v10's HTTP-fanout survey table. v11 sources NodesSnapshot from
+  // `node_descriptors` projected at read time; drop the old single-row blob.
   "DROP TABLE IF EXISTS nodes_snapshot",
   "DROP TABLE IF EXISTS self_address",
   "DROP TABLE IF EXISTS indexer_cursors",
@@ -50,7 +54,6 @@ const SCHEMA_STATEMENTS: string[] = [
      energy                  REAL NOT NULL,
      diversity               REAL NOT NULL,
      num_valid_solutions     INTEGER NOT NULL,
-     quality_milli           INTEGER NOT NULL,
      mining_time             REAL NOT NULL,
      reward                  TEXT NOT NULL,
      nonce                   TEXT NOT NULL,
@@ -128,7 +131,6 @@ const SCHEMA_STATEMENTS: string[] = [
      difficulty_energy  REAL NOT NULL,
      min_diversity      REAL NOT NULL,
      min_solutions      INTEGER NOT NULL,
-     min_quality        REAL NOT NULL,
      observed_at        TEXT NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed
@@ -146,7 +148,26 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_validator_authorship_authored
      ON validator_authorship(blocks_authored DESC)`,
+  // v11: per-account chain-signed identity. One row per AccountId, sourced
+  // from `System.remark_with_event` extrinsics by the descriptor worker.
+  // (block_number, extrinsic_index) form the upsert tie-breaker so a later
+  // descriptor in the same block wins. `first_block_timestamp` is preserved
+  // across upserts to support "first observed" without keeping history.
+  `CREATE TABLE IF NOT EXISTS node_descriptors (
+     account_id              TEXT PRIMARY KEY,
+     block_number            TEXT NOT NULL,
+     block_hash              TEXT NOT NULL,
+     extrinsic_index         INTEGER NOT NULL,
+     block_timestamp         INTEGER NOT NULL,
+     first_block_timestamp   INTEGER NOT NULL,
+     descriptor              TEXT NOT NULL,
+     observed_at             TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
+     ON node_descriptors(CAST(block_number AS INTEGER) DESC)`,
 ];
+
+const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
 
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
@@ -226,13 +247,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
         `INSERT OR IGNORE INTO blocks (
            block_hash, substrate_block_number, substrate_block_hash, substrate_parent_hash,
            timestamp, miner_id,
-           energy, diversity, num_valid_solutions, quality_milli, mining_time,
+           energy, diversity, num_valid_solutions, mining_time,
            reward, nonce, num_nodes, num_edges,
            difficulty_energy, min_diversity, min_solutions, finalized
          ) VALUES (
            $blockHash, $substrateBlockNumber, $substrateBlockHash, $substrateParentHash,
            $timestamp, $minerId,
-           $energy, $diversity, $numValidSolutions, $qualityMilli, $miningTime,
+           $energy, $diversity, $numValidSolutions, $miningTime,
            $reward, $nonce, $numNodes, $numEdges,
            $difficultyEnergy, $minDiversity, $minSolutions, $finalized
          )`,
@@ -247,7 +268,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $energy: b.energy,
         $diversity: b.diversity,
         $numValidSolutions: b.numValidSolutions,
-        $qualityMilli: b.qualityMilli,
         $miningTime: b.miningTime,
         $reward: b.reward,
         $nonce: b.nonce,
@@ -606,8 +626,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
     this.requireDb()
       .prepare(
         `INSERT INTO difficulty_history
-           (observed_at_block, difficulty_energy, min_diversity, min_solutions, min_quality, observed_at)
-         VALUES ($block, $energy, $div, $sol, $qual, $at)
+           (observed_at_block, difficulty_energy, min_diversity, min_solutions, observed_at)
+         VALUES ($block, $energy, $div, $sol, $at)
          ON CONFLICT(observed_at_block) DO NOTHING`,
       )
       .run({
@@ -615,7 +635,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $energy: snapshot.difficultyEnergy,
         $div: snapshot.minDiversity,
         $sol: snapshot.minSolutions,
-        $qual: snapshot.minQuality,
         $at: snapshot.observedAt,
       });
   }
@@ -628,7 +647,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
           difficulty_energy: number;
           min_diversity: number;
           min_solutions: number;
-          min_quality: number;
           observed_at: string;
         },
         [number]
@@ -639,7 +657,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
       difficultyEnergy: r.difficulty_energy,
       minDiversity: r.min_diversity,
       minSolutions: r.min_solutions,
-      minQuality: r.min_quality,
       observedAt: r.observed_at,
     }));
   }
@@ -749,6 +766,90 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }));
   }
 
+  // --- Node descriptors (v11) ---
+
+  async upsertNodeDescriptor(record: NodeDescriptorRecord): Promise<void> {
+    // Tuple comparison `(a, b) < (c, d)` is the ordering tie-breaker the
+    // spec calls for — newer block, or same block + later extrinsic index,
+    // wins. The CAST forces numeric ordering on `block_number` (TEXT u64).
+    // first_block_timestamp uses COALESCE(existing, incoming) so it sticks
+    // to the first observation; ON CONFLICT DO UPDATE keeps every other
+    // column on the newer payload.
+    this.requireDb()
+      .prepare(
+        `INSERT INTO node_descriptors (
+           account_id, block_number, block_hash, extrinsic_index,
+           block_timestamp, first_block_timestamp, descriptor, observed_at
+         ) VALUES (
+           $acct, $bn, $bh, $ix, $ts, $ts, $desc, $obs
+         )
+         ON CONFLICT(account_id) DO UPDATE SET
+           block_number     = excluded.block_number,
+           block_hash       = excluded.block_hash,
+           extrinsic_index  = excluded.extrinsic_index,
+           block_timestamp  = excluded.block_timestamp,
+           descriptor       = excluded.descriptor,
+           observed_at      = excluded.observed_at
+         WHERE
+           (CAST(node_descriptors.block_number AS INTEGER), node_descriptors.extrinsic_index)
+             < (CAST(excluded.block_number AS INTEGER), excluded.extrinsic_index)`,
+      )
+      .run({
+        $acct: record.accountId,
+        $bn: record.blockNumber,
+        $bh: record.blockHash,
+        $ix: record.extrinsicIndex,
+        $ts: record.blockTimestamp,
+        $desc: JSON.stringify(record.descriptor),
+        $obs: record.observedAt,
+      });
+  }
+
+  async getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]> {
+    const rows = this.requireDb()
+      .query<
+        {
+          account_id: string;
+          block_number: string;
+          block_hash: string;
+          extrinsic_index: number;
+          block_timestamp: number;
+          first_block_timestamp: number;
+          descriptor: string;
+          observed_at: string;
+        },
+        []
+      >(
+        // Sort by node_name extracted from the JSON. SQLite supports
+        // `json_extract(...)`; fall back to account_id for rows with a
+        // missing name (the validator forbids this, but be defensive).
+        `SELECT * FROM node_descriptors
+         ORDER BY COALESCE(json_extract(descriptor, '$.nodeName'), account_id)`,
+      )
+      .all();
+    return rows.map(rowToNodeDescriptorRecord);
+  }
+
+  async getDescriptorCheckpoint(): Promise<string | null> {
+    const row = this.requireDb()
+      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get(DESCRIPTOR_CHECKPOINT_KEY);
+    return row?.value ?? null;
+  }
+
+  async setDescriptorCheckpoint(blockNumber: string): Promise<void> {
+    // Monotonic: only advance, never rewind. Guards against a misconfigured
+    // restart that resumes from an earlier checkpoint than what we already
+    // scanned.
+    this.requireDb()
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value
+         WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)`,
+      )
+      .run({ $k: DESCRIPTOR_CHECKPOINT_KEY, $v: blockNumber });
+  }
+
   private requireDb(): Database {
     if (!this.db) {
       throw new Error("SQLiteAdapter not connected. Call connect() first.");
@@ -768,7 +869,6 @@ function rowToBlockRecord(row: Record<string, unknown>): BlockRecord {
     energy: Number(row.energy),
     diversity: Number(row.diversity),
     numValidSolutions: Number(row.num_valid_solutions),
-    qualityMilli: Number(row.quality_milli),
     miningTime: Number(row.mining_time),
     reward: String(row.reward),
     nonce: String(row.nonce),
@@ -790,5 +890,29 @@ function rowToMinerHardware(row: Record<string, unknown>): MinerHardwareRecord {
     primaryType: String(row.primary_type) as MinerCategory,
     source: String(row.source) as MinerHardwareRecord["source"],
     observedAt: String(row.observed_at),
+  };
+}
+
+interface DescriptorRow {
+  account_id: string;
+  block_number: string;
+  block_hash: string;
+  extrinsic_index: number;
+  block_timestamp: number;
+  first_block_timestamp: number;
+  descriptor: string;
+  observed_at: string;
+}
+
+function rowToNodeDescriptorRecord(row: DescriptorRow): NodeDescriptorRecord {
+  return {
+    accountId: row.account_id,
+    blockNumber: row.block_number,
+    blockHash: row.block_hash,
+    extrinsicIndex: row.extrinsic_index,
+    blockTimestamp: row.block_timestamp,
+    firstBlockTimestamp: row.first_block_timestamp,
+    descriptor: JSON.parse(row.descriptor) as NodeDescriptor,
+    observedAt: row.observed_at,
   };
 }

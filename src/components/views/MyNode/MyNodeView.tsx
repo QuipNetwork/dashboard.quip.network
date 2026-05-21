@@ -2,10 +2,12 @@
 
 import { formatBalance, shortAddress } from "../../../lib/format-chain";
 import { formatDuration, formatNumber } from "../../../lib/format";
+import { ChartCard } from "../../layout/ChartCard";
 import { BlockDetailCard } from "./BlockDetailCard";
 import { useMyNode } from "./use-my-node";
 import { StatTile } from "./StatTile";
 import { MinerStatsPanel } from "./MinerStatsPanel";
+import { NeighborsList } from "./NeighborsList";
 
 export function MyNodeView() {
   const stats = useMyNode();
@@ -29,6 +31,8 @@ export function MyNodeView() {
     lastWonBlock,
     blocksMined,
     currentRequirements,
+    self,
+    neighbors,
   } = stats;
   const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
   // BABE slot duration on quip-protocol-rs is 6s; api.consts.babe.slotDuration
@@ -106,7 +110,6 @@ export function MyNodeView() {
                   { label: "Energy", value: lastWonBlock.energy.toFixed(2) },
                   { label: "Diversity", value: lastWonBlock.diversity.toFixed(3) },
                   { label: "Solutions", value: formatNumber(lastWonBlock.numValidSolutions) },
-                  { label: "Quality", value: (lastWonBlock.qualityMilli / 1000).toFixed(3) },
                   { label: "Reward", value: formatBalance(lastWonBlock.reward) },
                 ]
               : [{ label: "Status", value: "No wins yet" }]
@@ -147,6 +150,10 @@ export function MyNodeView() {
       </div>
 
       {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
+
+      <ChartCard title="Rank-Adjacent Miners" subtitle="Your position in the network leaderboard">
+        <NeighborsList self={self} neighbors={neighbors} />
+      </ChartCard>
     </>
   );
 }

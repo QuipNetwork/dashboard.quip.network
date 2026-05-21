@@ -50,7 +50,6 @@ describe("substrate worker", () => {
         maxEnergyMilli: -2500,
         minDiversityMilli: 200,
         minSolutions: 5,
-        minQualityMilli: 800,
       },
     });
     client.lastProofBlockByHash.set("0xsub99", 94);
@@ -93,7 +92,6 @@ describe("substrate worker", () => {
           energyMilli: -2510,
           diversityMilli: 420,
           validSolutionCount: 5,
-          qualityMilli: 850,
         },
       ],
       nonce: "42",
@@ -114,7 +112,6 @@ describe("substrate worker", () => {
     expect(b.energy).toBeCloseTo(-2.51, 5);
     expect(b.diversity).toBeCloseTo(0.42, 3);
     expect(b.numValidSolutions).toBe(5);
-    expect(b.qualityMilli).toBe(850);
     expect(b.miningTime).toBe(6); // 100 - 94
     expect(b.nonce).toBe("42");
     expect(b.numNodes).toBe(100);
@@ -172,7 +169,6 @@ describe("substrate worker", () => {
           energyMilli: -500,
           diversityMilli: 200,
           validSolutionCount: 2,
-          qualityMilli: 300,
         },
       ],
       nonce: null,
@@ -227,7 +223,6 @@ describe("substrate worker", () => {
           energyMilli: -1000,
           diversityMilli: 100,
           validSolutionCount: 1,
-          qualityMilli: 100,
         },
       ],
       nonce: "1",
@@ -276,7 +271,6 @@ describe("substrate worker", () => {
           energyMilli: -100,
           diversityMilli: 1,
           validSolutionCount: 1,
-          qualityMilli: 1,
         },
       ],
       nonce: "0",
@@ -455,7 +449,6 @@ describe("substrate worker", () => {
       maxEnergyMilli: 12500,
       minDiversityMilli: 500,
       minSolutions: 3,
-      minQualityMilli: 250,
     };
 
     const ac = new AbortController();
@@ -492,7 +485,6 @@ describe("substrate worker", () => {
     expect(recent[0]?.difficultyEnergy).toBeCloseTo(12.5, 5);
     expect(recent[0]?.minDiversity).toBeCloseTo(0.5, 5);
     expect(recent[0]?.minSolutions).toBe(3);
-    expect(recent[0]?.minQuality).toBeCloseTo(0.25, 5);
     expect(recent[0]?.observedAtBlock).toBe("100");
   }, 5000);
 
@@ -504,7 +496,6 @@ describe("substrate worker", () => {
       maxEnergyMilli: 12500,
       minDiversityMilli: 500,
       minSolutions: 3,
-      minQualityMilli: 250,
     };
 
     const ac = new AbortController();
@@ -654,7 +645,6 @@ describe("substrate worker", () => {
           energyMilli: -100,
           diversityMilli: 1,
           validSolutionCount: 1,
-          qualityMilli: 1,
         },
       ],
       nonce: "1",
@@ -682,7 +672,6 @@ describe("substrate worker", () => {
           energyMilli: -200,
           diversityMilli: 2,
           validSolutionCount: 1,
-          qualityMilli: 2,
         },
       ],
       nonce: "2",

@@ -27,6 +27,16 @@ export interface IndexerConfig {
   // Cadence at which we re-poll the bigger chain surfaces — quantum_pow.Miners,
   // quantum_pow.Difficulty, session.validators. More expensive: O(miners) RPCs.
   substrateChainPollSec: number;
+
+  // --- Node descriptor indexer (v0.2) ---
+  // Substrate block number (as decimal string, u64-precision-safe) the
+  // descriptor worker starts scanning from on a fresh database. Resume-
+  // from-checkpoint takes over once the first iteration completes; this
+  // bound only matters on a never-indexed DB. Default "1" backfills from
+  // genesis — acceptable for short-lived testnets; long-running chains
+  // should set QUIP_DESCRIPTOR_START_BLOCK to a recent block height to
+  // avoid an O(history) catch-up walk.
+  descriptorStartBlock: string;
 }
 
 const DEFAULTS = {
@@ -37,7 +47,14 @@ const DEFAULTS = {
   substrateRpcTimeoutMs: 15000,
   substrateReconnectMaxBackoffMs: 60000,
   substrateBabePollSec: 30,
-  substrateChainPollSec: 300,
+  // Matches BABE slot duration (6s on quip-protocol-rs) so chain_miners
+  // and difficulty_history poll once per block. The reads are cheap
+  // storage hits and the UI's "Problems Won" tile would otherwise show a
+  // ~5min stale snapshot of `quantum_pow.Miners`.
+  substrateChainPollSec: 6,
+  // "1" backfills from genesis. Operators on long-lived chains override
+  // via QUIP_DESCRIPTOR_START_BLOCK.
+  descriptorStartBlock: "1",
 };
 
 function parseIntStrict(name: string, raw: string): number {
@@ -185,6 +202,24 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     throw new Error(`[indexer] --substrate-chain-poll must be > 0, got: ${substrateChainPollSec}`);
   }
 
+  const descriptorStartFlag = takeFlag(argv, "--descriptor-start-block");
+  const descriptorStartRaw =
+    (typeof descriptorStartFlag === "string" ? descriptorStartFlag : undefined) ??
+    process.env.QUIP_DESCRIPTOR_START_BLOCK ??
+    DEFAULTS.descriptorStartBlock;
+  // Validate via parseIntStrict to reject hex/scientific/whitespace
+  // (consistent with other numeric config), then re-stringify so the
+  // worker's BigInt() call doesn't see exotic shapes. We keep it as a
+  // string in the IndexerConfig type for u64-precision-safety.
+  const descriptorStartBlock = String(
+    parseIntStrict("QUIP_DESCRIPTOR_START_BLOCK", descriptorStartRaw),
+  );
+  if (Number(descriptorStartBlock) < 1) {
+    throw new Error(
+      `[indexer] QUIP_DESCRIPTOR_START_BLOCK must be >= 1, got: ${descriptorStartBlock}`,
+    );
+  }
+
   return {
     nodeUrl: nodeUrl.replace(/\/+$/, ""),
     token,
@@ -198,5 +233,6 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     substrateReconnectMaxBackoffMs,
     substrateBabePollSec,
     substrateChainPollSec,
+    descriptorStartBlock,
   };
 }

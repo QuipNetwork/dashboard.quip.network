@@ -29,7 +29,6 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     energy: -100,
     diversity: 0.5,
     numValidSolutions: 1,
-    qualityMilli: 800,
     miningTime: 60,
     reward: "1000000000000",
     nonce: "1",
@@ -79,7 +78,6 @@ function makeDifficulty(overrides: Partial<DifficultyRecord> = {}): DifficultyRe
     difficultyEnergy: -1.234,
     minDiversity: 0.5,
     minSolutions: 5,
-    minQuality: 0,
     observedAt: "2026-05-21T00:00:00Z",
     ...overrides,
   };
@@ -156,6 +154,8 @@ describe("useMyNode", () => {
       lastWonBlock: null,
       blocksMined: "0",
       currentRequirements: null,
+      self: null,
+      neighbors: [],
     });
   });
 
@@ -188,6 +188,32 @@ describe("useMyNode", () => {
     const out = renderHook();
     expect(out.current?.chainMinerEntry).toEqual(miner);
     expect(out.current?.blocksMined).toBe("7");
+  });
+
+  it("blocksMined picks max(localBlocks count, chainMinerEntry.proofsWon)", () => {
+    // Indexer captured a winning block before the chain_miners poll
+    // refreshed: local count (1) is fresher than chain_miners.proofsWon (0).
+    // The tile should jump to 1 immediately, not wait for the next poll.
+    useTelemetryStore.setState({
+      blocks: [makeBlock({ blockHash: "0xa", minerId: "5GAlice" })],
+      selfAddress: "5GAlice",
+      chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsWon: "0" })],
+      indexer: null,
+    });
+    expect(renderHook().current?.blocksMined).toBe("1");
+  });
+
+  it("blocksMined falls back to chain count when chain reports more than local", () => {
+    // Indexer just started and hasn't backfilled historical wins yet, but
+    // chain_miners.proofsWon already reflects them. Tile should show 7,
+    // not 0, even though the local blocks table is empty for self.
+    useTelemetryStore.setState({
+      blocks: [],
+      selfAddress: "5GAlice",
+      chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsWon: "7" })],
+      indexer: null,
+    });
+    expect(renderHook().current?.blocksMined).toBe("7");
   });
 
   it("ignores chainMiners rows whose accountId doesn't match self", () => {

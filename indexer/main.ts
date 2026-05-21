@@ -4,6 +4,7 @@ import { createAdapter } from "../api/db";
 
 import { AuthError, QuipClient } from "./client";
 import { parseConfig } from "./config";
+import { runDescriptorLoop } from "./descriptor-worker";
 import { IndexerState } from "./state";
 import { PolkadotSubstrateClient } from "./substrate-client";
 import { runSubstrateLoop } from "./substrate-worker";
@@ -15,9 +16,15 @@ export interface WorkerRunner {
   // means the indexer runs in REST-only degraded mode (dashboard chain
   // surfaces stay null/empty).
   runSubstrate?: (signal: AbortSignal) => Promise<void>;
+  // Node-descriptor indexer — scans every finalized block for
+  // `System.remark{,_with_event}` extrinsics signed by operators running
+  // `quip-miner identify`. Optional only because it shares a substrate
+  // client with runSubstrate; both are wired together in production when
+  // QUIP_VALIDATOR_RPC_URL is set.
+  runDescriptor?: (signal: AbortSignal) => Promise<void>;
 }
 
-type WorkerName = "tip" | "substrate";
+type WorkerName = "tip" | "substrate" | "descriptor";
 
 /**
  * Run the configured workers concurrently. Each worker receives a composed
@@ -47,11 +54,13 @@ export async function runWorkers(
     } catch (e) {
       if (e instanceof AuthError) {
         console.error(`[indexer] ${name} auth failed:`, e.message);
-        // Substrate auth errors don't take down REST workers. The substrate
-        // worker's own backoff loop already handles retries; an auth error
-        // means the RPC token is bad, which is operator-actionable but
-        // shouldn't stop block indexing.
-        if (name !== "substrate") ac.abort();
+        // Substrate/descriptor auth errors don't take down REST workers.
+        // The substrate worker's own backoff loop already handles retries;
+        // an auth error means the RPC token is bad, which is operator-
+        // actionable but shouldn't stop block indexing. The descriptor
+        // worker reads from the same substrate client, so its failures
+        // are non-fatal for the same reason.
+        if (name === "tip") ac.abort();
         throw e;
       }
       if ((e as Error)?.name === "AbortError") return;
@@ -59,7 +68,7 @@ export async function runWorkers(
         `[indexer] ${name} unhandled error:`,
         e instanceof Error ? (e.stack ?? e.message) : e,
       );
-      if (name !== "substrate") ac.abort();
+      if (name === "tip") ac.abort();
       throw e;
     }
   };
@@ -67,6 +76,9 @@ export async function runWorkers(
   const promises: Promise<void>[] = [wrap("tip", runners.runTip)];
   if (runners.runSubstrate) {
     promises.push(wrap("substrate", runners.runSubstrate));
+  }
+  if (runners.runDescriptor) {
+    promises.push(wrap("descriptor", runners.runDescriptor));
   }
 
   const results = await Promise.allSettled(promises);
@@ -99,13 +111,20 @@ async function main(): Promise<number> {
   process.on("SIGTERM", () => onSignal("SIGTERM"));
 
   // Substrate worker is opt-in via QUIP_VALIDATOR_RPC_URL. Configured here
-  // so the runner stays a no-op when unset (runWorkers also skips it).
+  // so the runner stays a no-op when unset (runWorkers also skips it). The
+  // descriptor worker shares the same client (it reads remarks via RPC and
+  // observes substrate-worker's finalized-head heartbeat through
+  // IndexerState), so it's only configured when the substrate client is.
   const substrateClient = config.substrateRpcUrl
     ? new PolkadotSubstrateClient(config.substrateRpcUrl, config.substrateRpcTimeoutMs)
     : null;
   const runSubstrate = substrateClient
     ? (signal: AbortSignal) =>
         runSubstrateLoop({ config, client: substrateClient, db, state }, signal)
+    : undefined;
+  const runDescriptor = substrateClient
+    ? (signal: AbortSignal) =>
+        runDescriptorLoop({ config, db, client: substrateClient, state }, signal)
     : undefined;
 
   let exitCode = 0;
@@ -114,6 +133,7 @@ async function main(): Promise<number> {
       {
         runTip: (signal) => runTipLoop({ config, client: tipClient, db, state }, signal),
         ...(runSubstrate ? { runSubstrate } : {}),
+        ...(runDescriptor ? { runDescriptor } : {}),
       },
       processAc.signal,
     );

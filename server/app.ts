@@ -4,7 +4,15 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { TelemetryResponse, ValidatorAuthorshipRecord } from "../src/types/telemetry";
+import type {
+  NodeDescriptorRecord,
+  NodeInfo,
+  NodesSnapshot,
+  TelemetryResponse,
+  ValidatorAuthorshipRecord,
+} from "../src/types/telemetry";
+
+import { getGeoIpEnricher } from "./geo-ip";
 
 // "Online" threshold for the Active Validators table. A validator counts
 // as online when its most recent authored head is within this window of
@@ -48,6 +56,7 @@ export function createApp(options: CreateAppOptions): Hono {
       recentDifficulty,
       allHardware,
       authorship,
+      nodeDescriptors,
     ] = await Promise.all([
       // Page-1 default; the UI can request later pages once pagination lands.
       db.getRecentBlocks(500, 0),
@@ -60,7 +69,21 @@ export function createApp(options: CreateAppOptions): Hono {
       db.getRecentDifficulty(50),
       db.getAllMinerHardware(),
       db.getValidatorAuthorship(),
+      db.getAllNodeDescriptors(),
     ]);
+
+    // Project per-account chain descriptors into the legacy NodesSnapshot
+    // shape so the Compute Available view's TFLOPS/PFLOPS surfaces keep
+    // their existing consumer contract. The descriptor pipeline (chain
+    // remarks, signed by operator) replaces the v0.2 HTTP-fanout survey
+    // but the snapshot shape is unchanged.
+    const projected = projectDescriptorsToSnapshot(nodeDescriptors);
+    // Geo-IP enrich the projection: resolve each node's `publicHost` to a
+    // lat/lng via DNS + MaxMind. Cache-amortised, so warm calls are
+    // synchronous in practice. No-op when geo backends are unavailable
+    // (the map then renders no markers).
+    const enricher = await getGeoIpEnricher();
+    const nodes = await enricher.enrichSnapshot(projected);
 
     // Join chain_miners → miner_hardware on accountId so the UI can render
     // a per-row "telemetry node" link without a second fetch. Today only
@@ -105,6 +128,8 @@ export function createApp(options: CreateAppOptions): Hono {
       chainMiners: enrichedMiners,
       recentDifficulty,
       validators,
+      nodes,
+      nodeDescriptors,
     } satisfies TelemetryResponse);
   });
 
@@ -121,6 +146,49 @@ export function createApp(options: CreateAppOptions): Hono {
       chainConnected: obs?.chainConnected ?? false,
     });
   });
+
+  // Project the descriptor-worker's per-account rows into the legacy
+  // NodesSnapshot shape the Compute Available view already consumes.
+  // Field ownership per DASHBOARDPLAN.md:
+  //   - chain-derived: address (SS58), firstSeen, lastSeen (block timestamps)
+  //   - operator self-asserted: nodeName, publicHost, runtime, miners,
+  //     systemInfo (from descriptor)
+  //   - dashboard placeholders: status="active" (we have no liveness signal
+  //     yet — the chain doesn't beat), lastHeartbeat=null (same)
+  function projectDescriptorsToSnapshot(records: NodeDescriptorRecord[]): NodesSnapshot | null {
+    if (records.length === 0) return null;
+    const nodes: Record<string, NodeInfo> = {};
+    let mostRecentObservedAt = "";
+    for (const r of records) {
+      const d = r.descriptor;
+      nodes[r.accountId] = {
+        address: r.accountId,
+        // No chain-side liveness signal; treat any registered descriptor
+        // as "active" until we have a heartbeat-equivalent surface.
+        status: "active",
+        firstSeen: r.firstBlockTimestamp,
+        lastSeen: r.blockTimestamp,
+        lastHeartbeat: null,
+        nodeName: d.nodeName,
+        publicHost: d.publicHost,
+        publicPort: d.publicPort,
+        autoMine: d.autoMine,
+        logLevel: d.logLevel,
+        runtime: d.runtime,
+        miners: d.miners,
+        systemInfo: d.systemInfo,
+      };
+      if (r.observedAt > mostRecentObservedAt) mostRecentObservedAt = r.observedAt;
+    }
+    return {
+      updatedAt: mostRecentObservedAt || new Date().toISOString(),
+      nodeCount: records.length,
+      // No liveness distinction yet; will refine once we have a chain-side
+      // heartbeat or join against recent validator authorship.
+      activeCount: records.length,
+      nodes,
+    };
+  }
 
   if (enableStatic) {
     if (!serveStatic) {

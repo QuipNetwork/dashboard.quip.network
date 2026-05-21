@@ -22,7 +22,6 @@ describe("v6 telemetry types", () => {
       energy: -2510,
       diversity: 0.42,
       numValidSolutions: 5,
-      qualityMilli: 850,
       miningTime: 12,
       reward: "1000000000000",
       nonce: "42",
@@ -109,7 +108,7 @@ describe("v6 telemetry types", () => {
     obs.nodesObservedAt;
   });
 
-  test("TelemetryResponse drops nodes; keeps selfAddress (now SS58)", () => {
+  test("TelemetryResponse carries nodes (projected from descriptors) + nodeDescriptors", () => {
     const r: TelemetryResponse = {
       blocks: [],
       selfAddress: null,
@@ -121,9 +120,14 @@ describe("v6 telemetry types", () => {
       chainMiners: [],
       recentDifficulty: [],
       validators: [],
+      nodes: null,
+      nodeDescriptors: [],
     };
-    // @ts-expect-error - nodes is gone
-    r.nodes;
+    // `nodes` is nullable until the descriptor worker observes its first
+    // valid `quip-miner identify` extrinsic. `nodeDescriptors` is the raw
+    // per-account record array — empty when nothing has been observed.
+    expect(r.nodes).toBeNull();
+    expect(r.nodeDescriptors).toEqual([]);
   });
 
   test("ChainMinerRecord.telemetryNodeAddress now joined from miner_hardware", () => {

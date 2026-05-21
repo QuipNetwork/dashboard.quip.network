@@ -16,11 +16,12 @@ import { buildHistogram, type HistogramData } from "../../../lib/histogram";
 export function useEnergyDistribution(): HistogramData {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const filtered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
@@ -35,5 +36,5 @@ export function useEnergyDistribution(): HistogramData {
     const keys = mode === "byType" ? [...selectedTypes] : [...new Set(values.map((v) => v.group))];
 
     return buildHistogram(values, keys);
-  }, [blocks, chainMiners, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
 }

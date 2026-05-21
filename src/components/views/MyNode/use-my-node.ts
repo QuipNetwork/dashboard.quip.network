@@ -4,6 +4,10 @@ import { useMemo } from "react";
 
 import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
 import type { BlockRecord, ChainMinerRecord, MinerStats } from "../../../types/telemetry";
+import {
+  computeLeaderboard,
+  type LeaderboardEntry,
+} from "../../charts/leaderboard/use-leaderboard";
 
 export interface CurrentRequirements {
   difficultyEnergy: number;
@@ -19,11 +23,24 @@ export interface MyNodeStats {
   // Total blocks won by self (from chain_miners.proofsWon, u64 string-safe).
   blocksMined: string;
   currentRequirements: CurrentRequirements | null;
+  // Operator's own row in the network-wide (unfiltered) leaderboard. Null
+  // until selfAddress is known *and* the operator has won at least one block
+  // the indexer has captured.
+  self: LeaderboardEntry | null;
+  // Rank-adjacent miners (±NEIGHBOR_WINDOW around `self.rank`, self
+  // excluded). Empty when `self` is null.
+  neighbors: LeaderboardEntry[];
 }
+
+// How many ranks above and below self to surface in the rank-neighbor table.
+// 2 above + 2 below + self = 5-row window, which fits the typical sidebar
+// width without scrolling on desktop.
+const NEIGHBOR_WINDOW = 2;
 
 export function useMyNode(): MyNodeStats {
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const blocks = useTelemetryStore((s) => s.blocks);
   const indexer = useTelemetryStore((s) => s.indexer);
   const tipBlock = useTelemetryStore(selectTipBlock);
@@ -42,6 +59,18 @@ export function useMyNode(): MyNodeStats {
     const lastWonBlock = selfAddress
       ? (blocks.find((b) => b.minerId === selfAddress) ?? null)
       : null;
+    // Prefer the larger of (local block count, chain_miners.proofsWon).
+    // Local blocks update instantly when a new finalized winning head is
+    // captured; chain_miners.proofsWon is the authoritative lifetime
+    // counter (covers wins from before the indexer session, no 500-row
+    // cap). max() picks whichever is fresher — typically the local count
+    // jumps first after a new win, then chain_miners catches up on its
+    // next poll.
+    const localWins = selfAddress
+      ? blocks.reduce((n, b) => (b.minerId === selfAddress ? n + 1 : n), 0)
+      : 0;
+    const chainWins = Number(chainMinerEntry?.proofsWon ?? "0");
+    const blocksMined = String(Math.max(localWins, chainWins));
     const liveDifficulty = recentDifficulty[0] ?? null;
     const currentRequirements: CurrentRequirements | null = liveDifficulty
       ? {
@@ -56,13 +85,29 @@ export function useMyNode(): MyNodeStats {
             minSolutions: tipBlock.minSolutions,
           }
         : null;
+    // Network-wide unfiltered leaderboard for rank-neighbor lookup. We
+    // deliberately ignore the UI store's `selectedTypes` filter here —
+    // the operator's rank in the network is not category-scoped.
+    const leaderboard = computeLeaderboard(blocks, chainMiners, undefined, nodeDescriptors);
+    const self = selfAddress ? (leaderboard.find((e) => e.minerId === selfAddress) ?? null) : null;
+    const neighbors =
+      self != null
+        ? leaderboard.filter(
+            (e) =>
+              e.rank >= self.rank - NEIGHBOR_WINDOW &&
+              e.rank <= self.rank + NEIGHBOR_WINDOW &&
+              e.minerId !== self.minerId,
+          )
+        : [];
     return {
       selfAddress,
       chainMinerEntry,
       minerStats: indexer?.minerStats ?? null,
       lastWonBlock,
-      blocksMined: chainMinerEntry?.proofsWon ?? "0",
+      blocksMined,
       currentRequirements,
+      self,
+      neighbors,
     };
-  }, [selfAddress, chainMiners, blocks, indexer, tipBlock, recentDifficulty]);
+  }, [selfAddress, chainMiners, nodeDescriptors, blocks, indexer, tipBlock, recentDifficulty]);
 }

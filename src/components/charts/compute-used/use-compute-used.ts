@@ -21,11 +21,12 @@ export interface ComputeUsedEntry {
 export function useComputeUsed(): ComputeUsedEntry[] {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const totals: Record<string, number> = {};
     const getKey = (b: (typeof blocks)[0]) =>
       mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
@@ -41,5 +42,5 @@ export function useComputeUsed(): ComputeUsedEntry[] {
     return keys
       .filter((k) => totals[k] !== undefined)
       .map((k) => ({ minerType: k, compute: totals[k]! }));
-  }, [blocks, chainMiners, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
 }

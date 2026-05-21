@@ -6,32 +6,38 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { ChainMinerRecord, MinerHardwareRecord } from "../../../types/telemetry";
+import { useUIStore } from "../../../store/ui-store";
+import type { NodeInfo, NodesSnapshot } from "../../../types/telemetry";
 
 import { ComputeAvailableView } from "./ComputeAvailableView";
 
-function makeMiner(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRecord {
+function makeNode(overrides: Partial<NodeInfo> = {}): NodeInfo {
   return {
-    accountId: "5GAliceXxxxYyyyZzzz1234",
-    deposit: "1000000000000",
-    proofsSubmitted: "0",
-    proofsWon: "0",
-    rewardsEarned: "0",
-    telemetryNodeAddress: null,
-    hardware: null,
+    address: "5GAlice",
+    status: "active",
+    firstSeen: 1_700_000_000,
+    lastSeen: 1_700_001_000,
+    lastHeartbeat: 1_700_001_000,
+    nodeName: "alice",
+    systemInfo: {
+      cpu: { logicalCores: 8, brand: "Intel Core i9-13900K" },
+      memoryMb: 32_000,
+      gpus: [{ name: "NVIDIA RTX 4090" }],
+    },
+    miners: {
+      "alice-CPU-1": { kind: "CPU", minerId: "alice-CPU-1", numCpus: 8 },
+      "alice-GPU-1": { kind: "GPU", minerId: "alice-GPU-1", backend: "cuda" },
+    },
     ...overrides,
   };
 }
 
-function makeHardware(overrides: Partial<MinerHardwareRecord> = {}): MinerHardwareRecord {
+function makeSnapshot(nodes: Record<string, NodeInfo>): NodesSnapshot {
   return {
-    accountId: "5GAliceXxxxYyyyZzzz1234",
-    nodeId: "test-node",
-    miners: [{ id: "test-CPU-1", type: "CPU" }],
-    primaryType: "CPU",
-    source: "self",
-    observedAt: "2026-05-20T12:00:00.000Z",
-    ...overrides,
+    updatedAt: new Date(1_700_002_000_000).toISOString(),
+    nodeCount: Object.keys(nodes).length,
+    activeCount: Object.values(nodes).filter((n) => n.status === "active").length,
+    nodes,
   };
 }
 
@@ -48,98 +54,70 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   useTelemetryStore.setState({
+    blocks: [],
     chainMiners: [],
     recentDifficulty: [],
+    nodes: null,
     serverTime: null,
   });
+  useUIStore.setState({ aggregationMode: "byType" });
 });
 
 describe("ComputeAvailableView", () => {
-  test("renders the Hardware Inventory section title", () => {
-    useTelemetryStore.setState({ chainMiners: [], recentDifficulty: [], serverTime: null });
+  test("renders empty PFLOPS tile when no survey data has arrived", () => {
+    useTelemetryStore.setState({ nodes: null });
     act(() => {
       root.render(createElement(ComputeAvailableView));
     });
-    expect(container.textContent).toContain("Hardware Inventory");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Est. PFLOPS");
+    // No nodes ⇒ totalPetaflops=0.00. Use the surrounding "Across 0 nodes"
+    // sublabel as the canonical empty-state signal — "0.00" alone could
+    // match other tiles.
+    expect(text).toContain("Across 0 nodes");
   });
 
-  test("shows the empty state when no chain miners are registered", () => {
-    useTelemetryStore.setState({ chainMiners: [], recentDifficulty: [], serverTime: null });
-    act(() => {
-      root.render(createElement(ComputeAvailableView));
-    });
-    expect(container.textContent).toContain("No on-chain miners registered yet.");
-  });
-
-  test("renders an account row with hardware text and 'this node' source for self", () => {
+  test("aggregates TFLOPS into the PFLOPS tile from NodesSnapshot", () => {
     useTelemetryStore.setState({
-      chainMiners: [
-        makeMiner({
-          accountId: "5GAliceXxxxYyyyZzzz1234",
-          telemetryNodeAddress: "test-node",
-          hardware: makeHardware({ source: "self" }),
-        }),
-      ],
-      recentDifficulty: [],
-      serverTime: "2026-05-20T12:01:00.000Z",
+      nodes: makeSnapshot({ "5GAlice": makeNode() }),
     });
     act(() => {
       root.render(createElement(ComputeAvailableView));
     });
     const text = container.textContent ?? "";
-    expect(text).toContain("CPU×1");
-    expect(text).toContain("this node");
-    expect(text).not.toContain("No on-chain miners registered yet.");
+    // RTX 4090 is 82.6 TFLOPS + i9 (8 cores × 0.09) = 0.72 TFLOPS → 83.32
+    // TFLOPS total = 0.08 PFLOPS. Format is "0.08" with the two-decimal
+    // toFixed in the view.
+    expect(text).toContain("Est. PFLOPS");
+    expect(text).toContain("0.08");
   });
 
-  test("renders an Unknown italic row with 'peer-query pending' source when hardware is null", () => {
+  test("shows hardware breakdown bars in byType mode", () => {
+    useUIStore.setState({ aggregationMode: "byType" });
     useTelemetryStore.setState({
-      chainMiners: [makeMiner({ accountId: "5GBobZzzz4321", hardware: null })],
-      recentDifficulty: [],
-      serverTime: "2026-05-20T12:01:00.000Z",
+      nodes: makeSnapshot({ "5GAlice": makeNode() }),
     });
     act(() => {
       root.render(createElement(ComputeAvailableView));
     });
     const text = container.textContent ?? "";
-    expect(text).toContain("Unknown");
-    expect(text).toContain("peer-query pending");
-    // The "—" placeholder fills the Last Seen column when hardware is absent.
-    expect(text).toContain("—");
-    // Verify the Unknown cell is rendered with italic styling.
-    const unknownSpan = Array.from(container.querySelectorAll("span")).find(
-      (s) => s.textContent === "Unknown",
-    );
-    expect(unknownSpan).toBeDefined();
-    expect(unknownSpan?.className).toContain("italic");
+    expect(text).toContain("CPU Model Breakdown");
+    expect(text).toContain("GPU Model Breakdown");
   });
 
-  test("sorts miners with hardware before miners without hardware", () => {
+  test("shows Node Compute Contribution leaderboard in byNode mode", () => {
+    useUIStore.setState({ aggregationMode: "byNode" });
     useTelemetryStore.setState({
-      // Intentionally place the no-hardware row first in the source list so
-      // the sort assertion proves the comparator (not insertion order)
-      // controls the rendered order.
-      chainMiners: [
-        makeMiner({ accountId: "5GAA_no_hw", hardware: null }),
-        makeMiner({
-          accountId: "5GBB_has_hw",
-          hardware: makeHardware({ accountId: "5GBB_has_hw" }),
-        }),
-      ],
-      recentDifficulty: [],
-      serverTime: "2026-05-20T12:01:00.000Z",
+      nodes: makeSnapshot({
+        "5GAlice": makeNode({ address: "5GAlice", nodeName: "alice" }),
+        "5GBob": makeNode({ address: "5GBob", nodeName: "bob" }),
+      }),
     });
     act(() => {
       root.render(createElement(ComputeAvailableView));
     });
-    // The inventory table is the first <table> in the rendered output;
-    // assert against its tbody only so the embedded chain-miners table
-    // (which iterates the same array) doesn't confuse the assertion.
-    const firstTable = container.querySelector("table");
-    const rows = Array.from(firstTable?.querySelectorAll("tbody tr") ?? []);
-    expect(rows.length).toBe(2);
-    const firstRowText = rows[0]?.textContent ?? "";
-    expect(firstRowText).toContain("5GBB_h");
-    expect(firstRowText).not.toContain("5GAA_n");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Node Compute Contribution");
+    expect(text).toContain("2 nodes, sorted by contribution");
   });
 });

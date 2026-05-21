@@ -28,13 +28,12 @@ export function DifficultyChart() {
   // the X anchor — meaningful units, monotonic, dense enough for a
   // ~hundred-point timeline.
   const ascending = [...recent].reverse();
-  const toPoint = (key: "difficultyEnergy" | "minDiversity" | "minSolutions" | "minQuality") =>
+  const toPoint = (key: "difficultyEnergy" | "minDiversity" | "minSolutions") =>
     ascending.map((d) => ({ x: Number(d.observedAtBlock), y: d[key] }));
 
   const data = [
     { id: "Energy ceiling", data: toPoint("difficultyEnergy") },
     { id: "Min diversity", data: toPoint("minDiversity") },
-    { id: "Min quality", data: toPoint("minQuality") },
     { id: "Min solutions", data: toPoint("minSolutions") },
   ];
 

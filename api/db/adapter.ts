@@ -10,6 +10,7 @@ import type {
   IndexerObservability,
   MinerHardwareRecord,
   MinerStats,
+  NodeDescriptorRecord,
 } from "../../src/types/telemetry";
 
 /**
@@ -231,6 +232,40 @@ export interface DatabaseAdapter {
       lastAuthoredAt: string;
     }>
   >;
+
+  // --- Node descriptors (v11) ---
+  // Per-account chain-signed identity records — one row per AccountId,
+  // sourced from `System.remark_with_event` extrinsics carrying a
+  // `quip.node_descriptor.v1` JSON body. Replaces the v0.2 miner-survey
+  // pipeline as the canonical node-identity surface; see DASHBOARDPLAN.md.
+  //
+  // Upsert tie-breaker is `(blockNumber, extrinsicIndex)` so a later
+  // descriptor in the same block wins, and across blocks the newest one
+  // always wins. `firstBlockTimestamp` is preserved across upserts so the
+  // dashboard can report "first observed" without keeping a history table.
+
+  /**
+   * Insert-or-replace a descriptor by accountId. Skips the write when the
+   * stored row's `(block_number, extrinsic_index)` already orders strictly
+   * later than the incoming one — protects against out-of-order live + backfill.
+   */
+  upsertNodeDescriptor(record: NodeDescriptorRecord): Promise<void>;
+
+  /**
+   * All descriptors known to the indexer, ordered by `nodeName` for stable
+   * UI rendering. Empty when no `quip-miner identify` extrinsic has been
+   * observed yet. Re-projected to NodesSnapshot at server time.
+   */
+  getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]>;
+
+  /**
+   * Read the highest substrate block height the descriptor worker has
+   * scanned (inclusive). Null until the first scan completes.
+   */
+  getDescriptorCheckpoint(): Promise<string | null>;
+
+  /** Persist the descriptor-worker's last-scanned block. Monotonic-only. */
+  setDescriptorCheckpoint(blockNumber: string): Promise<void>;
 }
 
 export interface DbConfig {
@@ -285,7 +320,22 @@ export interface DbConfig {
 // separate poll cadence) get refreshed with the per-block snapshot from
 // quip-protocol-rs v0.2's `WinningSolutions[block_number].difficulty`
 // storage map, surfaced via `QuantumPowApi::winning_solution()`.
-export const SCHEMA_VERSION = 8;
+// v9: drops `quality_milli` column from `blocks` and `min_quality` column
+// from `difficulty_history`. v0.2 chain removed quality from both the
+// `ProofAccepted` event (no longer 5th field) and `DifficultyConfig` (only
+// `min_solutions`, `max_energy_milli`, `min_diversity_milli` remain), so
+// these columns had nowhere to source values from. Wipe-on-drift rebuilds
+// cleanly from the v0.2 event stream.
+// v10: re-introduces `nodes_snapshot(id=1, payload TEXT)` for the new
+// miner survey ingest path. Backs the restored PFLOPS/TFLOPS visuals
+// without re-introducing the deleted PoW-epoch abstraction. Stored as a
+// JSON blob keyed by a single row, overwritten on every survey poll.
+// v11: drops `nodes_snapshot` and the HTTP fan-out survey-worker. Adds
+// `node_descriptors` — one row per AccountId, populated from
+// `System.remark_with_event` extrinsics carrying a `quip.node_descriptor.v1`
+// JSON body. Server projects to NodesSnapshot at read time. This is the
+// canonical chain-signed identity surface; see DASHBOARDPLAN.md.
+export const SCHEMA_VERSION = 11;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
@@ -300,4 +350,5 @@ export const OWNED_TABLES = [
   "difficulty_history",
   "miner_hardware",
   "validator_authorship",
+  "node_descriptors",
 ] as const;

@@ -26,11 +26,12 @@ const NUM_POINTS = 50;
 export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners);
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
     const filtered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
@@ -101,5 +102,5 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
     });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, chainMiners, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
 }

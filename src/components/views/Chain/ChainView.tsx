@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { shortAddress } from "../../../lib/format-chain";
 import { selectServerNowMs, useTelemetryStore } from "../../../store/telemetry-store";
 import type { ValidatorAuthorshipRecord } from "../../../types/telemetry";
+import { BabeAuthoritiesPanel } from "./BabeAuthoritiesPanel";
 
 // Sortable column identifiers. Tied to the visible columns on the table.
 type SortColumn =
@@ -125,86 +126,93 @@ export function ChainView() {
 
   if (validators.length === 0) {
     return (
-      <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
-        <p className="font-heading text-2xl text-brand-gray-5">No active validators</p>
-        <p className="mt-2 font-accent text-sm text-brand-gray-3">
-          Set <code>QUIP_VALIDATOR_RPC_URL</code> on the indexer to surface the BABE authority set
-          and per-validator authorship stats here.
-        </p>
-      </div>
+      <>
+        <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
+          <p className="font-heading text-2xl text-brand-gray-5">No active validators</p>
+          <p className="mt-2 font-accent text-sm text-brand-gray-3">
+            Set <code>QUIP_VALIDATOR_RPC_URL</code> on the indexer to surface the BABE authority set
+            and per-validator authorship stats here.
+          </p>
+        </div>
+        <BabeAuthoritiesPanel />
+      </>
     );
   }
 
   return (
-    <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 backdrop-blur-xl">
-      <header className="border-b border-brand-gray-2 px-4 py-3">
-        <h2 className="font-heading text-lg text-brand-gray-5">
-          Active Validators ({validators.length})
-        </h2>
-        <p className="mt-1 font-accent text-xs text-brand-gray-3">
-          BABE validator set from <code>session.validators</code>. Counters increment per finalized
-          head; the PoW column counts heads that also won a <code>quantumPow.BlockWinner</code>.
-        </p>
-      </header>
-      <div className="overflow-x-auto">
-        <table className="w-full font-accent text-sm">
-          <thead className="text-left text-xs uppercase tracking-wider text-brand-gray-3">
-            <tr className="border-b border-brand-gray-2">
-              <HeaderCell label="Account" column="account" sort={sort} onClick={onSort} />
-              <HeaderCell
-                label="Blocks Authored"
-                column="blocksAuthored"
-                sort={sort}
-                onClick={onSort}
-                align="right"
-              />
-              <HeaderCell
-                label="With PoW"
-                column="blocksAuthoredWithPow"
-                sort={sort}
-                onClick={onSort}
-                align="right"
-              />
-              <HeaderCell label="Online" column="online" sort={sort} onClick={onSort} />
-              <HeaderCell
-                label="Last Authored"
-                column="lastAuthored"
-                sort={sort}
-                onClick={onSort}
-              />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((v) => {
-              const last = formatLastAuthored(v, serverNowMs);
-              return (
-                <tr
-                  key={v.accountId}
-                  className="border-b border-brand-gray-1 last:border-b-0 hover:bg-brand-gray-2/30"
-                >
-                  <td className="px-4 py-2 font-mono text-xs" title={v.accountId}>
-                    {shortAddress(v.accountId)}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">{v.blocksAuthored}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{v.blocksAuthoredWithPow}</td>
-                  <td className="px-4 py-2">
-                    {v.online ? (
-                      <span className="text-brand-green-0">● online</span>
-                    ) : (
-                      <span className="text-brand-gray-3">○ offline</span>
-                    )}
-                  </td>
-                  <td
-                    className={`px-4 py-2 ${last.dim ? "text-brand-gray-3" : "text-brand-gray-5"}`}
+    <>
+      <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 backdrop-blur-xl">
+        <header className="border-b border-brand-gray-2 px-4 py-3">
+          <h2 className="font-heading text-lg text-brand-gray-5">
+            Active Validators ({validators.length})
+          </h2>
+          <p className="mt-1 font-accent text-xs text-brand-gray-3">
+            BABE validator set from <code>session.validators</code>. Counters increment per
+            finalized head; the PoW column counts heads that also won a{" "}
+            <code>quantumPow.BlockWinner</code>.
+          </p>
+        </header>
+        <div className="overflow-x-auto">
+          <table className="w-full font-accent text-sm">
+            <thead className="text-left text-xs uppercase tracking-wider text-brand-gray-3">
+              <tr className="border-b border-brand-gray-2">
+                <HeaderCell label="Account" column="account" sort={sort} onClick={onSort} />
+                <HeaderCell
+                  label="Blocks Authored"
+                  column="blocksAuthored"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                />
+                <HeaderCell
+                  label="With PoW"
+                  column="blocksAuthoredWithPow"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                />
+                <HeaderCell label="Online" column="online" sort={sort} onClick={onSort} />
+                <HeaderCell
+                  label="Last Authored"
+                  column="lastAuthored"
+                  sort={sort}
+                  onClick={onSort}
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((v) => {
+                const last = formatLastAuthored(v, serverNowMs);
+                return (
+                  <tr
+                    key={v.accountId}
+                    className="border-b border-brand-gray-1 last:border-b-0 hover:bg-brand-gray-2/30"
                   >
-                    {last.text}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    <td className="px-4 py-2 font-mono text-xs" title={v.accountId}>
+                      {shortAddress(v.accountId)}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">{v.blocksAuthored}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{v.blocksAuthoredWithPow}</td>
+                    <td className="px-4 py-2">
+                      {v.online ? (
+                        <span className="text-brand-green-0">● online</span>
+                      ) : (
+                        <span className="text-brand-gray-3">○ offline</span>
+                      )}
+                    </td>
+                    <td
+                      className={`px-4 py-2 ${last.dim ? "text-brand-gray-3" : "text-brand-gray-5"}`}
+                    >
+                      {last.text}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+      <BabeAuthoritiesPanel />
+    </>
   );
 }

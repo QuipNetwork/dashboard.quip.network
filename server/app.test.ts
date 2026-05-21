@@ -21,7 +21,6 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     energy: -2510,
     diversity: 0.42,
     numValidSolutions: 5,
-    qualityMilli: 850,
     miningTime: 6,
     reward: "1000000000000",
     nonce: "42",
@@ -76,9 +75,15 @@ describe("server app", () => {
     expect(body.recentDifficulty).toEqual([]);
     expect(body.validators).toEqual([]);
 
-    // v5 keys must be gone — the dashboard no longer surfaces a peer list or
-    // an epoch catalog.
-    expect("nodes" in body).toBe(false);
+    // v11 projects `nodes` from `node_descriptors`; null until the
+    // descriptor worker observes its first valid `quip-miner identify`
+    // remark. `nodeDescriptors` is the raw per-account record array.
+    expect("nodes" in body).toBe(true);
+    expect(body.nodes).toBeNull();
+    expect("nodeDescriptors" in body).toBe(true);
+    expect(body.nodeDescriptors).toEqual([]);
+    // The PoW-epoch catalog stayed deleted in v10 — Global Epoch Selector
+    // is incompatible with the chain-canonical model.
     expect("epochs" in body).toBe(false);
   });
 
@@ -186,7 +191,6 @@ describe("server app", () => {
       difficultyEnergy: 12.5,
       minDiversity: 0.5,
       minSolutions: 3,
-      minQuality: 0.25,
       observedAt: "2026-05-15T00:00:00.000Z",
     });
 
