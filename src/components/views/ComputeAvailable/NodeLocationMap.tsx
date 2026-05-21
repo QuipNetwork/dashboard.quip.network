@@ -9,9 +9,10 @@ interface NodeLocationMapProps {
   unlocatedCount: number;
 }
 
-// World atlas TopoJSON served from unpkg — same source used by react-simple-maps'
-// own examples. Cached by the browser across reloads; falls through to an empty
-// map (see Geographies render fallback) if the request fails.
+// World atlas TopoJSON served from unpkg — same source used by
+// react-simple-maps' own examples. Cached by the browser across reloads;
+// falls through to an empty map (see Geographies render fallback) if the
+// request fails.
 const GEO_URL = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
 
 const NODE_COLOR = "#67E347";
@@ -63,18 +64,19 @@ export function NodeLocationMap({ nodes, unlocatedCount }: NodeLocationMapProps)
       </ComposableMap>
 
       {(unlocatedCount > 0 || !hasAny) && (
-        <p className="absolute bottom-2 right-3 font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
+        <p className="absolute right-3 bottom-2 font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
           {hasAny
             ? `${unlocatedCount} node${unlocatedCount === 1 ? "" : "s"} unlocated`
-            : "No located nodes — set GEOIP_DB_PATH to enable geo-IP"}
+            : "No located nodes — operators haven't published publicHost, or geo lookup is disabled"}
         </p>
       )}
     </div>
   );
 }
 
-// Scale marker radius by ~log of TFLOPS so a 100-TFLOP node isn't 10× the size
-// of a 10-TFLOP node — the eye reads log-area more naturally for compute share.
+// Scale marker radius by ~log of TFLOPS so a 100-TFLOPS node isn't 10×
+// the size of a 10-TFLOPS node — the eye reads log-area more naturally
+// for compute share.
 function markerRadius(tflops: number): number {
   if (tflops <= 0) return 3;
   return 3 + Math.log10(1 + tflops) * 2.5;

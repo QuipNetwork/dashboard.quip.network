@@ -1,26 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Geo-IP lookup for node publicHost values.
+// Geo-IP lookup for node `publicHost` values.
 //
 // Default backend: `geoip-lite` npm package, which bundles a copy of the
 // MaxMind GeoLite2-City database (~100MB) with the package — zero operator
 // setup, offline, fast. The bundled data refreshes when the package is
 // bumped.
 //
-// Override: when GEOIP_DB_PATH is set, we open that .mmdb via the `maxmind`
-// package instead. Useful for operators who keep their own refreshed
-// GeoLite2-City or GeoIP2-City (commercial) database on disk.
+// Override: when GEOIP_DB_PATH is set, we open that .mmdb via the
+// `maxmind` package instead. Useful for operators who keep their own
+// refreshed GeoLite2-City or GeoIP2-City (commercial) database on disk.
 //
-// Both paths cache per-hostname results for one hour to avoid re-resolving
-// DNS on every /api/telemetry hit.
+// Both paths cache per-hostname results to avoid re-resolving DNS on
+// every /api/telemetry hit. TTL is 5 minutes (audit fix #9 from the v0.2
+// master implementation) — short enough that node-region moves catch up
+// within minutes, long enough to keep the SPA's 2s poll cadence cheap.
 
 import { lookup as dnsLookup } from "node:dns/promises";
 
-import type { CityResponse, Reader } from "mmdb-lib";
+import type { NodeInfo, NodeLocation, NodesSnapshot } from "../src/types/telemetry";
 
-import type { NodeInfo, NodeLocation } from "../src/types/telemetry";
-
-const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CacheEntry {
   location: NodeLocation | null;
@@ -28,18 +28,14 @@ interface CacheEntry {
 }
 
 export interface GeoIpEnricher {
-  enrich(node: NodeInfo): Promise<NodeInfo>;
-  enrichSnapshot(nodes: Record<string, NodeInfo>): Promise<Record<string, NodeInfo>>;
+  enrichSnapshot(snapshot: NodesSnapshot | null): Promise<NodesSnapshot | null>;
   readonly enabled: boolean;
 }
 
 class NoopEnricher implements GeoIpEnricher {
   readonly enabled = false;
-  async enrich(node: NodeInfo): Promise<NodeInfo> {
-    return node;
-  }
-  async enrichSnapshot(nodes: Record<string, NodeInfo>): Promise<Record<string, NodeInfo>> {
-    return nodes;
+  async enrichSnapshot(snapshot: NodesSnapshot | null): Promise<NodesSnapshot | null> {
+    return snapshot;
   }
 }
 
@@ -52,18 +48,27 @@ class CachingEnricher implements GeoIpEnricher {
 
   constructor(private readonly resolve: IpResolver) {}
 
-  async enrich(node: NodeInfo): Promise<NodeInfo> {
+  async enrichSnapshot(snapshot: NodesSnapshot | null): Promise<NodesSnapshot | null> {
+    if (snapshot === null) return null;
+    // Resolve every node in parallel; unresolvable ones keep their original
+    // shape (no `location` field). Cache hits short-circuit DNS entirely so
+    // a fully-warm cache produces zero network I/O.
+    const entries = await Promise.all(
+      Object.entries(snapshot.nodes).map(
+        async ([addr, info]) => [addr, await this.enrich(info)] as const,
+      ),
+    );
+    return {
+      ...snapshot,
+      nodes: Object.fromEntries(entries),
+    };
+  }
+
+  private async enrich(node: NodeInfo): Promise<NodeInfo> {
     if (!node.publicHost) return node;
     const location = await this.lookupWithCache(node.publicHost);
     if (!location) return node;
     return { ...node, location };
-  }
-
-  async enrichSnapshot(nodes: Record<string, NodeInfo>): Promise<Record<string, NodeInfo>> {
-    const entries = await Promise.all(
-      Object.entries(nodes).map(async ([addr, info]) => [addr, await this.enrich(info)] as const),
-    );
-    return Object.fromEntries(entries);
   }
 
   private async lookupWithCache(host: string): Promise<NodeLocation | null> {
@@ -77,6 +82,8 @@ class CachingEnricher implements GeoIpEnricher {
       const r = await dnsLookup(host);
       ip = r.address;
     } catch {
+      // Cache the failure so we don't re-resolve a permanently-broken
+      // host on every poll. Inverts to a retry once the TTL expires.
       this.cache.set(key, { location: null, expiresAt: now + CACHE_TTL_MS });
       return null;
     }
@@ -87,7 +94,16 @@ class CachingEnricher implements GeoIpEnricher {
   }
 }
 
-function maxmindResolver(reader: Reader<CityResponse>): IpResolver {
+// Type-narrow what `maxmind` returns. We pull only the fields the map
+// renders, so an .mmdb missing other GeoLite2 sub-records is fine.
+interface MaxmindCity {
+  country?: { iso_code?: string };
+  registered_country?: { iso_code?: string };
+  city?: { names: { en?: string } };
+  location?: { latitude?: number; longitude?: number };
+}
+
+function maxmindResolver(reader: { get: (ip: string) => MaxmindCity | null }): IpResolver {
   return (ip) => {
     const record = reader.get(ip);
     if (!record) return null;
@@ -100,8 +116,9 @@ function maxmindResolver(reader: Reader<CityResponse>): IpResolver {
   };
 }
 
-// Shape returned by geoip-lite's lookup() — typed conservatively since the
-// @types/geoip-lite declaration covers the common fields we need.
+// geoip-lite's `lookup` returns the common subset we need — typed
+// conservatively here so a runtime mismatch surfaces as a narrow null,
+// not a type error.
 interface GeoLiteLookup {
   country: string;
   city?: string;
@@ -122,13 +139,20 @@ function geoLiteResolver(lookup: (ip: string) => GeoLiteLookup | null): IpResolv
 
 let singleton: GeoIpEnricher | null = null;
 
+/**
+ * Return the process-wide enricher. First call resolves the backend
+ * (GEOIP_DB_PATH → maxmind, else bundled geoip-lite). Subsequent calls
+ * are O(1) — the resolver picks up the same in-memory cache.
+ */
 export async function getGeoIpEnricher(): Promise<GeoIpEnricher> {
   if (singleton) return singleton;
   const dbPath = process.env.GEOIP_DB_PATH;
   if (dbPath) {
     try {
       const { open } = await import("maxmind");
-      const reader = await open<CityResponse>(dbPath);
+      const reader = (await open(dbPath)) as unknown as {
+        get: (ip: string) => MaxmindCity | null;
+      };
       console.log(`[geoip] using maxmind reader from ${dbPath}`);
       singleton = new CachingEnricher(maxmindResolver(reader));
       return singleton;
@@ -138,9 +162,9 @@ export async function getGeoIpEnricher(): Promise<GeoIpEnricher> {
     }
   }
   try {
-    // geoip-lite's `lookup` is synchronous; it loads its bundled .dat files
-    // into memory on first call. The data ships with the package so there is
-    // no external fetch or license setup.
+    // geoip-lite's `lookup` is synchronous; it loads its bundled .dat
+    // files into memory on first call. The data ships with the package
+    // so there is no external fetch or license setup.
     const mod = (await import("geoip-lite")) as unknown as {
       default?: { lookup: (ip: string) => GeoLiteLookup | null };
       lookup?: (ip: string) => GeoLiteLookup | null;
@@ -158,6 +182,7 @@ export async function getGeoIpEnricher(): Promise<GeoIpEnricher> {
   }
 }
 
+/** @internal — replaces the singleton for unit tests. */
 export function _setEnricherForTesting(next: GeoIpEnricher | null): void {
   singleton = next;
 }

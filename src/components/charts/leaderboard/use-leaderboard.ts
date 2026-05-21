@@ -1,7 +1,16 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useMemo } from "react";
+import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-category";
+import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
-import type { BlockRecord, MinerCategory } from "../../../types/telemetry";
+import type {
+  BlockRecord,
+  ChainMinerRecord,
+  MinerCategory,
+  NodeDescriptorRecord,
+} from "../../../types/telemetry";
 
 export interface LeaderboardEntry {
   rank: number;
@@ -24,11 +33,17 @@ export interface LeaderboardFilter {
  * Pure leaderboard computation. Extracted so views that need a canonical
  * ranking (e.g. "My Node" showing the operator their network-wide rank) can
  * reuse the exact same logic without being coupled to the UI store's filter.
+ *
+ * v0.3: categories come from a `chainMiners` lookup (every miner currently
+ * resolves to "OTHER" until per-miner hardware lands; see lib/miner-category).
  */
 export function computeLeaderboard(
   blocks: readonly BlockRecord[],
+  chainMiners: readonly ChainMinerRecord[],
   filter?: LeaderboardFilter,
+  nodeDescriptors: readonly NodeDescriptorRecord[] = [],
 ): LeaderboardEntry[] {
+  const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
   const stats = new Map<
     string,
     {
@@ -40,7 +55,8 @@ export function computeLeaderboard(
   >();
 
   for (const block of blocks) {
-    if (filter?.categories && !filter.categories.has(block.minerCategory)) continue;
+    const minerCategory = categoryFor(block.minerId, catIndex);
+    if (filter?.categories && !filter.categories.has(minerCategory)) continue;
 
     const existing = stats.get(block.minerId);
     if (existing) {
@@ -49,7 +65,7 @@ export function computeLeaderboard(
       existing.bestEnergy = Math.min(existing.bestEnergy, block.energy);
     } else {
       stats.set(block.minerId, {
-        minerCategory: block.minerCategory,
+        minerCategory,
         blockCount: 1,
         totalMiningTime: block.miningTime,
         bestEnergy: block.energy,
@@ -74,6 +90,8 @@ export function computeLeaderboard(
 
 export function useLeaderboard(): LeaderboardEntry[] {
   const blocks = useFilteredBlocks();
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
   const mode = useUIStore((s) => s.aggregationMode);
 
@@ -81,8 +99,10 @@ export function useLeaderboard(): LeaderboardEntry[] {
     () =>
       computeLeaderboard(
         blocks,
+        chainMiners,
         mode === "byType" ? { categories: new Set(selectedTypes) } : undefined,
+        nodeDescriptors,
       ),
-    [blocks, selectedTypes, mode],
+    [blocks, chainMiners, nodeDescriptors, selectedTypes, mode],
   );
 }
