@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type {
   BlockRecord,
   ChainMinerRecord,
+  DifficultyRecord,
   IndexerObservability,
   MinerStats,
 } from "../../../types/telemetry";
@@ -72,6 +73,18 @@ function makeMinerStats(overrides: Partial<MinerStats> = {}): MinerStats {
   };
 }
 
+function makeDifficulty(overrides: Partial<DifficultyRecord> = {}): DifficultyRecord {
+  return {
+    observedAtBlock: "100",
+    difficultyEnergy: -1.234,
+    minDiversity: 0.5,
+    minSolutions: 5,
+    minQuality: 0,
+    observedAt: "2026-05-21T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function makeIndexer(overrides: Partial<IndexerObservability> = {}): IndexerObservability {
   return {
     chainHeadFromNode: "100",
@@ -115,6 +128,7 @@ beforeEach(() => {
     selfAddress: null,
     indexer: null,
     chainMiners: [],
+    recentDifficulty: [],
   });
 });
 
@@ -249,6 +263,65 @@ describe("useMyNode", () => {
 
     const out = renderHook();
     expect(out.current?.currentRequirements).toBeNull();
+  });
+
+  it("populates currentRequirements from recentDifficulty[0] when blocks are empty", () => {
+    // Wipe-on-drift case: indexer just restarted, no winning proofs since
+    // boot so `blocks` is empty, but the first `current_difficulty()` poll
+    // already wrote a row. The card should show the live chain threshold,
+    // not "Awaiting first block" indefinitely.
+    useTelemetryStore.setState({
+      blocks: [],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+      recentDifficulty: [
+        makeDifficulty({
+          difficultyEnergy: -2.5,
+          minDiversity: 0.162,
+          minSolutions: 1,
+        }),
+      ],
+    });
+
+    const out = renderHook();
+    expect(out.current?.currentRequirements).toEqual({
+      difficultyEnergy: -2.5,
+      minDiversity: 0.162,
+      minSolutions: 1,
+    });
+  });
+
+  it("prefers recentDifficulty[0] over tipBlock when both are present", () => {
+    // recentDifficulty is the live decayed value from `current_difficulty()`;
+    // tipBlock's per-block snapshot reflects the threshold a (possibly old)
+    // winning proof had to clear. When both exist, the live poll wins.
+    const tip = makeBlock({
+      blockHash: "0xtip",
+      difficultyEnergy: -99,
+      minDiversity: 0.99,
+      minSolutions: 99,
+    });
+    useTelemetryStore.setState({
+      blocks: [tip],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+      recentDifficulty: [
+        makeDifficulty({
+          difficultyEnergy: -1.1,
+          minDiversity: 0.1,
+          minSolutions: 1,
+        }),
+      ],
+    });
+
+    const out = renderHook();
+    expect(out.current?.currentRequirements).toEqual({
+      difficultyEnergy: -1.1,
+      minDiversity: 0.1,
+      minSolutions: 1,
+    });
   });
 
   it("forwards indexer.minerStats when present", () => {

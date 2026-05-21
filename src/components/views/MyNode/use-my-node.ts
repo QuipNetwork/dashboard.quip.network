@@ -27,6 +27,13 @@ export function useMyNode(): MyNodeStats {
   const blocks = useTelemetryStore((s) => s.blocks);
   const indexer = useTelemetryStore((s) => s.indexer);
   const tipBlock = useTelemetryStore(selectTipBlock);
+  // Most recent `current_difficulty()` poll. With quip-protocol-rs v0.2 this
+  // is the runtime API call that returns the decayed live threshold the
+  // pallet currently checks proofs against — fresher than tipBlock's
+  // per-block snapshot, which can be the threshold from a winning proof
+  // many hours ago. Survives wipe-on-drift restarts where `blocks` starts
+  // empty but the indexer's first difficulty poll fires within 300s.
+  const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
 
   return useMemo<MyNodeStats>(() => {
     const chainMinerEntry = selfAddress
@@ -35,13 +42,20 @@ export function useMyNode(): MyNodeStats {
     const lastWonBlock = selfAddress
       ? (blocks.find((b) => b.minerId === selfAddress) ?? null)
       : null;
-    const currentRequirements: CurrentRequirements | null = tipBlock
+    const liveDifficulty = recentDifficulty[0] ?? null;
+    const currentRequirements: CurrentRequirements | null = liveDifficulty
       ? {
-          difficultyEnergy: tipBlock.difficultyEnergy,
-          minDiversity: tipBlock.minDiversity,
-          minSolutions: tipBlock.minSolutions,
+          difficultyEnergy: liveDifficulty.difficultyEnergy,
+          minDiversity: liveDifficulty.minDiversity,
+          minSolutions: liveDifficulty.minSolutions,
         }
-      : null;
+      : tipBlock
+        ? {
+            difficultyEnergy: tipBlock.difficultyEnergy,
+            minDiversity: tipBlock.minDiversity,
+            minSolutions: tipBlock.minSolutions,
+          }
+        : null;
     return {
       selfAddress,
       chainMinerEntry,
@@ -50,5 +64,5 @@ export function useMyNode(): MyNodeStats {
       blocksMined: chainMinerEntry?.proofsWon ?? "0",
       currentRequirements,
     };
-  }, [selfAddress, chainMiners, blocks, indexer, tipBlock]);
+  }, [selfAddress, chainMiners, blocks, indexer, tipBlock, recentDifficulty]);
 }
