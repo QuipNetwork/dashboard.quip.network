@@ -4,8 +4,13 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v7: validator_authorship table added", () => {
-  expect(SCHEMA_VERSION).toBe(7);
+test("schema v8: per-block difficulty sourced from quantumPowApi.winning_solution", () => {
+  // v8 doesn't add tables — the bump triggers wipe-on-drift so existing
+  // `blocks` rows (which carried approximate per-block difficulty from a
+  // separate poll cadence) are refreshed with the per-block snapshot from
+  // `WinningSolutions[block_number].difficulty`. OWNED_TABLES unchanged
+  // from v7.
+  expect(SCHEMA_VERSION).toBe(8);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
@@ -19,7 +24,7 @@ test("schema v7: validator_authorship table added", () => {
   ]);
 });
 
-test("v7 DatabaseAdapter surface: validator_authorship methods added", () => {
+test("v8 DatabaseAdapter surface: validator_authorship methods (unchanged from v7)", () => {
   type Methods = keyof DatabaseAdapter;
   const required: Methods[] = [
     "connect",

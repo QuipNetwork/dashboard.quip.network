@@ -280,7 +280,12 @@ export interface DbConfig {
 // heads that also carried a `quantumPow.BlockWinner` event. The server joins
 // this against the active BABE authority set for the new Active Validators
 // view. Same drop-on-drift policy as prior bumps.
-export const SCHEMA_VERSION = 7;
+// v8: no new tables — the bump triggers wipe-on-drift so existing `blocks`
+// rows (which carried approximate per-block difficulty values from a
+// separate poll cadence) get refreshed with the per-block snapshot from
+// quip-protocol-rs v0.2's `WinningSolutions[block_number].difficulty`
+// storage map, surfaced via `QuantumPowApi::winning_solution()`.
+export const SCHEMA_VERSION = 8;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

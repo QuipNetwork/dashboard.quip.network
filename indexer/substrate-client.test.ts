@@ -3,11 +3,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  extractNonce,
   FakeSubstrateClient,
   PolkadotSubstrateClient,
   type BlockEvents,
-  type BlockWinnerEvent,
   type SubstrateHead,
 } from "./substrate-client";
 
@@ -235,88 +233,29 @@ describe("PolkadotSubstrateClient (integration)", () => {
   );
 });
 
-// Hand-rolled fixtures shaped like polkadot.js's `getBlock().block.extrinsics`
-// — just enough for extractNonce's narrow type assertion. No @polkadot/api
-// codec instances needed; the helper only reads via `toString()` and field
-// presence checks.
-type FakeExtrinsic = {
-  isSigned: boolean;
-  signer: { toString: () => string };
-  method: { section: string; method: string; args: Array<{ toString: () => string }> };
-};
-
-function makeSubmitProofExtrinsic(opts: {
-  signer: string;
-  nonce: string;
-  isSigned?: boolean;
-  section?: string;
-  method?: string;
-}): FakeExtrinsic {
-  return {
-    isSigned: opts.isSigned ?? true,
-    signer: { toString: () => opts.signer },
-    method: {
-      section: opts.section ?? "quantumPow",
-      // Polkadot.js exposes runtime call names in camelCase (`submit_proof`
-      // in pallet code → `submitProof` from `ext.method.method`).
-      method: opts.method ?? "submitProof",
-      args: [
-        {
-          // extractNonce reads `args[0].nonce.toString()`; the codec's own
-          // toString is irrelevant but harmless.
-          toString: () => "<proof>",
-          nonce: { toString: () => opts.nonce },
-        } as unknown as { toString: () => string },
-      ],
-    },
-  };
-}
-
-function makeSignedBlock(extrinsics: FakeExtrinsic[]): unknown {
-  return { block: { extrinsics } };
-}
-
-const winnerOf = (miner: string): BlockWinnerEvent => ({
-  miner,
-  reward: "1000",
-  energyMilli: -2510,
-  submittedAt: "100",
-});
-
-describe("extractNonce", () => {
-  test("returns the nonce from the matching signed submitProof extrinsic", () => {
-    const signed = makeSignedBlock([makeSubmitProofExtrinsic({ signer: "5GPPxx", nonce: "42" })]);
-    expect(extractNonce(signed, winnerOf("5GPPxx"))).toBe("42");
+describe("FakeSubstrateClient.getWinningSolution", () => {
+  test("returns null when no solution is programmed for the block", async () => {
+    const c = new FakeSubstrateClient();
+    expect(await c.getWinningSolution("99")).toBeNull();
   });
 
-  test("returns null when no extrinsic matches the winner's signer", () => {
-    const signed = makeSignedBlock([
-      // submit_proof, but from a different miner
-      makeSubmitProofExtrinsic({ signer: "5GOther", nonce: "7" }),
-      // quantumPow extrinsic of a different method
-      makeSubmitProofExtrinsic({
-        signer: "5GPPxx",
-        nonce: "99",
-        method: "register_miner",
-      }),
-      // unsigned (inherent) extrinsic in the section we care about
-      makeSubmitProofExtrinsic({ signer: "5GPPxx", nonce: "1", isSigned: false }),
-      // unrelated pallet
-      makeSubmitProofExtrinsic({ signer: "5GPPxx", nonce: "2", section: "balances" }),
-    ]);
-    expect(extractNonce(signed, winnerOf("5GPPxx"))).toBeNull();
-  });
-
-  test("returns the first match when the same signer submitted multiple proofs", () => {
-    // Chain invariant: only one proof can win per block, but the pallet
-    // accepts up to MaxProofsPerBlock submissions from a miner before
-    // on_finalize picks the best. The helper documents its first-match
-    // behavior so callers know what to expect on this shape.
-    const signed = makeSignedBlock([
-      makeSubmitProofExtrinsic({ signer: "5GPPxx", nonce: "11" }),
-      makeSubmitProofExtrinsic({ signer: "5GPPxx", nonce: "22" }),
-      makeSubmitProofExtrinsic({ signer: "5GPPxx", nonce: "33" }),
-    ]);
-    expect(extractNonce(signed, winnerOf("5GPPxx"))).toBe("11");
+  test("returns the programmed solution for a known block", async () => {
+    const c = new FakeSubstrateClient();
+    c.winningSolutionsByBlock.set("77", {
+      miner: "5GPPxx",
+      energyMilli: -2510,
+      reward: "1000",
+      submittedAt: "77",
+      nonce: "12345",
+      difficulty: {
+        maxEnergyMilli: -1200,
+        minDiversityMilli: 200,
+        minSolutions: 5,
+        minQualityMilli: 0,
+      },
+    });
+    const sol = await c.getWinningSolution("77");
+    expect(sol?.nonce).toBe("12345");
+    expect(sol?.difficulty.minSolutions).toBe(5);
   });
 });

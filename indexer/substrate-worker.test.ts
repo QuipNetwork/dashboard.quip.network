@@ -35,14 +35,24 @@ describe("substrate worker", () => {
     await state.load();
     const client = new FakeSubstrateClient();
     client.topology = { nodeCount: 100, edgeCount: 200 };
-    // Wire shape: milli-encoded. The worker converts before writing to
-    // BlockRecord (energy/diversity are floats; min_solutions is integer-units).
-    client.difficulty = {
-      maxEnergyMilli: -2500,
-      minDiversityMilli: 200,
-      minSolutions: 5,
-      minQualityMilli: 800,
-    };
+    // v0.2: per-block difficulty + nonce come from
+    // `QuantumPowApi::winning_solution(block_number)`, not a separate
+    // polled snapshot. Wire shape is milli-encoded; the worker converts
+    // to floats (energy/diversity) and integer units (min_solutions)
+    // before BlockRecord insertion.
+    client.winningSolutionsByBlock.set("100", {
+      miner: "5GPP",
+      energyMilli: -2510,
+      reward: "1000",
+      submittedAt: "100",
+      nonce: "42",
+      difficulty: {
+        maxEnergyMilli: -2500,
+        minDiversityMilli: 200,
+        minSolutions: 5,
+        minQualityMilli: 800,
+      },
+    });
     client.lastProofBlockByHash.set("0xsub99", 94);
 
     const ac = new AbortController();
@@ -141,8 +151,9 @@ describe("substrate worker", () => {
       ac.signal,
     );
     await wait(50);
-    // Winner + matching ProofAccepted, but extractNonce returned null —
-    // skip rather than collide nonce "0" with the no-info sentinel.
+    // Winner + matching ProofAccepted, but BlockEvents arrived with
+    // nonce: null (runtime returned no WinningSolution for this block)
+    // — skip rather than collide with nonce "0" as a no-info sentinel.
     client.emitBlock({
       blockNumber: 77,
       blockHash: "0xnononce",

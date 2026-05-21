@@ -221,16 +221,21 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
         const lastProofBlock = await client.getLastProofBlockAt(e.parentHash);
         const miningTime = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
 
-        // Refresh the difficulty snapshot for this block. Topology is
-        // cached at boot — much more stable than difficulty.
-        const currentDifficulty = await client.getDifficulty().catch(() => null);
-        if (currentDifficulty) lastDifficulty = currentDifficulty;
-        const d: DifficultyInfo = lastDifficulty ?? {
-          maxEnergyMilli: 0,
-          minDiversityMilli: 0,
-          minSolutions: 0,
-          minQualityMilli: 0,
-        };
+        // Per-block difficulty snapshot. v0.2 chain persists the exact
+        // threshold each winning proof cleared in `WinningSolutions[N]`
+        // — sourced via `QuantumPowApi::winning_solution(blockNumber)`.
+        // Falls back to the most recent live `current_difficulty()` poll
+        // for pre-v0.2 chains, then to zeros, so the writer never blocks
+        // on missing per-block data.
+        const winSol = await client.getWinningSolution(String(e.blockNumber)).catch(() => null);
+        if (winSol?.difficulty) lastDifficulty = winSol.difficulty;
+        const d: DifficultyInfo = winSol?.difficulty ??
+          lastDifficulty ?? {
+            maxEnergyMilli: 0,
+            minDiversityMilli: 0,
+            minSolutions: 0,
+            minQualityMilli: 0,
+          };
 
         const record: BlockRecord = {
           blockHash: e.blockHash,

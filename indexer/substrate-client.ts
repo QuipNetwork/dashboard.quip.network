@@ -117,15 +117,34 @@ export interface ChainMinerInfo {
   rewardsEarned: string;
 }
 
-// Difficulty snapshot from pallet-quantum-pow's Difficulty storage. This
-// is the WIRE shape — fields mirror the on-chain `DifficultyConfig` struct
-// in quip-protocol-rs/pallets/quantum-pow/src/types.rs:38-43. The substrate
-// worker converts to DifficultyRecord (milli → float) before DB write.
+// Difficulty snapshot. v0.2 introduces `QuantumPowApi::current_difficulty()`
+// which returns the live decayed value (the threshold the pallet currently
+// checks proofs against); the raw `Difficulty` storage is the baseline that
+// only changes when sudo updates it, so it can be hours stale during a
+// decay window. The substrate worker converts to DifficultyRecord
+// (milli → float) before DB write.
 export interface DifficultyInfo {
   maxEnergyMilli: number;
   minDiversityMilli: number;
   minSolutions: number;
   minQualityMilli: number;
+}
+
+// Per-block winning solution snapshot returned by quip-protocol-rs v0.2's
+// `QuantumPowApi::winning_solution(block_number)` runtime call. Carries both
+// the winner (miner + energy + reward) AND the threshold the proof actually
+// cleared (`difficulty`) AND the BLAKE3-derived nonce — meaning the worker
+// no longer has to walk extrinsics to recover the nonce and no longer has
+// to approximate the difficulty threshold from a separate poll.
+export interface WinningSolutionInfo {
+  miner: string;
+  energyMilli: number;
+  reward: string;
+  submittedAt: string;
+  // U256 from BLAKE3((parent_hash, miner_blake2_256, block_number_u32,
+  // salt_32bytes)), decimal-encoded. Replaces the v0.1 u64 nonce.
+  nonce: string;
+  difficulty: DifficultyInfo;
 }
 
 export type UnsubFn = () => void;
@@ -178,6 +197,12 @@ export interface SubstrateClient {
   // substrate header at `submitted_at` to fill substrate_block_hash /
   // parent / roots.
   getBlockHeader(blockNumber: string): Promise<SubstrateHead | null>;
+
+  // v0.2 runtime API. Returns the winning solution + nonce + per-block
+  // difficulty snapshot persisted by `pallet-quantum-pow::on_finalize`.
+  // Null when the block had no winner OR the chain pre-dates v0.2 (no
+  // `quantumPowApi` runtime trait registered).
+  getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null>;
 }
 
 /**
@@ -205,6 +230,11 @@ export class FakeSubstrateClient implements SubstrateClient {
   public difficulty: DifficultyInfo | null = null;
   public lastProofBlockByHash = new Map<string, number>();
   public topology: TopologyInfo | null = null;
+  // Keyed by blockNumber string. Tests populate this for the block(s) they
+  // emit via `emitBlock`; the worker reads it back through
+  // `getWinningSolution(blockNumber)` to source per-block difficulty and
+  // nonce in BlockRecord construction.
+  public winningSolutionsByBlock = new Map<string, WinningSolutionInfo>();
   public runtimeVersion: RuntimeVersionInfo = {
     specName: "quip",
     specVersion: 101,
@@ -286,6 +316,9 @@ export class FakeSubstrateClient implements SubstrateClient {
   }
   async getBlockHeader(blockNumber: string): Promise<SubstrateHead | null> {
     return this.headers.get(blockNumber) ?? null;
+  }
+  async getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null> {
+    return this.winningSolutionsByBlock.get(blockNumber) ?? null;
   }
 
   emitFinalized(h: SubstrateHead): void {
@@ -572,16 +605,21 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 
   async getDifficulty(): Promise<DifficultyInfo | null> {
     const api = this.requireApi();
+    // Prefer the v0.2 runtime API: it applies on-the-fly decay so the
+    // returned value reflects the threshold the pallet actually checks
+    // proofs against (not the stored baseline, which only refreshes on
+    // sudo updates and can be hours stale through a decay window).
+    const runtimeFn = (api.call as unknown as Record<string, Record<string, unknown> | undefined>)
+      ?.quantumPowApi?.currentDifficulty;
+    if (typeof runtimeFn === "function") {
+      const codec = await (runtimeFn as () => Promise<unknown>)();
+      return decodeDifficulty(codec);
+    }
+    // Capability fallback for pre-v0.2 chains. Drop in a follow-up MR
+    // once the deployed chain is stable on the new runtime API.
     if (!api.query.quantumPow?.difficulty) return null;
     const codec = await api.query.quantumPow.difficulty();
-    // DifficultyConfig from pallet-quantum-pow/src/types.rs:38-43.
-    const json = (codec as unknown as { toJSON: () => Record<string, unknown> }).toJSON();
-    return {
-      maxEnergyMilli: Number(json.maxEnergyMilli ?? json.max_energy_milli ?? 0),
-      minDiversityMilli: Number(json.minDiversityMilli ?? json.min_diversity_milli ?? 0),
-      minSolutions: Number(json.minSolutions ?? json.min_solutions ?? 0),
-      minQualityMilli: Number(json.minQualityMilli ?? json.min_quality_milli ?? 0),
-    };
+    return decodeDifficulty(codec);
   }
 
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
@@ -626,6 +664,45 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       parentHash: header.parentHash.toHex(),
       extrinsicsRoot: header.extrinsicsRoot.toHex(),
       stateRoot: header.stateRoot.toHex(),
+    };
+  }
+
+  async getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null> {
+    const api = this.requireApi();
+    const fn = (api.call as unknown as Record<string, Record<string, unknown> | undefined>)
+      ?.quantumPowApi?.winningSolution;
+    if (typeof fn !== "function") return null;
+    const codec = await (fn as (n: string) => Promise<unknown>)(blockNumber);
+    // WinningSolutionWithNonce is `Option<{solution: WinningSolution, nonce: U256}>`.
+    const opt = codec as {
+      isSome?: boolean;
+      unwrap?: () => Record<string, unknown>;
+    };
+    if (!opt.isSome || !opt.unwrap) return null;
+    const wrapped = opt.unwrap();
+    const solRaw = wrapped.solution ?? wrapped["solution"];
+    if (!solRaw) return null;
+    // polkadot.js may surface struct fields as codec instances; coerce via
+    // toJSON for the primitive view we need.
+    const sol =
+      typeof (solRaw as { toJSON?: () => unknown }).toJSON === "function"
+        ? ((solRaw as { toJSON: () => Record<string, unknown> }).toJSON() as Record<
+            string,
+            unknown
+          >)
+        : (solRaw as Record<string, unknown>);
+    const nonceCodec = wrapped.nonce;
+    const nonce =
+      typeof (nonceCodec as { toString?: () => string })?.toString === "function"
+        ? (nonceCodec as { toString: () => string }).toString()
+        : String(nonceCodec ?? "0");
+    return {
+      miner: String(sol.miner),
+      energyMilli: Number(sol.energyMilli ?? sol.energy_milli ?? 0),
+      reward: String(sol.reward),
+      submittedAt: String(sol.submittedAt ?? sol.submitted_at ?? "0"),
+      nonce,
+      difficulty: decodeDifficulty(sol.difficulty),
     };
   }
 
@@ -707,10 +784,14 @@ export class PolkadotSubstrateClient implements SubstrateClient {
             });
           }
         }
-        // Nonce is only meaningful when there's a winner to attribute it
-        // to; skip extraction for winnerless heads so authorship-only
-        // events don't pay the extrinsics walk.
-        const nonce = winner ? extractNonce(signedBlockExt, winner) : null;
+        // Nonce sourced from quip-protocol-rs v0.2's
+        // `QuantumPowApi::winning_solution(block)` — the runtime computes
+        // the BLAKE3 digest server-side, so callers no longer walk
+        // extrinsics to recover it. Null for winnerless heads (no fetch
+        // performed) and for chains pre-v0.2 (capability absent).
+        const nonce = winner
+          ? ((await this.getWinningSolution(String(blockNumber)))?.nonce ?? null)
+          : null;
         cb({
           blockNumber,
           blockHash,
@@ -776,41 +857,25 @@ export class PolkadotSubstrateClient implements SubstrateClient {
   }
 }
 
-/**
- * Pull the nonce out of the winning `quantumPow.submit_proof` extrinsic.
- *
- * Identification follows the pallet contract: `submit_proof` is `ensure_signed`
- * (quip-protocol-rs/pallets/quantum-pow/src/lib.rs:346) and the miner is
- * the extrinsic's signer — the `QuantumProof` struct itself carries no
- * miner field (types.rs:8-23). We match `ext.signer.toString() === winner.miner`
- * and pull `proof.nonce` (u64) from `ext.method.args[0]`.
- *
- * Returns the decimal-string nonce on the first matching signed extrinsic
- * (including `"0"` when the chain genuinely accepted nonce 0). Returns
- * `null` when no matching extrinsic is found — this is the "no info"
- * sentinel, distinct from the legal nonce value 0; the worker decides
- * what to do (skip the block, default, log, etc.).
- *
- * Exported for direct unit testing — the helper is pure over the
- * (signedBlock, winner) shape and warrants coverage independent of the
- * subscribeBlockEvents wiring.
- */
-export function extractNonce(signedBlock: unknown, winner: BlockWinnerEvent): string | null {
-  type SignedExtrinsic = {
-    isSigned: boolean;
-    signer: { toString: () => string };
-    method: { section: string; method: string; args: Array<{ toString: () => string }> };
+// Note: the v0.1-era `extractNonce` helper that walked extrinsics to
+// recover the winning miner's nonce is gone in v0.2 — `WinningSolutionInfo`
+// (sourced from `QuantumPowApi::winning_solution`) carries the BLAKE3 nonce
+// directly, so subscribeBlockEvents calls `getWinningSolution(...)`
+// instead. Less brittle: no dependency on extrinsic decoding or the custom
+// HybridTxSignature codec.
+
+// Decode a polkadot.js codec for a v0.2 `DifficultyConfig` struct into the
+// dashboard's normalised `DifficultyInfo` shape. Tolerates camelCase
+// (toJSON) and snake_case (toHuman) field surfacing.
+function decodeDifficulty(codec: unknown): DifficultyInfo {
+  const json =
+    typeof (codec as { toJSON?: () => unknown })?.toJSON === "function"
+      ? ((codec as { toJSON: () => Record<string, unknown> }).toJSON() as Record<string, unknown>)
+      : ((codec as Record<string, unknown>) ?? {});
+  return {
+    maxEnergyMilli: Number(json.maxEnergyMilli ?? json.max_energy_milli ?? 0),
+    minDiversityMilli: Number(json.minDiversityMilli ?? json.min_diversity_milli ?? 0),
+    minSolutions: Number(json.minSolutions ?? json.min_solutions ?? 0),
+    minQualityMilli: Number(json.minQualityMilli ?? json.min_quality_milli ?? 0),
   };
-  const block = (signedBlock as { block: { extrinsics: SignedExtrinsic[] } }).block;
-  for (const ext of block.extrinsics) {
-    if (!ext.isSigned) continue;
-    // Polkadot.js converts snake_case call names to camelCase when
-    // exposing them through the metadata dispatcher (the runtime declares
-    // `submit_proof`; polkadot.js surfaces it as `submitProof`).
-    if (ext.method.section !== "quantumPow" || ext.method.method !== "submitProof") continue;
-    if (ext.signer.toString() !== winner.miner) continue;
-    const proof = ext.method.args[0] as unknown as { nonce?: { toString: () => string } };
-    return proof?.nonce?.toString() ?? null;
-  }
-  return null;
 }
