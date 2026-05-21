@@ -530,29 +530,22 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 
   async getBabeAuthorities(): Promise<BabeAuthorityInfo[]> {
     const api = this.requireApi();
-    // Preferred source is `session.validators` — it returns full AccountIds
-    // that join cleanly against `quantumPow.miners` and `validator_authorship`.
-    if (api.query.session?.validators) {
-      const codec = await api.query.session.validators();
-      const list = codec as unknown as Array<{ toString: () => string }>;
-      return list.map((id) => ({ accountId: id.toString(), displayName: null }));
+    // `session.validators` is the only authoritative source: it returns the
+    // full hybrid AccountIds that join against `quantumPow.miners` and
+    // `validator_authorship`. The legacy `babe.authorities` fallback returned
+    // the 1344-byte BABE pubkey instead, which doesn't join — keeping it
+    // around just made the Chain tab appear non-empty against the wrong
+    // identifiers. Throw loudly so a misconfigured chain surfaces in indexer
+    // logs immediately.
+    if (!api.query.session?.validators) {
+      throw new Error(
+        "[substrate-client] api.query.session.validators is unavailable; " +
+          "indexer requires quip-protocol-rs >= v0.2 (pallet-session integrated).",
+      );
     }
-    // TODO(v0.2): drop this fallback once quip-protocol-rs ships `pallet-session`
-    // (chain-side fix is merged and queued for the next runtime upgrade). The
-    // dashboard MR for v0.2 should track this — the BABE pubkey we surface
-    // here is NOT the miner's hybrid AccountId, so the Chain and Compute
-    // tabs use different identifiers until session lands. `derive.chain`
-    // also can't compute `author` without session, so `validator_authorship`
-    // stays empty and `blocksAuthored` reads as 0 across the board.
-    if (api.query.babe?.authorities) {
-      const codec = await api.query.babe.authorities();
-      const list = codec as unknown as Array<Array<{ toString: () => string }>>;
-      return list.map((tuple) => ({
-        accountId: tuple[0]!.toString(),
-        displayName: null,
-      }));
-    }
-    return [];
+    const codec = await api.query.session.validators();
+    const list = codec as unknown as Array<{ toString: () => string }>;
+    return list.map((id) => ({ accountId: id.toString(), displayName: null }));
   }
 
   async getChainMiners(): Promise<ChainMinerInfo[]> {
