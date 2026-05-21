@@ -5,19 +5,22 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { MinerStats } from "../../../types/telemetry";
+import type { ChainMinerRecord, MinerStats } from "../../../types/telemetry";
 
 import { MinerStatsPanel } from "./MinerStatsPanel";
 
 // Tiles the panel must surface. Primary stats (top row) get prominent
 // treatment; diagnostics (bottom row) help operators trace pipeline stalls.
-// Heads Observed was removed as redundant with Problems Attempted (the local
-// pipeline maps 1:1 between observed heads and attempted contexts).
+// "Heads Observed" was removed as redundant with Problems Attempted (the
+// local pipeline maps 1:1 between observed heads and attempted contexts).
+// "Chain Acceptance" surfaces what the pallet actually accepted vs what the
+// miner submitted — chain-side metric, complements local "Submission Rate".
 const TILE_LABELS = [
   "Problems Attempted",
   "Solutions Computed",
   "Submission Rate",
   "Avg Mining Time",
+  "Chain Acceptance",
   "Contexts Dispatched",
   "Proofs Submitted",
   "Stale Drops",
@@ -41,6 +44,19 @@ function makeStats(overrides: Partial<MinerStats> = {}): MinerStats {
   };
 }
 
+function makeChainEntry(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRecord {
+  return {
+    accountId: "5GPPxxOnChainMiner",
+    deposit: "0",
+    proofsSubmitted: "0",
+    proofsWon: "0",
+    rewardsEarned: "0",
+    telemetryNodeAddress: null,
+    hardware: null,
+    ...overrides,
+  };
+}
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -57,14 +73,14 @@ afterEach(() => {
   container.remove();
 });
 
-function render(stats: MinerStats) {
+function render(stats: MinerStats, chainMinerEntry: ChainMinerRecord | null = null) {
   act(() => {
-    root.render(createElement(MinerStatsPanel, { stats }));
+    root.render(createElement(MinerStatsPanel, { stats, chainMinerEntry }));
   });
 }
 
 describe("MinerStatsPanel", () => {
-  test("renders all eight relevant counter tiles with a populated payload", () => {
+  test("renders all nine relevant counter tiles with a populated payload", () => {
     render(
       makeStats({
         totalBlocksAttempted: 1234,
@@ -76,6 +92,7 @@ describe("MinerStatsPanel", () => {
         staleDrops: 1,
         submissionErrors: 3,
       }),
+      makeChainEntry({ proofsSubmitted: "100", proofsWon: "1" }),
     );
     for (const label of TILE_LABELS) {
       expect(container.textContent).toContain(label);
@@ -127,5 +144,30 @@ describe("MinerStatsPanel", () => {
     const valueEl = errorTile?.querySelector('p[style*="color"]') as HTMLElement | null;
     // Should NOT be the red danger color when there are zero errors.
     expect(valueEl?.style.color).not.toBe("rgb(248, 113, 113)");
+  });
+
+  test("Chain Acceptance tile shows chain-side ratio when chainMinerEntry is populated", () => {
+    render(makeStats(), makeChainEntry({ proofsSubmitted: "100", proofsWon: "1" }));
+    const tile = findTileByLabel("Chain Acceptance");
+    expect(tile).not.toBeNull();
+    // 1 / 100 = 0.01 → 1.00%. Same operator funnel ratio the user saw in
+    // the previous session's docker-logs investigation.
+    expect(tile?.textContent).toContain("1.00%");
+  });
+
+  test("Chain Acceptance tile shows em-dash when chainMinerEntry is null", () => {
+    render(makeStats());
+    const tile = findTileByLabel("Chain Acceptance");
+    expect(tile).not.toBeNull();
+    expect(tile?.textContent).toContain("—");
+  });
+
+  test("Chain Acceptance tile shows em-dash when chain submitted is zero", () => {
+    render(makeStats(), makeChainEntry({ proofsSubmitted: "0", proofsWon: "0" }));
+    const tile = findTileByLabel("Chain Acceptance");
+    expect(tile).not.toBeNull();
+    // Avoid 0/0 NaN by guarding on chainSubmitted > 0 — verify the em-dash
+    // appears in the tile value (sublabel still reads "won / submitted").
+    expect(tile?.textContent).toContain("—");
   });
 });

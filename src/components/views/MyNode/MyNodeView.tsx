@@ -146,7 +146,7 @@ export function MyNodeView() {
         />
       </div>
 
-      {minerStats && <MinerStatsPanel stats={minerStats} />}
+      {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
     </>
   );
 }
