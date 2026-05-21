@@ -9,17 +9,18 @@ import type { MinerStats } from "../../../types/telemetry";
 
 import { MinerStatsPanel } from "./MinerStatsPanel";
 
-// Tiles the panel must surface. Sourced verbatim from the v0.3 plan — the
-// panel deliberately omits totalMiningTime, resultsReceived, and staleDrops
-// because they're not in the operator-relevant view.
+// Tiles the panel must surface. Primary stats (top row) get prominent
+// treatment; diagnostics (bottom row) help operators trace pipeline stalls.
+// Heads Observed was removed as redundant with Problems Attempted (the local
+// pipeline maps 1:1 between observed heads and attempted contexts).
 const TILE_LABELS = [
-  "Solutions Attempted",
+  "Problems Attempted",
   "Solutions Computed",
-  "Solution Rate",
+  "Submission Rate",
   "Avg Mining Time",
-  "Heads Observed",
   "Contexts Dispatched",
   "Proofs Submitted",
+  "Stale Drops",
   "Submission Errors",
 ] as const;
 
@@ -70,9 +71,9 @@ describe("MinerStatsPanel", () => {
         totalBlocksWon: 42,
         winRate: 0.034,
         avgMiningTime: 12.5,
-        headsObserved: 9876,
         contextsDispatched: 5000,
         proofsSubmitted: 4800,
+        staleDrops: 1,
         submissionErrors: 3,
       }),
     );
@@ -86,10 +87,12 @@ describe("MinerStatsPanel", () => {
     const text = container.textContent ?? "";
     expect(text).not.toContain("NaN");
     expect(text).not.toContain("Infinity");
-    // winRate 0 → 0.00%; avgMiningTime 0 → 0.00s. Both are computed from
-    // arithmetic, so they're the most likely to blow up on zero input.
+    // winRate 0 → 0.00%. avgMiningTime falls back to em dash when the miner
+    // reports 0 (which it does today; the underlying counter isn't wired up
+    // on quip's miner controller). Both are the most likely to blow up on
+    // zero input.
     expect(text).toContain("0.00%");
-    expect(text).toContain("0.00s");
+    expect(text).toContain("—");
   });
 
   // Walks down through grid wrappers to find the leaf StatTile div whose

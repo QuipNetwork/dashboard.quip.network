@@ -31,6 +31,17 @@ export function MyNodeView() {
     currentRequirements,
   } = stats;
   const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
+  // BABE slot duration on quip-protocol-rs is 6s; api.consts.babe.slotDuration
+  // would be the authoritative source but isn't currently piped through
+  // telemetry. Use the constant until that wiring exists — slot duration
+  // is a runtime constant, not data-derived, so this is stable across blocks.
+  const blockTimeSec = 6;
+  const lastSolutionTimeMs =
+    lastWonBlock != null ? lastWonBlock.miningTime * blockTimeSec * 1000 : null;
+  // "Not enforced" reads better than literal "0" when the chain difficulty
+  // requirements aren't gated on a given dimension (most quip configs leave
+  // diversity / solutions / quality at 0 today).
+  const notEnforced = <span className="text-brand-gray-3 italic">not enforced</span>;
 
   return (
     <>
@@ -51,7 +62,7 @@ export function MyNodeView() {
 
       <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
         <StatTile
-          label="Blocks Won"
+          label="Problems Won"
           value={formatNumber(Number(blocksMined))}
           sublabel={
             chainMinerEntry
@@ -65,11 +76,11 @@ export function MyNodeView() {
           sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
         />
         <StatTile
-          label="Last Block Won"
-          value={lastWonBlock != null ? `#${lastWonBlock.substrateBlockNumber}` : "—"}
+          label="Last Problem Won"
+          value={lastWonBlock != null ? `Solution #${formatNumber(Number(blocksMined))}` : "—"}
           sublabel={
             lastWonBlock != null && lastWonAgoMs != null
-              ? `${formatDuration(lastWonAgoMs)} ago · mining time ${lastWonBlock.miningTime} blocks`
+              ? `${formatDuration(lastWonAgoMs)} ago · at block #${lastWonBlock.substrateBlockNumber}`
               : "No wins yet"
           }
         />
@@ -77,10 +88,21 @@ export function MyNodeView() {
 
       <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
         <BlockDetailCard
-          label="Last Won Block Details"
+          label="Last Problem Solution Details"
           rows={
             lastWonBlock != null
               ? [
+                  {
+                    label: "Time to Solution",
+                    value:
+                      lastSolutionTimeMs != null && lastSolutionTimeMs > 0
+                        ? `${formatDuration(lastSolutionTimeMs)} · ${lastWonBlock.miningTime} blocks`
+                        : "—",
+                  },
+                  {
+                    label: "Attempts",
+                    value: <span className="text-brand-gray-3 italic">TBD · miner API</span>,
+                  },
                   { label: "Energy", value: lastWonBlock.energy.toFixed(2) },
                   { label: "Diversity", value: lastWonBlock.diversity.toFixed(3) },
                   { label: "Solutions", value: formatNumber(lastWonBlock.numValidSolutions) },
@@ -89,7 +111,11 @@ export function MyNodeView() {
                 ]
               : [{ label: "Status", value: "No wins yet" }]
           }
-          footer={lastWonBlock ? `nonce: ${lastWonBlock.nonce}` : undefined}
+          footer={
+            lastWonBlock
+              ? `block #${lastWonBlock.substrateBlockNumber} · nonce: ${lastWonBlock.nonce}`
+              : undefined
+          }
         />
         <BlockDetailCard
           label="Current Difficulty"
@@ -98,10 +124,22 @@ export function MyNodeView() {
               ? [
                   {
                     label: "Target Energy",
-                    value: `≤ ${currentRequirements.difficultyEnergy.toFixed(1)}`,
+                    value: `≤ ${currentRequirements.difficultyEnergy.toFixed(3)}`,
                   },
-                  { label: "Min Diversity", value: currentRequirements.minDiversity.toFixed(3) },
-                  { label: "Min Solutions", value: formatNumber(currentRequirements.minSolutions) },
+                  {
+                    label: "Min Diversity",
+                    value:
+                      currentRequirements.minDiversity > 0
+                        ? currentRequirements.minDiversity.toFixed(3)
+                        : notEnforced,
+                  },
+                  {
+                    label: "Min Solutions",
+                    value:
+                      currentRequirements.minSolutions > 0
+                        ? formatNumber(currentRequirements.minSolutions)
+                        : notEnforced,
+                  },
                 ]
               : [{ label: "Status", value: "Awaiting first block" }]
           }
