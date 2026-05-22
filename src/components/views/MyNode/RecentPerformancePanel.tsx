@@ -39,7 +39,7 @@ export function RecentPerformancePanel({
 
   return (
     <ChartCard
-      title="Recent Performance"
+      title="Recent Performance Details"
       subtitle={`Your last ${selfBlocks.length} winning solutions. Lower energy = better submission; quip-protocol-rs canonicalizes the lowest-energy proof per block as the winner.`}
     >
       <div className="overflow-x-auto">

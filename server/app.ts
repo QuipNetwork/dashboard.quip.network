@@ -72,6 +72,15 @@ export function createApp(options: CreateAppOptions): Hono {
       db.getAllNodeDescriptors(),
     ]);
 
+    // Proof attempts vs the current mining problem — every ProofAccepted
+    // event with `block_number > last_winning_block`. `blocks` is DESC by
+    // substrate height and contains winners only, so `blocks[0]` is the
+    // chain's LastProofBlock equivalent (matches what the runtime API
+    // would return). "0" means "no winning proof yet on this chain" —
+    // returns all attempts since genesis.
+    const lastWinningBlock = blocks[0]?.substrateBlockNumber ?? "0";
+    const recentProofAttempts = await db.getRecentProofAttempts(lastWinningBlock, 50);
+
     // Project per-account chain descriptors into the legacy NodesSnapshot
     // shape so the Compute Available view's TFLOPS/PFLOPS surfaces keep
     // their existing consumer contract. The descriptor pipeline (chain
@@ -130,6 +139,7 @@ export function createApp(options: CreateAppOptions): Hono {
       validators,
       nodes,
       nodeDescriptors,
+      recentProofAttempts,
     } satisfies TelemetryResponse);
   });
 

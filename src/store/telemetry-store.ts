@@ -11,6 +11,7 @@ import type {
   IndexerObservability,
   NodeDescriptorRecord,
   NodesSnapshot,
+  ProofAttemptRecord,
   TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "../types/telemetry";
@@ -36,6 +37,12 @@ export interface TelemetryState {
   // Per-account chain-signed descriptors with provenance. Drives the
   // Node Identities panel and the ChainMinersTable join on accountId.
   nodeDescriptors: NodeDescriptorRecord[];
+  // Chain-accepted proof attempts at the current mining problem — every
+  // ProofAccepted event with block_number > LastWinningBlock. Drives the
+  // "Recent Performance vs problem #N" panel; empty when no proofs have
+  // been submitted since the last winning block (or the substrate worker
+  // hasn't been wired up).
+  recentProofAttempts: ProofAttemptRecord[];
   loading: boolean;
   error: string | null;
 
@@ -55,6 +62,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   validators: [],
   nodes: null,
   nodeDescriptors: [],
+  recentProofAttempts: [],
   loading: true,
   error: null,
   fetchTelemetry: async () => {
@@ -86,6 +94,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         validators: data.validators ?? [],
         nodes: data.nodes ?? null,
         nodeDescriptors: data.nodeDescriptors ?? [],
+        recentProofAttempts: data.recentProofAttempts ?? [],
         loading: false,
         error: null,
       });

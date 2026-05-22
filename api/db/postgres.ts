@@ -14,6 +14,7 @@ import type {
   MinerHardwareRecord,
   NodeDescriptor,
   NodeDescriptorRecord,
+  ProofAttemptRecord,
 } from "../../src/types/telemetry";
 import {
   OWNED_TABLES,
@@ -167,6 +168,29 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
      ON node_descriptors(block_number DESC)`,
+  // v12: every chain-accepted ProofAccepted event (not just winners). The
+  // substrate worker writes one row per event; the server filters by
+  // `block_number > LastWinningBlock` to surface "attempts vs the current
+  // mining problem". `energy_milli`/`diversity_milli` keep the chain's raw
+  // milli-unit integer encoding so re-derivation is lossless; the UI
+  // divides by 1000 at display time, matching how `blocks.energy` is
+  // computed. Composite PK dedupes replays of the same event across
+  // substrate worker reconnects.
+  `CREATE TABLE IF NOT EXISTS proof_attempts (
+     block_number          NUMERIC NOT NULL,
+     block_hash            TEXT NOT NULL,
+     miner_id              TEXT NOT NULL,
+     energy_milli          BIGINT NOT NULL,
+     diversity_milli       BIGINT NOT NULL,
+     valid_solution_count  INTEGER NOT NULL,
+     block_timestamp       BIGINT NOT NULL,
+     observed_at           TIMESTAMPTZ NOT NULL,
+     PRIMARY KEY (block_number, miner_id, energy_milli, diversity_milli, valid_solution_count)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_block
+     ON proof_attempts(block_number DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_miner_block
+     ON proof_attempts(miner_id, block_number DESC)`,
 ];
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
@@ -748,6 +772,65 @@ export class PostgresAdapter implements DatabaseAdapter {
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       WHERE CAST(meta.value AS NUMERIC) < CAST(EXCLUDED.value AS NUMERIC)
     `;
+  }
+
+  async insertProofAttempts(records: ProofAttemptRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    const sql = this.requireSql();
+    // Single transaction so 8 events per block don't pay 8x commit overhead.
+    // ON CONFLICT DO NOTHING absorbs subscription replays.
+    await sql.begin(async (tx) => {
+      for (const r of records) {
+        await tx`
+          INSERT INTO proof_attempts (
+            block_number, block_hash, miner_id, energy_milli, diversity_milli,
+            valid_solution_count, block_timestamp, observed_at
+          ) VALUES (
+            ${r.blockNumber}, ${r.blockHash}, ${r.minerId},
+            ${Math.round(r.energy * 1000)}, ${Math.round(r.diversity * 1000)},
+            ${r.numValidSolutions}, ${r.timestamp}, ${r.observedAt}
+          )
+          ON CONFLICT (block_number, miner_id, energy_milli, diversity_milli, valid_solution_count)
+          DO NOTHING
+        `;
+      }
+    });
+  }
+
+  async getRecentProofAttempts(
+    sinceBlockNumber: string,
+    limit: number,
+  ): Promise<ProofAttemptRecord[]> {
+    // sinceBlockNumber is exclusive (>). At genesis the chain's
+    // LastProofBlock is 0, so passing "0" returns all rows — matches the
+    // sqlite adapter's behavior.
+    const rows = await this.requireSql()<
+      {
+        block_number: string;
+        block_hash: string;
+        miner_id: string;
+        energy_milli: string;
+        diversity_milli: string;
+        valid_solution_count: number;
+        block_timestamp: string;
+        observed_at: Date;
+      }[]
+    >`
+      SELECT * FROM proof_attempts
+      WHERE block_number > CAST(${sinceBlockNumber} AS NUMERIC)
+      ORDER BY block_number DESC
+      LIMIT ${limit}
+    `;
+    return rows.map((r) => ({
+      blockNumber: String(r.block_number),
+      blockHash: r.block_hash,
+      minerId: r.miner_id,
+      energy: Number(r.energy_milli) / 1000,
+      diversity: Number(r.diversity_milli) / 1000,
+      numValidSolutions: r.valid_solution_count,
+      timestamp: Number(r.block_timestamp),
+      observedAt: new Date(r.observed_at).toISOString(),
+    }));
   }
 
   private requireSql(): Sql {

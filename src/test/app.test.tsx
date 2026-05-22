@@ -54,6 +54,7 @@ const MOCK_RESPONSE: TelemetryResponse = {
   validators: [],
   nodes: null,
   nodeDescriptors: [],
+  recentProofAttempts: [],
 };
 
 let container: HTMLDivElement;

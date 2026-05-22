@@ -9,6 +9,7 @@ import { useMyNode } from "./use-my-node";
 import { StatTile } from "./StatTile";
 import { MinerStatsPanel } from "./MinerStatsPanel";
 import { NeighborsList } from "./NeighborsList";
+import { RecentAttemptsPanel } from "./RecentAttemptsPanel";
 import { RecentPerformancePanel } from "./RecentPerformancePanel";
 
 // quip-protocol-rs `apply_decay` applies one decay step per `EpochLength`
@@ -27,6 +28,8 @@ export function MyNodeView() {
   const chainHead = useTelemetryStore((s) => s.chainHead);
   const tipBlock = useTelemetryStore(selectTipBlock);
   const blocks = useTelemetryStore((s) => s.blocks);
+  const recentProofAttempts = useTelemetryStore((s) => s.recentProofAttempts);
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
 
   if (!stats.selfAddress) {
     return (
@@ -204,14 +207,26 @@ export function MyNodeView() {
         <BlockDetailCard label="Current Difficulty" rows={difficultyRows} />
       </div>
 
+      <RecentAttemptsPanel
+        attempts={recentProofAttempts}
+        problemNumber={
+          // Mining problem # = total proofs ever won (across all miners) + 1.
+          // Matches CurrentBlockIndicator's `nextProblem` derivation so the
+          // panel header agrees with the header indicator.
+          chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0) + 1
+        }
+        selfAddress={selfAddress}
+        nowMs={Date.now()}
+      />
+
+      {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
+
       <RecentPerformancePanel
         selfAddress={selfAddress}
         blocks={blocks}
         nowMs={Date.now()}
         chainProofsWon={Number(chainMinerEntry?.proofsWon ?? "0")}
       />
-
-      {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
 
       <ChartCard title="Rank-Adjacent Miners" subtitle="Your position in the network leaderboard">
         <NeighborsList self={self} neighbors={neighbors} />

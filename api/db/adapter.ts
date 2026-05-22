@@ -11,6 +11,7 @@ import type {
   MinerHardwareRecord,
   MinerStats,
   NodeDescriptorRecord,
+  ProofAttemptRecord,
 } from "../../src/types/telemetry";
 
 /**
@@ -266,6 +267,29 @@ export interface DatabaseAdapter {
 
   /** Persist the descriptor-worker's last-scanned block. Monotonic-only. */
   setDescriptorCheckpoint(blockNumber: string): Promise<void>;
+
+  // --- Proof attempts (v12) ---
+  // Every chain-accepted ProofAccepted event — winners AND non-winning
+  // proofs that met difficulty. Writes are INSERT OR IGNORE on the
+  // composite key (block_number, miner_id, energy_milli, diversity_milli,
+  // valid_solution_count) so subscription replays after reconnect are
+  // idempotent no-ops.
+
+  /**
+   * Bulk insert proof attempt rows. Called once per finalized head with
+   * every ProofAccepted event the substrate worker observed in that block.
+   * Duplicates on the composite PK are silently ignored.
+   */
+  insertProofAttempts(records: ProofAttemptRecord[]): Promise<void>;
+
+  /**
+   * Recent attempts at blocks STRICTLY GREATER than `sinceBlockNumber`,
+   * newest first. The caller passes the chain's `LastProofBlock` (i.e.,
+   * the substrate height of the last winning proof) so the returned rows
+   * reflect attempts vs the current mining problem only. `limit` caps the
+   * result set; the UI typically asks for 20–50.
+   */
+  getRecentProofAttempts(sinceBlockNumber: string, limit: number): Promise<ProofAttemptRecord[]>;
 }
 
 export interface DbConfig {
@@ -335,7 +359,15 @@ export interface DbConfig {
 // `System.remark_with_event` extrinsics carrying a `quip.node_descriptor.v1`
 // JSON body. Server projects to NodesSnapshot at read time. This is the
 // canonical chain-signed identity surface; see DASHBOARDPLAN.md.
-export const SCHEMA_VERSION = 11;
+// v12: adds `proof_attempts` — every chain-accepted ProofAccepted event,
+// not only the lowest-energy winner per block. Lets the dashboard show
+// "Recent Performance vs problem #N" — the in-flight attempts against
+// the current mining target — instead of only past wins. Wipe-on-drift
+// because pre-v12 indexers discarded non-winning ProofAccepted events at
+// the substrate-worker boundary; backfill via the historical-win path
+// is winners-only, so a fresh scan from genesis is the only way to
+// repopulate.
+export const SCHEMA_VERSION = 12;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
@@ -351,4 +383,5 @@ export const OWNED_TABLES = [
   "miner_hardware",
   "validator_authorship",
   "node_descriptors",
+  "proof_attempts",
 ] as const;

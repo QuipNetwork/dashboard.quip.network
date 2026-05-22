@@ -4,12 +4,12 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v11: node_descriptors replaces nodes_snapshot", () => {
-  // v11 drops the v10 nodes_snapshot blob (HTTP-fanout survey-worker is
-  // gone) and adds `node_descriptors` — one row per AccountId, sourced
-  // from `System.remark_with_event` extrinsics carrying a
-  // `quip.node_descriptor.v1` payload. See DASHBOARDPLAN.md.
-  expect(SCHEMA_VERSION).toBe(11);
+test("schema v12: proof_attempts surfaces all chain-accepted proofs", () => {
+  // v12 adds `proof_attempts` — every ProofAccepted event (winners AND
+  // non-winning proofs that met difficulty), so the dashboard can render
+  // "Recent Performance vs problem #N" without waiting for a winning
+  // block.
+  expect(SCHEMA_VERSION).toBe(12);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
@@ -21,10 +21,11 @@ test("schema v11: node_descriptors replaces nodes_snapshot", () => {
     "miner_hardware",
     "validator_authorship",
     "node_descriptors",
+    "proof_attempts",
   ]);
 });
 
-test("DatabaseAdapter v11 surface: descriptor methods + dropped survey methods", () => {
+test("DatabaseAdapter v12 surface: proof attempt methods", () => {
   type Methods = keyof DatabaseAdapter;
   const required: Methods[] = [
     "connect",
@@ -64,6 +65,9 @@ test("DatabaseAdapter v11 surface: descriptor methods + dropped survey methods",
     "getAllNodeDescriptors",
     "getDescriptorCheckpoint",
     "setDescriptorCheckpoint",
+    // proof attempts (v12) — every chain-accepted ProofAccepted event.
+    "insertProofAttempts",
+    "getRecentProofAttempts",
   ];
-  expect(required.length).toBe(30);
+  expect(required.length).toBe(32);
 });

@@ -382,6 +382,32 @@ export interface NodeDescriptorRecord {
   observedAt: string;
 }
 
+/**
+ * One row per chain-accepted `ProofAccepted` event from
+ * `quantum_pow::Event::ProofAccepted`. Includes both winning AND
+ * losing-but-accepted proofs (up to MaxProofsPerBlock=8 per block). The
+ * substrate worker writes a row per event; the server filters by
+ * `block_number > LastWinningBlock` to get "attempts vs the current
+ * mining problem". `energy_milli`/`diversity_milli` keep the chain's raw
+ * integer encoding — divide by 1000 for human display, matching how
+ * `BlockRecord.energy` is computed.
+ */
+export interface ProofAttemptRecord {
+  blockNumber: string; // u64 as string
+  blockHash: string;
+  minerId: string; // SS58
+  energy: number; // already-divided (energyMilli / 1000)
+  diversity: number; // already-divided (diversityMilli / 1000)
+  numValidSolutions: number;
+  // Block timestamp the event landed in, unix seconds (parity with
+  // BlockRecord.timestamp).
+  timestamp: number;
+  // ISO 8601, when the indexer wrote the row (post-finalization). Distinct
+  // from `timestamp` so the UI can compute "indexed N seconds ago" without
+  // relying on the chain's clock.
+  observedAt: string;
+}
+
 export interface TelemetryResponse {
   blocks: BlockRecord[];
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
@@ -414,6 +440,11 @@ export interface TelemetryResponse {
   // Empty when no `quip-miner identify` extrinsic has been seen. Drives
   // the Node Identities panel and joins into ChainMinersTable.
   nodeDescriptors: NodeDescriptorRecord[];
+  // Chain-accepted proof attempts AGAINST THE CURRENT MINING PROBLEM —
+  // every ProofAccepted event with `block_number > LastWinningBlock`,
+  // newest first. Drives the "Recent Performance vs problem #N" panel.
+  // Empty when no proofs have been submitted since the last winning block.
+  recentProofAttempts: ProofAttemptRecord[];
 }
 
 export interface ErrorResponse {

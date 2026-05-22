@@ -16,6 +16,7 @@ import type {
   MinerHardwareRecord,
   NodeDescriptor,
   NodeDescriptorRecord,
+  ProofAttemptRecord,
 } from "../../src/types/telemetry";
 import {
   OWNED_TABLES,
@@ -165,6 +166,29 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
      ON node_descriptors(CAST(block_number AS INTEGER) DESC)`,
+  // v12: every chain-accepted ProofAccepted event (not just winners). The
+  // substrate worker writes one row per event; the server filters by
+  // `block_number > LastWinningBlock` to surface "attempts vs the current
+  // mining problem". `energy_milli`/`diversity_milli` keep the chain's raw
+  // milli-unit integer encoding so re-derivation is lossless; the UI
+  // divides by 1000 at display time, matching how `blocks.energy` is
+  // computed. Composite PK dedupes replays of the same event across
+  // substrate worker reconnects.
+  `CREATE TABLE IF NOT EXISTS proof_attempts (
+     block_number          TEXT NOT NULL,
+     block_hash            TEXT NOT NULL,
+     miner_id              TEXT NOT NULL,
+     energy_milli          INTEGER NOT NULL,
+     diversity_milli       INTEGER NOT NULL,
+     valid_solution_count  INTEGER NOT NULL,
+     block_timestamp       INTEGER NOT NULL,
+     observed_at           TEXT NOT NULL,
+     PRIMARY KEY (block_number, miner_id, energy_milli, diversity_milli, valid_solution_count)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_block
+     ON proof_attempts(CAST(block_number AS INTEGER) DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_miner_block
+     ON proof_attempts(miner_id, CAST(block_number AS INTEGER) DESC)`,
 ];
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
@@ -848,6 +872,75 @@ export class SQLiteAdapter implements DatabaseAdapter {
          WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)`,
       )
       .run({ $k: DESCRIPTOR_CHECKPOINT_KEY, $v: blockNumber });
+  }
+
+  async insertProofAttempts(records: ProofAttemptRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    // Bun's SQLite has no native batch insert; run the prepared statement in
+    // a transaction so the per-row commit overhead doesn't dominate for an
+    // 8-event block. INSERT OR IGNORE on the composite PK absorbs replays.
+    const stmt = this.requireDb().prepare(
+      `INSERT OR IGNORE INTO proof_attempts
+         (block_number, block_hash, miner_id, energy_milli, diversity_milli,
+          valid_solution_count, block_timestamp, observed_at)
+       VALUES ($block, $hash, $miner, $energy, $div, $sol, $ts, $observed)`,
+    );
+    const insertAll = this.requireDb().transaction((rows: ProofAttemptRecord[]) => {
+      for (const r of rows) {
+        stmt.run({
+          $block: r.blockNumber,
+          $hash: r.blockHash,
+          $miner: r.minerId,
+          // Reverse the SPA-facing /1000 so the column stays integer.
+          $energy: Math.round(r.energy * 1000),
+          $div: Math.round(r.diversity * 1000),
+          $sol: r.numValidSolutions,
+          $ts: r.timestamp,
+          $observed: r.observedAt,
+        });
+      }
+    });
+    insertAll(records);
+  }
+
+  async getRecentProofAttempts(
+    sinceBlockNumber: string,
+    limit: number,
+  ): Promise<ProofAttemptRecord[]> {
+    // `sinceBlockNumber` is exclusive (strictly greater than). Empty string
+    // / "0" means "all rows" — the chain emits LastProofBlock=0 at genesis,
+    // before any winning proof. CAST through INTEGER for numeric ordering;
+    // block_number is TEXT in v12 to preserve u64 precision.
+    const rows = this.requireDb()
+      .query<
+        {
+          block_number: string;
+          block_hash: string;
+          miner_id: string;
+          energy_milli: number;
+          diversity_milli: number;
+          valid_solution_count: number;
+          block_timestamp: number;
+          observed_at: string;
+        },
+        [string, number]
+      >(
+        `SELECT * FROM proof_attempts
+         WHERE CAST(block_number AS INTEGER) > CAST(? AS INTEGER)
+         ORDER BY CAST(block_number AS INTEGER) DESC
+         LIMIT ?`,
+      )
+      .all(sinceBlockNumber, limit);
+    return rows.map((r) => ({
+      blockNumber: r.block_number,
+      blockHash: r.block_hash,
+      minerId: r.miner_id,
+      energy: r.energy_milli / 1000,
+      diversity: r.diversity_milli / 1000,
+      numValidSolutions: r.valid_solution_count,
+      timestamp: r.block_timestamp,
+      observedAt: r.observed_at,
+    }));
   }
 
   private requireDb(): Database {
