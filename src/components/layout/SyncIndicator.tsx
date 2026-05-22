@@ -57,7 +57,7 @@ const STYLES: Record<
 function composeText(stage: SyncStage, detail: string | null): string {
   switch (stage) {
     case "connecting":
-      return detail ?? "Connecting to node…";
+      return detail ?? "Connecting to miner…";
     case "synchronizing":
       // Reserved for future use; no synchronization stages exist in v0.3
       // (substrate worker is the sole writer). Detail still flows through.

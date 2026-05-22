@@ -156,7 +156,7 @@ describe("computeChainHealth — stage derivation", () => {
     const h = computeChainHealth({ nowMs: NOW_MS, tipBlockTimestampMs: null, indexer: null });
     expect(h.stage).toBe("connecting");
     expect(h.level).toBe("healthy");
-    expect(h.detail).toBe("Connecting to node…");
+    expect(h.detail).toBe("Connecting to miner…");
   });
 
   it("stage='stalled' when heartbeat is stale", () => {

@@ -15,7 +15,7 @@ export function MyNodeView() {
   if (!stats.selfAddress) {
     return (
       <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
-        <p className="font-heading text-2xl text-brand-gray-5">Connecting to node…</p>
+        <p className="font-heading text-2xl text-brand-gray-5">Connecting to miner…</p>
         <p className="mt-2 font-accent text-sm text-brand-gray-3">
           The indexer hasn't received a response from /api/v1/status yet. Verify QUIP_NODE_URL is
           reachable.

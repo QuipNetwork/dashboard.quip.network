@@ -110,7 +110,7 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
       level: "healthy",
       reason: "",
       stage: "connecting",
-      detail: "Connecting to node…",
+      detail: "Connecting to miner…",
       blockAgeMs,
     };
   }

@@ -81,9 +81,9 @@ function render(ui: ReturnType<typeof createElement>) {
 }
 
 describe("SyncIndicator", () => {
-  test("renders 'Connecting to node…' when indexer is null", () => {
+  test("renders 'Connecting to miner…' when indexer is null", () => {
     render(createElement(SyncIndicator));
-    expect(container.textContent).toContain("Connecting to node…");
+    expect(container.textContent).toContain("Connecting to miner…");
   });
 
   test("renders 'Live' when caught up", () => {
