@@ -51,3 +51,26 @@ export function shortAddress(addr: string, head = 6, tail = 4): string {
   if (addr.length <= head + tail + 1) return addr;
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`;
 }
+
+/**
+ * Render a `BlockRecord.nonce` (large decimal string from
+ * `quantum_pow.WinningSolutions.nonce`, up to 256-bit) as a left-padded
+ * lowercase hex string with `0x` prefix. Hex is ~20 chars shorter than the
+ * decimal form and matches the convention every block explorer / wallet
+ * uses for raw nonce values.
+ *
+ * Pads to 64 hex chars (32 bytes) so column widths stay stable across the
+ * table, and so a leading-zero nonce is visually distinguishable from a
+ * full-width one. Returns the raw string unmodified if it can't be parsed
+ * as a BigInt (defensive — the chain shouldn't emit non-numeric nonces).
+ */
+export function formatNonce(decimal: string): string {
+  if (!decimal) return "—";
+  let big: bigint;
+  try {
+    big = BigInt(decimal);
+  } catch {
+    return decimal;
+  }
+  return `0x${big.toString(16).padStart(64, "0")}`;
+}

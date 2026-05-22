@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { formatBalance, shortAddress } from "./format-chain";
+import { formatBalance, formatNonce, shortAddress } from "./format-chain";
 
 describe("formatBalance", () => {
   test("renders whole-unit balances without trailing zeros", () => {
@@ -43,5 +43,29 @@ describe("shortAddress", () => {
 
   test("returns short addresses unchanged", () => {
     expect(shortAddress("abc1234")).toBe("abc1234");
+  });
+});
+
+describe("formatNonce", () => {
+  test("renders a decimal nonce as zero-padded lowercase hex with 0x prefix", () => {
+    // The example from the dashboard's MyNode footer:
+    // 53951056478492347705757702584223568380911492843421308842151793816201813122786
+    expect(
+      formatNonce("53951056478492347705757702584223568380911492843421308842151793816201813122786"),
+    ).toBe("0x7747374142d650a869c7c541d4e71e8580025eec9801e479b4180fff28415ee2");
+  });
+
+  test("pads short nonces to 64 hex chars so column widths stay stable", () => {
+    expect(formatNonce("0")).toBe(`0x${"0".repeat(64)}`);
+    expect(formatNonce("1")).toBe(`0x${"0".repeat(63)}1`);
+    expect(formatNonce("255")).toBe(`0x${"0".repeat(62)}ff`);
+  });
+
+  test("returns the placeholder for empty input", () => {
+    expect(formatNonce("")).toBe("—");
+  });
+
+  test("returns the input unchanged when not a valid number", () => {
+    expect(formatNonce("not a number")).toBe("not a number");
   });
 });

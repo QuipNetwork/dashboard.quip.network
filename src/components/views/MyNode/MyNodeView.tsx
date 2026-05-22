@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { formatBalance, shortAddress } from "../../../lib/format-chain";
+import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
 import { formatDuration, formatNumber } from "../../../lib/format";
 import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
 import { ChartCard } from "../../layout/ChartCard";
@@ -197,7 +197,7 @@ export function MyNodeView() {
           }
           footer={
             lastWonBlock
-              ? `block #${lastWonBlock.substrateBlockNumber} · nonce: ${lastWonBlock.nonce}`
+              ? `block #${lastWonBlock.substrateBlockNumber} · nonce: ${formatNonce(lastWonBlock.nonce)}`
               : undefined
           }
         />

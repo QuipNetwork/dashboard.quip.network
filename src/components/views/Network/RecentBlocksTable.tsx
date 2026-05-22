@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { formatDuration } from "../../../lib/format";
-import { formatBalance, shortAddress } from "../../../lib/format-chain";
+import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
 import { computeChainHealth, type ChainHealth } from "../../../lib/staleness";
 import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
 import { FinalityBadge } from "../../blocks/FinalityBadge";
@@ -261,7 +261,7 @@ function SolutionDetailsModal({
             title={block.blockHash}
             span={2}
           />
-          <Row label="Nonce" value={block.nonce} mono title={block.nonce} span={2} />
+          <Row label="Nonce" value={formatNonce(block.nonce)} mono title={block.nonce} span={2} />
         </dl>
       </div>
     </div>
