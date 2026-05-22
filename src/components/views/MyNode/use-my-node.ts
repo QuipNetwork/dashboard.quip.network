@@ -59,18 +59,20 @@ export function useMyNode(): MyNodeStats {
     const lastWonBlock = selfAddress
       ? (blocks.find((b) => b.minerId === selfAddress) ?? null)
       : null;
-    // Prefer the larger of (local block count, chain_miners.proofsWon).
-    // Local blocks update instantly when a new finalized winning head is
-    // captured; chain_miners.proofsWon is the authoritative lifetime
-    // counter (covers wins from before the indexer session, no 500-row
-    // cap). max() picks whichever is fresher — typically the local count
-    // jumps first after a new win, then chain_miners catches up on its
-    // next poll.
-    const localWins = selfAddress
-      ? blocks.reduce((n, b) => (b.minerId === selfAddress ? n + 1 : n), 0)
-      : 0;
+    // Chain-authoritative `proofs_won` for this account. Previously the
+    // dashboard returned `max(localWinCount, chainProofsWon)` to absorb
+    // poll-lag between the live substrate sub and chain_miners poll —
+    // but local rows survive chain rebuilds via INSERT OR IGNORE on
+    // substrate_block_number, so a stale local DB (e.g. across a
+    // `make localdev` teardown that didn't wipe `./data/telemetry.*.db`)
+    // would overstate wins by the count of prior-chain entries. Chain's
+    // `proofs_won` is updated synchronously in `on_finalize`, so the
+    // poll-lag window is bounded by the indexer's chain_miners poll
+    // cadence (default 6s) — small enough to prefer correctness over
+    // freshness. Follow-up: indexer should detect genesis-hash change
+    // and wipe stale tables.
     const chainWins = Number(chainMinerEntry?.proofsWon ?? "0");
-    const blocksMined = String(Math.max(localWins, chainWins));
+    const blocksMined = String(chainWins);
     const liveDifficulty = recentDifficulty[0] ?? null;
     const currentRequirements: CurrentRequirements | null = liveDifficulty
       ? {

@@ -2,15 +2,31 @@
 
 import { formatBalance, shortAddress } from "../../../lib/format-chain";
 import { formatDuration, formatNumber } from "../../../lib/format";
+import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
 import { ChartCard } from "../../layout/ChartCard";
-import { BlockDetailCard } from "./BlockDetailCard";
+import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import { useMyNode } from "./use-my-node";
 import { StatTile } from "./StatTile";
 import { MinerStatsPanel } from "./MinerStatsPanel";
 import { NeighborsList } from "./NeighborsList";
+import { RecentPerformancePanel } from "./RecentPerformancePanel";
+
+// quip-protocol-rs `apply_decay` applies one decay step per `EpochLength`
+// blocks past `LastProofBlock`. Hard-coded to match `QuantumPowEpochLength
+// = 100` on spec 101 — same constant + caveat as `CurrentBlockIndicator`
+// and `ComputeAvailableView`.
+const QUANTUM_POW_EPOCH_LENGTH = 100;
+// Cap the "Prior energy" rows on the Current Difficulty card. Three
+// reads as a clear trail without growing the card past a screenful;
+// adjustment changes affect every poll so showing more is mostly noise.
+const PRIOR_ENERGY_ROWS = 3;
 
 export function MyNodeView() {
   const stats = useMyNode();
+  const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
+  const chainHead = useTelemetryStore((s) => s.chainHead);
+  const tipBlock = useTelemetryStore(selectTipBlock);
+  const blocks = useTelemetryStore((s) => s.blocks);
 
   if (!stats.selfAddress) {
     return (
@@ -48,6 +64,69 @@ export function MyNodeView() {
   // requirements aren't gated on a given dimension (most quip configs leave
   // diversity / solutions / quality at 0 today).
   const notEnforced = <span className="text-brand-gray-3 italic">not enforced</span>;
+
+  // Decay step count and the trail of recent prior energies. Decays are
+  // derived from (finalized - lastProofBlock) / EpochLength so the value
+  // matches what the pallet's `apply_decay` would compute. The trail is
+  // up to PRIOR_ENERGY_ROWS distinct-energy entries from recentDifficulty,
+  // skipping the most recent (which is shown as the current threshold).
+  const finalizedNum =
+    chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
+  const lastProofBlockNum = tipBlock ? Number(tipBlock.substrateBlockNumber) : null;
+  const decaysApplied =
+    finalizedNum != null && lastProofBlockNum != null
+      ? Math.max(0, Math.floor((finalizedNum - lastProofBlockNum) / QUANTUM_POW_EPOCH_LENGTH))
+      : null;
+  const priorEnergies: Array<{ block: string; energy: number }> = [];
+  if (recentDifficulty.length > 1) {
+    const seen = new Set<number>();
+    // recentDifficulty arrives newest-first; index 0 is the current poll
+    // and already surfaces on the Target Energy row.
+    for (let i = 1; i < recentDifficulty.length && priorEnergies.length < PRIOR_ENERGY_ROWS; i++) {
+      const r = recentDifficulty[i]!;
+      if (seen.has(r.difficultyEnergy)) continue;
+      seen.add(r.difficultyEnergy);
+      priorEnergies.push({ block: r.observedAtBlock, energy: r.difficultyEnergy });
+    }
+  }
+
+  const difficultyRows: DetailRow[] =
+    currentRequirements != null
+      ? [
+          {
+            label: "Target Energy",
+            value: `≤ ${currentRequirements.difficultyEnergy.toFixed(3)}`,
+          },
+          {
+            label: "Min Diversity",
+            value:
+              currentRequirements.minDiversity > 0
+                ? currentRequirements.minDiversity.toFixed(3)
+                : notEnforced,
+          },
+          {
+            label: "Min Solutions",
+            value:
+              currentRequirements.minSolutions > 0
+                ? formatNumber(currentRequirements.minSolutions)
+                : notEnforced,
+          },
+          ...(decaysApplied != null
+            ? [
+                {
+                  label: "Decays Applied",
+                  value: formatNumber(decaysApplied),
+                } satisfies DetailRow,
+              ]
+            : []),
+          ...priorEnergies.map(
+            (p): DetailRow => ({
+              label: `Prior @ #${p.block}`,
+              value: `≤ ${p.energy.toFixed(3)}`,
+            }),
+          ),
+        ]
+      : [{ label: "Status", value: "Awaiting first block" }];
 
   return (
     <>
@@ -122,34 +201,15 @@ export function MyNodeView() {
               : undefined
           }
         />
-        <BlockDetailCard
-          label="Current Difficulty"
-          rows={
-            currentRequirements != null
-              ? [
-                  {
-                    label: "Target Energy",
-                    value: `≤ ${currentRequirements.difficultyEnergy.toFixed(3)}`,
-                  },
-                  {
-                    label: "Min Diversity",
-                    value:
-                      currentRequirements.minDiversity > 0
-                        ? currentRequirements.minDiversity.toFixed(3)
-                        : notEnforced,
-                  },
-                  {
-                    label: "Min Solutions",
-                    value:
-                      currentRequirements.minSolutions > 0
-                        ? formatNumber(currentRequirements.minSolutions)
-                        : notEnforced,
-                  },
-                ]
-              : [{ label: "Status", value: "Awaiting first block" }]
-          }
-        />
+        <BlockDetailCard label="Current Difficulty" rows={difficultyRows} />
       </div>
+
+      <RecentPerformancePanel
+        selfAddress={selfAddress}
+        blocks={blocks}
+        nowMs={Date.now()}
+        chainProofsWon={Number(chainMinerEntry?.proofsWon ?? "0")}
+      />
 
       {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
 

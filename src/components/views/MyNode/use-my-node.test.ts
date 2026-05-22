@@ -190,17 +190,20 @@ describe("useMyNode", () => {
     expect(out.current?.blocksMined).toBe("7");
   });
 
-  it("blocksMined picks max(localBlocks count, chainMinerEntry.proofsWon)", () => {
+  it("blocksMined trails chain when local has fresh win not yet in chain_miners poll", () => {
     // Indexer captured a winning block before the chain_miners poll
-    // refreshed: local count (1) is fresher than chain_miners.proofsWon (0).
-    // The tile should jump to 1 immediately, not wait for the next poll.
+    // refreshed: local count is 1 but chain_miners.proofsWon is still 0.
+    // We deliberately trail chain's authoritative count rather than max(),
+    // because the previous max() behavior over-counted on stale local DBs
+    // across chain rebuilds. The tile will catch up on the next
+    // chain_miners poll (default 6s) — small enough to prefer correctness.
     useTelemetryStore.setState({
       blocks: [makeBlock({ blockHash: "0xa", minerId: "5GAlice" })],
       selfAddress: "5GAlice",
       chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsWon: "0" })],
       indexer: null,
     });
-    expect(renderHook().current?.blocksMined).toBe("1");
+    expect(renderHook().current?.blocksMined).toBe("0");
   });
 
   it("blocksMined falls back to chain count when chain reports more than local", () => {
