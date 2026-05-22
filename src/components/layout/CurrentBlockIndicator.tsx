@@ -25,6 +25,14 @@ export function CurrentBlockIndicator() {
   const finalizedNum =
     chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
   const blocksSinceWin = finalizedNum != null ? Math.max(0, finalizedNum - tipNum) : null;
+  // Number of difficulty-decay steps applied since the last winning proof.
+  // quip-protocol-rs `apply_decay` triggers every `EpochLength` blocks past
+  // `LastProofBlock` (see pallets/quantum-pow/src/difficulty.rs:261). Hard-
+  // coded to match `QuantumPowEpochLength = 100` on spec 101; pipe through
+  // telemetry if/when the constant ever varies per chain.
+  const QUANTUM_POW_EPOCH_LENGTH = 100;
+  const decaysApplied =
+    blocksSinceWin != null ? Math.floor(blocksSinceWin / QUANTUM_POW_EPOCH_LENGTH) : null;
   return (
     <div className="mt-2 text-center font-accent text-xs text-brand-gray-3">
       <p>
@@ -34,6 +42,12 @@ export function CurrentBlockIndicator() {
         Last PoW Block: <span className="text-brand-gray-4">#{tipNum}</span>
         {blocksSinceWin != null && (
           <span className="text-brand-gray-3"> · {blocksSinceWin} blocks since</span>
+        )}
+        {decaysApplied != null && decaysApplied > 0 && (
+          <span className="text-brand-gray-3">
+            {" "}
+            · {decaysApplied} {decaysApplied === 1 ? "decay" : "decays"}
+          </span>
         )}
       </p>
     </div>

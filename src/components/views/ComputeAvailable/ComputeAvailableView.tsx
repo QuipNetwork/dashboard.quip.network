@@ -22,6 +22,7 @@ export function ComputeAvailableView() {
   // from the tip block when no live poll has landed yet — same chain of
   // precedence used by the MyNode "Current Difficulty" detail card.
   const liveDifficulty = useTelemetryStore((s) => s.recentDifficulty[0] ?? null);
+  const chainHead = useTelemetryStore((s) => s.chainHead);
   const currentDifficulty =
     liveDifficulty ??
     (compute.lastBlock
@@ -31,6 +32,20 @@ export function ComputeAvailableView() {
           minSolutions: compute.lastBlock.minSolutions,
         }
       : null);
+  // Number of difficulty-decay steps applied since the last winning proof.
+  // Matches quip-protocol-rs `apply_decay` (pallets/quantum-pow/src/
+  // difficulty.rs:261): one step per `QuantumPowEpochLength = 100` blocks
+  // past `LastProofBlock`. Same hard-coded constant as `CurrentBlockIndicator`.
+  const QUANTUM_POW_EPOCH_LENGTH = 100;
+  const finalizedNum =
+    chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
+  const lastProofBlockNum = compute.lastBlock
+    ? Number(compute.lastBlock.substrateBlockNumber)
+    : null;
+  const decaysApplied =
+    finalizedNum != null && lastProofBlockNum != null
+      ? Math.max(0, Math.floor((finalizedNum - lastProofBlockNum) / QUANTUM_POW_EPOCH_LENGTH))
+      : null;
 
   return (
     <>
@@ -126,7 +141,7 @@ export function ComputeAvailableView() {
           }
           sublabel={
             currentDifficulty != null
-              ? `Min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
+              ? `${decaysApplied != null ? `${decaysApplied} ${decaysApplied === 1 ? "decay" : "decays"} · ` : ""}min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
               : "Awaiting first difficulty poll"
           }
           accent={SERIES_COLORS.CPU}
