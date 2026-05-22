@@ -112,7 +112,7 @@ describe("substrate worker", () => {
     expect(b.energy).toBeCloseTo(-2.51, 5);
     expect(b.diversity).toBeCloseTo(0.42, 3);
     expect(b.numValidSolutions).toBe(5);
-    expect(b.miningTime).toBe(6); // 100 - 94
+    expect(b.miningTime).toBe(36); // (100 - 94) blocks × 6s slot duration
     expect(b.nonce).toBe("42");
     expect(b.numNodes).toBe(100);
     expect(b.numEdges).toBe(200);

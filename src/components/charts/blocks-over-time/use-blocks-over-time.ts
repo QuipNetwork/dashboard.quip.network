@@ -20,12 +20,16 @@ export function useBlocksOverTime(): BlocksOverTimeSeries[] {
 
   return useMemo(() => {
     const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
-    const filtered =
+    const baseFiltered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
         : blocks;
-    if (filtered.length === 0) return [];
+    if (baseFiltered.length === 0) return [];
 
+    // `blocks` arrives newest-first from `getRecentBlocks ORDER BY ... DESC`.
+    // The cumulative series must be built oldest→newest so x values stay
+    // non-negative and counts accumulate forward in time.
+    const filtered = [...baseFiltered].sort((a, b) => a.timestamp - b.timestamp);
     const minTimestamp = filtered[0]!.timestamp;
     const getKey = (b: (typeof blocks)[0]) =>
       mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;

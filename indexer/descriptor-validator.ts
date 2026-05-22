@@ -183,7 +183,12 @@ function normaliseSystemInfo(v: unknown): NodeSystemInfo | undefined {
   const r = v as Record<string, unknown>;
   const osRaw = r.os as Record<string, unknown> | undefined;
   const cpuRaw = r.cpu as Record<string, unknown> | undefined;
-  const gpusRaw = (r.gpus as unknown[] | undefined) ?? [];
+  // `gpus`, if present, must be an array. Non-array (e.g. operator wrote
+  // `"gpus": "n/a"`) is a malformed payload — treat as no GPUs rather than
+  // throw on `.map`, which would stall the descriptor worker on the bad
+  // remark forever.
+  const gpusCandidate = r.gpus;
+  const gpusRaw: unknown[] = Array.isArray(gpusCandidate) ? gpusCandidate : [];
   return {
     os: osRaw
       ? {

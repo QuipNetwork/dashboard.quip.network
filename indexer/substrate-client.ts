@@ -566,8 +566,14 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     const api = this.requireApi();
     const eventsQuery = api.query.system?.events;
     if (!eventsQuery) {
-      // Should never happen on Substrate, but capability-checked for safety.
-      return () => {};
+      // `system.events` is a baseline substrate capability — if it's gone,
+      // the chain is so broken (or the api client so misconfigured) that
+      // silently returning a no-op unsub would hide it forever. Throw so
+      // the reconnect loop logs + backs off; the operator can then see
+      // that block-winner attribution is unwired.
+      throw new Error(
+        "[substrate-client] api.query.system.events is unavailable; cannot subscribe to BlockWinner events",
+      );
     }
     // Subscribes to ALL events; filter to quantumPow.BlockWinner. Event
     // shape: (miner: AccountId, reward: Balance, energy_milli: i64,

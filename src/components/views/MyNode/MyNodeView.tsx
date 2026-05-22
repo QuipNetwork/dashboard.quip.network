@@ -35,13 +35,15 @@ export function MyNodeView() {
     neighbors,
   } = stats;
   const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
-  // BABE slot duration on quip-protocol-rs is 6s; api.consts.babe.slotDuration
-  // would be the authoritative source but isn't currently piped through
-  // telemetry. Use the constant until that wiring exists — slot duration
-  // is a runtime constant, not data-derived, so this is stable across blocks.
+  // `miningTime` is in seconds (substrate-worker converts the block-delta
+  // via BABE slot duration before writing). The "X blocks" supplementary
+  // display below divides back by the slot duration; if the runtime
+  // constant is ever piped through telemetry, derive both from the same
+  // source.
   const blockTimeSec = 6;
-  const lastSolutionTimeMs =
-    lastWonBlock != null ? lastWonBlock.miningTime * blockTimeSec * 1000 : null;
+  const lastSolutionTimeMs = lastWonBlock != null ? lastWonBlock.miningTime * 1000 : null;
+  const lastSolutionBlocks =
+    lastWonBlock != null ? Math.round(lastWonBlock.miningTime / blockTimeSec) : null;
   // "Not enforced" reads better than literal "0" when the chain difficulty
   // requirements aren't gated on a given dimension (most quip configs leave
   // diversity / solutions / quality at 0 today).
@@ -100,7 +102,7 @@ export function MyNodeView() {
                     label: "Time to Solution",
                     value:
                       lastSolutionTimeMs != null && lastSolutionTimeMs > 0
-                        ? `${formatDuration(lastSolutionTimeMs)} · ${lastWonBlock.miningTime} blocks`
+                        ? `${formatDuration(lastSolutionTimeMs)} · ${lastSolutionBlocks} blocks`
                         : "—",
                   },
                   {

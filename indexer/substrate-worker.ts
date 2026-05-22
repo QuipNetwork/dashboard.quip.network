@@ -41,6 +41,14 @@ export interface SubstrateWorkerDeps {
 
 const CHAIN_HEAD_DEBOUNCE_DEFAULT_MS = 1000;
 
+// BABE slot duration on quip-protocol-rs (spec_version 101). Used to
+// convert block-delta `miningTime` into seconds — the canonical unit
+// every consumer expects (chart axes labelled "seconds", RecentBlocks
+// and ComputeAvailable apply `* 1000` for ms). The runtime constant
+// `api.consts.babe.slotDuration` would be authoritative but isn't piped
+// through telemetry yet; this constant tracks it until that wiring lands.
+const BABE_SLOT_DURATION_SEC = 6;
+
 function nowIso(deps: SubstrateWorkerDeps): string {
   return new Date((deps.now ?? Date.now)()).toISOString();
 }
@@ -88,7 +96,16 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
     if (!known) return;
     const best = bestHead ?? known;
     const finalized = finalizedHead ?? known;
-    const rt = await client.getRuntimeVersion().catch(() => null);
+    const rt = await client.getRuntimeVersion().catch((e) => {
+      // Surface so the silent skip — which also skips the
+      // bestBlockHeight/finalizedBlockHeight observability writes below —
+      // doesn't disappear without a trace.
+      console.warn(
+        "[indexer/substrate] runtime version fetch failed; skipping chain_head write:",
+        e instanceof Error ? e.message : e,
+      );
+      return null;
+    });
     if (!rt) return;
     const lastUpgrade = await client.getLastRuntimeUpgrade().catch(() => null);
     const bestN = best.number;
@@ -156,6 +173,15 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
   const topology: TopologyInfo = cachedTopology ?? { nodeCount: 0, edgeCount: 0 };
   let lastDifficulty: DifficultyInfo | null = await client.getDifficulty().catch(() => null);
 
+  // In-process dedup for validator authorship. `recordValidatorAuthorship`
+  // is increment-by-1 (not idempotent on (account, block)), so a replayed
+  // finalized head — from a reconnect, or the live sub racing with the
+  // startup `backfillHistoricalWins` for the same block — would otherwise
+  // double-count the author. Restart-scope is sufficient: across restarts
+  // the `validator_authorship` row already exists, and the worker only
+  // re-processes blocks it sees again within one connection's lifetime.
+  const recordedAuthorship = new Set<string>();
+
   // Block-events writer. Used by both the live finalized-head subscription
   // and the startup historical backfill. Same shape, same writes —
   // backfilled rows look identical to live-captured rows. `db.insertBlock`
@@ -171,18 +197,22 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
     //     in its own try/catch so a transient adapter error here
     //     can't block the block-insert path that follows.
     if (e.author !== null) {
-      try {
-        await db.recordValidatorAuthorship(
-          e.author,
-          String(e.blockNumber),
-          e.timestamp,
-          e.winner !== null,
-        );
-      } catch (err) {
-        console.warn(
-          `[indexer/substrate] block #${e.blockNumber}: validator authorship write failed:`,
-          err,
-        );
+      const authorshipKey = `${e.author}|${e.blockNumber}`;
+      if (!recordedAuthorship.has(authorshipKey)) {
+        try {
+          await db.recordValidatorAuthorship(
+            e.author,
+            String(e.blockNumber),
+            e.timestamp,
+            e.winner !== null,
+          );
+          recordedAuthorship.add(authorshipKey);
+        } catch (err) {
+          console.warn(
+            `[indexer/substrate] block #${e.blockNumber}: validator authorship write failed:`,
+            err,
+          );
+        }
       }
     }
 
@@ -219,12 +249,15 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
         return;
       }
 
-      // Mining time: substrate-blocks since the previous winning proof.
-      // Read LastProofBlock AT THE PARENT block hash; on_finalize
-      // updates it in-block, so reading the parent gives us the prior
-      // value to subtract from this block's number.
+      // Mining time in SECONDS. Computed as (block-delta × BABE slot duration).
+      // The block-delta is substrate-blocks since the previous winning proof;
+      // LastProofBlock is read AT THE PARENT block hash because on_finalize
+      // updates it in-block, so the parent's value is the prior tip.
+      // Stored as seconds because every downstream consumer treats it as
+      // such (chart axes "seconds", `formatDuration(miningTime * 1000)`).
       const lastProofBlock = await client.getLastProofBlockAt(e.parentHash);
-      const miningTime = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
+      const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
+      const miningTime = miningTimeBlocks * BABE_SLOT_DURATION_SEC;
 
       // Per-block difficulty snapshot. v0.2 chain persists the exact
       // threshold each winning proof cleared in `WinningSolutions[N]`

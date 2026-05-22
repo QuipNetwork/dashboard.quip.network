@@ -30,6 +30,7 @@ export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Prom
       if (e instanceof AuthError) throw e;
       console.error("[indexer/tip] iteration failed:", e instanceof Error ? e.message : e);
     }
+    if (deps.config.once) return;
     await sleep(intervalMs, signal);
   }
 }

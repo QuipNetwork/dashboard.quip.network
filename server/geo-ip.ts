@@ -81,9 +81,13 @@ class CachingEnricher implements GeoIpEnricher {
     try {
       const r = await dnsLookup(host);
       ip = r.address;
-    } catch {
+    } catch (e) {
       // Cache the failure so we don't re-resolve a permanently-broken
       // host on every poll. Inverts to a retry once the TTL expires.
+      // Logged so operators can distinguish "host doesn't resolve" from
+      // "host resolves but isn't in the GeoIP DB" — both end up as
+      // markerless nodes on the map.
+      console.warn(`[geoip] DNS lookup failed for ${host}:`, e instanceof Error ? e.message : e);
       this.cache.set(key, { location: null, expiresAt: now + CACHE_TTL_MS });
       return null;
     }
