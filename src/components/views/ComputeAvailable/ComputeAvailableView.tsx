@@ -3,6 +3,7 @@
 import { ChartCard } from "../../layout/ChartCard";
 import { SERIES_COLORS } from "../../../lib/colors";
 import { formatDuration, formatNumber } from "../../../lib/format";
+import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
 import { StatTile } from "../MyNode/StatTile";
 import { ChainMinersTable } from "../Chain/ChainMinersView";
@@ -16,6 +17,20 @@ import { useComputeAvailable } from "./use-compute-available";
 export function ComputeAvailableView() {
   const compute = useComputeAvailable();
   const byNode = useUIStore((s) => s.aggregationMode) === "byNode";
+  // Live decayed difficulty from `current_difficulty()` runtime API
+  // (refreshed every chain poll). Falls back to the per-block snapshot
+  // from the tip block when no live poll has landed yet — same chain of
+  // precedence used by the MyNode "Current Difficulty" detail card.
+  const liveDifficulty = useTelemetryStore((s) => s.recentDifficulty[0] ?? null);
+  const currentDifficulty =
+    liveDifficulty ??
+    (compute.lastBlock
+      ? {
+          difficultyEnergy: compute.lastBlock.difficultyEnergy,
+          minDiversity: compute.lastBlock.minDiversity,
+          minSolutions: compute.lastBlock.minSolutions,
+        }
+      : null);
 
   return (
     <>
@@ -73,8 +88,9 @@ export function ComputeAvailableView() {
         )}
       </div>
 
-      {/* Block-ceiling FLOPS — orthogonal to By Node / By Type, visible in both modes */}
-      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      {/* Block-ceiling FLOPS + live difficulty — orthogonal to By Node / By
+          Type, visible in both modes. Three columns on lg; stacks below. */}
+      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
         <StatTile
           label="Last Block FLOPS"
           value={
@@ -102,6 +118,18 @@ export function ComputeAvailableView() {
               : "Awaiting first block"
           }
           accent={SERIES_COLORS.QPU}
+        />
+        <StatTile
+          label="Current Difficulty"
+          value={
+            currentDifficulty != null ? `≤ ${currentDifficulty.difficultyEnergy.toFixed(1)}` : "—"
+          }
+          sublabel={
+            currentDifficulty != null
+              ? `Min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
+              : "Awaiting first difficulty poll"
+          }
+          accent={SERIES_COLORS.CPU}
         />
       </div>
 

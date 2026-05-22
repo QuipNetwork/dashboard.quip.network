@@ -8,6 +8,7 @@ export function CurrentBlockIndicator() {
   // trigger an infinite re-render loop with zustand's default equality check.
   const tip = useTelemetryStore(selectTipBlock);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const chainHead = useTelemetryStore((s) => s.chainHead);
   if (!tip) return null;
   // BABE authors most blocks without a PoW solution attached, so the
   // "problem number" the network is currently racing to solve isn't tied
@@ -17,13 +18,23 @@ export function CurrentBlockIndicator() {
   const tipNum = Number(tip.substrateBlockNumber);
   const totalProofsWon = chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0);
   const nextProblem = totalProofsWon + 1;
+  // Substrate blocks elapsed since the last winning PoW solution. Derived
+  // from chain_head.finalizedBlockNumber (the canonical "where the chain
+  // is now") minus the tip-of-winning-blocks substrate height. Hidden when
+  // chain_head isn't observed yet (substrate worker not connected).
+  const finalizedNum =
+    chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
+  const blocksSinceWin = finalizedNum != null ? Math.max(0, finalizedNum - tipNum) : null;
   return (
     <div className="mt-2 text-center font-accent text-xs text-brand-gray-3">
       <p>
         Mining Problem <span className="text-brand-gray-5">#{nextProblem}</span>
       </p>
       <p className="mt-0.5 text-brand-gray-3">
-        Current Block: <span className="text-brand-gray-4">#{tipNum}</span>
+        Last PoW Block: <span className="text-brand-gray-4">#{tipNum}</span>
+        {blocksSinceWin != null && (
+          <span className="text-brand-gray-3"> · {blocksSinceWin} blocks since</span>
+        )}
       </p>
     </div>
   );
