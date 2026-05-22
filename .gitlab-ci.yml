@@ -1,5 +1,10 @@
 # GitLab CI/CD for Quip Dashboard
-# Tests on branches, builds on master/tags (and MRs for verification)
+#
+# Triggers:
+#   - merge_request_event  →  test + build (SHA-tagged only, for verification)
+#   - push to master       →  build + publish (:latest)
+#   - push to v0.2         →  build + publish (:v0.2-preview)
+#   - git tag              →  build + publish (:latest, :<tag>)
 
 stages:
   - test
@@ -63,6 +68,7 @@ build-image-amd64:
       --destination $IMAGE:$CI_COMMIT_SHA-$ARCH
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
@@ -91,6 +97,7 @@ build-image-arm64:
     - rm -rf "${KANIKO_CFG:-}"
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
@@ -116,6 +123,9 @@ manifest:
       if [ "${CI_COMMIT_BRANCH:-}" = "master" ] || [ -n "${CI_COMMIT_TAG:-}" ]; then
         TARGETS="$TARGETS $IMAGE:latest"
       fi
+      if [ "${CI_COMMIT_BRANCH:-}" = "v0.2" ]; then
+        TARGETS="$TARGETS $IMAGE:v0.2-preview"
+      fi
       if [ -n "${CI_COMMIT_TAG:-}" ]; then
         TARGETS="$TARGETS $IMAGE:$CI_COMMIT_TAG"
       fi
@@ -129,5 +139,6 @@ manifest:
       done
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
