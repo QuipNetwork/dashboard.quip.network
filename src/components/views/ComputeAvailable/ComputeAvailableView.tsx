@@ -49,7 +49,7 @@ export function ComputeAvailableView() {
             <StatTile
               label="Total CPUs"
               value={formatNumber(compute.totalCpus)}
-              sublabel="Logical cores across network"
+              sublabel="Utilized CPUs across network"
               accent={SERIES_COLORS.CPU}
             />
             <StatTile

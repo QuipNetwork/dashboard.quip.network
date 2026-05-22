@@ -43,9 +43,19 @@ function NodeRow({ record }: { record: NodeDescriptorRecord }) {
   const d = record.descriptor;
   const minerEntries = d.miners ? Object.values(d.miners) : [];
   const gpus = d.systemInfo?.gpus ?? [];
+  // Report CPUs actually utilized by the miner (operator-signed
+  // `miners.cpu.numCpus`), not host `systemInfo.cpu.logicalCores` —
+  // logicalCores reflects the kernel's view of the container's host, which
+  // overstates usage on bounded miners (e.g. num_cpus=1 on a 16-core box).
+  const cpuMinerCpus = d.miners
+    ? Object.values(d.miners).reduce(
+        (sum, m) => (m.kind === "CPU" ? sum + (m.numCpus ?? 0) : sum),
+        0,
+      )
+    : 0;
   const cpuLine = d.systemInfo?.cpu?.brand
     ? `${d.systemInfo.cpu.brand}${
-        d.systemInfo.cpu.logicalCores ? ` (${d.systemInfo.cpu.logicalCores} cores)` : ""
+        cpuMinerCpus > 0 ? ` (${cpuMinerCpus} CPU${cpuMinerCpus === 1 ? "" : "s"})` : ""
       }`
     : null;
 
