@@ -47,7 +47,7 @@ export function RecentMiningPanel({
                 <th className="py-2 pr-4">Sol&nbsp;#</th>
                 <th className="py-2 pr-4">Best Energy</th>
                 <th className="py-2 pr-4">Threshold</th>
-                <th className="py-2 pr-4">Iters</th>
+                <th className="py-2 pr-4">Attempts</th>
                 <th className="py-2 pr-4">Outcome</th>
                 <th className="py-2 pr-4">Block</th>
                 <th className="py-2">Age</th>
