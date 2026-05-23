@@ -4,13 +4,12 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v13: mining_submissions replaces proof_attempts", () => {
-  // v13 swaps the chain-side `proof_attempts` table for the miner-side
-  // `mining_submissions` surface. The miner API exposes per-submission
-  // detail (iteration trail, self-rejected attempts, miner-targeted
-  // threshold) that the chain never sees — strictly more useful for
-  // the operator's MyNode view.
-  expect(SCHEMA_VERSION).toBe(13);
+test("schema v14: mining_submissions carries num_valid_solutions", () => {
+  // v14 adds `num_valid_solutions` to mining_submissions, derived from
+  // the submitted iteration's `num_valid` field. Surfaces in the Recent
+  // Performance panel alongside diversity, replacing the
+  // less-actionable threshold column.
+  expect(SCHEMA_VERSION).toBe(14);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",

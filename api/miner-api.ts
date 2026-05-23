@@ -89,6 +89,7 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
     outcome: requireStr(s.outcome, "outcome"),
     attemptCount: attempts.length,
     bestEnergyMilli: bestEnergy(attempts, submissionEnergy(s)),
+    numValidSolutions: extractNumValidSolutions(attempts, env.attempts),
     // observedAt is the caller's responsibility — both the indexer (write
     // path) and the server proxy (read-through path) stamp this with the
     // wall-clock at fetch time, not at parse time. The submission record
@@ -96,6 +97,49 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
     observedAt: "",
   };
   return { submission, attempts };
+}
+
+/**
+ * Pull `num_valid` off the iteration that was submitted to the chain.
+ * Iterations that are merely "stored" or "rejected" may not have run the
+ * full validation pass yet — only "submitted" guarantees the count is
+ * the final one the miner sent on-chain. Falls back to 0 when no
+ * submitted iteration exists, matching the chain-side equivalent on
+ * BlockRecord (which is 0 for not-yet-finalized rows).
+ */
+function extractNumValidSolutions(
+  parsed: MiningAttempt[],
+  raw: RawAttempt[] | undefined,
+): number {
+  if (!Array.isArray(raw)) return 0;
+  // Walk in order — pick the LAST submitted row, since miners that
+  // resubmit (rare) leave the most recent submission as the canonical
+  // one.
+  for (let i = raw.length - 1; i >= 0; i--) {
+    const r = raw[i];
+    if (!r) continue;
+    const kind = typeof r.result_kind === "string" ? r.result_kind.toLowerCase() : "";
+    if (!kind.includes("submit")) continue;
+    const n = numericExtra(r["num_valid"]);
+    if (n !== null) return n;
+  }
+  // Fall back to the parsed-iteration-best when no submitted row: use
+  // the last attempt's num_valid if present. Keeps "Solutions" column
+  // populated for in-flight or stored-only dispatches.
+  for (let i = parsed.length - 1; i >= 0; i--) {
+    const n = numericExtra(parsed[i]?.extra["num_valid"]);
+    if (n !== null) return n;
+  }
+  return 0;
+}
+
+function numericExtra(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 function submissionEnergy(s: RawSubmission): number {

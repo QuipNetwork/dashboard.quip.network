@@ -192,6 +192,7 @@ const SCHEMA_STATEMENTS: string[] = [
      outcome               TEXT NOT NULL,
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     BIGINT NOT NULL,
+     num_valid_solutions   INTEGER NOT NULL DEFAULT 0,
      observed_at           TIMESTAMPTZ NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -795,13 +796,14 @@ export class PostgresAdapter implements DatabaseAdapter {
         miner_id, solution_id, dispatch_id, ts_ns,
         energy_milli, diversity_milli, threshold_milli,
         last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-        outcome, attempt_count, best_energy_milli, observed_at
+        outcome, attempt_count, best_energy_milli, num_valid_solutions, observed_at
       ) VALUES (
         ${record.minerId}, ${record.solutionId}, ${record.dispatchId}, ${record.tsNs},
         ${record.energyMilli}, ${record.diversityMilli}, ${record.thresholdMilli},
         ${record.lastProofBlockHash}, ${record.extrinsicHash},
         ${record.chainBlockHash}, ${record.chainBlockNumber},
-        ${record.outcome}, ${record.attemptCount}, ${record.bestEnergyMilli}, ${record.observedAt}
+        ${record.outcome}, ${record.attemptCount}, ${record.bestEnergyMilli},
+        ${record.numValidSolutions}, ${record.observedAt}
       )
       ON CONFLICT (miner_id, solution_id) DO UPDATE SET
         dispatch_id           = EXCLUDED.dispatch_id,
@@ -816,6 +818,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         outcome               = EXCLUDED.outcome,
         attempt_count         = EXCLUDED.attempt_count,
         best_energy_milli     = EXCLUDED.best_energy_milli,
+        num_valid_solutions   = EXCLUDED.num_valid_solutions,
         observed_at           = EXCLUDED.observed_at
     `;
   }
@@ -842,6 +845,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         outcome: string;
         attempt_count: number;
         best_energy_milli: string;
+        num_valid_solutions: number;
         observed_at: Date;
       }[]
     >`
@@ -865,6 +869,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       outcome: r.outcome,
       attemptCount: r.attempt_count,
       bestEnergyMilli: Number(r.best_energy_milli),
+      numValidSolutions: r.num_valid_solutions,
       observedAt:
         r.observed_at instanceof Date ? r.observed_at.toISOString() : String(r.observed_at),
     }));

@@ -11,7 +11,6 @@ import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
 import { MinerStatsPanel } from "./MinerStatsPanel";
 import { NeighborsList } from "./NeighborsList";
 import { RecentMiningPanel } from "./RecentMiningPanel";
-import { RecentPerformancePanel } from "./RecentPerformancePanel";
 
 // quip-protocol-rs `apply_decay` applies one decay step per `EpochLength`
 // blocks past `LastProofBlock`. Hard-coded to match `QuantumPowEpochLength
@@ -28,9 +27,8 @@ export function MyNodeView() {
   const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
   const chainHead = useTelemetryStore((s) => s.chainHead);
   const tipBlock = useTelemetryStore(selectTipBlock);
-  const blocks = useTelemetryStore((s) => s.blocks);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
-  const currentDispatchAttempts = useTelemetryStore((s) => s.currentDispatchAttempts);
+  const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
 
   if (!stats.selfAddress) {
@@ -210,25 +208,20 @@ export function MyNodeView() {
       </div>
 
       <CurrentAttemptsPanel
-        attempts={currentDispatchAttempts}
+        dispatch={currentDispatch}
+        recentSubmissions={recentMiningSubmissions}
         problemNumber={
           // Mining problem # = total proofs ever won (across all miners) + 1.
           // Matches CurrentBlockIndicator's `nextProblem` derivation so the
           // panel header agrees with the header indicator.
           chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0) + 1
         }
+        nowMs={Date.now()}
       />
 
       {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
 
       <RecentMiningPanel submissions={recentMiningSubmissions} nowMs={Date.now()} />
-
-      <RecentPerformancePanel
-        selfAddress={selfAddress}
-        blocks={blocks}
-        nowMs={Date.now()}
-        chainProofsWon={Number(chainMinerEntry?.proofsWon ?? "0")}
-      />
 
       <ChartCard title="Rank-Adjacent Miners" subtitle="Your position in the network leaderboard">
         <NeighborsList self={self} neighbors={neighbors} />

@@ -82,27 +82,29 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
     console.warn("[indexer/tip] /api/v1/status failed:", e instanceof Error ? e.message : e);
   }
 
-  let proofsSubmitted: number | null = null;
+  let resultsReceived: number | null = null;
   try {
     const stats: MinerStats = await client.getStats();
     state.observability.minerStats = stats;
-    // `controller.proofs_submitted` is the monotonic counter that
-    // `solution_id` draws from. Use it as the upper bound for the
-    // attempts catch-up below — saves a probe-until-404 loop.
-    proofsSubmitted = Number.isFinite(stats.proofsSubmitted) ? stats.proofsSubmitted : null;
+    // `controller.results_received` covers every dispatch that produced
+    // a result — submitted_inblock AND chain_error. Using proofs_submitted
+    // here would skip chain-rejected solutions, leaving them invisible
+    // in the dashboard. solution_ids are monotonic and 1-indexed against
+    // this counter on the miner side.
+    resultsReceived = Number.isFinite(stats.resultsReceived) ? stats.resultsReceived : null;
   } catch (e) {
     if (e instanceof AuthError) throw e;
     console.warn("[indexer/tip] /api/v1/stats failed:", e instanceof Error ? e.message : e);
   }
 
   // Mining-attempts catch-up. Only run when both selfAddress and the
-  // proofs_submitted counter are known — without either, we can't key
+  // results_received counter are known — without either, we can't key
   // the checkpoint or bound the fetch range. Errors here never poison
   // the heartbeat write at the bottom of the function: catch broadly.
   const selfAddress = await db.getSelfAddress();
-  if (selfAddress && proofsSubmitted !== null && proofsSubmitted > 0) {
+  if (selfAddress && resultsReceived !== null && resultsReceived > 0) {
     try {
-      await catchUpMiningAttempts(deps, selfAddress, proofsSubmitted, nowIso);
+      await catchUpMiningAttempts(deps, selfAddress, resultsReceived, nowIso);
     } catch (e) {
       if (e instanceof AuthError) throw e;
       console.warn(
@@ -132,14 +134,17 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
 async function catchUpMiningAttempts(
   deps: TipWorkerDeps,
   minerId: string,
-  controllerProofsSubmitted: number,
+  controllerResultsReceived: number,
   observedAt: string,
 ): Promise<void> {
   const { client, db } = deps;
   const checkpoint = (await db.getMiningCheckpoint(minerId)) ?? 0;
-  if (controllerProofsSubmitted <= checkpoint) return;
+  if (controllerResultsReceived <= checkpoint) return;
 
-  const target = Math.min(controllerProofsSubmitted, checkpoint + MINING_ATTEMPTS_PER_POLL_CAP);
+  const target = Math.min(
+    controllerResultsReceived,
+    checkpoint + MINING_ATTEMPTS_PER_POLL_CAP,
+  );
   for (let id = checkpoint + 1; id <= target; id++) {
     try {
       const env = await client.getMiningAttempts(id);

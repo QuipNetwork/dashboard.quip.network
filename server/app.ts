@@ -9,6 +9,7 @@ import {
   parseMiningAttemptsApiResponse,
 } from "../api/miner-api";
 import type {
+  CurrentDispatch,
   MiningAttempt,
   NodeDescriptorRecord,
   NodeInfo,
@@ -97,20 +98,19 @@ export function createApp(options: CreateAppOptions): Hono {
     // once.
     const hardwareByAccount = new Map(allHardware.map((h) => [h.accountId, h]));
 
-    // Live in-flight iteration trail. `contextsDispatched` is the miner's
-    // monotonic dispatch counter — the *next* problem the miner started
-    // working on. We fetch its attempt log (no submission join — that
-    // dispatch may not have produced a winning proof yet). Best-effort:
-    // any failure path returns [] so the rest of the response is
-    // unaffected. Requires the miner's internal id from the
-    // `miner_hardware` row written by the indexer's tip-worker.
+    // Current-dispatch resolution: probe `contextsDispatched + 1` (would
+    // be in-flight if the miner has started the next problem) and
+    // `contextsDispatched` (the just-finished one) in parallel. The
+    // first with iterations wins — labelled "in-flight" if it's the
+    // probe-ahead, "completed" otherwise. Both empty → null (panel
+    // renders an empty-state explainer).
     const minerHardware = selfAddress ? hardwareByAccount.get(selfAddress) : undefined;
     const minerInternalId = minerHardware?.miners[0]?.id ?? null;
     const dispatchId = indexer?.minerStats?.contextsDispatched ?? null;
-    const currentDispatchAttempts: MiningAttempt[] =
+    const currentDispatch: CurrentDispatch | null =
       selfAddress && minerInternalId && dispatchId !== null && dispatchId > 0
-        ? await fetchCurrentDispatchAttempts(minerInternalId, dispatchId)
-        : [];
+        ? await resolveCurrentDispatch(minerInternalId, dispatchId)
+        : null;
 
     // Project per-account chain descriptors into the legacy NodesSnapshot
     // shape so the Compute Available view's TFLOPS/PFLOPS surfaces keep
@@ -170,18 +170,46 @@ export function createApp(options: CreateAppOptions): Hono {
       nodes,
       nodeDescriptors,
       recentMiningSubmissions,
-      currentDispatchAttempts,
+      currentDispatch,
     } satisfies TelemetryResponse);
   });
 
   /**
-   * Best-effort fetch of the in-flight dispatch's iteration trail. Always
-   * resolves with an array — every failure path returns `[]` so a slow or
-   * broken miner can't poison /api/telemetry. The 8s timeout is short
-   * enough that a hung miner won't push /api/telemetry past a poll
-   * interval; if it does fire, the panel renders empty for one tick.
+   * Probe both `contextsDispatched + 1` (would-be in-flight) and
+   * `contextsDispatched` (just-completed) in parallel; whichever has
+   * iterations becomes the "current dispatch". Best-effort: both empty
+   * or both failed → null, panel renders empty state.
+   *
+   * The 4s timeout is half the indexer poll interval; a single hung
+   * miner can delay /api/telemetry by at most one round-trip's worth
+   * of latency.
    */
-  async function fetchCurrentDispatchAttempts(
+  async function resolveCurrentDispatch(
+    minerId: string,
+    contextsDispatched: number,
+  ): Promise<CurrentDispatch | null> {
+    const [nextAttempts, curAttempts] = await Promise.all([
+      fetchDispatchAttempts(minerId, contextsDispatched + 1),
+      fetchDispatchAttempts(minerId, contextsDispatched),
+    ]);
+    if (nextAttempts.length > 0) {
+      return {
+        dispatchId: contextsDispatched + 1,
+        attempts: nextAttempts,
+        status: "in-flight",
+      };
+    }
+    if (curAttempts.length > 0) {
+      return {
+        dispatchId: contextsDispatched,
+        attempts: curAttempts,
+        status: "completed",
+      };
+    }
+    return null;
+  }
+
+  async function fetchDispatchAttempts(
     minerId: string,
     dispatchId: number,
   ): Promise<MiningAttempt[]> {
@@ -196,7 +224,7 @@ export function createApp(options: CreateAppOptions): Hono {
     });
     const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/mining/attempts?${params.toString()}`;
     try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
       if (!res.ok) return [];
       const parsed = (await res.json()) as { success?: boolean; data?: unknown };
       if (parsed && typeof parsed === "object" && parsed.success === false) return [];

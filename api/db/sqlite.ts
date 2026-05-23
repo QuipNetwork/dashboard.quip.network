@@ -194,6 +194,7 @@ const SCHEMA_STATEMENTS: string[] = [
      outcome               TEXT NOT NULL,
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     INTEGER NOT NULL,
+     num_valid_solutions   INTEGER NOT NULL DEFAULT 0,
      observed_at           TEXT NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -904,12 +905,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
            miner_id, solution_id, dispatch_id, ts_ns,
            energy_milli, diversity_milli, threshold_milli,
            last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-           outcome, attempt_count, best_energy_milli, observed_at
+           outcome, attempt_count, best_energy_milli, num_valid_solutions, observed_at
          ) VALUES (
            $miner, $sol, $dispatch, $ts,
            $energy, $div, $thr,
            $lpbh, $extx, $cbh, $cbn,
-           $outcome, $cnt, $best, $observed
+           $outcome, $cnt, $best, $nvs, $observed
          )
          ON CONFLICT(miner_id, solution_id) DO UPDATE SET
            dispatch_id           = excluded.dispatch_id,
@@ -924,6 +925,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
            outcome               = excluded.outcome,
            attempt_count         = excluded.attempt_count,
            best_energy_milli     = excluded.best_energy_milli,
+           num_valid_solutions   = excluded.num_valid_solutions,
            observed_at           = excluded.observed_at`,
       )
       .run({
@@ -941,6 +943,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $outcome: record.outcome,
         $cnt: record.attemptCount,
         $best: record.bestEnergyMilli,
+        $nvs: record.numValidSolutions,
         $observed: record.observedAt,
       });
   }
@@ -966,6 +969,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
           outcome: string;
           attempt_count: number;
           best_energy_milli: number;
+          num_valid_solutions: number;
           observed_at: string;
         },
         [string, number]
@@ -1082,6 +1086,7 @@ function rowToMiningSubmission(row: {
   outcome: string;
   attempt_count: number;
   best_energy_milli: number;
+  num_valid_solutions: number;
   observed_at: string;
 }): MiningSubmissionRecord {
   return {
@@ -1099,6 +1104,7 @@ function rowToMiningSubmission(row: {
     outcome: row.outcome,
     attemptCount: row.attempt_count,
     bestEnergyMilli: row.best_energy_milli,
+    numValidSolutions: row.num_valid_solutions,
     observedAt: row.observed_at,
   };
 }

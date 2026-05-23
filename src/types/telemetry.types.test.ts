@@ -123,7 +123,7 @@ describe("v6 telemetry types", () => {
       nodes: null,
       nodeDescriptors: [],
       recentMiningSubmissions: [],
-      currentDispatchAttempts: [],
+      currentDispatch: null,
     };
     // `nodes` is nullable until the descriptor worker observes its first
     // valid `quip-miner identify` extrinsic. `nodeDescriptors` is the raw

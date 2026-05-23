@@ -46,7 +46,8 @@ export function RecentMiningPanel({
               <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
                 <th className="py-2 pr-4">Sol&nbsp;#</th>
                 <th className="py-2 pr-4">Best Energy</th>
-                <th className="py-2 pr-4">Threshold</th>
+                <th className="py-2 pr-4">Diversity</th>
+                <th className="py-2 pr-4">Solutions</th>
                 <th className="py-2 pr-4">Attempts</th>
                 <th className="py-2 pr-4">Outcome</th>
                 <th className="py-2 pr-4">Block</th>
@@ -77,7 +78,10 @@ export function RecentMiningPanel({
                       {milliToFixed(s.bestEnergyMilli, 3)}
                     </td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
-                      ≤&nbsp;{milliToFixed(s.thresholdMilli, 3)}
+                      {milliToFixed(s.diversityMilli, 3)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-brand-gray-5">
+                      {formatNumber(s.numValidSolutions)}
                     </td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
                       {formatNumber(s.attemptCount)}

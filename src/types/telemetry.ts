@@ -176,6 +176,11 @@ export interface MinerStats {
   avgMiningTime: number;
   headsObserved: number;
   contextsDispatched: number;
+  // Total dispatches that produced a result (= proofsSubmitted +
+  // proofsUnverified). The right upper bound for the indexer's
+  // mining_submissions catch-up — `proofsSubmitted` skips
+  // chain-rejected submissions (outcome=chain_error), leaving them
+  // un-indexed.
   resultsReceived: number;
   proofsSubmitted: number;
   staleDrops: number;
@@ -424,6 +429,12 @@ export interface MiningSubmissionRecord {
   // Derived: min(attempts[].best_energy_milli). Lets the table show "best
   // energy this submission ever reached" without unpacking iterations.
   bestEnergyMilli: number;
+  // The `num_valid` count from the submitted iteration — how many of
+  // the miner's sampled solutions passed validation. 0 when no submitted
+  // iteration carried a count (chain_error before the count was known,
+  // or older miners that didn't surface it). The chain-side equivalent
+  // lives on BlockRecord.numValidSolutions.
+  numValidSolutions: number;
   observedAt: string; // ISO 8601 when the indexer fetched this submission
 }
 
@@ -496,13 +507,20 @@ export interface TelemetryResponse {
   // trail via `/api/mining/attempts/:solutionId`. Empty when the miner
   // has not submitted a proof since the indexer started polling.
   recentMiningSubmissions: MiningSubmissionRecord[];
-  // Iteration trail of the *in-flight* dispatch — attempts against the
-  // current outstanding problem. Server fetches via the dispatch_id form
-  // of `/api/v1/mining/attempts`. Empty when the miner is between
-  // dispatches (just won), when contextsDispatched isn't known yet, or
-  // when the upstream fetch failed. Failure is silent — rest of
-  // /api/telemetry still resolves.
-  currentDispatchAttempts: MiningAttempt[];
+  // The miner's most recent dispatch — either the in-flight one (status
+  // "in-flight" when `contextsDispatched + 1` has iterations) or the
+  // just-completed one (status "completed", `contextsDispatched`). Null
+  // when the miner hasn't dispatched anything yet, or when both probes
+  // failed. The UI uses `status` to label the panel header and join
+  // `dispatchId` against `recentMiningSubmissions` to surface the
+  // chain outcome (e.g. chain_error vs submitted_inblock).
+  currentDispatch: CurrentDispatch | null;
+}
+
+export interface CurrentDispatch {
+  dispatchId: number;
+  attempts: MiningAttempt[];
+  status: "in-flight" | "completed";
 }
 
 export interface ErrorResponse {

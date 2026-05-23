@@ -2,36 +2,42 @@
 
 import { formatDuration, formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
-import type { MiningAttempt } from "../../../types/telemetry";
+import type { CurrentDispatch, MiningSubmissionRecord } from "../../../types/telemetry";
 
-// Iteration trail for the in-flight dispatch — what the miner is doing
-// RIGHT NOW against the current outstanding problem. Server fetches the
-// dispatch_id form of `/api/v1/mining/attempts` and ships the array on
-// every /api/telemetry poll, so this advances live as the miner grinds.
+// Iteration trail for the miner's most recent dispatch. The server
+// probes `contextsDispatched + 1` (in-flight if the miner has started
+// the next problem) and falls back to `contextsDispatched` (the just-
+// completed dispatch). The badge in the panel header surfaces which
+// case we're in — "In flight" means the miner is actively grinding;
+// "Last completed" means the panel is showing a finished dispatch and
+// no new one has started yet (sometimes a stuck-miner signal).
 //
-// Empty state covers two cases:
-//   - Miner is between dispatches (just won, or hasn't started yet)
-//   - Upstream fetch failed (miner unreachable, controller error)
-// Surfaced explicitly so the operator can tell "nothing happening" from
-// "this miner is wedged".
+// When the dispatch has produced a chain-side submission record, we
+// also surface the submission's `outcome` (chain_error / submitted_inblock
+// / ...) so the operator can tell a successful submission from a
+// chain-rejected one without scrolling to Recent Performance.
 export function CurrentAttemptsPanel({
-  attempts,
+  dispatch,
+  recentSubmissions,
   problemNumber,
+  nowMs,
 }: {
-  attempts: MiningAttempt[];
+  dispatch: CurrentDispatch | null;
+  // For outcome-badge resolution: find the matching submission row by
+  // dispatchId. Empty array is fine — the badge just doesn't render.
+  recentSubmissions: MiningSubmissionRecord[];
   // Display label for the current target problem — chain proofs_won + 1.
   // Matches the header indicator. Null when proofs_won isn't known.
   problemNumber: number | null;
+  // Wall-clock for "age" calculations against iteration ts_ns.
+  nowMs: number;
 }) {
-  // Reverse-sort so the newest iteration is on top — same convention as
-  // RecentMiningPanel and RecentPerformancePanel.
-  const sorted = [...attempts].sort((a, b) => b.iter - a.iter);
   const heading =
     problemNumber != null && problemNumber > 0
       ? `Current Attempts · problem #${formatNumber(problemNumber)}`
       : "Current Attempts";
 
-  if (sorted.length === 0) {
+  if (dispatch === null || dispatch.attempts.length === 0) {
     return (
       <ChartCard
         title={heading}
@@ -42,11 +48,24 @@ export function CurrentAttemptsPanel({
     );
   }
 
+  const sorted = [...dispatch.attempts].sort((a, b) => b.iter - a.iter);
+  const matchingSubmission = recentSubmissions.find((s) => s.dispatchId === dispatch.dispatchId);
+
   return (
     <ChartCard
       title={heading}
-      subtitle={`In-flight iterations for the current dispatch (${sorted.length} so far).`}
+      subtitle={`Dispatch #${formatNumber(dispatch.dispatchId)} · ${sorted.length} iteration${sorted.length === 1 ? "" : "s"}`}
     >
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <StatusBadge status={dispatch.status} />
+        {matchingSubmission && <OutcomeBadge outcome={matchingSubmission.outcome} />}
+        {matchingSubmission?.chainBlockNumber && (
+          <span className="font-accent text-[10px] text-brand-gray-4">
+            chain block #{matchingSubmission.chainBlockNumber}
+          </span>
+        )}
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full font-accent text-xs tabular-nums">
           <thead>
@@ -63,7 +82,7 @@ export function CurrentAttemptsPanel({
             {sorted.map((a) => {
               const threshold = extractThresholdMilli(a.extra);
               const miningTimeUs = extractMiningTimeUs(a.extra);
-              const ageMs = extractAgeMs(a.extra);
+              const ageMs = extractAgeMs(a.extra, nowMs);
               return (
                 <tr
                   key={a.iter}
@@ -95,6 +114,36 @@ export function CurrentAttemptsPanel({
   );
 }
 
+function StatusBadge({ status }: { status: CurrentDispatch["status"] }) {
+  const tone =
+    status === "in-flight"
+      ? "border-brand-green-0/40 text-brand-green-0"
+      : "border-brand-gray-2 text-brand-gray-4";
+  const label = status === "in-flight" ? "In flight" : "Last completed";
+  return (
+    <span className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
+function OutcomeBadge({ outcome }: { outcome: string }) {
+  const lower = outcome.toLowerCase();
+  // Match chain_error (and friends like submission_error) explicitly —
+  // the operator's diagnostic flag for "miner submitted but chain
+  // rejected", which is otherwise invisible in the iteration trail.
+  const tone: string = lower.includes("error")
+    ? "border-brand-red-0/40 text-brand-red-0"
+    : lower.includes("inblock") || lower.includes("submitted")
+      ? "border-brand-green-0/40 text-brand-green-0"
+      : "border-brand-gray-2 text-brand-gray-4";
+  return (
+    <span className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+      outcome: {outcome}
+    </span>
+  );
+}
+
 function ResultBadge({ kind }: { kind: string }) {
   const lower = kind.toLowerCase();
   const tone: string = lower.includes("submitted")
@@ -111,12 +160,6 @@ function ResultBadge({ kind }: { kind: string }) {
   );
 }
 
-/**
- * Pull `threshold_milli` out of the miner's extra fields. Returns null
- * when it's missing or non-numeric — `ratchet_threshold_milli` is a
- * deliberate fallback for miners that surface the dynamic threshold
- * instead of the static one.
- */
 function extractThresholdMilli(extra: Record<string, unknown>): number | null {
   const a = numericField(extra["threshold_milli"]);
   if (a !== null) return a;
@@ -127,17 +170,14 @@ function extractMiningTimeUs(extra: Record<string, unknown>): number | null {
   return numericField(extra["mining_time_us"]);
 }
 
-function extractAgeMs(extra: Record<string, unknown>): number | null {
+function extractAgeMs(extra: Record<string, unknown>, nowMs: number): number | null {
   const tsNs = extra["ts_ns"];
-  // The miner sends `ts_ns` as a number in JSON (it fits in IEEE-754 for
-  // any reasonable wall-clock past 2024, but we still divide carefully).
-  // Falls back to BigInt parse for safety; if neither path works, no age.
   try {
     if (typeof tsNs === "number" && Number.isFinite(tsNs)) {
-      return Date.now() - Math.floor(tsNs / 1_000_000);
+      return nowMs - Math.floor(tsNs / 1_000_000);
     }
     if (typeof tsNs === "string") {
-      return Date.now() - Number(BigInt(tsNs) / 1_000_000n);
+      return nowMs - Number(BigInt(tsNs) / 1_000_000n);
     }
   } catch {
     return null;
@@ -153,3 +193,4 @@ function numericField(v: unknown): number | null {
   }
   return null;
 }
+

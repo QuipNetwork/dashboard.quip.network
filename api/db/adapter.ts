@@ -392,7 +392,12 @@ export interface DbConfig {
 // bugs directly via `thresholdMilli`. Iteration trails are NOT stored;
 // the server proxies them on-demand for the modal. Wipe-on-drift because
 // pre-v13 indexers had no concept of solution_id checkpoint.
-export const SCHEMA_VERSION = 13;
+// v14: adds `num_valid_solutions` column to mining_submissions, derived
+// from the submitted iteration's `num_valid` field. Surfaces in the
+// Recent Performance panel as the "Solutions" column — parallels the
+// chain-side `BlockRecord.numValidSolutions`. Wipe-on-drift; on next
+// poll the indexer re-fetches every submission with the new field.
+export const SCHEMA_VERSION = 14;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
