@@ -143,8 +143,14 @@ async function catchUpMiningAttempts(
   for (let id = checkpoint + 1; id <= target; id++) {
     try {
       const env = await client.getMiningAttempts(id);
+      // The miner's API returns `miner_id` as the controller's internal
+      // node id (e.g. "quip-miner-pow-CPU-1"). We persist under the chain
+      // SS58 (`minerId`/`selfAddress`) so the table joins cleanly against
+      // `chain_miners` and the server can look up by self. The original
+      // miner_id is recoverable via the proxy on modal open.
       await db.insertMiningSubmission({
         ...env.submission,
+        minerId,
         observedAt,
       });
       await db.setMiningCheckpoint(minerId, id);
