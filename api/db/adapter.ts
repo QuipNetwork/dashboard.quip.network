@@ -10,8 +10,8 @@ import type {
   IndexerObservability,
   MinerHardwareRecord,
   MinerStats,
+  MiningSubmissionRecord,
   NodeDescriptorRecord,
-  ProofAttemptRecord,
 } from "../../src/types/telemetry";
 
 /**
@@ -268,28 +268,44 @@ export interface DatabaseAdapter {
   /** Persist the descriptor-worker's last-scanned block. Monotonic-only. */
   setDescriptorCheckpoint(blockNumber: string): Promise<void>;
 
-  // --- Proof attempts (v12) ---
-  // Every chain-accepted ProofAccepted event — winners AND non-winning
-  // proofs that met difficulty. Writes are INSERT OR IGNORE on the
-  // composite key (block_number, miner_id, energy_milli, diversity_milli,
-  // valid_solution_count) so subscription replays after reconnect are
-  // idempotent no-ops.
+  // --- Mining submissions (v13) ---
+  // Per-submission summaries sourced from the locally-polled miner's
+  // `/api/v1/mining/attempts?solution_id=N` endpoint. One row per
+  // `solution_id` (the controller-assigned monotonic submission counter),
+  // keyed by `(minerId, solutionId)` so multiple miners polled by the same
+  // dashboard never collide. Iteration-level rows are NOT stored — the
+  // server proxies them fresh on modal open.
 
   /**
-   * Bulk insert proof attempt rows. Called once per finalized head with
-   * every ProofAccepted event the substrate worker observed in that block.
-   * Duplicates on the composite PK are silently ignored.
+   * Idempotent insert-or-update by `(minerId, solutionId)`. The indexer
+   * may re-fetch a submission whose `chainBlockNumber` was null on first
+   * observation (extrinsic submitted but not yet on-chain); the second
+   * fetch flips that field and we want the row to update without losing
+   * the original `observedAt`.
    */
-  insertProofAttempts(records: ProofAttemptRecord[]): Promise<void>;
+  insertMiningSubmission(record: MiningSubmissionRecord): Promise<void>;
 
   /**
-   * Recent attempts at blocks STRICTLY GREATER than `sinceBlockNumber`,
-   * newest first. The caller passes the chain's `LastProofBlock` (i.e.,
-   * the substrate height of the last winning proof) so the returned rows
-   * reflect attempts vs the current mining problem only. `limit` caps the
-   * result set; the UI typically asks for 20–50.
+   * Recent submissions by `minerId`, newest first by `solutionId`. The
+   * server caller passes `selfAddress` so only the locally-polled miner's
+   * submissions surface in the UI panel.
    */
-  getRecentProofAttempts(sinceBlockNumber: string, limit: number): Promise<ProofAttemptRecord[]>;
+  getRecentMiningSubmissions(minerId: string, limit: number): Promise<MiningSubmissionRecord[]>;
+
+  /**
+   * Highest `solutionId` the indexer has fetched + persisted for this
+   * miner. Returned as a number (solution_id is u64 but fits comfortably
+   * in Number until ~9 quadrillion submissions). Null until the first
+   * submission lands.
+   */
+  getMiningCheckpoint(minerId: string): Promise<number | null>;
+
+  /**
+   * Monotonic advance — never rewinds. Guards against a misconfigured
+   * restart that resumes from an earlier checkpoint than what we already
+   * persisted.
+   */
+  setMiningCheckpoint(minerId: string, solutionId: number): Promise<void>;
 }
 
 export interface DbConfig {
@@ -367,7 +383,16 @@ export interface DbConfig {
 // the substrate-worker boundary; backfill via the historical-win path
 // is winners-only, so a fresh scan from genesis is the only way to
 // repopulate.
-export const SCHEMA_VERSION = 12;
+// v13: drops `proof_attempts` (the chain-side "submissions vs current
+// problem" surface) and replaces it with `mining_submissions` — per-
+// submission summaries sourced from the locally-polled miner's
+// `/api/v1/mining/attempts?solution_id=N` endpoint. The miner-side data
+// is richer (sees attempts the miner self-rejected before submission,
+// not just chain-accepted ones) and surfaces miner-side decay-tracking
+// bugs directly via `thresholdMilli`. Iteration trails are NOT stored;
+// the server proxies them on-demand for the modal. Wipe-on-drift because
+// pre-v13 indexers had no concept of solution_id checkpoint.
+export const SCHEMA_VERSION = 13;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share
@@ -383,5 +408,5 @@ export const OWNED_TABLES = [
   "miner_hardware",
   "validator_authorship",
   "node_descriptors",
-  "proof_attempts",
+  "mining_submissions",
 ] as const;

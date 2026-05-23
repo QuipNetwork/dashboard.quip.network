@@ -128,7 +128,7 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     validators: [MOCK_VALIDATOR],
     nodes: null,
     nodeDescriptors: [],
-    recentProofAttempts: [],
+    recentMiningSubmissions: [],
     ...overrides,
   };
 }
@@ -147,7 +147,7 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
     validators: [],
     nodes: null,
     nodeDescriptors: [],
-    recentProofAttempts: [],
+    recentMiningSubmissions: [],
     loading: false,
     error: null,
     fetchTelemetry: async () => {},
@@ -192,7 +192,7 @@ function resetStore(): void {
     validators: [],
     nodes: null,
     nodeDescriptors: [],
-    recentProofAttempts: [],
+    recentMiningSubmissions: [],
     loading: true,
     error: null,
   });

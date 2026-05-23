@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
+import { parseMiningAttemptsApiResponse } from "../api/miner-api";
 import type {
   NodeDescriptorRecord,
   NodeInfo,
@@ -13,6 +14,12 @@ import type {
 } from "../src/types/telemetry";
 
 import { getGeoIpEnricher } from "./geo-ip";
+
+// Cap on submission rows surfaced in /api/telemetry. The MyNode panel
+// shows the most recent and offers click-through to the modal for older
+// ones, so a deeper history is just bytes on the wire. 20 fits one
+// screenful of rows comfortably.
+const RECENT_MINING_SUBMISSIONS_LIMIT = 20;
 
 // "Online" threshold for the Active Validators table. A validator counts
 // as online when its most recent authored head is within this window of
@@ -72,14 +79,14 @@ export function createApp(options: CreateAppOptions): Hono {
       db.getAllNodeDescriptors(),
     ]);
 
-    // Proof attempts vs the current mining problem — every ProofAccepted
-    // event with `block_number > last_winning_block`. `blocks` is DESC by
-    // substrate height and contains winners only, so `blocks[0]` is the
-    // chain's LastProofBlock equivalent (matches what the runtime API
-    // would return). "0" means "no winning proof yet on this chain" —
-    // returns all attempts since genesis.
-    const lastWinningBlock = blocks[0]?.substrateBlockNumber ?? "0";
-    const recentProofAttempts = await db.getRecentProofAttempts(lastWinningBlock, 50);
+    // Recent submissions by the locally-polled miner — drives the
+    // "Recent Performance" panel. Empty until either selfAddress
+    // resolves (first /status poll) or the miner emits its first
+    // submission. The indexer keys by selfAddress so multi-miner
+    // dashboards never see other miners' submissions here.
+    const recentMiningSubmissions = selfAddress
+      ? await db.getRecentMiningSubmissions(selfAddress, RECENT_MINING_SUBMISSIONS_LIMIT)
+      : [];
 
     // Project per-account chain descriptors into the legacy NodesSnapshot
     // shape so the Compute Available view's TFLOPS/PFLOPS surfaces keep
@@ -139,8 +146,63 @@ export function createApp(options: CreateAppOptions): Hono {
       validators,
       nodes,
       nodeDescriptors,
-      recentProofAttempts,
+      recentMiningSubmissions,
     } satisfies TelemetryResponse);
+  });
+
+  // Modal proxy: fetches `/api/v1/mining/attempts?solution_id=N` from the
+  // miner pointed to by QUIP_NODE_URL and re-shapes to camelCase. Kept
+  // here rather than calling the miner directly from the SPA because:
+  //   - QUIP_NODE_URL may not be reachable from the operator's browser
+  //     (private network, no CORS), and
+  //   - QUIP_NODE_TOKEN (if set) lives in the server env and must NOT
+  //     ship to the browser.
+  // Returns 404 when the miner returns 404; 502 on any other upstream
+  // failure so the SPA can distinguish "no such submission" from
+  // "miner unreachable".
+  app.get("/api/mining/attempts/:solutionId", async (c) => {
+    const raw = c.req.param("solutionId");
+    const solutionId = Number(raw);
+    if (!Number.isFinite(solutionId) || solutionId <= 0 || !Number.isInteger(solutionId)) {
+      return c.json({ error: "invalid solution_id" }, 400);
+    }
+    const baseUrl = process.env.QUIP_NODE_URL;
+    if (!baseUrl) {
+      return c.json({ error: "QUIP_NODE_URL not configured" }, 503);
+    }
+    const headers: Record<string, string> = { accept: "application/json" };
+    const token = process.env.QUIP_NODE_TOKEN;
+    if (token) headers["authorization"] = `Bearer ${token}`;
+    const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/mining/attempts?solution_id=${solutionId}`;
+    let res: Response;
+    try {
+      res = await fetch(url, { headers });
+    } catch (e) {
+      return c.json(
+        { error: "upstream unreachable", detail: e instanceof Error ? e.message : String(e) },
+        502,
+      );
+    }
+    if (res.status === 404) return c.json({ error: "not found" }, 404);
+    if (!res.ok) {
+      return c.json({ error: `upstream ${res.status}` }, 502);
+    }
+    const parsed = (await res.json()) as { success?: boolean; data?: unknown; error?: string };
+    if (parsed && typeof parsed === "object" && parsed.success === false) {
+      return c.json({ error: parsed.error ?? "upstream reported failure" }, 502);
+    }
+    try {
+      const envelope = parseMiningAttemptsApiResponse(parsed?.data ?? parsed);
+      // Stamp observedAt at proxy time — the modal doesn't read it, but
+      // the type contract requires a string.
+      envelope.submission.observedAt = new Date().toISOString();
+      return c.json(envelope);
+    } catch (e) {
+      return c.json(
+        { error: "upstream parse failed", detail: e instanceof Error ? e.message : String(e) },
+        502,
+      );
+    }
   });
 
   app.get("/api/health", async (c) => {

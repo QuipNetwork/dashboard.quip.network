@@ -12,9 +12,9 @@ import type {
   IndexerObservability,
   MinerCategory,
   MinerHardwareRecord,
+  MiningSubmissionRecord,
   NodeDescriptor,
   NodeDescriptorRecord,
-  ProofAttemptRecord,
 } from "../../src/types/telemetry";
 import {
   OWNED_TABLES,
@@ -36,6 +36,9 @@ const LEGACY_DROP_STATEMENTS: string[] = [
   "DROP TABLE IF EXISTS self_address CASCADE",
   "DROP TABLE IF EXISTS indexer_cursors CASCADE",
   "DROP TABLE IF EXISTS indexer_etags CASCADE",
+  // v12 → v13: chain-side proof_attempts replaced by mining_submissions.
+  // No longer in OWNED_TABLES so drift-sweep wouldn't reach it; drop here.
+  "DROP TABLE IF EXISTS proof_attempts CASCADE",
 ];
 
 const SCHEMA_STATEMENTS: string[] = [
@@ -168,35 +171,44 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
      ON node_descriptors(block_number DESC)`,
-  // v12: every chain-accepted ProofAccepted event (not just winners). The
-  // substrate worker writes one row per event; the server filters by
-  // `block_number > LastWinningBlock` to surface "attempts vs the current
-  // mining problem". `energy_milli`/`diversity_milli` keep the chain's raw
-  // milli-unit integer encoding so re-derivation is lossless; the UI
-  // divides by 1000 at display time, matching how `blocks.energy` is
-  // computed. Composite PK dedupes replays of the same event across
-  // substrate worker reconnects.
-  `CREATE TABLE IF NOT EXISTS proof_attempts (
-     block_number          NUMERIC NOT NULL,
-     block_hash            TEXT NOT NULL,
+  // v13: per-submission summary from the locally-polled miner's
+  // `/api/v1/mining/attempts?solution_id=N` endpoint. Composite PK is
+  // (miner_id, solution_id). ts_ns is NUMERIC (u128 nanoseconds) and
+  // chain_block_number is NUMERIC (u64) for precision. `extrinsic_hash`
+  // / `chain_block_*` are nullable — a freshly-stored submission may not
+  // have landed on-chain yet, and is refreshed on UPSERT once it does.
+  `CREATE TABLE IF NOT EXISTS mining_submissions (
      miner_id              TEXT NOT NULL,
+     solution_id           BIGINT NOT NULL,
+     dispatch_id           BIGINT NOT NULL,
+     ts_ns                 NUMERIC NOT NULL,
      energy_milli          BIGINT NOT NULL,
      diversity_milli       BIGINT NOT NULL,
-     valid_solution_count  INTEGER NOT NULL,
-     block_timestamp       BIGINT NOT NULL,
+     threshold_milli       BIGINT NOT NULL,
+     last_proof_block_hash TEXT NOT NULL,
+     extrinsic_hash        TEXT,
+     chain_block_hash      TEXT,
+     chain_block_number    NUMERIC,
+     outcome               TEXT NOT NULL,
+     attempt_count         INTEGER NOT NULL,
+     best_energy_milli     BIGINT NOT NULL,
      observed_at           TIMESTAMPTZ NOT NULL,
-     PRIMARY KEY (block_number, miner_id, energy_milli, diversity_milli, valid_solution_count)
+     PRIMARY KEY (miner_id, solution_id)
    )`,
-  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_block
-     ON proof_attempts(block_number DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_miner_block
-     ON proof_attempts(miner_id, block_number DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_mining_submissions_miner_recent
+     ON mining_submissions(miner_id, solution_id DESC)`,
 ];
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
 
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
+
+const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
+
+function miningCheckpointKey(minerId: string): string {
+  return `${MINING_CHECKPOINT_KEY_PREFIX}${minerId}`;
+}
 
 export class PostgresAdapter implements DatabaseAdapter {
   private sql: Sql | null = null;
@@ -774,63 +786,108 @@ export class PostgresAdapter implements DatabaseAdapter {
     `;
   }
 
-  async insertProofAttempts(records: ProofAttemptRecord[]): Promise<void> {
-    if (records.length === 0) return;
-    const sql = this.requireSql();
-    // Single transaction so 8 events per block don't pay 8x commit overhead.
-    // ON CONFLICT DO NOTHING absorbs subscription replays.
-    await sql.begin(async (tx) => {
-      for (const r of records) {
-        await tx`
-          INSERT INTO proof_attempts (
-            block_number, block_hash, miner_id, energy_milli, diversity_milli,
-            valid_solution_count, block_timestamp, observed_at
-          ) VALUES (
-            ${r.blockNumber}, ${r.blockHash}, ${r.minerId},
-            ${Math.round(r.energy * 1000)}, ${Math.round(r.diversity * 1000)},
-            ${r.numValidSolutions}, ${r.timestamp}, ${r.observedAt}
-          )
-          ON CONFLICT (block_number, miner_id, energy_milli, diversity_milli, valid_solution_count)
-          DO NOTHING
-        `;
-      }
-    });
+  async insertMiningSubmission(record: MiningSubmissionRecord): Promise<void> {
+    // UPSERT — refresh all non-PK columns including observed_at (acts as
+    // "last fetched at"). chain_block_* may flip from null → populated
+    // when the indexer re-fetches a previously-pending submission.
+    await this.requireSql()`
+      INSERT INTO mining_submissions (
+        miner_id, solution_id, dispatch_id, ts_ns,
+        energy_milli, diversity_milli, threshold_milli,
+        last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
+        outcome, attempt_count, best_energy_milli, observed_at
+      ) VALUES (
+        ${record.minerId}, ${record.solutionId}, ${record.dispatchId}, ${record.tsNs},
+        ${record.energyMilli}, ${record.diversityMilli}, ${record.thresholdMilli},
+        ${record.lastProofBlockHash}, ${record.extrinsicHash},
+        ${record.chainBlockHash}, ${record.chainBlockNumber},
+        ${record.outcome}, ${record.attemptCount}, ${record.bestEnergyMilli}, ${record.observedAt}
+      )
+      ON CONFLICT (miner_id, solution_id) DO UPDATE SET
+        dispatch_id           = EXCLUDED.dispatch_id,
+        ts_ns                 = EXCLUDED.ts_ns,
+        energy_milli          = EXCLUDED.energy_milli,
+        diversity_milli       = EXCLUDED.diversity_milli,
+        threshold_milli       = EXCLUDED.threshold_milli,
+        last_proof_block_hash = EXCLUDED.last_proof_block_hash,
+        extrinsic_hash        = EXCLUDED.extrinsic_hash,
+        chain_block_hash      = EXCLUDED.chain_block_hash,
+        chain_block_number    = EXCLUDED.chain_block_number,
+        outcome               = EXCLUDED.outcome,
+        attempt_count         = EXCLUDED.attempt_count,
+        best_energy_milli     = EXCLUDED.best_energy_milli,
+        observed_at           = EXCLUDED.observed_at
+    `;
   }
 
-  async getRecentProofAttempts(
-    sinceBlockNumber: string,
+  async getRecentMiningSubmissions(
+    minerId: string,
     limit: number,
-  ): Promise<ProofAttemptRecord[]> {
-    // sinceBlockNumber is exclusive (>). At genesis the chain's
-    // LastProofBlock is 0, so passing "0" returns all rows — matches the
-    // sqlite adapter's behavior.
+  ): Promise<MiningSubmissionRecord[]> {
     const rows = await this.requireSql()<
       {
-        block_number: string;
-        block_hash: string;
         miner_id: string;
+        // BIGINT/NUMERIC columns come back as strings from postgres-js to
+        // preserve precision; convert at the adapter boundary.
+        solution_id: string;
+        dispatch_id: string;
+        ts_ns: string;
         energy_milli: string;
         diversity_milli: string;
-        valid_solution_count: number;
-        block_timestamp: string;
+        threshold_milli: string;
+        last_proof_block_hash: string;
+        extrinsic_hash: string | null;
+        chain_block_hash: string | null;
+        chain_block_number: string | null;
+        outcome: string;
+        attempt_count: number;
+        best_energy_milli: string;
         observed_at: Date;
       }[]
     >`
-      SELECT * FROM proof_attempts
-      WHERE block_number > CAST(${sinceBlockNumber} AS NUMERIC)
-      ORDER BY block_number DESC
+      SELECT * FROM mining_submissions
+      WHERE miner_id = ${minerId}
+      ORDER BY solution_id DESC
       LIMIT ${limit}
     `;
     return rows.map((r) => ({
-      blockNumber: String(r.block_number),
-      blockHash: r.block_hash,
       minerId: r.miner_id,
-      energy: Number(r.energy_milli) / 1000,
-      diversity: Number(r.diversity_milli) / 1000,
-      numValidSolutions: r.valid_solution_count,
-      timestamp: Number(r.block_timestamp),
-      observedAt: new Date(r.observed_at).toISOString(),
+      solutionId: Number(r.solution_id),
+      dispatchId: Number(r.dispatch_id),
+      tsNs: String(r.ts_ns),
+      energyMilli: Number(r.energy_milli),
+      diversityMilli: Number(r.diversity_milli),
+      thresholdMilli: Number(r.threshold_milli),
+      lastProofBlockHash: r.last_proof_block_hash,
+      extrinsicHash: r.extrinsic_hash,
+      chainBlockHash: r.chain_block_hash,
+      chainBlockNumber: r.chain_block_number === null ? null : String(r.chain_block_number),
+      outcome: r.outcome,
+      attemptCount: r.attempt_count,
+      bestEnergyMilli: Number(r.best_energy_milli),
+      observedAt:
+        r.observed_at instanceof Date ? r.observed_at.toISOString() : String(r.observed_at),
     }));
+  }
+
+  async getMiningCheckpoint(minerId: string): Promise<number | null> {
+    const rows = await this.requireSql()<{ value: string | null }[]>`
+      SELECT value FROM meta WHERE key = ${miningCheckpointKey(minerId)}
+    `;
+    const raw = rows[0]?.value;
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async setMiningCheckpoint(minerId: string, solutionId: number): Promise<void> {
+    // Monotonic advance only — parallels setDescriptorCheckpoint.
+    await this.requireSql()`
+      INSERT INTO meta (key, value)
+      VALUES (${miningCheckpointKey(minerId)}, ${String(solutionId)})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      WHERE CAST(meta.value AS NUMERIC) < CAST(EXCLUDED.value AS NUMERIC)
+    `;
   }
 
   private requireSql(): Sql {

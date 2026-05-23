@@ -4,12 +4,13 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v12: proof_attempts surfaces all chain-accepted proofs", () => {
-  // v12 adds `proof_attempts` — every ProofAccepted event (winners AND
-  // non-winning proofs that met difficulty), so the dashboard can render
-  // "Recent Performance vs problem #N" without waiting for a winning
-  // block.
-  expect(SCHEMA_VERSION).toBe(12);
+test("schema v13: mining_submissions replaces proof_attempts", () => {
+  // v13 swaps the chain-side `proof_attempts` table for the miner-side
+  // `mining_submissions` surface. The miner API exposes per-submission
+  // detail (iteration trail, self-rejected attempts, miner-targeted
+  // threshold) that the chain never sees — strictly more useful for
+  // the operator's MyNode view.
+  expect(SCHEMA_VERSION).toBe(13);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
@@ -21,11 +22,11 @@ test("schema v12: proof_attempts surfaces all chain-accepted proofs", () => {
     "miner_hardware",
     "validator_authorship",
     "node_descriptors",
-    "proof_attempts",
+    "mining_submissions",
   ]);
 });
 
-test("DatabaseAdapter v12 surface: proof attempt methods", () => {
+test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () => {
   type Methods = keyof DatabaseAdapter;
   const required: Methods[] = [
     "connect",
@@ -65,9 +66,11 @@ test("DatabaseAdapter v12 surface: proof attempt methods", () => {
     "getAllNodeDescriptors",
     "getDescriptorCheckpoint",
     "setDescriptorCheckpoint",
-    // proof attempts (v12) — every chain-accepted ProofAccepted event.
-    "insertProofAttempts",
-    "getRecentProofAttempts",
+    // mining submissions (v13) — replaces v12 chain-side proof_attempts.
+    "insertMiningSubmission",
+    "getRecentMiningSubmissions",
+    "getMiningCheckpoint",
+    "setMiningCheckpoint",
   ];
-  expect(required.length).toBe(32);
+  expect(required.length).toBe(34);
 });

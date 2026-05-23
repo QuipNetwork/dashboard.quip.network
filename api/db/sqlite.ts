@@ -14,9 +14,9 @@ import type {
   IndexerObservability,
   MinerCategory,
   MinerHardwareRecord,
+  MiningSubmissionRecord,
   NodeDescriptor,
   NodeDescriptorRecord,
-  ProofAttemptRecord,
 } from "../../src/types/telemetry";
 import {
   OWNED_TABLES,
@@ -38,6 +38,10 @@ const LEGACY_DROP_STATEMENTS: string[] = [
   "DROP TABLE IF EXISTS self_address",
   "DROP TABLE IF EXISTS indexer_cursors",
   "DROP TABLE IF EXISTS indexer_etags",
+  // v12 → v13: replaced chain-side proof_attempts with miner-side
+  // mining_submissions. proof_attempts is no longer in OWNED_TABLES so the
+  // drift-sweep wouldn't reach it; drop here so v12 databases get cleaned.
+  "DROP TABLE IF EXISTS proof_attempts",
 ];
 
 const SCHEMA_STATEMENTS: string[] = [
@@ -166,35 +170,50 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
      ON node_descriptors(CAST(block_number AS INTEGER) DESC)`,
-  // v12: every chain-accepted ProofAccepted event (not just winners). The
-  // substrate worker writes one row per event; the server filters by
-  // `block_number > LastWinningBlock` to surface "attempts vs the current
-  // mining problem". `energy_milli`/`diversity_milli` keep the chain's raw
-  // milli-unit integer encoding so re-derivation is lossless; the UI
-  // divides by 1000 at display time, matching how `blocks.energy` is
-  // computed. Composite PK dedupes replays of the same event across
-  // substrate worker reconnects.
-  `CREATE TABLE IF NOT EXISTS proof_attempts (
-     block_number          TEXT NOT NULL,
-     block_hash            TEXT NOT NULL,
+  // v13: per-submission summary from the locally-polled miner's
+  // `/api/v1/mining/attempts?solution_id=N` endpoint. Composite PK is
+  // (miner_id, solution_id) so polling multiple miners from one
+  // dashboard never collides on solution_id (each miner's counter starts
+  // at 1). Milli-unit columns keep integer encoding; the UI divides by
+  // 1000 at display time. `extrinsic_hash` / `chain_block_*` are nullable
+  // because a freshly-stored submission may not have landed on-chain yet.
+  // ts_ns is TEXT (u128 nanoseconds) and chain_block_number is TEXT (u64)
+  // for precision; SQLite's INTEGER tops out at 8 bytes signed.
+  `CREATE TABLE IF NOT EXISTS mining_submissions (
      miner_id              TEXT NOT NULL,
+     solution_id           INTEGER NOT NULL,
+     dispatch_id           INTEGER NOT NULL,
+     ts_ns                 TEXT NOT NULL,
      energy_milli          INTEGER NOT NULL,
      diversity_milli       INTEGER NOT NULL,
-     valid_solution_count  INTEGER NOT NULL,
-     block_timestamp       INTEGER NOT NULL,
+     threshold_milli       INTEGER NOT NULL,
+     last_proof_block_hash TEXT NOT NULL,
+     extrinsic_hash        TEXT,
+     chain_block_hash      TEXT,
+     chain_block_number    TEXT,
+     outcome               TEXT NOT NULL,
+     attempt_count         INTEGER NOT NULL,
+     best_energy_milli     INTEGER NOT NULL,
      observed_at           TEXT NOT NULL,
-     PRIMARY KEY (block_number, miner_id, energy_milli, diversity_milli, valid_solution_count)
+     PRIMARY KEY (miner_id, solution_id)
    )`,
-  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_block
-     ON proof_attempts(CAST(block_number AS INTEGER) DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_proof_attempts_miner_block
-     ON proof_attempts(miner_id, CAST(block_number AS INTEGER) DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_mining_submissions_miner_recent
+     ON mining_submissions(miner_id, solution_id DESC)`,
 ];
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
 
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
+
+// Per-miner submission checkpoint, keyed in `meta` to avoid a dedicated
+// table for a single integer per miner. Multiple miners polled by one
+// dashboard each get an independent cursor under `mining_checkpoint:<ss58>`.
+const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
+
+function miningCheckpointKey(minerId: string): string {
+  return `${MINING_CHECKPOINT_KEY_PREFIX}${minerId}`;
+}
 
 export class SQLiteAdapter implements DatabaseAdapter {
   private db: Database | null = null;
@@ -874,73 +893,111 @@ export class SQLiteAdapter implements DatabaseAdapter {
       .run({ $k: DESCRIPTOR_CHECKPOINT_KEY, $v: blockNumber });
   }
 
-  async insertProofAttempts(records: ProofAttemptRecord[]): Promise<void> {
-    if (records.length === 0) return;
-    // Bun's SQLite has no native batch insert; run the prepared statement in
-    // a transaction so the per-row commit overhead doesn't dominate for an
-    // 8-event block. INSERT OR IGNORE on the composite PK absorbs replays.
-    const stmt = this.requireDb().prepare(
-      `INSERT OR IGNORE INTO proof_attempts
-         (block_number, block_hash, miner_id, energy_milli, diversity_milli,
-          valid_solution_count, block_timestamp, observed_at)
-       VALUES ($block, $hash, $miner, $energy, $div, $sol, $ts, $observed)`,
-    );
-    const insertAll = this.requireDb().transaction((rows: ProofAttemptRecord[]) => {
-      for (const r of rows) {
-        stmt.run({
-          $block: r.blockNumber,
-          $hash: r.blockHash,
-          $miner: r.minerId,
-          // Reverse the SPA-facing /1000 so the column stays integer.
-          $energy: Math.round(r.energy * 1000),
-          $div: Math.round(r.diversity * 1000),
-          $sol: r.numValidSolutions,
-          $ts: r.timestamp,
-          $observed: r.observedAt,
-        });
-      }
-    });
-    insertAll(records);
+  async insertMiningSubmission(record: MiningSubmissionRecord): Promise<void> {
+    // UPSERT — a submission may be re-fetched after the chain accepts it,
+    // flipping chain_block_* from null to populated. All non-PK columns
+    // refresh on conflict so the most recent miner view wins, including
+    // observed_at (which then reads as "last fetched at").
+    this.requireDb()
+      .prepare(
+        `INSERT INTO mining_submissions (
+           miner_id, solution_id, dispatch_id, ts_ns,
+           energy_milli, diversity_milli, threshold_milli,
+           last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
+           outcome, attempt_count, best_energy_milli, observed_at
+         ) VALUES (
+           $miner, $sol, $dispatch, $ts,
+           $energy, $div, $thr,
+           $lpbh, $extx, $cbh, $cbn,
+           $outcome, $cnt, $best, $observed
+         )
+         ON CONFLICT(miner_id, solution_id) DO UPDATE SET
+           dispatch_id           = excluded.dispatch_id,
+           ts_ns                 = excluded.ts_ns,
+           energy_milli          = excluded.energy_milli,
+           diversity_milli       = excluded.diversity_milli,
+           threshold_milli       = excluded.threshold_milli,
+           last_proof_block_hash = excluded.last_proof_block_hash,
+           extrinsic_hash        = excluded.extrinsic_hash,
+           chain_block_hash      = excluded.chain_block_hash,
+           chain_block_number    = excluded.chain_block_number,
+           outcome               = excluded.outcome,
+           attempt_count         = excluded.attempt_count,
+           best_energy_milli     = excluded.best_energy_milli,
+           observed_at           = excluded.observed_at`,
+      )
+      .run({
+        $miner: record.minerId,
+        $sol: record.solutionId,
+        $dispatch: record.dispatchId,
+        $ts: record.tsNs,
+        $energy: record.energyMilli,
+        $div: record.diversityMilli,
+        $thr: record.thresholdMilli,
+        $lpbh: record.lastProofBlockHash,
+        $extx: record.extrinsicHash,
+        $cbh: record.chainBlockHash,
+        $cbn: record.chainBlockNumber,
+        $outcome: record.outcome,
+        $cnt: record.attemptCount,
+        $best: record.bestEnergyMilli,
+        $observed: record.observedAt,
+      });
   }
 
-  async getRecentProofAttempts(
-    sinceBlockNumber: string,
+  async getRecentMiningSubmissions(
+    minerId: string,
     limit: number,
-  ): Promise<ProofAttemptRecord[]> {
-    // `sinceBlockNumber` is exclusive (strictly greater than). Empty string
-    // / "0" means "all rows" — the chain emits LastProofBlock=0 at genesis,
-    // before any winning proof. CAST through INTEGER for numeric ordering;
-    // block_number is TEXT in v12 to preserve u64 precision.
+  ): Promise<MiningSubmissionRecord[]> {
     const rows = this.requireDb()
       .query<
         {
-          block_number: string;
-          block_hash: string;
           miner_id: string;
+          solution_id: number;
+          dispatch_id: number;
+          ts_ns: string;
           energy_milli: number;
           diversity_milli: number;
-          valid_solution_count: number;
-          block_timestamp: number;
+          threshold_milli: number;
+          last_proof_block_hash: string;
+          extrinsic_hash: string | null;
+          chain_block_hash: string | null;
+          chain_block_number: string | null;
+          outcome: string;
+          attempt_count: number;
+          best_energy_milli: number;
           observed_at: string;
         },
         [string, number]
       >(
-        `SELECT * FROM proof_attempts
-         WHERE CAST(block_number AS INTEGER) > CAST(? AS INTEGER)
-         ORDER BY CAST(block_number AS INTEGER) DESC
+        `SELECT * FROM mining_submissions
+         WHERE miner_id = ?
+         ORDER BY solution_id DESC
          LIMIT ?`,
       )
-      .all(sinceBlockNumber, limit);
-    return rows.map((r) => ({
-      blockNumber: r.block_number,
-      blockHash: r.block_hash,
-      minerId: r.miner_id,
-      energy: r.energy_milli / 1000,
-      diversity: r.diversity_milli / 1000,
-      numValidSolutions: r.valid_solution_count,
-      timestamp: r.block_timestamp,
-      observedAt: r.observed_at,
-    }));
+      .all(minerId, limit);
+    return rows.map(rowToMiningSubmission);
+  }
+
+  async getMiningCheckpoint(minerId: string): Promise<number | null> {
+    const row = this.requireDb()
+      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get(miningCheckpointKey(minerId));
+    if (!row?.value) return null;
+    const n = Number(row.value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async setMiningCheckpoint(minerId: string, solutionId: number): Promise<void> {
+    // Monotonic advance only — same shape as setDescriptorCheckpoint. Guards
+    // against a misconfigured restart that rewinds the cursor.
+    this.requireDb()
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value
+         WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)`,
+      )
+      .run({ $k: miningCheckpointKey(minerId), $v: String(solutionId) });
   }
 
   private requireDb(): Database {
@@ -1006,6 +1063,42 @@ function rowToNodeDescriptorRecord(row: DescriptorRow): NodeDescriptorRecord {
     blockTimestamp: row.block_timestamp,
     firstBlockTimestamp: row.first_block_timestamp,
     descriptor: JSON.parse(row.descriptor) as NodeDescriptor,
+    observedAt: row.observed_at,
+  };
+}
+
+function rowToMiningSubmission(row: {
+  miner_id: string;
+  solution_id: number;
+  dispatch_id: number;
+  ts_ns: string;
+  energy_milli: number;
+  diversity_milli: number;
+  threshold_milli: number;
+  last_proof_block_hash: string;
+  extrinsic_hash: string | null;
+  chain_block_hash: string | null;
+  chain_block_number: string | null;
+  outcome: string;
+  attempt_count: number;
+  best_energy_milli: number;
+  observed_at: string;
+}): MiningSubmissionRecord {
+  return {
+    minerId: row.miner_id,
+    solutionId: row.solution_id,
+    dispatchId: row.dispatch_id,
+    tsNs: row.ts_ns,
+    energyMilli: row.energy_milli,
+    diversityMilli: row.diversity_milli,
+    thresholdMilli: row.threshold_milli,
+    lastProofBlockHash: row.last_proof_block_hash,
+    extrinsicHash: row.extrinsic_hash,
+    chainBlockHash: row.chain_block_hash,
+    chainBlockNumber: row.chain_block_number,
+    outcome: row.outcome,
+    attemptCount: row.attempt_count,
+    bestEnergyMilli: row.best_energy_milli,
     observedAt: row.observed_at,
   };
 }

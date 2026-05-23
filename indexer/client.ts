@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { MinerCategory, MinerStats } from "../src/types/telemetry";
+import {
+  MiningSubmissionNotFoundError,
+  parseMiningAttemptsApiResponse,
+} from "../api/miner-api";
+import type {
+  MinerCategory,
+  MinerStats,
+  MiningAttemptsResponse,
+} from "../src/types/telemetry";
 
 export interface NodeStatus {
   ss58Address: string;
@@ -90,6 +98,40 @@ export class QuipClient {
           }))
         : [],
     };
+  }
+
+  /**
+   * Fetch the submission + iteration trail for a specific solution_id.
+   * Throws {@link MiningSubmissionNotFoundError} on 404 (miner hasn't
+   * observed this solution_id yet, or it was never assigned). Returns
+   * with `observedAt=""` on `submission` — caller stamps the timestamp.
+   */
+  async getMiningAttempts(solutionId: number): Promise<MiningAttemptsResponse> {
+    const headers: Record<string, string> = { accept: "application/json" };
+    if (this.token) headers["authorization"] = `Bearer ${this.token}`;
+    const url = `${this.baseUrl}/api/v1/mining/attempts?solution_id=${solutionId}`;
+    const res = await this.fetchImpl(url, { headers });
+    if (res.status === 401) {
+      throw new AuthError(
+        `[indexer] 401 from /api/v1/mining/attempts. Set QUIP_NODE_TOKEN.`,
+      );
+    }
+    if (res.status === 404) {
+      throw new MiningSubmissionNotFoundError(solutionId);
+    }
+    if (res.status === 429) {
+      throw new RateLimitError(`[indexer] 429 from /api/v1/mining/attempts`);
+    }
+    if (!res.ok) {
+      throw new Error(`[indexer] ${res.status} from /api/v1/mining/attempts`);
+    }
+    const parsed = (await res.json()) as { success?: boolean; data?: unknown; error?: string };
+    if (parsed && typeof parsed === "object" && parsed.success === false) {
+      throw new Error(
+        `[indexer] /api/v1/mining/attempts: ${parsed.error ?? "envelope reported failure"}`,
+      );
+    }
+    return parseMiningAttemptsApiResponse(parsed?.data ?? parsed);
   }
 
   async getStats(): Promise<MinerStats> {

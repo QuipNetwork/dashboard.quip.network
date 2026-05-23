@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { DatabaseAdapter } from "../api/db/adapter";
+import { MiningSubmissionNotFoundError } from "../api/miner-api";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
 
 import { AuthError, QuipClient } from "./client";
 import type { IndexerConfig } from "./config";
 import { IndexerState } from "./state";
+
+// Cap on per-iteration submission fetches. A miner that's been running for
+// hours before the indexer connects can have hundreds of submissions in its
+// monotonic counter; fetching them all in one poll would block the loop
+// and pressure the miner. 25 per tick keeps the catch-up bounded — at the
+// default 5s poll cadence, an indexer can absorb 300 submissions/minute,
+// well above realistic submit rates.
+const MINING_ATTEMPTS_PER_POLL_CAP = 25;
 
 export interface TipWorkerDeps {
   config: IndexerConfig;
@@ -73,12 +82,34 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
     console.warn("[indexer/tip] /api/v1/status failed:", e instanceof Error ? e.message : e);
   }
 
+  let proofsSubmitted: number | null = null;
   try {
     const stats: MinerStats = await client.getStats();
     state.observability.minerStats = stats;
+    // `controller.proofs_submitted` is the monotonic counter that
+    // `solution_id` draws from. Use it as the upper bound for the
+    // attempts catch-up below — saves a probe-until-404 loop.
+    proofsSubmitted = Number.isFinite(stats.proofsSubmitted) ? stats.proofsSubmitted : null;
   } catch (e) {
     if (e instanceof AuthError) throw e;
     console.warn("[indexer/tip] /api/v1/stats failed:", e instanceof Error ? e.message : e);
+  }
+
+  // Mining-attempts catch-up. Only run when both selfAddress and the
+  // proofs_submitted counter are known — without either, we can't key
+  // the checkpoint or bound the fetch range. Errors here never poison
+  // the heartbeat write at the bottom of the function: catch broadly.
+  const selfAddress = await db.getSelfAddress();
+  if (selfAddress && proofsSubmitted !== null && proofsSubmitted > 0) {
+    try {
+      await catchUpMiningAttempts(deps, selfAddress, proofsSubmitted, nowIso);
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      console.warn(
+        "[indexer/tip] mining-attempts catch-up failed:",
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
 
   // Always flush observability — heartbeat must advance even on poll
@@ -86,6 +117,48 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
   // temporarily down".
   state.observability.lastStatusFetchAt = nowIso;
   await db.setIndexerObservability(state.observability);
+}
+
+/**
+ * Fetch any solution_ids past the persisted checkpoint, up to
+ * {@link MINING_ATTEMPTS_PER_POLL_CAP} per tick. Each successful fetch is
+ * persisted via `db.insertMiningSubmission` and then the checkpoint
+ * advances past it. A 404 stops the loop (we won't skip past missing
+ * ids), and any other error rethrows so the caller can decide.
+ *
+ * `controllerProofsSubmitted` is the upper bound from `/api/v1/stats`;
+ * if it's already at or behind the checkpoint, this is a no-op.
+ */
+async function catchUpMiningAttempts(
+  deps: TipWorkerDeps,
+  minerId: string,
+  controllerProofsSubmitted: number,
+  observedAt: string,
+): Promise<void> {
+  const { client, db } = deps;
+  const checkpoint = (await db.getMiningCheckpoint(minerId)) ?? 0;
+  if (controllerProofsSubmitted <= checkpoint) return;
+
+  const target = Math.min(controllerProofsSubmitted, checkpoint + MINING_ATTEMPTS_PER_POLL_CAP);
+  for (let id = checkpoint + 1; id <= target; id++) {
+    try {
+      const env = await client.getMiningAttempts(id);
+      await db.insertMiningSubmission({
+        ...env.submission,
+        observedAt,
+      });
+      await db.setMiningCheckpoint(minerId, id);
+    } catch (e) {
+      if (e instanceof MiningSubmissionNotFoundError) {
+        // The controller counter may be ahead of what the miner has
+        // persisted to its attempts log (race between `proofs_submitted`
+        // bump and the index write). Don't advance past the gap — next
+        // poll retries this id.
+        return;
+      }
+      throw e;
+    }
+  }
 }
 
 /**

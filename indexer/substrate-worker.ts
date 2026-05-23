@@ -216,34 +216,6 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
       }
     }
 
-    // (1b) Every ProofAccepted event — winners AND non-winning proofs
-    //      that met difficulty. Lets the dashboard surface "Recent
-    //      Performance vs problem #N" (attempts since last winning
-    //      block). Composite PK on the table makes replays idempotent.
-    //      We write these even for blocks with no winner, so the panel
-    //      can populate while the chain is grinding through decay.
-    if (e.proofs.length > 0) {
-      try {
-        await db.insertProofAttempts(
-          e.proofs.map((p) => ({
-            blockNumber: String(e.blockNumber),
-            blockHash: e.blockHash,
-            minerId: p.miner,
-            energy: p.energyMilli / 1000,
-            diversity: p.diversityMilli / 1000,
-            numValidSolutions: p.validSolutionCount,
-            timestamp: e.timestamp,
-            observedAt: nowIso(deps),
-          })),
-        );
-      } catch (err) {
-        console.warn(
-          `[indexer/substrate] block #${e.blockNumber}: proof_attempts write failed:`,
-          err,
-        );
-      }
-    }
-
     // (2) No BlockWinner: nothing more to do for the canonical block
     //     writer path. Authorship-only heads land here.
     if (e.winner === null) return;

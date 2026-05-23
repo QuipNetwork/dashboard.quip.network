@@ -383,29 +383,78 @@ export interface NodeDescriptorRecord {
 }
 
 /**
- * One row per chain-accepted `ProofAccepted` event from
- * `quantum_pow::Event::ProofAccepted`. Includes both winning AND
- * losing-but-accepted proofs (up to MaxProofsPerBlock=8 per block). The
- * substrate worker writes a row per event; the server filters by
- * `block_number > LastWinningBlock` to get "attempts vs the current
- * mining problem". `energy_milli`/`diversity_milli` keep the chain's raw
- * integer encoding — divide by 1000 for human display, matching how
- * `BlockRecord.energy` is computed.
+ * Per-submission summary record sourced from the miner's
+ * `/api/v1/mining/attempts?solution_id=N` endpoint. The indexer fetches one
+ * envelope per controller-assigned `solution_id`, derives `attemptCount` and
+ * `bestEnergyMilli` from the iterations array, and persists this row. The
+ * full iteration trail is NOT persisted — the modal proxies fresh through
+ * `GET /api/mining/attempts/:solutionId` when opened.
+ *
+ * Milli-unit fields (`*Milli`) preserve the chain's integer encoding for
+ * lossless re-derivation; the UI divides by 1000 at display time.
+ * `chainBlockNumber` / `chainBlockHash` / `extrinsicHash` are null until the
+ * submission lands on-chain (outcome=`submitted_inblock` typically).
  */
-export interface ProofAttemptRecord {
-  blockNumber: string; // u64 as string
-  blockHash: string;
-  minerId: string; // SS58
-  energy: number; // already-divided (energyMilli / 1000)
-  diversity: number; // already-divided (diversityMilli / 1000)
-  numValidSolutions: number;
-  // Block timestamp the event landed in, unix seconds (parity with
-  // BlockRecord.timestamp).
-  timestamp: number;
-  // ISO 8601, when the indexer wrote the row (post-finalization). Distinct
-  // from `timestamp` so the UI can compute "indexed N seconds ago" without
-  // relying on the chain's clock.
-  observedAt: string;
+export interface MiningSubmissionRecord {
+  // Monotonic submission counter assigned by the miner's controller.
+  // Distinct from chain `proofs_won` (only winners count there).
+  solutionId: number;
+  minerId: string;
+  // Per-miner dispatch counter; multiple submissions can share a dispatch_id
+  // when the controller batches grinding work.
+  dispatchId: number;
+  // Submission wall-clock from the miner. u128 nanoseconds as string —
+  // exceeds Number.MAX_SAFE_INTEGER for any chain past ~292 years from
+  // epoch, but we keep it precise regardless for future-proofing.
+  tsNs: string;
+  energyMilli: number;
+  diversityMilli: number;
+  // The decayed difficulty the miner targeted at submission time. Comparing
+  // this against the chain's `current_difficulty()` surfaces miner-side
+  // decay-tracking bugs directly.
+  thresholdMilli: number;
+  lastProofBlockHash: string;
+  extrinsicHash: string | null;
+  chainBlockHash: string | null;
+  chainBlockNumber: string | null; // u64 as string
+  // Open enum: 'submitted_inblock' | 'rejected' | 'stored' | … — preserved
+  // verbatim from the miner so future outcomes show up in the UI unchanged.
+  outcome: string;
+  attemptCount: number;
+  // Derived: min(attempts[].best_energy_milli). Lets the table show "best
+  // energy this submission ever reached" without unpacking iterations.
+  bestEnergyMilli: number;
+  observedAt: string; // ISO 8601 when the indexer fetched this submission
+}
+
+/**
+ * Per-iteration row inside a mining submission. Returned by the server's
+ * `/api/mining/attempts/:solutionId` proxy on modal open. Not persisted —
+ * the iteration trail can grow unbounded per submission so we re-fetch
+ * fresh from the miner each time.
+ *
+ * `extra` carries the additional fields the miner returns beyond the
+ * known shape (`dispatch_id`, dispatch timing, etc.) so the modal can
+ * display them without the indexer/server having to know about every
+ * field the miner adds in the future.
+ */
+export interface MiningAttempt {
+  iter: number;
+  bestEnergyMilli: number;
+  // Open enum: 'rejected' | 'stored' | 'submitted' | … — preserved verbatim
+  // from the miner's `result_kind` field.
+  resultKind: string;
+  extra: Record<string, unknown>;
+}
+
+/**
+ * Envelope returned by `/api/mining/attempts/:solutionId`. Mirrors the
+ * miner's response shape but with camelCase keys; the server proxies and
+ * re-shapes via `parseMiningAttemptsApiResponse` in `api/miner-api.ts`.
+ */
+export interface MiningAttemptsResponse {
+  submission: MiningSubmissionRecord;
+  attempts: MiningAttempt[];
 }
 
 export interface TelemetryResponse {
@@ -440,11 +489,13 @@ export interface TelemetryResponse {
   // Empty when no `quip-miner identify` extrinsic has been seen. Drives
   // the Node Identities panel and joins into ChainMinersTable.
   nodeDescriptors: NodeDescriptorRecord[];
-  // Chain-accepted proof attempts AGAINST THE CURRENT MINING PROBLEM —
-  // every ProofAccepted event with `block_number > LastWinningBlock`,
-  // newest first. Drives the "Recent Performance vs problem #N" panel.
-  // Empty when no proofs have been submitted since the last winning block.
-  recentProofAttempts: ProofAttemptRecord[];
+  // Recent submissions by the locally-polled miner, sourced from
+  // `/api/v1/mining/attempts?solution_id=N` on the miner. Newest first,
+  // capped at `RECENT_MINING_SUBMISSIONS_LIMIT` on the server. Drives the
+  // "Recent Performance" panel — click a row to fetch the iteration
+  // trail via `/api/mining/attempts/:solutionId`. Empty when the miner
+  // has not submitted a proof since the indexer started polling.
+  recentMiningSubmissions: MiningSubmissionRecord[];
 }
 
 export interface ErrorResponse {
