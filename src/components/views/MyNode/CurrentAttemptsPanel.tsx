@@ -72,7 +72,8 @@ export function CurrentAttemptsPanel({
             <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
               <th className="py-2 pr-4">Iter</th>
               <th className="py-2 pr-4">Best Energy</th>
-              <th className="py-2 pr-4">Threshold</th>
+              <th className="py-2 pr-4">Diversity</th>
+              <th className="py-2 pr-4">Solutions</th>
               <th className="py-2 pr-4">Result</th>
               <th className="py-2 pr-4">Mining Time</th>
               <th className="py-2">Age</th>
@@ -80,7 +81,8 @@ export function CurrentAttemptsPanel({
           </thead>
           <tbody>
             {sorted.map((a) => {
-              const threshold = extractThresholdMilli(a.extra);
+              const diversityMilli = numericField(a.extra["diversity_milli"]);
+              const numValid = numericField(a.extra["num_valid"]);
               const miningTimeUs = extractMiningTimeUs(a.extra);
               const ageMs = extractAgeMs(a.extra, nowMs);
               return (
@@ -93,7 +95,10 @@ export function CurrentAttemptsPanel({
                     {(a.bestEnergyMilli / 1000).toFixed(3)}
                   </td>
                   <td className="py-1.5 pr-4 text-brand-gray-5">
-                    {threshold !== null ? `≤ ${(threshold / 1000).toFixed(3)}` : "—"}
+                    {diversityMilli !== null ? (diversityMilli / 1000).toFixed(3) : "—"}
+                  </td>
+                  <td className="py-1.5 pr-4 text-brand-gray-5">
+                    {numValid !== null ? formatNumber(numValid) : "—"}
                   </td>
                   <td className="py-1.5 pr-4">
                     <ResultBadge kind={a.resultKind} />
@@ -158,12 +163,6 @@ function ResultBadge({ kind }: { kind: string }) {
       {kind || "—"}
     </span>
   );
-}
-
-function extractThresholdMilli(extra: Record<string, unknown>): number | null {
-  const a = numericField(extra["threshold_milli"]);
-  if (a !== null) return a;
-  return numericField(extra["ratchet_threshold_milli"]);
 }
 
 function extractMiningTimeUs(extra: Record<string, unknown>): number | null {
