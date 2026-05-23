@@ -63,6 +63,17 @@ export function MyNodeView() {
   const lastSolutionTimeMs = lastWonBlock != null ? lastWonBlock.miningTime * 1000 : null;
   const lastSolutionBlocks =
     lastWonBlock != null ? Math.round(lastWonBlock.miningTime / blockTimeSec) : null;
+  // Correlate the chain-side winning BlockRecord with the miner-side
+  // submission by chain_block_number — every successful submission has
+  // chain_block_number set to the block where it landed. Lets us pull
+  // the attempt count for the winning dispatch from the miner's
+  // controller, which the chain has no equivalent for.
+  const lastWonSubmission =
+    lastWonBlock != null
+      ? recentMiningSubmissions.find(
+          (s) => s.chainBlockNumber === lastWonBlock.substrateBlockNumber,
+        )
+      : undefined;
   // "Not enforced" reads better than literal "0" when the chain difficulty
   // requirements aren't gated on a given dimension (most quip configs leave
   // diversity / solutions / quality at 0 today).
@@ -189,7 +200,10 @@ export function MyNodeView() {
                   },
                   {
                     label: "Attempts",
-                    value: <span className="text-brand-gray-3 italic">TBD · miner API</span>,
+                    value:
+                      lastWonSubmission != null
+                        ? formatNumber(lastWonSubmission.attemptCount)
+                        : "—",
                   },
                   { label: "Energy", value: lastWonBlock.energy.toFixed(2) },
                   { label: "Diversity", value: lastWonBlock.diversity.toFixed(3) },
