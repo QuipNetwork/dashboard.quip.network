@@ -98,18 +98,24 @@ export function createApp(options: CreateAppOptions): Hono {
     // once.
     const hardwareByAccount = new Map(allHardware.map((h) => [h.accountId, h]));
 
-    // Current-dispatch resolution: probe `contextsDispatched + 1` (would
-    // be in-flight if the miner has started the next problem) and
-    // `contextsDispatched` (the just-finished one) in parallel. The
-    // first with iterations wins — labelled "in-flight" if it's the
-    // probe-ahead, "completed" otherwise. Both empty → null (panel
-    // renders an empty-state explainer).
+    // Current-dispatch resolution. The miner's counters give us
+    // unambiguous status:
+    //   - `contextsDispatched` (N): total dispatches started
+    //   - `resultsReceived` (M): total dispatches that produced a result
+    // If M < N, dispatch N is in-flight (the miner is grinding it).
+    // If M == N, dispatch N is completed; the miner may or may not have
+    // started N+1. We probe N+1 to find out.
     const minerHardware = selfAddress ? hardwareByAccount.get(selfAddress) : undefined;
     const minerInternalId = minerHardware?.miners[0]?.id ?? null;
-    const dispatchId = indexer?.minerStats?.contextsDispatched ?? null;
+    const contextsDispatched = indexer?.minerStats?.contextsDispatched ?? null;
+    const resultsReceived = indexer?.minerStats?.resultsReceived ?? null;
     const currentDispatch: CurrentDispatch | null =
-      selfAddress && minerInternalId && dispatchId !== null && dispatchId > 0
-        ? await resolveCurrentDispatch(minerInternalId, dispatchId)
+      selfAddress &&
+      minerInternalId &&
+      contextsDispatched !== null &&
+      resultsReceived !== null &&
+      contextsDispatched > 0
+        ? await resolveCurrentDispatch(minerInternalId, contextsDispatched, resultsReceived)
         : null;
 
     // Project per-account chain descriptors into the legacy NodesSnapshot
@@ -175,19 +181,28 @@ export function createApp(options: CreateAppOptions): Hono {
   });
 
   /**
-   * Probe both `contextsDispatched + 1` (would-be in-flight) and
-   * `contextsDispatched` (just-completed) in parallel; whichever has
-   * iterations becomes the "current dispatch". Best-effort: both empty
-   * or both failed → null, panel renders empty state.
+   * Resolve which dispatch the panel shows + whether it's in-flight.
    *
-   * The 4s timeout is half the indexer poll interval; a single hung
-   * miner can delay /api/telemetry by at most one round-trip's worth
-   * of latency.
+   * - `M < N`: dispatch N has no result yet → in-flight on N. One fetch.
+   * - `M == N`: dispatch N is complete; probe N+1 in case the miner
+   *   already started the next one. Two parallel fetches.
+   *
+   * Best-effort throughout: any failure path that ends with no
+   * iterations returns null and the panel renders the empty state
+   * (which explains "between dispatches" / "miner unreachable").
    */
   async function resolveCurrentDispatch(
     minerId: string,
     contextsDispatched: number,
+    resultsReceived: number,
   ): Promise<CurrentDispatch | null> {
+    // Dispatch N is in-flight when results lag behind.
+    if (resultsReceived < contextsDispatched) {
+      const attempts = await fetchDispatchAttempts(minerId, contextsDispatched);
+      if (attempts.length === 0) return null;
+      return { dispatchId: contextsDispatched, attempts, status: "in-flight" };
+    }
+    // Dispatch N is complete; the miner may have started N+1 already.
     const [nextAttempts, curAttempts] = await Promise.all([
       fetchDispatchAttempts(minerId, contextsDispatched + 1),
       fetchDispatchAttempts(minerId, contextsDispatched),
