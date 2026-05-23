@@ -66,14 +66,24 @@ export function CurrentAttemptsPanel({
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="max-h-[60vh] overflow-auto">
         <table className="w-full font-accent text-xs tabular-nums">
-          <thead>
+          <thead className="sticky top-0 bg-brand-bg">
             <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
               <th className="py-2 pr-4">Iter</th>
               <th className="py-2 pr-4">Best Energy</th>
-              <th className="py-2 pr-4">Diversity</th>
-              <th className="py-2 pr-4">Solutions</th>
+              <th
+                className="py-2 pr-4"
+                title="Reported only on submitted iterations — the miner API returns null here for rejected/stored rows even when post-processing ran."
+              >
+                Diversity
+              </th>
+              <th
+                className="py-2 pr-4"
+                title="num_valid — reported only on submitted iterations; null for rejected/stored rows."
+              >
+                Solutions
+              </th>
               <th className="py-2 pr-4">Result</th>
               <th className="py-2 pr-4">Mining Time</th>
               <th className="py-2">Age</th>
