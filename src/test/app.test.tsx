@@ -55,6 +55,7 @@ const MOCK_RESPONSE: TelemetryResponse = {
   nodes: null,
   nodeDescriptors: [],
   recentMiningSubmissions: [],
+  currentDispatchAttempts: [],
 };
 
 let container: HTMLDivElement;

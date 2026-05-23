@@ -4,8 +4,12 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import { parseMiningAttemptsApiResponse } from "../api/miner-api";
+import {
+  parseDispatchAttemptsApiResponse,
+  parseMiningAttemptsApiResponse,
+} from "../api/miner-api";
 import type {
+  MiningAttempt,
   NodeDescriptorRecord,
   NodeInfo,
   NodesSnapshot,
@@ -88,6 +92,26 @@ export function createApp(options: CreateAppOptions): Hono {
       ? await db.getRecentMiningSubmissions(selfAddress, RECENT_MINING_SUBMISSIONS_LIMIT)
       : [];
 
+    // Hardware lookup feeds two downstream concerns: the chain-miner
+    // join (every row) and the current-dispatch fetch (self only). Build
+    // once.
+    const hardwareByAccount = new Map(allHardware.map((h) => [h.accountId, h]));
+
+    // Live in-flight iteration trail. `contextsDispatched` is the miner's
+    // monotonic dispatch counter — the *next* problem the miner started
+    // working on. We fetch its attempt log (no submission join — that
+    // dispatch may not have produced a winning proof yet). Best-effort:
+    // any failure path returns [] so the rest of the response is
+    // unaffected. Requires the miner's internal id from the
+    // `miner_hardware` row written by the indexer's tip-worker.
+    const minerHardware = selfAddress ? hardwareByAccount.get(selfAddress) : undefined;
+    const minerInternalId = minerHardware?.miners[0]?.id ?? null;
+    const dispatchId = indexer?.minerStats?.contextsDispatched ?? null;
+    const currentDispatchAttempts: MiningAttempt[] =
+      selfAddress && minerInternalId && dispatchId !== null && dispatchId > 0
+        ? await fetchCurrentDispatchAttempts(minerInternalId, dispatchId)
+        : [];
+
     // Project per-account chain descriptors into the legacy NodesSnapshot
     // shape so the Compute Available view's TFLOPS/PFLOPS surfaces keep
     // their existing consumer contract. The descriptor pipeline (chain
@@ -105,7 +129,6 @@ export function createApp(options: CreateAppOptions): Hono {
     // a per-row "telemetry node" link without a second fetch. Today only
     // self has a miner_hardware row (source='self'); future peer-query and
     // chain-surface upgrades populate other entries.
-    const hardwareByAccount = new Map(allHardware.map((h) => [h.accountId, h]));
     const enrichedMiners = chainMiners.map((m) => ({
       ...m,
       telemetryNodeAddress: hardwareByAccount.get(m.accountId)?.nodeId ?? null,
@@ -147,8 +170,41 @@ export function createApp(options: CreateAppOptions): Hono {
       nodes,
       nodeDescriptors,
       recentMiningSubmissions,
+      currentDispatchAttempts,
     } satisfies TelemetryResponse);
   });
+
+  /**
+   * Best-effort fetch of the in-flight dispatch's iteration trail. Always
+   * resolves with an array — every failure path returns `[]` so a slow or
+   * broken miner can't poison /api/telemetry. The 8s timeout is short
+   * enough that a hung miner won't push /api/telemetry past a poll
+   * interval; if it does fire, the panel renders empty for one tick.
+   */
+  async function fetchCurrentDispatchAttempts(
+    minerId: string,
+    dispatchId: number,
+  ): Promise<MiningAttempt[]> {
+    const baseUrl = process.env.QUIP_NODE_URL;
+    if (!baseUrl) return [];
+    const headers: Record<string, string> = { accept: "application/json" };
+    const token = process.env.QUIP_NODE_TOKEN;
+    if (token) headers["authorization"] = `Bearer ${token}`;
+    const params = new URLSearchParams({
+      miner_id: minerId,
+      dispatch_id: String(dispatchId),
+    });
+    const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/mining/attempts?${params.toString()}`;
+    try {
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return [];
+      const parsed = (await res.json()) as { success?: boolean; data?: unknown };
+      if (parsed && typeof parsed === "object" && parsed.success === false) return [];
+      return parseDispatchAttemptsApiResponse(parsed?.data ?? parsed);
+    } catch {
+      return [];
+    }
+  }
 
   // Modal proxy: fetches `/api/v1/mining/attempts?solution_id=N` from the
   // miner pointed to by QUIP_NODE_URL and re-shapes to camelCase. Kept

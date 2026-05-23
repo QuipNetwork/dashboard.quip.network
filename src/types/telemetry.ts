@@ -496,6 +496,13 @@ export interface TelemetryResponse {
   // trail via `/api/mining/attempts/:solutionId`. Empty when the miner
   // has not submitted a proof since the indexer started polling.
   recentMiningSubmissions: MiningSubmissionRecord[];
+  // Iteration trail of the *in-flight* dispatch — attempts against the
+  // current outstanding problem. Server fetches via the dispatch_id form
+  // of `/api/v1/mining/attempts`. Empty when the miner is between
+  // dispatches (just won), when contextsDispatched isn't known yet, or
+  // when the upstream fetch failed. Failure is silent — rest of
+  // /api/telemetry still resolves.
+  currentDispatchAttempts: MiningAttempt[];
 }
 
 export interface ErrorResponse {

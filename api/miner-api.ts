@@ -148,6 +148,21 @@ function bestEnergy(attempts: MiningAttempt[], fallback: number): number {
 }
 
 /**
+ * The `?miner_id=X&dispatch_id=Y` form of `/api/v1/mining/attempts`
+ * returns only `attempts[]` (no submission join). Use this for live
+ * polling of the in-flight dispatch — the iterations the miner is
+ * currently grinding against the outstanding problem.
+ *
+ * Returns an empty array on any structural failure; the caller decides
+ * whether to surface "empty" as "no attempts yet" or "fetch failed".
+ */
+export function parseDispatchAttemptsApiResponse(raw: unknown): MiningAttempt[] {
+  if (!raw || typeof raw !== "object") return [];
+  const env = raw as { attempts?: RawAttempt[] };
+  return parseAttempts(env.attempts);
+}
+
+/**
  * Distinct error type for `solution_id` lookups the miner returns 404 on.
  * Lets the indexer's poll loop treat "not yet observable" differently
  * from a transport failure: we just retry next tick, no checkpoint

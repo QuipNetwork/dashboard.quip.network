@@ -7,6 +7,7 @@ import { ChartCard } from "../../layout/ChartCard";
 import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import { useMyNode } from "./use-my-node";
 import { StatTile } from "./StatTile";
+import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
 import { MinerStatsPanel } from "./MinerStatsPanel";
 import { NeighborsList } from "./NeighborsList";
 import { RecentMiningPanel } from "./RecentMiningPanel";
@@ -29,6 +30,8 @@ export function MyNodeView() {
   const tipBlock = useTelemetryStore(selectTipBlock);
   const blocks = useTelemetryStore((s) => s.blocks);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
+  const currentDispatchAttempts = useTelemetryStore((s) => s.currentDispatchAttempts);
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
 
   if (!stats.selfAddress) {
     return (
@@ -206,9 +209,19 @@ export function MyNodeView() {
         <BlockDetailCard label="Current Difficulty" rows={difficultyRows} />
       </div>
 
-      <RecentMiningPanel submissions={recentMiningSubmissions} nowMs={Date.now()} />
+      <CurrentAttemptsPanel
+        attempts={currentDispatchAttempts}
+        problemNumber={
+          // Mining problem # = total proofs ever won (across all miners) + 1.
+          // Matches CurrentBlockIndicator's `nextProblem` derivation so the
+          // panel header agrees with the header indicator.
+          chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0) + 1
+        }
+      />
 
       {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
+
+      <RecentMiningPanel submissions={recentMiningSubmissions} nowMs={Date.now()} />
 
       <RecentPerformancePanel
         selfAddress={selfAddress}

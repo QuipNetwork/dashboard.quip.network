@@ -9,6 +9,7 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
+  MiningAttempt,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
   NodesSnapshot,
@@ -41,6 +42,10 @@ export interface TelemetryState {
   // the "Recent Performance" panel; empty when the miner has not yet
   // submitted a proof (or selfAddress hasn't resolved on the indexer).
   recentMiningSubmissions: MiningSubmissionRecord[];
+  // Live iteration trail for the in-flight dispatch. Drives the
+  // "Current Problem Attempts" panel above Mining Performance. Empty
+  // when miner is between dispatches or upstream fetch failed.
+  currentDispatchAttempts: MiningAttempt[];
   loading: boolean;
   error: string | null;
 
@@ -61,6 +66,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   nodes: null,
   nodeDescriptors: [],
   recentMiningSubmissions: [],
+  currentDispatchAttempts: [],
   loading: true,
   error: null,
   fetchTelemetry: async () => {
@@ -93,6 +99,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         nodes: data.nodes ?? null,
         nodeDescriptors: data.nodeDescriptors ?? [],
         recentMiningSubmissions: data.recentMiningSubmissions ?? [],
+        currentDispatchAttempts: data.currentDispatchAttempts ?? [],
         loading: false,
         error: null,
       });
