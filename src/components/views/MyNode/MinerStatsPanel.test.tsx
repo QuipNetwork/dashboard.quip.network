@@ -73,9 +73,13 @@ afterEach(() => {
   container.remove();
 });
 
-function render(stats: MinerStats, chainMinerEntry: ChainMinerRecord | null = null) {
+function render(
+  stats: MinerStats,
+  chainMinerEntry: ChainMinerRecord | null = null,
+  selfAvgMiningTimeSec: number | null = null,
+) {
   act(() => {
-    root.render(createElement(MinerStatsPanel, { stats, chainMinerEntry }));
+    root.render(createElement(MinerStatsPanel, { stats, chainMinerEntry, selfAvgMiningTimeSec }));
   });
 }
 
@@ -104,12 +108,23 @@ describe("MinerStatsPanel", () => {
     const text = container.textContent ?? "";
     expect(text).not.toContain("NaN");
     expect(text).not.toContain("Infinity");
-    // winRate 0 → 0.00%. avgMiningTime falls back to em dash when the miner
-    // reports 0 (which it does today; the underlying counter isn't wired up
-    // on quip's miner controller). Both are the most likely to blow up on
-    // zero input.
-    expect(text).toContain("0.00%");
+    // Submission Rate guards against 0/0 by returning em-dash when
+    // contextsDispatched is 0 — same shape as Chain Acceptance and Avg
+    // Mining Time when their inputs aren't available yet. All four
+    // computed cells fall back to em-dash on a fresh miner.
     expect(text).toContain("—");
+  });
+
+  test("Submission Rate computes proofsSubmitted/contextsDispatched", () => {
+    render(makeStats({ contextsDispatched: 200, proofsSubmitted: 50 }));
+    const tile = findTileByLabel("Submission Rate");
+    expect(tile?.textContent).toContain("25.00%");
+  });
+
+  test("Avg Mining Time renders the supplied self-win average", () => {
+    render(makeStats(), null, 18.42);
+    const tile = findTileByLabel("Avg Mining Time");
+    expect(tile?.textContent).toContain("18.42s");
   });
 
   // Walks down through grid wrappers to find the leaf StatTile div whose

@@ -4,28 +4,40 @@ import { formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
 import { StatTile } from "./StatTile";
 
-// The miner's /api/v1/stats reports cumulative counters for the local
-// controller. These count work the miner did — NOT chain-canonical wins.
-// "Problems Attempted" >= "Solutions Computed" >= chain-side "Problems Won"
-// because most solutions submitted to chain lose the per-block energy race,
-// and quip-protocol-rs v0.2's MaxProofsPerBlock=8 throttle further bounds
-// what the pallet records.
+// The miner's /api/v1/stats reports cumulative controller counters. The
+// top row reframes them as local aggregates; the bottom row exposes the
+// raw pipeline stages so operators can spot stalls without shelling into
+// the miner.
 //
-// The diagnostic strip below the primary tiles surfaces the pipeline stages
-// (dispatch → submit → drop/error) so operators can spot stalls without
-// shelling into the miner.
+// "Problems Attempted" = contexts_dispatched (every problem the controller
+// queued), "Solutions Computed" = proofs_submitted (eligible solutions sent
+// to chain). Submission Rate is the local ratio between them. Avg Mining
+// Time is computed dashboard-side from self's chain blocks since /api/v1/stats
+// no longer publishes a precomputed average.
 export function MinerStatsPanel({
   stats,
   chainMinerEntry,
+  selfAvgMiningTimeSec,
 }: {
   stats: MinerStats;
   chainMinerEntry: ChainMinerRecord | null;
+  selfAvgMiningTimeSec: number | null;
 }) {
-  const avgMiningTimeLabel = stats.avgMiningTime > 0 ? `${stats.avgMiningTime.toFixed(2)}s` : "—";
+  const avgMiningTimeLabel =
+    selfAvgMiningTimeSec != null && selfAvgMiningTimeSec > 0
+      ? `${selfAvgMiningTimeSec.toFixed(2)}s`
+      : "—";
+  // Submission Rate = solutions the miner submitted / problems it attempted.
+  // Distinct from Chain Acceptance below (proofs_won / proofs_submitted,
+  // chain-side), which measures how many of those submissions actually won
+  // their block.
+  const submissionRateLabel =
+    stats.contextsDispatched > 0
+      ? `${((stats.proofsSubmitted / stats.contextsDispatched) * 100).toFixed(2)}%`
+      : "—";
   // Chain Acceptance = chain-recorded proofs / proofs the miner submitted.
-  // Distinct from "Submission Rate" (Solutions Computed / Problems Attempted,
-  // all local). Sourced from `quantumPow.Miners[self]` so it reflects what
-  // the pallet actually persisted, not what the miner thought it sent.
+  // Sourced from `quantumPow.Miners[self]` so it reflects what the pallet
+  // actually persisted, not what the miner thought it sent.
   const chainSubmitted = chainMinerEntry ? Number(chainMinerEntry.proofsSubmitted) : 0;
   const chainWon = chainMinerEntry ? Number(chainMinerEntry.proofsWon) : 0;
   const chainAcceptanceLabel =
@@ -38,18 +50,18 @@ export function MinerStatsPanel({
       subtitle="Local controller counters from /api/v1/stats. Chain accepts at most 8 proofs per block (MaxProofsPerBlock); excess submissions return txpool code 1016. Only the lowest-energy proof per block becomes a chain-side Problem Won."
     >
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-        <StatTile label="Problems Attempted" value={formatNumber(stats.totalBlocksAttempted)} />
+        <StatTile label="Problems Attempted" value={formatNumber(stats.contextsDispatched)} />
         <StatTile
           label="Solutions Computed"
-          value={formatNumber(stats.totalBlocksWon)}
+          value={formatNumber(stats.proofsSubmitted)}
           sublabel="meet on-chain difficulty"
         />
+        <StatTile label="Submission Rate" value={submissionRateLabel} sublabel="local" />
         <StatTile
-          label="Submission Rate"
-          value={`${(stats.winRate * 100).toFixed(2)}%`}
-          sublabel="local"
+          label="Avg Mining Time"
+          value={avgMiningTimeLabel}
+          sublabel={selfAvgMiningTimeSec != null ? "across recent self-wins" : undefined}
         />
-        <StatTile label="Avg Mining Time" value={avgMiningTimeLabel} />
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 border-t border-brand-gray-2 pt-4 sm:grid-cols-5">
         <StatTile

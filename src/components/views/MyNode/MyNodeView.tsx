@@ -50,6 +50,7 @@ export function MyNodeView() {
     lastWonBlock,
     blocksMined,
     currentRequirements,
+    selfAvgMiningTimeSec,
     self,
     neighbors,
   } = stats;
@@ -233,7 +234,13 @@ export function MyNodeView() {
         nowMs={Date.now()}
       />
 
-      {minerStats && <MinerStatsPanel stats={minerStats} chainMinerEntry={chainMinerEntry} />}
+      {minerStats && (
+        <MinerStatsPanel
+          stats={minerStats}
+          chainMinerEntry={chainMinerEntry}
+          selfAvgMiningTimeSec={selfAvgMiningTimeSec}
+        />
+      )}
 
       <RecentMiningPanel submissions={recentMiningSubmissions} nowMs={Date.now()} />
 

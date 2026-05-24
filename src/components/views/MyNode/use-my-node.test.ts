@@ -153,6 +153,7 @@ describe("useMyNode", () => {
       minerStats: null,
       lastWonBlock: null,
       blocksMined: "0",
+      selfAvgMiningTimeSec: null,
       currentRequirements: null,
       self: null,
       neighbors: [],

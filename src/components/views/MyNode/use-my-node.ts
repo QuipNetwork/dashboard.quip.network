@@ -22,6 +22,10 @@ export interface MyNodeStats {
   lastWonBlock: BlockRecord | null;
   // Total blocks won by self (from chain_miners.proofsWon, u64 string-safe).
   blocksMined: string;
+  // Average mining time (seconds) over self's recent chain-side wins.
+  // Replaces miner-side `avg_mining_time`, which /api/v1/stats no longer
+  // publishes. Null until at least one self-win is in `blocks`.
+  selfAvgMiningTimeSec: number | null;
   currentRequirements: CurrentRequirements | null;
   // Operator's own row in the network-wide (unfiltered) leaderboard. Null
   // until selfAddress is known *and* the operator has won at least one block
@@ -56,9 +60,12 @@ export function useMyNode(): MyNodeStats {
     const chainMinerEntry = selfAddress
       ? (chainMiners.find((m) => m.accountId === selfAddress) ?? null)
       : null;
-    const lastWonBlock = selfAddress
-      ? (blocks.find((b) => b.minerId === selfAddress) ?? null)
-      : null;
+    const selfBlocks = selfAddress ? blocks.filter((b) => b.minerId === selfAddress) : [];
+    const lastWonBlock = selfBlocks[0] ?? null;
+    const selfAvgMiningTimeSec =
+      selfBlocks.length > 0
+        ? selfBlocks.reduce((sum, b) => sum + b.miningTime, 0) / selfBlocks.length
+        : null;
     // Chain-authoritative `proofs_won` for this account. Previously the
     // dashboard returned `max(localWinCount, chainProofsWon)` to absorb
     // poll-lag between the live substrate sub and chain_miners poll —
@@ -107,6 +114,7 @@ export function useMyNode(): MyNodeStats {
       minerStats: indexer?.minerStats ?? null,
       lastWonBlock,
       blocksMined,
+      selfAvgMiningTimeSec,
       currentRequirements,
       self,
       neighbors,
