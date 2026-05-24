@@ -57,11 +57,6 @@ function makeChainMiner(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRe
 
 function makeMinerStats(overrides: Partial<MinerStats> = {}): MinerStats {
   return {
-    totalBlocksAttempted: 100,
-    totalBlocksWon: 7,
-    winRate: 0.07,
-    totalMiningTime: 600,
-    avgMiningTime: 6,
     headsObserved: 1000,
     contextsDispatched: 500,
     resultsReceived: 480,
@@ -355,7 +350,7 @@ describe("useMyNode", () => {
   });
 
   it("forwards indexer.minerStats when present", () => {
-    const stats = makeMinerStats({ totalBlocksWon: 42 });
+    const stats = makeMinerStats({ proofsSubmitted: 42 });
     useTelemetryStore.setState({
       blocks: [],
       selfAddress: "5GAlice",

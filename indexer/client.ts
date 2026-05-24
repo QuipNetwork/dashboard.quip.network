@@ -129,11 +129,6 @@ export class QuipClient {
     const data = await this.getJson<Record<string, unknown>>("/api/v1/stats");
     const controller = (data["controller"] as Record<string, unknown>) ?? {};
     return {
-      totalBlocksAttempted: Number(data["total_blocks_attempted"] ?? 0),
-      totalBlocksWon: Number(data["total_blocks_won"] ?? 0),
-      winRate: Number(data["win_rate"] ?? 0),
-      totalMiningTime: Number(data["total_mining_time"] ?? 0),
-      avgMiningTime: Number(data["avg_mining_time"] ?? 0),
       headsObserved: Number(controller["heads_observed"] ?? 0),
       contextsDispatched: Number(controller["contexts_dispatched"] ?? 0),
       resultsReceived: Number(controller["results_received"] ?? 0),

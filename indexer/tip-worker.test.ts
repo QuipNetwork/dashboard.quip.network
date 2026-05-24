@@ -33,11 +33,6 @@ function fakeClient(opts: {
     ...overrides,
   });
   const fullStats = (overrides?: Partial<MinerStats>): MinerStats => ({
-    totalBlocksAttempted: 23,
-    totalBlocksWon: 0,
-    winRate: 0,
-    totalMiningTime: 0,
-    avgMiningTime: 0,
     headsObserved: 23,
     contextsDispatched: 46,
     resultsReceived: 0,

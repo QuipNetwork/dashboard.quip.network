@@ -73,11 +73,6 @@ describe("v6 telemetry types", () => {
 
   test("MinerStats mirrors /api/v1/stats payload", () => {
     const s: MinerStats = {
-      totalBlocksAttempted: 23,
-      totalBlocksWon: 0,
-      winRate: 0.0,
-      totalMiningTime: 0.0,
-      avgMiningTime: 0.0,
       headsObserved: 23,
       contextsDispatched: 46,
       resultsReceived: 0,

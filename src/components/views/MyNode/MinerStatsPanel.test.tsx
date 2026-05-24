@@ -29,11 +29,6 @@ const TILE_LABELS = [
 
 function makeStats(overrides: Partial<MinerStats> = {}): MinerStats {
   return {
-    totalBlocksAttempted: 0,
-    totalBlocksWon: 0,
-    winRate: 0,
-    totalMiningTime: 0,
-    avgMiningTime: 0,
     headsObserved: 0,
     contextsDispatched: 0,
     resultsReceived: 0,
@@ -87,10 +82,6 @@ describe("MinerStatsPanel", () => {
   test("renders all nine relevant counter tiles with a populated payload", () => {
     render(
       makeStats({
-        totalBlocksAttempted: 1234,
-        totalBlocksWon: 42,
-        winRate: 0.034,
-        avgMiningTime: 12.5,
         contextsDispatched: 5000,
         proofsSubmitted: 4800,
         staleDrops: 1,

@@ -65,25 +65,19 @@ export function parseIndexerObservability(
 
 /**
  * Best-effort parse of the optional `minerStats` sub-object. Returns null if
- * the payload is missing, not an object, or lacks the two required counters
- * (`totalBlocksAttempted`, `totalBlocksWon`). Other numeric fields default to
- * 0 when absent/non-finite so the UI never has to guard NaN.
+ * the payload is missing, not an object, or lacks the required pipeline
+ * counter `contextsDispatched`. Other numeric fields default to 0 when
+ * absent/non-finite so the UI never has to guard NaN.
  */
 function parseMinerStats(raw: unknown): MinerStats | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const n = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-  const a = n(r.totalBlocksAttempted);
-  const w = n(r.totalBlocksWon);
-  if (a === null || w === null) return null;
+  const cd = n(r.contextsDispatched);
+  if (cd === null) return null;
   return {
-    totalBlocksAttempted: a,
-    totalBlocksWon: w,
-    winRate: n(r.winRate) ?? 0,
-    totalMiningTime: n(r.totalMiningTime) ?? 0,
-    avgMiningTime: n(r.avgMiningTime) ?? 0,
     headsObserved: n(r.headsObserved) ?? 0,
-    contextsDispatched: n(r.contextsDispatched) ?? 0,
+    contextsDispatched: cd,
     resultsReceived: n(r.resultsReceived) ?? 0,
     proofsSubmitted: n(r.proofsSubmitted) ?? 0,
     staleDrops: n(r.staleDrops) ?? 0,

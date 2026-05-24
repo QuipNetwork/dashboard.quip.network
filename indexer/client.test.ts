@@ -91,24 +91,19 @@ describe("QuipClient v0.2", () => {
     expect(r.minerInfo).toBeNull();
   });
 
-  test("getStats flattens controller sub-object", async () => {
+  test("getStats reads controller sub-object", async () => {
     const fetchImpl = (() =>
       Promise.resolve(
         jsonResponse({
           success: true,
           data: {
-            total_blocks_attempted: 23,
-            total_blocks_won: 0,
-            win_rate: 0.0,
-            total_mining_time: 0,
-            avg_mining_time: 0,
             controller: {
               heads_observed: 23,
               contexts_dispatched: 46,
-              results_received: 0,
-              proofs_submitted: 0,
-              stale_drops: 0,
-              submission_errors: 0,
+              results_received: 12,
+              proofs_submitted: 8,
+              stale_drops: 1,
+              submission_errors: 2,
             },
           },
         }),
@@ -116,7 +111,11 @@ describe("QuipClient v0.2", () => {
     const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
     const r = await c.getStats();
     expect(r.headsObserved).toBe(23);
-    expect(r.totalBlocksAttempted).toBe(23);
+    expect(r.contextsDispatched).toBe(46);
+    expect(r.resultsReceived).toBe(12);
+    expect(r.proofsSubmitted).toBe(8);
+    expect(r.staleDrops).toBe(1);
+    expect(r.submissionErrors).toBe(2);
   });
 
   test("401 raises AuthError", async () => {

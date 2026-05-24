@@ -165,15 +165,13 @@ export interface MinerHardwareRecord {
 
 /**
  * Aggregate counters from `/api/v1/stats` on the locally polled quip-miner.
- * Flattened from the upstream `controller` sub-object so the dashboard tiles
- * can read fields directly without re-shaping.
+ * Mirrors the upstream `controller` sub-object — the miner deprecated its
+ * top-level totals (total_blocks_attempted / total_blocks_won / win_rate /
+ * total_mining_time / avg_mining_time) in favor of these pipeline counters,
+ * so the dashboard derives display aggregates from them (Submission Rate)
+ * or from chain BlockRecords (Avg Mining Time).
  */
 export interface MinerStats {
-  totalBlocksAttempted: number;
-  totalBlocksWon: number;
-  winRate: number;
-  totalMiningTime: number;
-  avgMiningTime: number;
   headsObserved: number;
   contextsDispatched: number;
   // Total dispatches that produced a result (= proofsSubmitted +
