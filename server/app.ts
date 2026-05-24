@@ -193,11 +193,31 @@ export function createApp(options: CreateAppOptions): Hono {
     contextsDispatched: number,
     resultsReceived: number,
   ): Promise<CurrentDispatch | null> {
-    // Dispatch N is in-flight when results lag behind.
+    // Dispatch N is in-flight when results lag behind. The controller
+    // bumps contextsDispatched when it enqueues the next problem, but
+    // the miner doesn't write attempt rows for N until SA emits its
+    // first iteration — so probe both N and N-1 to cover the race
+    // window where N is queued but N-1 is the one still grinding.
     if (resultsReceived < contextsDispatched) {
-      const attempts = await fetchDispatchAttempts(minerId, contextsDispatched);
-      if (attempts.length === 0) return null;
-      return { dispatchId: contextsDispatched, attempts, status: "in-flight" };
+      const [topAttempts, prevAttempts] = await Promise.all([
+        fetchDispatchAttempts(minerId, contextsDispatched),
+        fetchDispatchAttempts(minerId, contextsDispatched - 1),
+      ]);
+      if (topAttempts.length > 0) {
+        return {
+          dispatchId: contextsDispatched,
+          attempts: topAttempts,
+          status: "in-flight",
+        };
+      }
+      if (prevAttempts.length > 0) {
+        return {
+          dispatchId: contextsDispatched - 1,
+          attempts: prevAttempts,
+          status: "in-flight",
+        };
+      }
+      return null;
     }
     // Dispatch N is complete; the miner may have started N+1 already.
     const [nextAttempts, curAttempts] = await Promise.all([
