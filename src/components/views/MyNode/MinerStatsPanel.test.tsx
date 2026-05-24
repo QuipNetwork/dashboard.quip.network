@@ -72,9 +72,17 @@ function render(
   stats: MinerStats,
   chainMinerEntry: ChainMinerRecord | null = null,
   selfAvgMiningTimeSec: number | null = null,
+  problemsAttempted: number = 0,
 ) {
   act(() => {
-    root.render(createElement(MinerStatsPanel, { stats, chainMinerEntry, selfAvgMiningTimeSec }));
+    root.render(
+      createElement(MinerStatsPanel, {
+        stats,
+        chainMinerEntry,
+        selfAvgMiningTimeSec,
+        problemsAttempted,
+      }),
+    );
   });
 }
 
@@ -106,10 +114,17 @@ describe("MinerStatsPanel", () => {
     expect(text).toContain("—");
   });
 
-  test("Submission Rate computes proofsSubmitted/contextsDispatched", () => {
-    render(makeStats({ contextsDispatched: 200, proofsSubmitted: 50 }));
+  test("Submission Rate computes proofsSubmitted/problemsAttempted", () => {
+    render(makeStats({ proofsSubmitted: 50 }), null, null, 200);
     const tile = findTileByLabel("Submission Rate");
     expect(tile?.textContent).toContain("25.00%");
+  });
+
+  test("Problems Attempted reads from the lifetime counter, not contextsDispatched", () => {
+    render(makeStats({ contextsDispatched: 999 }), null, null, 42);
+    const tile = findTileByLabel("Problems Attempted");
+    expect(tile?.textContent).toContain("42");
+    expect(tile?.textContent).not.toContain("999");
   });
 
   test("Avg Mining Time renders the supplied self-win average", () => {

@@ -505,6 +505,13 @@ export interface TelemetryResponse {
   // trail via `/api/mining/attempts/:solutionId`. Empty when the miner
   // has not submitted a proof since the indexer started polling.
   recentMiningSubmissions: MiningSubmissionRecord[];
+  // Lifetime count of distinct solution_ids the indexer has recorded
+  // for self where the iteration list was non-empty — drives the
+  // "Problems Attempted" tile on the Mining Performance card. Counts
+  // problems, not dispatches: a controller that re-dispatches the same
+  // LastProofBlock won't double-count here. Zero until selfAddress
+  // resolves or the indexer's first submission lands.
+  selfProblemsAttempted: number;
   // The miner's most recent dispatch — either the in-flight one (status
   // "in-flight" when `contextsDispatched + 1` has iterations) or the
   // just-completed one (status "completed", `contextsDispatched`). Null

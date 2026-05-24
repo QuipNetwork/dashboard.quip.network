@@ -129,6 +129,7 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     nodes: null,
     nodeDescriptors: [],
     recentMiningSubmissions: [],
+    selfProblemsAttempted: 0,
     currentDispatch: null,
     ...overrides,
   };
@@ -149,6 +150,7 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
     nodes: null,
     nodeDescriptors: [],
     recentMiningSubmissions: [],
+    selfProblemsAttempted: 0,
     currentDispatch: null,
     loading: false,
     error: null,
@@ -195,6 +197,7 @@ function resetStore(): void {
     nodes: null,
     nodeDescriptors: [],
     recentMiningSubmissions: [],
+    selfProblemsAttempted: 0,
     currentDispatch: null,
     loading: true,
     error: null,

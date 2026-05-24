@@ -118,6 +118,7 @@ describe("v6 telemetry types", () => {
       nodes: null,
       nodeDescriptors: [],
       recentMiningSubmissions: [],
+      selfProblemsAttempted: 0,
       currentDispatch: null,
     };
     // `nodes` is nullable until the descriptor worker observes its first

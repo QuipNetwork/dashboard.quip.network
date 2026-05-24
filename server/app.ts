@@ -90,6 +90,13 @@ export function createApp(options: CreateAppOptions): Hono {
       ? await db.getRecentMiningSubmissions(selfAddress, RECENT_MINING_SUBMISSIONS_LIMIT)
       : [];
 
+    // Lifetime "Problems Attempted" — distinct solution_ids with iterations
+    // recorded. Counted at the DB so the value isn't bounded by the recent-
+    // submissions window above.
+    const selfProblemsAttempted = selfAddress
+      ? await db.countMiningSubmissionsWithAttempts(selfAddress)
+      : 0;
+
     // Hardware lookup feeds two downstream concerns: the chain-miner
     // join (every row) and the current-dispatch fetch (self only). Build
     // once.
@@ -173,6 +180,7 @@ export function createApp(options: CreateAppOptions): Hono {
       nodes,
       nodeDescriptors,
       recentMiningSubmissions,
+      selfProblemsAttempted,
       currentDispatch,
     } satisfies TelemetryResponse);
   });

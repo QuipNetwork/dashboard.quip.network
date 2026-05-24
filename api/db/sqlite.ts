@@ -983,6 +983,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return rows.map(rowToMiningSubmission);
   }
 
+  async countMiningSubmissionsWithAttempts(minerId: string): Promise<number> {
+    const row = this.requireDb()
+      .query<{ n: number }, [string]>(
+        `SELECT COUNT(*) AS n FROM mining_submissions
+         WHERE miner_id = ? AND attempt_count > 0`,
+      )
+      .get(minerId);
+    return row?.n ?? 0;
+  }
+
   async getMiningCheckpoint(minerId: string): Promise<number | null> {
     const row = this.requireDb()
       .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")

@@ -287,6 +287,15 @@ export interface DatabaseAdapter {
   getRecentMiningSubmissions(minerId: string, limit: number): Promise<MiningSubmissionRecord[]>;
 
   /**
+   * Lifetime count of distinct `solutionId`s persisted for this miner where
+   * the iteration list was non-empty — the operator-facing "Problems
+   * Attempted" tile. Differs from `controller.contexts_dispatched` (which
+   * counts dispatches, possibly with refreshes per problem); this counts
+   * solutions for which at least one iteration row was recorded.
+   */
+  countMiningSubmissionsWithAttempts(minerId: string): Promise<number>;
+
+  /**
    * Highest `solutionId` the indexer has fetched + persisted for this
    * miner. Returned as a number (solution_id is u64 but fits comfortably
    * in Number until ~9 quadrillion submissions). Null until the first

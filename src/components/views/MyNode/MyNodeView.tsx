@@ -29,6 +29,7 @@ export function MyNodeView() {
   const tipBlock = useTelemetryStore(selectTipBlock);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
+  const selfProblemsAttempted = useTelemetryStore((s) => s.selfProblemsAttempted);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
 
   if (!stats.selfAddress) {
@@ -239,6 +240,7 @@ export function MyNodeView() {
           stats={minerStats}
           chainMinerEntry={chainMinerEntry}
           selfAvgMiningTimeSec={selfAvgMiningTimeSec}
+          problemsAttempted={selfProblemsAttempted}
         />
       )}
 

@@ -42,6 +42,9 @@ export interface TelemetryState {
   // the "Recent Performance" panel; empty when the miner has not yet
   // submitted a proof (or selfAddress hasn't resolved on the indexer).
   recentMiningSubmissions: MiningSubmissionRecord[];
+  // Lifetime count of self's distinct solution_ids with iterations
+  // recorded. Drives the "Problems Attempted" tile.
+  selfProblemsAttempted: number;
   // The miner's most recent dispatch (in-flight if probe-ahead has
   // iterations, otherwise the just-completed one). Null when miner
   // hasn't dispatched or both probes failed. Drives the
@@ -67,6 +70,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   nodes: null,
   nodeDescriptors: [],
   recentMiningSubmissions: [],
+  selfProblemsAttempted: 0,
   currentDispatch: null,
   loading: true,
   error: null,
@@ -100,6 +104,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         nodes: data.nodes ?? null,
         nodeDescriptors: data.nodeDescriptors ?? [],
         recentMiningSubmissions: data.recentMiningSubmissions ?? [],
+        selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
         currentDispatch: data.currentDispatch ?? null,
         loading: false,
         error: null,

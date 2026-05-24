@@ -18,22 +18,28 @@ export function MinerStatsPanel({
   stats,
   chainMinerEntry,
   selfAvgMiningTimeSec,
+  problemsAttempted,
 }: {
   stats: MinerStats;
   chainMinerEntry: ChainMinerRecord | null;
   selfAvgMiningTimeSec: number | null;
+  // Lifetime count of distinct solution_ids the indexer has recorded
+  // iterations for. Distinct from `stats.contextsDispatched`, which
+  // counts dispatches and can exceed problems when the controller
+  // refreshes mid-mine.
+  problemsAttempted: number;
 }) {
   const avgMiningTimeLabel =
     selfAvgMiningTimeSec != null && selfAvgMiningTimeSec > 0
       ? `${selfAvgMiningTimeSec.toFixed(2)}s`
       : "—";
-  // Submission Rate = solutions the miner submitted / problems it attempted.
-  // Distinct from Chain Acceptance below (proofs_won / proofs_submitted,
-  // chain-side), which measures how many of those submissions actually won
-  // their block.
+  // Submission Rate = solutions the miner submitted / distinct problems it
+  // attempted. Distinct from Chain Acceptance below (proofs_won /
+  // proofs_submitted, chain-side), which measures how many of those
+  // submissions actually won their block.
   const submissionRateLabel =
-    stats.contextsDispatched > 0
-      ? `${((stats.proofsSubmitted / stats.contextsDispatched) * 100).toFixed(2)}%`
+    problemsAttempted > 0
+      ? `${((stats.proofsSubmitted / problemsAttempted) * 100).toFixed(2)}%`
       : "—";
   // Chain Acceptance = chain-recorded proofs / proofs the miner submitted.
   // Sourced from `quantumPow.Miners[self]` so it reflects what the pallet
@@ -50,7 +56,7 @@ export function MinerStatsPanel({
       subtitle="Local controller counters from /api/v1/stats. Chain accepts at most 8 proofs per block (MaxProofsPerBlock); excess submissions return txpool code 1016. Only the lowest-energy proof per block becomes a chain-side Problem Won."
     >
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-        <StatTile label="Problems Attempted" value={formatNumber(stats.contextsDispatched)} />
+        <StatTile label="Problems Attempted" value={formatNumber(problemsAttempted)} />
         <StatTile
           label="Solutions Computed"
           value={formatNumber(stats.proofsSubmitted)}

@@ -875,6 +875,14 @@ export class PostgresAdapter implements DatabaseAdapter {
     }));
   }
 
+  async countMiningSubmissionsWithAttempts(minerId: string): Promise<number> {
+    const rows = await this.requireSql()<{ n: string }[]>`
+      SELECT COUNT(*)::bigint AS n FROM mining_submissions
+      WHERE miner_id = ${minerId} AND attempt_count > 0
+    `;
+    return Number(rows[0]?.n ?? 0);
+  }
+
   async getMiningCheckpoint(minerId: string): Promise<number | null> {
     const rows = await this.requireSql()<{ value: string | null }[]>`
       SELECT value FROM meta WHERE key = ${miningCheckpointKey(minerId)}
