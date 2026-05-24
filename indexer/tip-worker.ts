@@ -141,10 +141,7 @@ async function catchUpMiningAttempts(
   const checkpoint = (await db.getMiningCheckpoint(minerId)) ?? 0;
   if (controllerResultsReceived <= checkpoint) return;
 
-  const target = Math.min(
-    controllerResultsReceived,
-    checkpoint + MINING_ATTEMPTS_PER_POLL_CAP,
-  );
+  const target = Math.min(controllerResultsReceived, checkpoint + MINING_ATTEMPTS_PER_POLL_CAP);
   for (let id = checkpoint + 1; id <= target; id++) {
     try {
       const env = await client.getMiningAttempts(id);

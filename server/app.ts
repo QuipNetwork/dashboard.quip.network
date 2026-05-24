@@ -4,10 +4,7 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import {
-  parseDispatchAttemptsApiResponse,
-  parseMiningAttemptsApiResponse,
-} from "../api/miner-api";
+import { parseDispatchAttemptsApiResponse, parseMiningAttemptsApiResponse } from "../api/miner-api";
 import type {
   CurrentDispatch,
   MiningAttempt,

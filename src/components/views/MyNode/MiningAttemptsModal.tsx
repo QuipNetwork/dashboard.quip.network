@@ -93,9 +93,7 @@ export function MiningAttemptsModal({
           </button>
         </div>
 
-        {loading && (
-          <p className="font-accent text-sm text-brand-gray-3">Fetching from miner…</p>
-        )}
+        {loading && <p className="font-accent text-sm text-brand-gray-3">Fetching from miner…</p>}
         {error && (
           <div className="rounded border border-brand-red-0/40 bg-brand-red-2/20 p-3">
             <p className="font-accent text-sm text-brand-red-0">{error}</p>
@@ -156,8 +154,8 @@ function SubmissionDetails({ envelope }: { envelope: MiningAttemptsResponse }) {
 
       {attempts.length === 0 ? (
         <p className="font-accent text-sm text-brand-gray-3">
-          No iteration trail returned. Either the miner didn't record per-iteration data for
-          this submission or the controller batched it into a single attempt.
+          No iteration trail returned. Either the miner didn't record per-iteration data for this
+          submission or the controller batched it into a single attempt.
         </p>
       ) : (
         <AttemptsTable attempts={attempts} />
@@ -203,7 +201,9 @@ function ResultBadge({ kind }: { kind: string }) {
       ? "border-brand-red-0/40 text-brand-red-0"
       : "border-brand-gray-2 text-brand-gray-4";
   return (
-    <span className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span
+      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
+    >
       {kind || "—"}
     </span>
   );

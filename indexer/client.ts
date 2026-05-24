@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {
-  MiningSubmissionNotFoundError,
-  parseMiningAttemptsApiResponse,
-} from "../api/miner-api";
-import type {
-  MinerCategory,
-  MinerStats,
-  MiningAttemptsResponse,
-} from "../src/types/telemetry";
+import { MiningSubmissionNotFoundError, parseMiningAttemptsApiResponse } from "../api/miner-api";
+import type { MinerCategory, MinerStats, MiningAttemptsResponse } from "../src/types/telemetry";
 
 export interface NodeStatus {
   ss58Address: string;
@@ -112,9 +105,7 @@ export class QuipClient {
     const url = `${this.baseUrl}/api/v1/mining/attempts?solution_id=${solutionId}`;
     const res = await this.fetchImpl(url, { headers });
     if (res.status === 401) {
-      throw new AuthError(
-        `[indexer] 401 from /api/v1/mining/attempts. Set QUIP_NODE_TOKEN.`,
-      );
+      throw new AuthError(`[indexer] 401 from /api/v1/mining/attempts. Set QUIP_NODE_TOKEN.`);
     }
     if (res.status === 404) {
       throw new MiningSubmissionNotFoundError(solutionId);

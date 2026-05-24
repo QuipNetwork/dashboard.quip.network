@@ -71,9 +71,7 @@ export function RecentMiningPanel({
                     }}
                     className="cursor-pointer border-b border-brand-gray-2/40 last:border-0 hover:bg-brand-gray-1/40"
                   >
-                    <td className="py-1.5 pr-4 text-brand-gray-5">
-                      #{formatNumber(s.solutionId)}
-                    </td>
+                    <td className="py-1.5 pr-4 text-brand-gray-5">#{formatNumber(s.solutionId)}</td>
                     <td className="py-1.5 pr-4 text-brand-gray-6">
                       {milliToFixed(s.bestEnergyMilli, 3)}
                     </td>
@@ -104,10 +102,7 @@ export function RecentMiningPanel({
       </ChartCard>
 
       {openSolutionId !== null && (
-        <MiningAttemptsModal
-          solutionId={openSolutionId}
-          onClose={() => setOpenSolutionId(null)}
-        />
+        <MiningAttemptsModal solutionId={openSolutionId} onClose={() => setOpenSolutionId(null)} />
       )}
     </>
   );
@@ -124,7 +119,9 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
       ? "border-brand-red-0/40 text-brand-red-0"
       : "border-brand-gray-2 text-brand-gray-4";
   return (
-    <span className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span
+      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
+    >
       {outcome}
     </span>
   );

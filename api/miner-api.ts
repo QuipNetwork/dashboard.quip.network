@@ -5,7 +5,11 @@
 // nor the server (request side) has to import across the other's
 // directory boundary — same pattern as `api/db/adapter`.
 
-import type { MiningAttempt, MiningAttemptsResponse, MiningSubmissionRecord } from "../src/types/telemetry";
+import type {
+  MiningAttempt,
+  MiningAttemptsResponse,
+  MiningSubmissionRecord,
+} from "../src/types/telemetry";
 
 interface RawSubmission {
   type?: string;
@@ -107,10 +111,7 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
  * submitted iteration exists, matching the chain-side equivalent on
  * BlockRecord (which is 0 for not-yet-finalized rows).
  */
-function extractNumValidSolutions(
-  parsed: MiningAttempt[],
-  raw: RawAttempt[] | undefined,
-): number {
+function extractNumValidSolutions(parsed: MiningAttempt[], raw: RawAttempt[] | undefined): number {
   if (!Array.isArray(raw)) return 0;
   // Walk in order — pick the LAST submitted row, since miners that
   // resubmit (rare) leave the most recent submission as the canonical

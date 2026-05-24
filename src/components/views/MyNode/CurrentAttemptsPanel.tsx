@@ -96,10 +96,7 @@ export function CurrentAttemptsPanel({
               const miningTimeUs = extractMiningTimeUs(a.extra);
               const ageMs = extractAgeMs(a.extra, nowMs);
               return (
-                <tr
-                  key={a.iter}
-                  className="border-b border-brand-gray-2/40 last:border-0"
-                >
+                <tr key={a.iter} className="border-b border-brand-gray-2/40 last:border-0">
                   <td className="py-1.5 pr-4 text-brand-gray-5">{a.iter}</td>
                   <td className="py-1.5 pr-4 text-brand-gray-6">
                     {(a.bestEnergyMilli / 1000).toFixed(3)}
@@ -136,7 +133,9 @@ function StatusBadge({ status }: { status: CurrentDispatch["status"] }) {
       : "border-brand-gray-2 text-brand-gray-4";
   const label = status === "in-flight" ? "In flight" : "Last completed";
   return (
-    <span className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span
+      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
+    >
       {label}
     </span>
   );
@@ -153,7 +152,9 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
       ? "border-brand-green-0/40 text-brand-green-0"
       : "border-brand-gray-2 text-brand-gray-4";
   return (
-    <span className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span
+      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
+    >
       outcome: {outcome}
     </span>
   );
@@ -169,7 +170,9 @@ function ResultBadge({ kind }: { kind: string }) {
         ? "border-brand-yellow-0/40 text-brand-yellow-0"
         : "border-brand-gray-2 text-brand-gray-4";
   return (
-    <span className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span
+      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
+    >
       {kind || "—"}
     </span>
   );
@@ -202,4 +205,3 @@ function numericField(v: unknown): number | null {
   }
   return null;
 }
-
