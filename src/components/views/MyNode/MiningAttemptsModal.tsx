@@ -172,25 +172,46 @@ function AttemptsTable({ attempts }: { attempts: MiningAttempt[] }) {
           <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
             <th className="py-2 pr-4">Iter</th>
             <th className="py-2 pr-4">Best Energy</th>
+            <th
+              className="py-2 pr-4"
+              title="num_solutions_meeting_target — count of batch members with energy strictly below the live chain threshold at iteration time. Em-dash on mempool-path iterations where the miner can't recompute energies against a live threshold."
+            >
+              Solutions
+            </th>
             <th className="py-2 pr-4">Result</th>
           </tr>
         </thead>
         <tbody>
-          {attempts.map((a) => (
-            <tr key={a.iter} className="border-b border-brand-gray-2/40 last:border-0">
-              <td className="py-1.5 pr-4 text-brand-gray-5">{a.iter}</td>
-              <td className="py-1.5 pr-4 text-brand-gray-6">
-                {(a.bestEnergyMilli / 1000).toFixed(3)}
-              </td>
-              <td className="py-1.5 pr-4">
-                <ResultBadge kind={a.resultKind} />
-              </td>
-            </tr>
-          ))}
+          {attempts.map((a) => {
+            const numMeetingTarget = numericField(a.extra["num_solutions_meeting_target"]);
+            return (
+              <tr key={a.iter} className="border-b border-brand-gray-2/40 last:border-0">
+                <td className="py-1.5 pr-4 text-brand-gray-5">{a.iter}</td>
+                <td className="py-1.5 pr-4 text-brand-gray-6">
+                  {(a.bestEnergyMilli / 1000).toFixed(3)}
+                </td>
+                <td className="py-1.5 pr-4 text-brand-gray-5">
+                  {numMeetingTarget !== null ? formatNumber(numMeetingTarget) : "—"}
+                </td>
+                <td className="py-1.5 pr-4">
+                  <ResultBadge kind={a.resultKind} />
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
+}
+
+function numericField(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 function ResultBadge({ kind }: { kind: string }) {

@@ -80,7 +80,7 @@ export function CurrentAttemptsPanel({
               </th>
               <th
                 className="py-2 pr-4"
-                title="Count of valid samples in this iteration's batch when the best energy meets the chain target; 0 when the best exceeds the target. Em-dash means the miner did not report num_valid."
+                title="num_solutions_meeting_target — count of batch members with energy strictly below the live chain threshold at iteration time. Em-dash on mempool-path iterations where the miner can't recompute energies against a live threshold."
               >
                 Solutions
               </th>
@@ -92,21 +92,9 @@ export function CurrentAttemptsPanel({
           <tbody>
             {sorted.map((a) => {
               const diversityMilli = numericField(a.extra["diversity_milli"]);
-              const numValid = numericField(a.extra["num_valid"]);
-              const thresholdMilli = numericField(a.extra["threshold_milli"]);
+              const numMeetingTarget = numericField(a.extra["num_solutions_meeting_target"]);
               const miningTimeUs = extractMiningTimeUs(a.extra);
               const ageMs = extractAgeMs(a.extra, nowMs);
-              // Miner's num_valid is the sample count from the SA batch, not
-              // a count of solutions meeting the chain target. Override to 0
-              // when we can prove none meet target (best energy strictly
-              // above the threshold). When we can't compare (no threshold),
-              // fall back to displaying the raw num_valid.
-              const solutionsLabel =
-                thresholdMilli !== null && a.bestEnergyMilli > thresholdMilli
-                  ? "0"
-                  : numValid !== null
-                    ? formatNumber(numValid)
-                    : "—";
               return (
                 <tr key={a.iter} className="border-b border-brand-gray-2/40 last:border-0">
                   <td className="py-1.5 pr-4 text-brand-gray-5">{a.iter}</td>
@@ -116,7 +104,9 @@ export function CurrentAttemptsPanel({
                   <td className="py-1.5 pr-4 text-brand-gray-5">
                     {diversityMilli !== null ? (diversityMilli / 1000).toFixed(3) : "—"}
                   </td>
-                  <td className="py-1.5 pr-4 text-brand-gray-5">{solutionsLabel}</td>
+                  <td className="py-1.5 pr-4 text-brand-gray-5">
+                    {numMeetingTarget !== null ? formatNumber(numMeetingTarget) : "—"}
+                  </td>
                   <td className="py-1.5 pr-4">
                     <ResultBadge kind={a.resultKind} />
                   </td>
