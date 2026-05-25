@@ -1,6 +1,7 @@
 import { useTelemetryStore } from "../../store/telemetry-store";
 import { useUIStore, type AggregationMode, type ViewMode } from "../../store/ui-store";
 import { SERIES_COLORS } from "../../lib/colors";
+import { shortAddress } from "../../lib/format-chain";
 import type { MinerCategory } from "../../types/telemetry";
 import { BabeEpochProgress } from "./BabeEpochProgress";
 import { CurrentBlockIndicator } from "./CurrentBlockIndicator";
@@ -30,6 +31,7 @@ export function Header() {
   const hasChainData = useTelemetryStore(
     (s) => s.chainMiners.length > 0 || s.babeAuthorities.length > 0 || s.chainHead !== null,
   );
+  const selfAddress = useTelemetryStore((s) => s.selfAddress);
 
   const showAggregation = viewMode === "network" || viewMode === "compute";
   const showTypeFilters = viewMode === "network" && aggregationMode === "byType";
@@ -98,9 +100,24 @@ export function Header() {
           <CurrentBlockIndicator />
         </div>
 
-        {/* Right column intentionally empty — preserves the 1fr_auto_1fr grid
-            so the center pill stays centered. */}
-        <div />
+        {/* Right: locally-polled miner identity. Shown across every view so
+            operators always know which miner the dashboard is connected to,
+            not just on the MyNode tab. Empty <div /> placeholder when
+            selfAddress hasn't resolved yet keeps the 1fr_auto_1fr grid
+            balanced so the center pill stays centered. */}
+        {selfAddress ? (
+          <div
+            className="flex flex-col items-center justify-self-center sm:items-end sm:justify-self-end"
+            title={selfAddress}
+          >
+            <p className="font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
+              Connected Miner
+            </p>
+            <p className="font-mono text-xs text-brand-gray-5">{shortAddress(selfAddress)}</p>
+          </div>
+        ) : (
+          <div />
+        )}
       </div>
 
       {/* Secondary row: per-type filters (Network + By Type only) */}
