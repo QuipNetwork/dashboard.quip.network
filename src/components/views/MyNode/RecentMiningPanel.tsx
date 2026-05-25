@@ -49,7 +49,7 @@ export function RecentMiningPanel({
                 <th className="py-2 pr-4">Diversity</th>
                 <th
                   className="py-2 pr-4"
-                  title="num_solutions_meeting_target — count of batch members with energy strictly below the live chain threshold on the submitted iteration. 0 for chain_error submissions or older miner images that don't publish the field."
+                  title="num_valid — count of unique constraint-valid samples in the submitted iteration's SA batch (post-dedup, target-blind). Reflects sampler productivity. 0 for chain_error submissions or older miner images that don't publish the field."
                 >
                   Solutions
                 </th>
@@ -84,7 +84,7 @@ export function RecentMiningPanel({
                       {milliToFixed(s.diversityMilli, 3)}
                     </td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
-                      {formatNumber(s.numSolutionsMeetingTarget)}
+                      {formatNumber(s.numValid)}
                     </td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
                       {formatNumber(s.attemptCount)}

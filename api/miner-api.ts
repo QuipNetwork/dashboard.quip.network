@@ -93,7 +93,7 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
     outcome: requireStr(s.outcome, "outcome"),
     attemptCount: attempts.length,
     bestEnergyMilli: bestEnergy(attempts, submissionEnergy(s)),
-    numSolutionsMeetingTarget: extractNumSolutionsMeetingTarget(attempts, env.attempts),
+    numValid: extractNumValid(attempts, env.attempts),
     // observedAt is the caller's responsibility — both the indexer (write
     // path) and the server proxy (read-through path) stamp this with the
     // wall-clock at fetch time, not at parse time. The submission record
@@ -104,15 +104,15 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
 }
 
 /**
- * Pull `num_solutions_meeting_target` off the iteration that was submitted
- * to the chain — the count of batch members with energy strictly below
- * the live chain threshold. Iterations that are merely "stored" or
- * "rejected" may not carry a meaningful count (e.g. mempool path, or
- * never reached the live-threshold compare), so prefer the submitted row.
- * Falls back to 0 when no submitted iteration exposes the field (older
- * miner images, chain_error submissions, mempool path).
+ * Pull `num_valid` off the iteration that was submitted to the chain —
+ * the count of unique constraint-valid samples in the SA batch
+ * (target-blind, post-dedup). Reflects sampler productivity, which is
+ * what operators read in the Recent Performance / won-blocks view.
+ * Falls back to 0 when the chain-submitted iteration didn't carry one
+ * (chain_error before the count was known, mempool path, or older
+ * miner images that didn't publish the field).
  */
-function extractNumSolutionsMeetingTarget(
+function extractNumValid(
   parsed: MiningAttempt[],
   raw: RawAttempt[] | undefined,
 ): number {
@@ -125,14 +125,14 @@ function extractNumSolutionsMeetingTarget(
     if (!r) continue;
     const kind = typeof r.result_kind === "string" ? r.result_kind.toLowerCase() : "";
     if (!kind.includes("submit")) continue;
-    const n = numericExtra(r["num_solutions_meeting_target"]);
+    const n = numericExtra(r["num_valid"]);
     if (n !== null) return n;
   }
   // Fall back to the last attempt's count if the chain-submitted iteration
   // didn't carry one (mempool path, chain_error). Still 0 if the miner
   // never published the field.
   for (let i = parsed.length - 1; i >= 0; i--) {
-    const n = numericExtra(parsed[i]?.extra["num_solutions_meeting_target"]);
+    const n = numericExtra(parsed[i]?.extra["num_valid"]);
     if (n !== null) return n;
   }
   return 0;

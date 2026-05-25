@@ -417,7 +417,18 @@ export interface DbConfig {
 // chain-eligible solutions — the rename makes the semantic explicit.
 // Wipe-on-drift so old rows (storing batch-size values) get rebuilt
 // against the new field on next poll.
-export const SCHEMA_VERSION = 15;
+// v16: reverts the Recent Performance "Solutions" column back to the
+// submitted iteration's `num_valid` (full unique constraint-valid
+// count). The miner now decouples num_valid and
+// num_solutions_meeting_target — num_valid is the dedup count over
+// the full batch (target-blind) while num_solutions_meeting_target is
+// the recomputed below-target subset. Operators reading the won-blocks
+// table want sampler productivity (num_valid), not the trivial "5
+// solutions submitted" view of meeting-target. The in-flight attempts
+// panel keeps surfacing num_solutions_meeting_target — different
+// audience, different question. Wipe-on-drift rebuilds against the
+// new field on next poll.
+export const SCHEMA_VERSION = 16;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

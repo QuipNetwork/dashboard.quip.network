@@ -160,7 +160,7 @@ describe("tip-worker v0.3", () => {
       outcome: "submitted_inblock",
       attemptCount: 2,
       bestEnergyMilli: -14870000,
-      numSolutionsMeetingTarget: 0,
+      numValid: 0,
       observedAt: "2026-05-19T00:00:00.000Z",
     });
     await deps.db.setMiningCheckpoint("5GPP", 22);
@@ -192,7 +192,7 @@ describe("tip-worker v0.3", () => {
       outcome: "submitted_inblock",
       attemptCount: 3,
       bestEnergyMilli: -14000000,
-      numSolutionsMeetingTarget: 1,
+      numValid: 1,
       observedAt: "2026-05-19T00:00:00.000Z",
     });
     await deps.db.setMiningCheckpoint("5GPP", 7);

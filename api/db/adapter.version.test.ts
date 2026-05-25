@@ -4,14 +4,16 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v15: mining_submissions carries num_solutions_meeting_target", () => {
-  // v15 renames mining_submissions.num_valid_solutions →
-  // num_solutions_meeting_target and re-sources from the submitted
-  // iteration's num_solutions_meeting_target field. num_valid was the
-  // full batch size, not a count of chain-eligible solutions — the
-  // rename makes the semantic explicit. Wipe-on-drift rebuilds old
-  // rows against the new field on next poll.
-  expect(SCHEMA_VERSION).toBe(15);
+test("schema v16: mining_submissions carries num_valid", () => {
+  // v16 reverts the Recent Performance "Solutions" column back to the
+  // submitted iteration's `num_valid` (full unique constraint-valid
+  // count, target-blind, post-dedup). The miner decouples num_valid
+  // and num_solutions_meeting_target — operators reading the
+  // won-blocks table want sampler productivity (num_valid), not the
+  // trivial submitted-K view. The in-flight attempts panel still
+  // surfaces num_solutions_meeting_target. Wipe-on-drift rebuilds
+  // old rows against the new field on next poll.
+  expect(SCHEMA_VERSION).toBe(16);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
