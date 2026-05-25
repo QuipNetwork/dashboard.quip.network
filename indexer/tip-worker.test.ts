@@ -136,4 +136,70 @@ describe("tip-worker v0.3", () => {
     const deps = await setupDeps({ client });
     await expect(runTipIteration(deps)).rejects.toBeInstanceOf(AuthError);
   });
+
+  test("miner reset: results_received < checkpoint wipes mining_submissions", async () => {
+    // resultsReceived=0 simulates a fresh-restart miner whose persistent
+    // attempts log is gone. The indexer's checkpoint (22) and any rows
+    // tied to that prior session must be cleared so modal lookups don't
+    // 404 on solution_ids the miner no longer knows about.
+    const deps = await setupDeps({
+      client: fakeClient({ stats: { resultsReceived: 0 } }),
+    });
+    await deps.db.insertMiningSubmission({
+      minerId: "5GPP",
+      solutionId: 22,
+      dispatchId: 43,
+      tsNs: "0",
+      energyMilli: -14870000,
+      diversityMilli: 375,
+      thresholdMilli: -14500000,
+      lastProofBlockHash: "0xabc",
+      extrinsicHash: null,
+      chainBlockHash: null,
+      chainBlockNumber: null,
+      outcome: "submitted_inblock",
+      attemptCount: 2,
+      bestEnergyMilli: -14870000,
+      numSolutionsMeetingTarget: 0,
+      observedAt: "2026-05-19T00:00:00.000Z",
+    });
+    await deps.db.setMiningCheckpoint("5GPP", 22);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(22);
+    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(1);
+
+    await runTipIteration(deps);
+
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBeNull();
+    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(0);
+  });
+
+  test("steady-state catch-up does not trigger reset (results_received == checkpoint)", async () => {
+    const deps = await setupDeps({
+      client: fakeClient({ stats: { resultsReceived: 7 } }),
+    });
+    await deps.db.insertMiningSubmission({
+      minerId: "5GPP",
+      solutionId: 7,
+      dispatchId: 7,
+      tsNs: "0",
+      energyMilli: -14000000,
+      diversityMilli: 400,
+      thresholdMilli: -14500000,
+      lastProofBlockHash: "0xdef",
+      extrinsicHash: null,
+      chainBlockHash: null,
+      chainBlockNumber: null,
+      outcome: "submitted_inblock",
+      attemptCount: 3,
+      bestEnergyMilli: -14000000,
+      numSolutionsMeetingTarget: 1,
+      observedAt: "2026-05-19T00:00:00.000Z",
+    });
+    await deps.db.setMiningCheckpoint("5GPP", 7);
+
+    await runTipIteration(deps);
+
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(7);
+    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(1);
+  });
 });

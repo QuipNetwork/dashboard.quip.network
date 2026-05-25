@@ -309,6 +309,15 @@ export interface DatabaseAdapter {
    * persisted.
    */
   setMiningCheckpoint(minerId: string, solutionId: number): Promise<void>;
+
+  /**
+   * Drop every persisted submission for this miner and clear its
+   * checkpoint. Called when the indexer detects that the miner has
+   * been reset (controller's `results_received` regressed below the
+   * checkpoint) so the next catch-up loop refetches from solution_id=1
+   * against the fresh miner instead of leaving stale rows visible.
+   */
+  resetMiningHistory(minerId: string): Promise<void>;
 }
 
 export interface DbConfig {

@@ -99,10 +99,13 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
 
   // Mining-attempts catch-up. Only run when both selfAddress and the
   // results_received counter are known — without either, we can't key
-  // the checkpoint or bound the fetch range. Errors here never poison
-  // the heartbeat write at the bottom of the function: catch broadly.
+  // the checkpoint or bound the fetch range. We deliberately enter
+  // even when resultsReceived is 0 so the reset-detection branch can
+  // wipe stale rows when a fresh-restart miner reports an empty log.
+  // Errors here never poison the heartbeat write at the bottom of the
+  // function: catch broadly.
   const selfAddress = await db.getSelfAddress();
-  if (selfAddress && resultsReceived !== null && resultsReceived > 0) {
+  if (selfAddress && resultsReceived !== null) {
     try {
       await catchUpMiningAttempts(deps, selfAddress, resultsReceived, nowIso);
     } catch (e) {
@@ -138,7 +141,22 @@ async function catchUpMiningAttempts(
   observedAt: string,
 ): Promise<void> {
   const { client, db } = deps;
-  const checkpoint = (await db.getMiningCheckpoint(minerId)) ?? 0;
+  let checkpoint = (await db.getMiningCheckpoint(minerId)) ?? 0;
+  // Miner reset detection: when the controller's results_received drops
+  // below our checkpoint, the miner has wiped its attempts log (restart
+  // without persistent state, or operator nuked /data). The persisted
+  // submissions no longer correspond to anything on the live miner, so
+  // their solution_ids are stale and modal lookups will 404. Drop them
+  // and start over from 1.
+  if (controllerResultsReceived < checkpoint) {
+    console.warn(
+      `[indexer/tip] miner reset detected for ${minerId}: ` +
+        `results_received=${controllerResultsReceived} < checkpoint=${checkpoint}. ` +
+        `Dropping persisted mining_submissions and refetching from 1.`,
+    );
+    await db.resetMiningHistory(minerId);
+    checkpoint = 0;
+  }
   if (controllerResultsReceived <= checkpoint) return;
 
   const target = Math.min(controllerResultsReceived, checkpoint + MINING_ATTEMPTS_PER_POLL_CAP);

@@ -1014,6 +1014,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
       .run({ $k: miningCheckpointKey(minerId), $v: String(solutionId) });
   }
 
+  async resetMiningHistory(minerId: string): Promise<void> {
+    const db = this.requireDb();
+    db.prepare("DELETE FROM mining_submissions WHERE miner_id = ?").run(minerId);
+    db.prepare("DELETE FROM meta WHERE key = ?").run(miningCheckpointKey(minerId));
+  }
+
   private requireDb(): Database {
     if (!this.db) {
       throw new Error("SQLiteAdapter not connected. Call connect() first.");

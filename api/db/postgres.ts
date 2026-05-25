@@ -903,6 +903,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     `;
   }
 
+  async resetMiningHistory(minerId: string): Promise<void> {
+    const sql = this.requireSql();
+    await sql`DELETE FROM mining_submissions WHERE miner_id = ${minerId}`;
+    await sql`DELETE FROM meta WHERE key = ${miningCheckpointKey(minerId)}`;
+  }
+
   private requireSql(): Sql {
     if (!this.sql) {
       throw new Error("PostgresAdapter not connected. Call connect() first.");
