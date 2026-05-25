@@ -400,7 +400,15 @@ export interface DbConfig {
 // Recent Performance panel as the "Solutions" column — parallels the
 // chain-side `BlockRecord.numValidSolutions`. Wipe-on-drift; on next
 // poll the indexer re-fetches every submission with the new field.
-export const SCHEMA_VERSION = 14;
+// v15: renames mining_submissions.num_valid_solutions →
+// num_solutions_meeting_target and re-sources from the submitted
+// iteration's `num_solutions_meeting_target` field (the miner now
+// publishes a count of batch members strictly below the live chain
+// threshold). num_valid was the full SA batch size, not a count of
+// chain-eligible solutions — the rename makes the semantic explicit.
+// Wipe-on-drift so old rows (storing batch-size values) get rebuilt
+// against the new field on next poll.
+export const SCHEMA_VERSION = 15;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

@@ -194,7 +194,7 @@ const SCHEMA_STATEMENTS: string[] = [
      outcome               TEXT NOT NULL,
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     INTEGER NOT NULL,
-     num_valid_solutions   INTEGER NOT NULL DEFAULT 0,
+     num_solutions_meeting_target INTEGER NOT NULL DEFAULT 0,
      observed_at           TEXT NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -905,28 +905,28 @@ export class SQLiteAdapter implements DatabaseAdapter {
            miner_id, solution_id, dispatch_id, ts_ns,
            energy_milli, diversity_milli, threshold_milli,
            last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-           outcome, attempt_count, best_energy_milli, num_valid_solutions, observed_at
+           outcome, attempt_count, best_energy_milli, num_solutions_meeting_target, observed_at
          ) VALUES (
            $miner, $sol, $dispatch, $ts,
            $energy, $div, $thr,
            $lpbh, $extx, $cbh, $cbn,
-           $outcome, $cnt, $best, $nvs, $observed
+           $outcome, $cnt, $best, $nsmt, $observed
          )
          ON CONFLICT(miner_id, solution_id) DO UPDATE SET
-           dispatch_id           = excluded.dispatch_id,
-           ts_ns                 = excluded.ts_ns,
-           energy_milli          = excluded.energy_milli,
-           diversity_milli       = excluded.diversity_milli,
-           threshold_milli       = excluded.threshold_milli,
-           last_proof_block_hash = excluded.last_proof_block_hash,
-           extrinsic_hash        = excluded.extrinsic_hash,
-           chain_block_hash      = excluded.chain_block_hash,
-           chain_block_number    = excluded.chain_block_number,
-           outcome               = excluded.outcome,
-           attempt_count         = excluded.attempt_count,
-           best_energy_milli     = excluded.best_energy_milli,
-           num_valid_solutions   = excluded.num_valid_solutions,
-           observed_at           = excluded.observed_at`,
+           dispatch_id                    = excluded.dispatch_id,
+           ts_ns                          = excluded.ts_ns,
+           energy_milli                   = excluded.energy_milli,
+           diversity_milli                = excluded.diversity_milli,
+           threshold_milli                = excluded.threshold_milli,
+           last_proof_block_hash          = excluded.last_proof_block_hash,
+           extrinsic_hash                 = excluded.extrinsic_hash,
+           chain_block_hash               = excluded.chain_block_hash,
+           chain_block_number             = excluded.chain_block_number,
+           outcome                        = excluded.outcome,
+           attempt_count                  = excluded.attempt_count,
+           best_energy_milli              = excluded.best_energy_milli,
+           num_solutions_meeting_target   = excluded.num_solutions_meeting_target,
+           observed_at                    = excluded.observed_at`,
       )
       .run({
         $miner: record.minerId,
@@ -943,7 +943,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $outcome: record.outcome,
         $cnt: record.attemptCount,
         $best: record.bestEnergyMilli,
-        $nvs: record.numValidSolutions,
+        $nsmt: record.numSolutionsMeetingTarget,
         $observed: record.observedAt,
       });
   }
@@ -969,7 +969,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
           outcome: string;
           attempt_count: number;
           best_energy_milli: number;
-          num_valid_solutions: number;
+          num_solutions_meeting_target: number;
           observed_at: string;
         },
         [string, number]
@@ -1096,7 +1096,7 @@ function rowToMiningSubmission(row: {
   outcome: string;
   attempt_count: number;
   best_energy_milli: number;
-  num_valid_solutions: number;
+  num_solutions_meeting_target: number;
   observed_at: string;
 }): MiningSubmissionRecord {
   return {
@@ -1114,7 +1114,7 @@ function rowToMiningSubmission(row: {
     outcome: row.outcome,
     attemptCount: row.attempt_count,
     bestEnergyMilli: row.best_energy_milli,
-    numValidSolutions: row.num_valid_solutions,
+    numSolutionsMeetingTarget: row.num_solutions_meeting_target,
     observedAt: row.observed_at,
   };
 }

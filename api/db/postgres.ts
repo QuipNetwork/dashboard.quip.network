@@ -192,7 +192,7 @@ const SCHEMA_STATEMENTS: string[] = [
      outcome               TEXT NOT NULL,
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     BIGINT NOT NULL,
-     num_valid_solutions   INTEGER NOT NULL DEFAULT 0,
+     num_solutions_meeting_target INTEGER NOT NULL DEFAULT 0,
      observed_at           TIMESTAMPTZ NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -796,30 +796,30 @@ export class PostgresAdapter implements DatabaseAdapter {
         miner_id, solution_id, dispatch_id, ts_ns,
         energy_milli, diversity_milli, threshold_milli,
         last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-        outcome, attempt_count, best_energy_milli, num_valid_solutions, observed_at
+        outcome, attempt_count, best_energy_milli, num_solutions_meeting_target, observed_at
       ) VALUES (
         ${record.minerId}, ${record.solutionId}, ${record.dispatchId}, ${record.tsNs},
         ${record.energyMilli}, ${record.diversityMilli}, ${record.thresholdMilli},
         ${record.lastProofBlockHash}, ${record.extrinsicHash},
         ${record.chainBlockHash}, ${record.chainBlockNumber},
         ${record.outcome}, ${record.attemptCount}, ${record.bestEnergyMilli},
-        ${record.numValidSolutions}, ${record.observedAt}
+        ${record.numSolutionsMeetingTarget}, ${record.observedAt}
       )
       ON CONFLICT (miner_id, solution_id) DO UPDATE SET
-        dispatch_id           = EXCLUDED.dispatch_id,
-        ts_ns                 = EXCLUDED.ts_ns,
-        energy_milli          = EXCLUDED.energy_milli,
-        diversity_milli       = EXCLUDED.diversity_milli,
-        threshold_milli       = EXCLUDED.threshold_milli,
-        last_proof_block_hash = EXCLUDED.last_proof_block_hash,
-        extrinsic_hash        = EXCLUDED.extrinsic_hash,
-        chain_block_hash      = EXCLUDED.chain_block_hash,
-        chain_block_number    = EXCLUDED.chain_block_number,
-        outcome               = EXCLUDED.outcome,
-        attempt_count         = EXCLUDED.attempt_count,
-        best_energy_milli     = EXCLUDED.best_energy_milli,
-        num_valid_solutions   = EXCLUDED.num_valid_solutions,
-        observed_at           = EXCLUDED.observed_at
+        dispatch_id                    = EXCLUDED.dispatch_id,
+        ts_ns                          = EXCLUDED.ts_ns,
+        energy_milli                   = EXCLUDED.energy_milli,
+        diversity_milli                = EXCLUDED.diversity_milli,
+        threshold_milli                = EXCLUDED.threshold_milli,
+        last_proof_block_hash          = EXCLUDED.last_proof_block_hash,
+        extrinsic_hash                 = EXCLUDED.extrinsic_hash,
+        chain_block_hash               = EXCLUDED.chain_block_hash,
+        chain_block_number             = EXCLUDED.chain_block_number,
+        outcome                        = EXCLUDED.outcome,
+        attempt_count                  = EXCLUDED.attempt_count,
+        best_energy_milli              = EXCLUDED.best_energy_milli,
+        num_solutions_meeting_target   = EXCLUDED.num_solutions_meeting_target,
+        observed_at                    = EXCLUDED.observed_at
     `;
   }
 
@@ -845,7 +845,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         outcome: string;
         attempt_count: number;
         best_energy_milli: string;
-        num_valid_solutions: number;
+        num_solutions_meeting_target: number;
         observed_at: Date;
       }[]
     >`
@@ -869,7 +869,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       outcome: r.outcome,
       attemptCount: r.attempt_count,
       bestEnergyMilli: Number(r.best_energy_milli),
-      numValidSolutions: r.num_valid_solutions,
+      numSolutionsMeetingTarget: r.num_solutions_meeting_target,
       observedAt:
         r.observed_at instanceof Date ? r.observed_at.toISOString() : String(r.observed_at),
     }));

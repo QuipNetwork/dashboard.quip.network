@@ -427,12 +427,14 @@ export interface MiningSubmissionRecord {
   // Derived: min(attempts[].best_energy_milli). Lets the table show "best
   // energy this submission ever reached" without unpacking iterations.
   bestEnergyMilli: number;
-  // The `num_valid` count from the submitted iteration — how many of
-  // the miner's sampled solutions passed validation. 0 when no submitted
-  // iteration carried a count (chain_error before the count was known,
-  // or older miners that didn't surface it). The chain-side equivalent
-  // lives on BlockRecord.numValidSolutions.
-  numValidSolutions: number;
+  // The `num_solutions_meeting_target` count from the submitted iteration —
+  // how many of the miner's sampled solutions had energy strictly below the
+  // live chain threshold. 0 when the miner didn't surface it (chain_error
+  // before the count was known, mempool-path submissions, or older miner
+  // images that didn't publish the field). Distinct from the chain-side
+  // BlockRecord.numValidSolutions, which is the validator's count for a
+  // winning proof.
+  numSolutionsMeetingTarget: number;
   observedAt: string; // ISO 8601 when the indexer fetched this submission
 }
 

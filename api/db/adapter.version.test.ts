@@ -4,12 +4,14 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v14: mining_submissions carries num_valid_solutions", () => {
-  // v14 adds `num_valid_solutions` to mining_submissions, derived from
-  // the submitted iteration's `num_valid` field. Surfaces in the Recent
-  // Performance panel alongside diversity, replacing the
-  // less-actionable threshold column.
-  expect(SCHEMA_VERSION).toBe(14);
+test("schema v15: mining_submissions carries num_solutions_meeting_target", () => {
+  // v15 renames mining_submissions.num_valid_solutions →
+  // num_solutions_meeting_target and re-sources from the submitted
+  // iteration's num_solutions_meeting_target field. num_valid was the
+  // full batch size, not a count of chain-eligible solutions — the
+  // rename makes the semantic explicit. Wipe-on-drift rebuilds old
+  // rows against the new field on next poll.
+  expect(SCHEMA_VERSION).toBe(15);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
