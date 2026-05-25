@@ -83,9 +83,7 @@ export function RecentMiningPanel({
                     <td className="py-1.5 pr-4 text-brand-gray-5">
                       {milliToFixed(s.diversityMilli, 3)}
                     </td>
-                    <td className="py-1.5 pr-4 text-brand-gray-5">
-                      {formatNumber(s.numValid)}
-                    </td>
+                    <td className="py-1.5 pr-4 text-brand-gray-5">{formatNumber(s.numValid)}</td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
                       {formatNumber(s.attemptCount)}
                     </td>

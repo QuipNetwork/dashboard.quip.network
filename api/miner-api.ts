@@ -112,10 +112,7 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
  * (chain_error before the count was known, mempool path, or older
  * miner images that didn't publish the field).
  */
-function extractNumValid(
-  parsed: MiningAttempt[],
-  raw: RawAttempt[] | undefined,
-): number {
+function extractNumValid(parsed: MiningAttempt[], raw: RawAttempt[] | undefined): number {
   if (!Array.isArray(raw)) return 0;
   // Walk in order — pick the LAST submitted row, since miners that
   // resubmit (rare) leave the most recent submission as the canonical
