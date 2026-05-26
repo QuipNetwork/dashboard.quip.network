@@ -8,37 +8,35 @@ import type { DatabaseAdapter } from "./db/adapter";
  * `/api/v1/mining/attempts`).
  *
  * Resolution order:
- *   1. Descriptor lookup. If a `node_descriptors` row for `selfAccountId`
- *      carries a `publicHost`, build `https://host[:port]` (no port emitted
- *      when descriptor omits one — the host's default port wins). The
- *      operator's own signed descriptor is the authoritative answer when
- *      it has landed on-chain.
+ *   1. Descriptor lookup. If `selfAccountId` is known AND a
+ *      `node_descriptors` row for it carries a `publicHost`, build
+ *      `https://host[:port]`. The operator's own signed descriptor is
+ *      the authoritative answer when it has landed on-chain.
  *   2. Fallback derivation from `validatorRpcUrls[0]`. Substitute
  *      `ws://` → `http://`, `wss://` → `https://`, and strip a trailing
- *      `/rpc` path component. The host and port carry through unchanged.
- *      This will only succeed in deployments where the validator's RPC
- *      port also serves miner REST (or operators front both behind one
- *      reverse proxy); otherwise it's a best-effort placeholder until the
- *      operator signs a descriptor.
+ *      `/rpc` path component. The host and port carry through
+ *      unchanged. This is the bootstrap path on a fresh DB (no
+ *      selfAccountId yet) and the steady-state path in deployments
+ *      where the operator hasn't signed a descriptor — the indexer
+ *      hits this URL once, the miner replies with its SS58 via
+ *      /api/v1/status, and that response back-fills selfAddress.
  *
- * Returns null when `selfAccountId` is null (the substrate-client hasn't
- * resolved the local validator yet) — callers should short-circuit miner
- * REST work entirely in that case.
+ * Returns null only when `validatorRpcUrls` is empty (impossible in
+ * production — parseConfig enforces ≥ 1 entry).
  */
 export async function resolveSelfMinerRestUrl(
   db: DatabaseAdapter,
   validatorRpcUrls: string[],
   selfAccountId: string | null,
 ): Promise<string | null> {
-  if (!selfAccountId) return null;
-
-  const descriptor = await db.getNodeDescriptor(selfAccountId);
-  const publicHost = descriptor?.descriptor.publicHost;
-  if (publicHost) {
-    const port = descriptor?.descriptor.publicPort;
-    return port ? `https://${publicHost}:${port}` : `https://${publicHost}`;
+  if (selfAccountId) {
+    const descriptor = await db.getNodeDescriptor(selfAccountId);
+    const publicHost = descriptor?.descriptor.publicHost;
+    if (publicHost) {
+      const port = descriptor?.descriptor.publicPort;
+      return port ? `https://${publicHost}:${port}` : `https://${publicHost}`;
+    }
   }
-
   const primary = validatorRpcUrls[0];
   if (!primary) return null;
   return deriveMinerRestFromRpcUrl(primary);

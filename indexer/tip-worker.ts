@@ -31,21 +31,15 @@ export interface TipIterationDeps {
 
 /**
  * Long-running loop dependencies. Compared to {@link TipIterationDeps},
- * this owns the responsibility of discovering the local operator and
- * resolving their miner-REST URL per iteration. The factory pattern keeps
- * production wiring (`new QuipClient(...)`) and test wiring (return a
- * pre-canned fake) symmetric.
+ * this owns the responsibility of resolving the local operator's
+ * miner-REST URL per iteration. The factory pattern keeps production
+ * wiring (`new QuipClient(...)`) and test wiring (return a pre-canned
+ * fake) symmetric.
  */
 export interface TipWorkerDeps {
   config: IndexerConfig;
   db: DatabaseAdapter;
   state: IndexerState;
-  // Returns the SS58 of the local operator (the validator whose session
-  // keys this RPC node holds). Resolves to null when the substrate
-  // client can't probe yet, the RPC node is non-validator, or the
-  // chain doesn't expose `author_hasSessionKeys`. The loop calls this
-  // once per iteration until a non-null result is cached.
-  discoverSelfAccount: () => Promise<string | null>;
   clientFactory: (baseUrl: string) => QuipClient;
   now?: () => number;
 }
@@ -53,13 +47,22 @@ export interface TipWorkerDeps {
 /**
  * Drive {@link runTipIteration} on a fixed cadence until the abort signal
  * fires. Each iteration:
- *   1. Resolve the local operator's SS58 (cached after the first hit).
+ *   1. Read the cached operator SS58 from `db.getSelfAddress()` — the
+ *      authoritative identity, written by prior /api/v1/status polls
+ *      and surfaced everywhere in the UI (leaderboard, MyNode, etc.).
  *   2. Resolve the miner-REST base URL from the descriptor table (or
- *      the validator RPC URL fallback).
- *   3. If both are known, construct a {@link QuipClient} and run a full
- *      iteration. Otherwise flush the heartbeat alone so the UI can
- *      distinguish "indexer dead" from "indexer running without a
+ *      the validator RPC URL fallback when no descriptor row exists
+ *      yet).
+ *   3. If a URL resolves, construct a {@link QuipClient} and run a
+ *      full iteration. Otherwise flush the heartbeat alone so the UI
+ *      can distinguish "indexer dead" from "indexer running without a
  *      miner to talk to yet".
+ *
+ * On a fresh DB `selfAddress` is null. The loop still resolves a URL
+ * from the validator-RPC fallback (best-effort substitution), polls
+ * /api/v1/status against it, and lets the iteration's `setSelfAddress`
+ * write the answer — bootstrapping identity from the miner's own
+ * response. From then on db.getSelfAddress() is the source of truth.
  *
  * Errors inside an iteration are logged and the loop continues — a
  * single bad poll doesn't kill the worker. No auth-fatal short-circuit:
@@ -68,31 +71,20 @@ export interface TipWorkerDeps {
  */
 export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Promise<void> {
   const intervalMs = deps.config.pollIntervalSec * 1000;
-  let cachedSelfAccount: string | null = null;
   while (!signal.aborted) {
     try {
-      if (cachedSelfAccount === null) {
-        cachedSelfAccount = await deps.discoverSelfAccount();
-        if (cachedSelfAccount === null) {
-          // Log once per iteration so operators see WHY MyNode is empty.
-          // Demoted to debug-style noise after the first hit (i.e. cached
-          // populates, subsequent iterations skip the warn).
-          console.warn(
-            "[indexer/tip] local validator not discoverable yet (no session keys on this RPC node, or author_hasSessionKeys is restricted); skipping miner REST polling",
-          );
-        }
-      }
+      const selfAddress = await deps.db.getSelfAddress();
       const baseUrl = await resolveSelfMinerRestUrl(
         deps.db,
         deps.config.validatorRpcUrls,
-        cachedSelfAccount,
+        selfAddress,
       );
-      if (cachedSelfAccount && baseUrl) {
+      if (baseUrl) {
         const client = deps.clientFactory(baseUrl);
         await runTipIteration({ client, db: deps.db, state: deps.state, now: deps.now });
       } else {
-        // No client this iteration — still advance the heartbeat so
-        // the UI's SyncIndicator knows the indexer process is alive.
+        // No URL resolves yet — keep the heartbeat fresh so the UI's
+        // SyncIndicator knows the indexer process is alive.
         await flushHeartbeat(deps);
       }
     } catch (e) {

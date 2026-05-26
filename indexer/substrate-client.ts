@@ -229,15 +229,6 @@ export interface SubstrateClient {
   // nothing here — we already have to fetch the whole block to recover
   // the extrinsic body, and most blocks carry zero remarks.
   getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null>;
-
-  // Resolve the SS58 of the validator whose session keys this RPC node
-  // currently holds. Walks `session.queuedKeys()` and probes each entry
-  // against `author_hasSessionKeys` — the first match is the local
-  // operator. Returns null when no entry matches (the RPC node is a
-  // non-validator full node or the chain is mid-rotation with no keys
-  // queued) or when `author_hasSessionKeys` isn't exposed on the
-  // connected node's RPC tier.
-  discoverLocalValidator(): Promise<string | null>;
 }
 
 /**
@@ -385,14 +376,6 @@ export class FakeSubstrateClient implements SubstrateClient {
   async getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null> {
     const v = this.remarksByBlock.get(blockNumber);
     return v === undefined ? [] : v;
-  }
-
-  // Tests configure to simulate "this RPC node holds keys for validator X"
-  // (string) or "no validator match" (null). Default null mirrors a fresh
-  // non-validator RPC.
-  public localValidatorAccount: string | null = null;
-  async discoverLocalValidator(): Promise<string | null> {
-    return this.localValidatorAccount;
   }
 
   emitFinalized(h: SubstrateHead): void {
@@ -1010,73 +993,6 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       nodeCount: meta.nodes.length,
       edgeCount: meta.edges.length,
     };
-  }
-
-  async discoverLocalValidator(): Promise<string | null> {
-    const api = this.requireApi();
-    // `session.queuedKeys` returns Vec<(AccountId, SessionKeys)> — the
-    // pairing required to ask `author_hasSessionKeys` whether *this* node
-    // owns the keyset for a given validator. We try `queuedKeys` first
-    // because it covers both the current and next session in a single
-    // read; fall through to active `validators` + per-account `nextKeys`
-    // if the chain doesn't expose queuedKeys (older session pallet).
-    const queuedKeysFn = api.query.session?.queuedKeys;
-    const hasKeysRpc = (api.rpc as unknown as Record<string, Record<string, unknown> | undefined>)
-      ?.author?.hasSessionKeys;
-    if (typeof hasKeysRpc !== "function") {
-      // author_hasSessionKeys is required to answer "are these our keys?".
-      // Stock substrate exposes it on the default RPC tier; absence means
-      // the node was started with a restrictive `--rpc-methods` policy.
-      // Operators that hit this can either widen the policy or omit the
-      // self-identity probe (the dashboard still works in chain-only mode).
-      return null;
-    }
-    const probe = hasKeysRpc as (bytes: string) => Promise<{ toJSON: () => boolean }>;
-
-    if (typeof queuedKeysFn === "function") {
-      const codec = await (queuedKeysFn as () => Promise<unknown>)();
-      const entries = codec as unknown as Array<
-        [{ toString: () => string }, { toHex: () => string }]
-      >;
-      for (const [accountId, sessionKeys] of entries) {
-        try {
-          const result = await probe(sessionKeys.toHex());
-          if (result.toJSON()) return accountId.toString();
-        } catch {
-          // Per-account probe error (e.g. transient RPC) is non-fatal —
-          // continue to the next validator rather than failing discovery.
-        }
-      }
-      return null;
-    }
-
-    // Fallback path for chains without `session.queuedKeys`. `nextKeys`
-    // is keyed by validator AccountId and returns the SessionKeys bytes.
-    const validatorsFn = api.query.session?.validators;
-    const nextKeysFn = api.query.session?.nextKeys;
-    if (typeof validatorsFn !== "function" || typeof nextKeysFn !== "function") {
-      return null;
-    }
-    const validatorsCodec = await (validatorsFn as () => Promise<unknown>)();
-    const validators = validatorsCodec as unknown as Array<{ toString: () => string }>;
-    for (const v of validators) {
-      try {
-        const accountId = v.toString();
-        const keysCodec = await (nextKeysFn as (id: unknown) => Promise<unknown>)(v);
-        // `nextKeys` is Option<SessionKeys>. Skip when the validator hasn't
-        // queued keys yet (mid-onboarding).
-        const opt = keysCodec as unknown as {
-          isSome?: boolean;
-          unwrap?: () => { toHex: () => string };
-        };
-        if (!opt.isSome || !opt.unwrap) continue;
-        const result = await probe(opt.unwrap().toHex());
-        if (result.toJSON()) return accountId;
-      } catch {
-        continue;
-      }
-    }
-    return null;
   }
 }
 

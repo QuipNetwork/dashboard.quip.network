@@ -96,29 +96,6 @@ async function main(): Promise<number> {
   const clientFactory = (url: string): SubstrateClient =>
     new PolkadotSubstrateClient(url, config.substrateRpcTimeoutMs);
 
-  // The substrate worker holds the "primary" client used for
-  // discoverLocalValidator. We hold a reference so the tip worker can
-  // probe it for self-identity. The worker re-creates its client on
-  // each connect attempt; we expose the most-recently-built one via a
-  // box variable, so discover calls always hit the live client.
-  let activeSubstrateClient: SubstrateClient | null = null;
-  const trackedFactory = (url: string): SubstrateClient => {
-    const c = clientFactory(url);
-    activeSubstrateClient = c;
-    return c;
-  };
-
-  const discoverSelfAccount = async (): Promise<string | null> => {
-    const c = activeSubstrateClient;
-    if (!c || !c.isConnected()) return null;
-    try {
-      return await c.discoverLocalValidator();
-    } catch (e) {
-      console.warn("[indexer] discoverLocalValidator failed:", e instanceof Error ? e.message : e);
-      return null;
-    }
-  };
-
   let exitCode = 0;
   try {
     exitCode = await runWorkers(
@@ -129,7 +106,6 @@ async function main(): Promise<number> {
               config,
               db,
               state,
-              discoverSelfAccount,
               clientFactory: (baseUrl) => new QuipClient({ baseUrl }),
             },
             signal,
@@ -141,7 +117,7 @@ async function main(): Promise<number> {
               db,
               state,
               urls: config.validatorRpcUrls,
-              clientFactory: trackedFactory,
+              clientFactory,
             },
             signal,
           ),
