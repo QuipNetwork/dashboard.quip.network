@@ -149,11 +149,15 @@ describe("useMyNode", () => {
       minerStats: null,
       modes: undefined,
       lastWonBlock: null,
+      lastWonProblemNumber: null,
       blocksMined: "0",
       selfAvgMiningTimeSec: null,
       currentRequirements: null,
       self: null,
       neighbors: [],
+      recentSubmissions: [],
+      effectiveMinerStats: null,
+      effectiveProblemsAttempted: 0,
     });
   });
 
@@ -386,5 +390,168 @@ describe("useMyNode", () => {
 
     const out = renderHook();
     expect(out.current?.minerStats).toBeNull();
+  });
+
+  // ---- lastWonProblemNumber ----------------------------------------------
+
+  it("lastWonProblemNumber = chain-wide 1-based ASC position of latest self-win", () => {
+    // blocks DESC by substrateBlockNumber; ours is the third newest of 5
+    // total, so problem # = 5 - 2 = 3 (chain-wide).
+    useTelemetryStore.setState({
+      blocks: [
+        makeBlock({ blockHash: "0x5", substrateBlockNumber: "500", minerId: "5GBob" }),
+        makeBlock({ blockHash: "0x4", substrateBlockNumber: "400", minerId: "5GBob" }),
+        makeBlock({ blockHash: "0xMINE", substrateBlockNumber: "300", minerId: "5GAlice" }),
+        makeBlock({ blockHash: "0x2", substrateBlockNumber: "200", minerId: "5GBob" }),
+        makeBlock({ blockHash: "0x1", substrateBlockNumber: "100", minerId: "5GBob" }),
+      ],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+    });
+
+    expect(renderHook().current?.lastWonProblemNumber).toBe(3);
+  });
+
+  it("lastWonProblemNumber null when self has no chain wins yet", () => {
+    useTelemetryStore.setState({
+      blocks: [makeBlock({ minerId: "5GBob" })],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+    });
+    expect(renderHook().current?.lastWonProblemNumber).toBeNull();
+  });
+
+  // ---- recentSubmissions merge -------------------------------------------
+
+  it("recentSubmissions synthesizes chain-only rows for self-wins without local mining_submissions", () => {
+    // Miner reset wiped mining_submissions; chain still has 2 self-wins
+    // and 1 unrelated win. The 2 wins should appear as chainOnly rows.
+    useTelemetryStore.setState({
+      blocks: [
+        makeBlock({
+          blockHash: "0xmine2",
+          substrateBlockNumber: "200",
+          minerId: "5GAlice",
+          timestamp: 1_700_000_200,
+          energy: -150.5,
+          numValidSolutions: 8,
+        }),
+        makeBlock({
+          blockHash: "0xother",
+          substrateBlockNumber: "150",
+          minerId: "5GBob",
+          timestamp: 1_700_000_150,
+        }),
+        makeBlock({
+          blockHash: "0xmine1",
+          substrateBlockNumber: "100",
+          minerId: "5GAlice",
+          timestamp: 1_700_000_100,
+          energy: -140.25,
+        }),
+      ],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+      recentMiningSubmissions: [], // wiped
+    });
+
+    const rows = renderHook().current?.recentSubmissions ?? [];
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.chainOnly === true)).toBe(true);
+    // DESC by tsNs — newer chain block (#200) lands first.
+    expect(rows[0]?.chainBlockNumber).toBe("200");
+    expect(rows[0]?.energyMilli).toBe(-150500);
+    expect(rows[0]?.numValid).toBe(8);
+    expect(rows[0]?.solutionId).toBe(0); // sentinel
+    expect(rows[1]?.chainBlockNumber).toBe("100");
+  });
+
+  it("recentSubmissions de-dupes chain-only rows against existing local rows by chainBlockNumber", () => {
+    // mining_submissions already has a row for block #200 (full
+    // fidelity). The chain block at #200 should NOT spawn a synthetic
+    // duplicate. Block #100 has no local match → synthetic row.
+    useTelemetryStore.setState({
+      blocks: [
+        makeBlock({ blockHash: "0xb", substrateBlockNumber: "200", minerId: "5GAlice" }),
+        makeBlock({ blockHash: "0xa", substrateBlockNumber: "100", minerId: "5GAlice" }),
+      ],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+      recentMiningSubmissions: [
+        {
+          solutionId: 42,
+          minerId: "5GAlice",
+          minerType: "QPU",
+          dispatchId: 4,
+          tsNs: String(BigInt(1_700_000_200) * 1_000_000_000n),
+          energyMilli: -150_000,
+          diversityMilli: 200,
+          thresholdMilli: -160_000,
+          lastProofBlockHash: "",
+          extrinsicHash: null,
+          chainBlockHash: "0xb",
+          chainBlockNumber: "200",
+          outcome: "submitted_inblock",
+          attemptCount: 33,
+          bestEnergyMilli: -150_000,
+          numValid: 5,
+          qpuAccessTimeUs: 0,
+          observedAt: "2026-05-26T00:00:00Z",
+        },
+      ],
+    });
+
+    const rows = renderHook().current?.recentSubmissions ?? [];
+    expect(rows).toHaveLength(2);
+    // The local row keeps its solutionId + attemptCount; the synthetic
+    // row for #100 carries chainOnly + sentinel solutionId=0.
+    const local = rows.find((r) => r.chainBlockNumber === "200");
+    const synth = rows.find((r) => r.chainBlockNumber === "100");
+    expect(local?.chainOnly).toBeUndefined();
+    expect(local?.attemptCount).toBe(33);
+    expect(synth?.chainOnly).toBe(true);
+    expect(synth?.solutionId).toBe(0);
+  });
+
+  // ---- effective (chain-floored) counters --------------------------------
+
+  it("effectiveMinerStats.proofsSubmitted = max(local controller, chain proofsSubmitted)", () => {
+    // Post-restart: local controller reset to 1, chain knows about 5
+    // lifetime submissions. The floored value carries the chain truth
+    // so the headline tile doesn't lie.
+    useTelemetryStore.setState({
+      blocks: [],
+      selfAddress: "5GAlice",
+      chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsSubmitted: "5" })],
+      indexer: makeIndexer({ minerStats: makeMinerStats({ proofsSubmitted: 1 }) }),
+    });
+
+    expect(renderHook().current?.effectiveMinerStats?.proofsSubmitted).toBe(5);
+  });
+
+  it("effectiveProblemsAttempted floors at chain proofsSubmitted", () => {
+    useTelemetryStore.setState({
+      blocks: [],
+      selfAddress: "5GAlice",
+      chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsSubmitted: "8" })],
+      indexer: null,
+      selfProblemsAttempted: 2,
+    });
+
+    expect(renderHook().current?.effectiveProblemsAttempted).toBe(8);
+  });
+
+  it("effectiveMinerStats null when no MinerStats payload has landed yet", () => {
+    useTelemetryStore.setState({
+      blocks: [],
+      selfAddress: "5GAlice",
+      chainMiners: [makeChainMiner({ proofsSubmitted: "5" })],
+      indexer: null,
+    });
+    expect(renderHook().current?.effectiveMinerStats).toBeNull();
   });
 });

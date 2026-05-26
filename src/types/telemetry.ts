@@ -494,7 +494,32 @@ export interface MiningSubmissionRecord {
   // surfaced in the in-flight attempts panel). 0 when the miner didn't
   // surface it (older images, chain_error submissions, mempool path).
   numValid: number;
+  // Per-submission sum of D-Wave's `qpu_access_time` across every
+  // iteration of this submission (microseconds). Captures the *real*
+  // time the QPU spent annealing + reading out — distinct from
+  // wall-clock `mining_time_us`, which is dominated by D-Wave cloud
+  // network round-trip + queue and so wildly overstates QPU compute.
+  //
+  // Requires the miner to surface `qpu_access_time_us` on each
+  // iteration in its attempts JSONL output. Until that lands the
+  // field reads 0 for new rows and existing rows after the v18 schema
+  // wipe — operators see "—" or 0h on the QPU compute bar instead of
+  // a wall-clock impostor.
+  //
+  // Always 0 for CPU/GPU miners — they have no quantum sampler and
+  // their wall-clock mining time is the right metric for the
+  // "compute used" chart.
+  qpuAccessTimeUs: number;
   observedAt: string; // ISO 8601 when the indexer fetched this submission
+  // True for UI-synthesized rows derived from a chain block when the
+  // local mining_submissions table has no matching row (typical after
+  // a miner restart that wiped its attempts log). Synthetic rows carry
+  // chain-authoritative energy/diversity/numValid but no
+  // `attemptCount` or genuine `solutionId` — the panel renders
+  // em-dashes for those columns and disables modal click-through.
+  // Never set by the server / DB layer; populated only in
+  // `use-my-node`.
+  chainOnly?: boolean;
 }
 
 /**

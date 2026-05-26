@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 
 import { formatDuration, formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
@@ -9,18 +9,20 @@ import { MiningAttemptsModal } from "./MiningAttemptsModal";
 
 const RECENT_SUBMISSIONS_VISIBLE = 20;
 
-// Row-per-submission view of the locally-polled miner's most recent
-// submissions, sourced from `/api/v1/mining/attempts?solution_id=N`
-// (one fetch per new solution_id by the indexer's tip-worker). Each row
-// is clickable — opens a modal that proxies fresh through the server
-// for the iteration trail (not stored on the indexer to keep row count
-// bounded).
+// Row-per-submission view of the operator's recent mining activity.
+// Two row sources merged upstream in `use-my-node`:
+//   - Local: `mining_submissions` rows (fetched via
+//     `/api/v1/mining/attempts?solution_id=N`). Full fidelity —
+//     solutionId, attemptCount, outcome.
+//   - Chain-only: synthetic rows for self-won blocks the local table
+//     doesn't cover (miner reset wiped `mining_submissions`).
+//     Identified by `s.chainOnly === true`; the panel renders
+//     em-dashes for solutionId / attemptCount and suppresses the
+//     modal click on those rows since `/api/v1/mining/attempts/0`
+//     doesn't resolve.
 //
-// Hidden when no submissions have been observed yet: a fresh miner, or
-// — surfaced as a diagnostic during the v0.3 deploy — a miner that's
-// targeting the un-decayed base difficulty and self-rejecting every
-// candidate. Once the miner-side decay fix lands, this populates in
-// real time.
+// Hidden when no submissions of either kind have been observed yet: a
+// fresh miner that hasn't won AND hasn't logged a local row.
 export function RecentMiningPanel({
   submissions,
   nowMs,
@@ -66,23 +68,48 @@ export function RecentMiningPanel({
               </tr>
             </thead>
             <tbody>
-              {shown.map((s) => {
+              {shown.map((s, idx) => {
                 const ageMs = ageFromTsNs(s.tsNs, nowMs);
+                const isChainOnly = s.chainOnly === true;
+                // Chain-only rows have no real solutionId (sentinel 0)
+                // and no local attempts log, so don't open the modal.
+                // Key falls back to chain block + index because synthetic
+                // rows share solutionId=0.
+                const rowKey = isChainOnly
+                  ? `chain-${s.chainBlockNumber ?? idx}`
+                  : `${s.minerId}-${s.solutionId}`;
+                const handleOpen = () => {
+                  if (!isChainOnly) setOpenSolutionId(s.solutionId);
+                };
                 return (
                   <tr
-                    key={`${s.minerId}-${s.solutionId}`}
-                    onClick={() => setOpenSolutionId(s.solutionId)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setOpenSolutionId(s.solutionId);
-                      }
-                    }}
-                    className="cursor-pointer border-b border-brand-gray-2/40 last:border-0 hover:bg-brand-gray-1/40"
+                    key={rowKey}
+                    {...(isChainOnly
+                      ? {}
+                      : {
+                          onClick: handleOpen,
+                          role: "button" as const,
+                          tabIndex: 0,
+                          onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleOpen();
+                            }
+                          },
+                        })}
+                    className={
+                      isChainOnly
+                        ? "border-b border-brand-gray-2/40 last:border-0"
+                        : "cursor-pointer border-b border-brand-gray-2/40 last:border-0 hover:bg-brand-gray-1/40"
+                    }
                   >
-                    <td className="py-1.5 pr-4 text-brand-gray-5">#{formatNumber(s.solutionId)}</td>
+                    <td className="py-1.5 pr-4 text-brand-gray-5">
+                      {isChainOnly ? (
+                        <span className="text-brand-gray-3">—</span>
+                      ) : (
+                        `#${formatNumber(s.solutionId)}`
+                      )}
+                    </td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
                       {s.minerType ? s.minerType : <span className="text-brand-gray-3">—</span>}
                     </td>
@@ -94,7 +121,11 @@ export function RecentMiningPanel({
                     </td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">{formatNumber(s.numValid)}</td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
-                      {formatNumber(s.attemptCount)}
+                      {isChainOnly ? (
+                        <span className="text-brand-gray-3">—</span>
+                      ) : (
+                        formatNumber(s.attemptCount)
+                      )}
                     </td>
                     <td className="py-1.5 pr-4">
                       <OutcomeBadge outcome={s.outcome} />

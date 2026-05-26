@@ -197,6 +197,12 @@ const SCHEMA_STATEMENTS: string[] = [
      -- METAL / MODAL / QPU). Empty string for rows from miners that
      -- don't surface the field yet — schema-drift wipe rebuilds them.
      miner_type            TEXT NOT NULL DEFAULT '',
+     -- v18: per-submission sum of D-Wave qpu_access_time across
+     -- every iteration anneal+readout (microseconds). 0 for
+     -- CPU/GPU rows and for QPU rows from miners that haven't
+     -- exposed qpu_access_time_us yet -- schema-drift wipe
+     -- rebuilds them once the miner does.
+     qpu_access_time_us    BIGINT NOT NULL DEFAULT 0,
      observed_at           TIMESTAMPTZ NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -818,14 +824,16 @@ export class PostgresAdapter implements DatabaseAdapter {
         miner_id, solution_id, dispatch_id, ts_ns,
         energy_milli, diversity_milli, threshold_milli,
         last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-        outcome, attempt_count, best_energy_milli, num_valid, miner_type, observed_at
+        outcome, attempt_count, best_energy_milli, num_valid, miner_type,
+        qpu_access_time_us, observed_at
       ) VALUES (
         ${record.minerId}, ${record.solutionId}, ${record.dispatchId}, ${record.tsNs},
         ${record.energyMilli}, ${record.diversityMilli}, ${record.thresholdMilli},
         ${record.lastProofBlockHash}, ${record.extrinsicHash},
         ${record.chainBlockHash}, ${record.chainBlockNumber},
         ${record.outcome}, ${record.attemptCount}, ${record.bestEnergyMilli},
-        ${record.numValid}, ${record.minerType}, ${record.observedAt}
+        ${record.numValid}, ${record.minerType},
+        ${record.qpuAccessTimeUs}, ${record.observedAt}
       )
       ON CONFLICT (miner_id, solution_id) DO UPDATE SET
         dispatch_id                    = EXCLUDED.dispatch_id,
@@ -842,6 +850,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         best_energy_milli              = EXCLUDED.best_energy_milli,
         num_valid                      = EXCLUDED.num_valid,
         miner_type                     = EXCLUDED.miner_type,
+        qpu_access_time_us             = EXCLUDED.qpu_access_time_us,
         observed_at                    = EXCLUDED.observed_at
     `;
   }
@@ -870,6 +879,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         best_energy_milli: string;
         num_valid: number;
         miner_type: string;
+        qpu_access_time_us: string;
         observed_at: Date;
       }[]
     >`
@@ -895,6 +905,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       bestEnergyMilli: Number(r.best_energy_milli),
       numValid: r.num_valid,
       minerType: r.miner_type ?? "",
+      qpuAccessTimeUs: Number(r.qpu_access_time_us ?? 0),
       observedAt:
         r.observed_at instanceof Date ? r.observed_at.toISOString() : String(r.observed_at),
     }));

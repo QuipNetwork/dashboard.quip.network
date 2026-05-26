@@ -199,6 +199,12 @@ const SCHEMA_STATEMENTS: string[] = [
      -- METAL / MODAL / QPU). Empty string for rows from miners that
      -- don't surface the field yet — schema-drift wipe rebuilds them.
      miner_type            TEXT NOT NULL DEFAULT '',
+     -- v18: per-submission sum of D-Wave qpu_access_time across
+     -- every iteration anneal+readout (microseconds). 0 for
+     -- CPU/GPU rows and for QPU rows from miners that haven't
+     -- exposed qpu_access_time_us yet -- schema-drift wipe
+     -- rebuilds them once the miner does.
+     qpu_access_time_us    INTEGER NOT NULL DEFAULT 0,
      observed_at           TEXT NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -928,12 +934,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
            miner_id, solution_id, dispatch_id, ts_ns,
            energy_milli, diversity_milli, threshold_milli,
            last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-           outcome, attempt_count, best_energy_milli, num_valid, miner_type, observed_at
+           outcome, attempt_count, best_energy_milli, num_valid, miner_type,
+           qpu_access_time_us, observed_at
          ) VALUES (
            $miner, $sol, $dispatch, $ts,
            $energy, $div, $thr,
            $lpbh, $extx, $cbh, $cbn,
-           $outcome, $cnt, $best, $nvalid, $mtype, $observed
+           $outcome, $cnt, $best, $nvalid, $mtype, $qpu, $observed
          )
          ON CONFLICT(miner_id, solution_id) DO UPDATE SET
            dispatch_id                    = excluded.dispatch_id,
@@ -950,6 +957,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
            best_energy_milli              = excluded.best_energy_milli,
            num_valid                      = excluded.num_valid,
            miner_type                     = excluded.miner_type,
+           qpu_access_time_us             = excluded.qpu_access_time_us,
            observed_at                    = excluded.observed_at`,
       )
       .run({
@@ -969,6 +977,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $best: record.bestEnergyMilli,
         $nvalid: record.numValid,
         $mtype: record.minerType,
+        $qpu: record.qpuAccessTimeUs,
         $observed: record.observedAt,
       });
   }
@@ -996,6 +1005,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
           best_energy_milli: number;
           num_valid: number;
           miner_type: string;
+          qpu_access_time_us: number;
           observed_at: string;
         },
         [string, number]
@@ -1130,6 +1140,7 @@ function rowToMiningSubmission(row: {
   best_energy_milli: number;
   num_valid: number;
   miner_type: string;
+  qpu_access_time_us: number;
   observed_at: string;
 }): MiningSubmissionRecord {
   return {
@@ -1149,6 +1160,7 @@ function rowToMiningSubmission(row: {
     bestEnergyMilli: row.best_energy_milli,
     numValid: row.num_valid,
     minerType: row.miner_type ?? "",
+    qpuAccessTimeUs: row.qpu_access_time_us ?? 0,
     observedAt: row.observed_at,
   };
 }

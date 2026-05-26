@@ -98,6 +98,7 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
     attemptCount: attempts.length,
     bestEnergyMilli: bestEnergy(attempts, submissionEnergy(s)),
     numValid: extractNumValid(attempts, env.attempts),
+    qpuAccessTimeUs: sumQpuAccessTimeUs(env.attempts),
     // observedAt is the caller's responsibility — both the indexer (write
     // path) and the server proxy (read-through path) stamp this with the
     // wall-clock at fetch time, not at parse time. The submission record
@@ -137,6 +138,26 @@ function extractNumValid(parsed: MiningAttempt[], raw: RawAttempt[] | undefined)
     if (n !== null) return n;
   }
   return 0;
+}
+
+/**
+ * Sum the optional `qpu_access_time_us` field across every iteration
+ * row. Field is added by future miner versions (D-Wave's
+ * `sampler.info["qpu_access_time"]` per sample-set, in microseconds);
+ * older miners and CPU/GPU miners that have no quantum sampler omit
+ * it entirely. Missing / non-numeric entries contribute 0 rather than
+ * polluting the sum or rejecting the parse — the QPU compute chart
+ * degrades to 0 until the field lands, never crashes.
+ */
+function sumQpuAccessTimeUs(raw: RawAttempt[] | undefined): number {
+  if (!Array.isArray(raw)) return 0;
+  let total = 0;
+  for (const a of raw) {
+    if (!a || typeof a !== "object") continue;
+    const v = numericExtra(a["qpu_access_time_us"]);
+    if (v !== null && v > 0) total += v;
+  }
+  return total;
 }
 
 function numericExtra(v: unknown): number | null {

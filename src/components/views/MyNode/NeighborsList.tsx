@@ -31,7 +31,7 @@ export function NeighborsList({ self, neighbors }: NeighborsListProps) {
             <th className="pb-2 pl-1 pr-2">#</th>
             <th className="pb-2 pr-3">Miner</th>
             <th className="pb-2 pr-3">Type</th>
-            <th className="pb-2 pr-3 text-right">Blocks</th>
+            <th className="pb-2 pr-3 text-right">Solutions</th>
             <th className="hidden pb-2 pr-3 text-right sm:table-cell">Avg Time</th>
             <th className="hidden pb-2 pr-3 text-right md:table-cell">Best Energy</th>
           </tr>

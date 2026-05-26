@@ -4,15 +4,16 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v17: mining_submissions carries miner_type alongside num_valid", () => {
-  // v17 adds miner_type (CPU / CUDA / METAL / MODAL / QPU) to each
-  // mining_submissions row. Multi-backend containers run one
-  // quip-miner process per active group; the dashboard needs to
-  // report which backend produced each winning submission without
-  // parsing miner_id. Empty string for rows from miners that don't
-  // surface the field yet. Wipe-on-drift rebuilds existing rows
-  // against the new shape on next indexer poll.
-  expect(SCHEMA_VERSION).toBe(17);
+test("schema v18: mining_submissions carries qpu_access_time_us alongside miner_type", () => {
+  // v18 adds qpu_access_time_us (microseconds, BIGINT/INTEGER NOT
+  // NULL DEFAULT 0) to each mining_submissions row. Sum of D-Wave's
+  // `qpu_access_time` across every iteration — the real QPU compute
+  // time minus the wall-clock D-Wave cloud RTT overhead. Powers the
+  // "Total Compute Used" QPU bar; 0 for CPU/GPU rows and for QPU
+  // rows produced before the miner started exposing the field.
+  // Wipe-on-drift rebuilds existing rows against the new shape on
+  // next indexer poll.
+  expect(SCHEMA_VERSION).toBe(18);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",

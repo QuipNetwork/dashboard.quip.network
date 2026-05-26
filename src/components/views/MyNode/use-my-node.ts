@@ -7,6 +7,7 @@ import type {
   BlockRecord,
   ChainMinerRecord,
   MinerStats,
+  MiningSubmissionRecord,
   ModeBreakdown,
 } from "../../../types/telemetry";
 import {
@@ -30,8 +31,35 @@ export interface MyNodeStats {
   // in which case the UI omits the per-mode row.
   modes: Record<string, ModeBreakdown> | undefined;
   lastWonBlock: BlockRecord | null;
+  // Chain-wide problem number that `lastWonBlock` represents — the
+  // 1-based index of that block in the ASC-sorted chain history. Lets
+  // the "Last Problem Won" tile show "Problem #36" instead of treating
+  // the operator's win-count as the problem id. Null until at least
+  // one self-win is in `blocks`; capped by `blocks.length` (server
+  // returns the 500 most recent, so accuracy degrades past problem
+  // #500 — fine for current chain depths).
+  lastWonProblemNumber: number | null;
   // Total blocks won by self (from chain_miners.proofsWon, u64 string-safe).
   blocksMined: string;
+  // Merged Recent Performance feed: local `mining_submissions` rows
+  // (full fidelity — solutionId, attemptCount, outcome) plus
+  // chain-derived synthetic rows for self-won blocks the local table
+  // has no record of (typical after a miner reset wipes
+  // mining_submissions). Sorted DESC by timestamp so the freshest row
+  // is first.
+  recentSubmissions: MiningSubmissionRecord[];
+  // Chain-floored variant of indexer.minerStats. After a miner restart
+  // the controller counters reset to 0; the chain remembers our 5
+  // submissions. Using `max(local, chain)` for the relevant fields
+  // means the headline tiles never undershoot the chain truth. Null
+  // when no /api/v1/stats poll has landed yet (fresh deploy).
+  effectiveMinerStats: MinerStats | null;
+  // Chain-floored problemsAttempted. `selfProblemsAttempted` from the
+  // server counts distinct `mining_submissions.solution_id` rows; it
+  // resets on `resetMiningHistory`. We floor at chain proofsSubmitted
+  // since every chain submission was, by definition, a problem
+  // attempted.
+  effectiveProblemsAttempted: number;
   // Average mining time (seconds) over self's recent chain-side wins.
   // Replaces miner-side `avg_mining_time`, which /api/v1/stats no longer
   // publishes. Null until at least one self-win is in `blocks`.
@@ -65,6 +93,14 @@ export function useMyNode(): MyNodeStats {
   // many hours ago. Survives wipe-on-drift restarts where `blocks` starts
   // empty but the indexer's first difficulty poll fires within 300s.
   const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
+  // Local-side fidelity feed: full mining_submissions rows that
+  // survived the most recent `resetMiningHistory` call. Carries
+  // attemptCount + solutionId the chain doesn't expose.
+  const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
+  // Server-counted distinct solution_ids in mining_submissions. Floor
+  // we apply below with chain proofsSubmitted to never undershoot the
+  // chain truth across miner restarts.
+  const selfProblemsAttempted = useTelemetryStore((s) => s.selfProblemsAttempted);
 
   return useMemo<MyNodeStats>(() => {
     const chainMinerEntry = selfAddress
@@ -72,6 +108,16 @@ export function useMyNode(): MyNodeStats {
       : null;
     const selfBlocks = selfAddress ? blocks.filter((b) => b.minerId === selfAddress) : [];
     const lastWonBlock = selfBlocks[0] ?? null;
+    // `blocks` arrives DESC by substrateBlockNumber (api/db sorts), so
+    // problem # of our latest win = blocks.length - its DESC index.
+    // Equivalent to 1-based ASC position. Same derivation the header's
+    // "next problem" indicator uses, kept consistent so operators see
+    // matching numbers across the page.
+    const lastWonProblemNumber =
+      lastWonBlock != null
+        ? blocks.length -
+          blocks.findIndex((b) => b.substrateBlockNumber === lastWonBlock.substrateBlockNumber)
+        : null;
     const selfAvgMiningTimeSec =
       selfBlocks.length > 0
         ? selfBlocks.reduce((sum, b) => sum + b.miningTime, 0) / selfBlocks.length
@@ -104,6 +150,84 @@ export function useMyNode(): MyNodeStats {
             minSolutions: tipBlock.minSolutions,
           }
         : null;
+    // --- Merged Recent Performance feed ---
+    // After a miner reset the local mining_submissions table is wiped
+    // (`resetMiningHistory` in tip-worker.ts) but the chain still
+    // remembers every winning block. Without this synthesis the panel
+    // collapses to the post-restart fragment and the operator can no
+    // longer scan their lifetime wins from MyNode.
+    //
+    // Strategy: derive a synthetic MiningSubmissionRecord from each
+    // self-won chain block that has no corresponding local row
+    // (matched on chainBlockNumber). Local rows always take precedence
+    // because they carry attemptCount + a real solutionId for the
+    // modal.
+    const localChainBlockNumbers = new Set(
+      recentMiningSubmissions.map((s) => s.chainBlockNumber).filter((n): n is string => n != null),
+    );
+    const selfMinerType = chainMinerEntry?.hardware?.primaryType ?? "";
+    const chainOnlyRows: MiningSubmissionRecord[] = selfBlocks
+      .filter((b) => !localChainBlockNumbers.has(b.substrateBlockNumber))
+      .map((b) => ({
+        // Sentinel id: 0 flags this row as chain-derived. The miner's
+        // real solutionId is 1-indexed so 0 cannot collide with a
+        // legitimate entry. RecentMiningPanel uses this (along with
+        // `chainOnly: true`) to suppress the modal click.
+        solutionId: 0,
+        minerId: b.minerId,
+        minerType: selfMinerType,
+        dispatchId: 0,
+        // BlockRecord.timestamp is in seconds (substrate-worker
+        // converts before insert). MiningSubmissionRecord.tsNs is
+        // u128 nanoseconds-as-string; BigInt arithmetic preserves
+        // precision past Number.MAX_SAFE_INTEGER.
+        tsNs: String(BigInt(b.timestamp) * 1_000_000_000n),
+        energyMilli: Math.round(b.energy * 1000),
+        diversityMilli: Math.round(b.diversity * 1000),
+        thresholdMilli: Math.round(b.difficultyEnergy * 1000),
+        lastProofBlockHash: "",
+        extrinsicHash: null,
+        chainBlockHash: b.blockHash,
+        chainBlockNumber: b.substrateBlockNumber,
+        outcome: "submitted_inblock",
+        attemptCount: 0,
+        bestEnergyMilli: Math.round(b.energy * 1000),
+        numValid: b.numValidSolutions,
+        // Synthetic chain-only rows have no iteration data to sum
+        // qpu_access_time_us from. Surface 0 — the QPU compute bar
+        // simply omits these rows from its aggregation rather than
+        // double-counting wall-clock for blocks we don't have local
+        // attempts for.
+        qpuAccessTimeUs: 0,
+        observedAt: new Date(b.timestamp * 1000).toISOString(),
+        chainOnly: true,
+      }));
+    // Merge then DESC-sort by tsNs (u128, BigInt-safe). Both row
+    // sources stamp tsNs in the same nanosecond format so the
+    // comparison is total.
+    const recentSubmissions = [...recentMiningSubmissions, ...chainOnlyRows].sort((a, b) => {
+      const aN = BigInt(a.tsNs);
+      const bN = BigInt(b.tsNs);
+      if (aN > bN) return -1;
+      if (aN < bN) return 1;
+      return 0;
+    });
+
+    // --- Chain-floored counters ---
+    // Headline tiles ("Solutions Computed", "Proofs Submitted",
+    // "Problems Attempted") flooring at chain proofsSubmitted so a
+    // miner restart doesn't make the dashboard look like the operator
+    // started over from scratch.
+    const chainProofsSubmitted = Number(chainMinerEntry?.proofsSubmitted ?? "0");
+    const localMinerStats = indexer?.minerStats ?? null;
+    const effectiveMinerStats: MinerStats | null = localMinerStats
+      ? {
+          ...localMinerStats,
+          proofsSubmitted: Math.max(localMinerStats.proofsSubmitted, chainProofsSubmitted),
+        }
+      : null;
+    const effectiveProblemsAttempted = Math.max(selfProblemsAttempted, chainProofsSubmitted);
+
     // Network-wide unfiltered leaderboard for rank-neighbor lookup. We
     // deliberately ignore the UI store's `selectedTypes` filter here —
     // the operator's rank in the network is not category-scoped.
@@ -124,11 +248,25 @@ export function useMyNode(): MyNodeStats {
       minerStats: indexer?.minerStats ?? null,
       modes: indexer?.modes,
       lastWonBlock,
+      lastWonProblemNumber,
+      recentSubmissions,
+      effectiveMinerStats,
+      effectiveProblemsAttempted,
       blocksMined,
       selfAvgMiningTimeSec,
       currentRequirements,
       self,
       neighbors,
     };
-  }, [selfAddress, chainMiners, nodeDescriptors, blocks, indexer, tipBlock, recentDifficulty]);
+  }, [
+    selfAddress,
+    chainMiners,
+    nodeDescriptors,
+    blocks,
+    indexer,
+    tipBlock,
+    recentDifficulty,
+    recentMiningSubmissions,
+    selfProblemsAttempted,
+  ]);
 }

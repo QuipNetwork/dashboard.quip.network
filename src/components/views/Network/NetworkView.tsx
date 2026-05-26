@@ -90,7 +90,9 @@ export function NetworkView() {
         <ChartCard
           title="Total Compute Used"
           subtitle={
-            byType ? "Wall clock × units (CPU/GPU) or raw QPU time" : "Wall clock × units per miner"
+            byType
+              ? "Wall-clock for CPU/GPU · D-Wave anneal+readout time for QPU"
+              : "Wall-clock (CPU/GPU) or D-Wave qpu_access_time (QPU) per miner"
           }
         >
           <ComputeUsedChart data={computeUsed} />

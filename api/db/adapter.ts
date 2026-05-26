@@ -474,14 +474,15 @@ export interface DbConfig {
 // panel keeps surfacing num_solutions_meeting_target — different
 // audience, different question. Wipe-on-drift rebuilds against the
 // new field on next poll.
-// v17: adds `miner_type` column to mining_submissions. Sourced from
-// the submitted iteration's `miner_type` field (CPU / CUDA / METAL /
-// MODAL / QPU). Lets multi-backend containers (entrypoint supervisor
-// with one quip-miner process per active group) report *which*
-// backend produced each winning submission without parsing miner_id.
-// Empty string for legacy rows produced by older miners. Wipe-on-
-// drift so the column populates on next poll.
-export const SCHEMA_VERSION = 17;
+// v18: adds `qpu_access_time_us` column to mining_submissions. Sum
+// of D-Wave's `qpu_access_time` (microseconds) across every
+// iteration of a submission. Replaces wall-clock as the source for
+// the "Total Compute Used" QPU bar — wall-clock is dominated by
+// D-Wave cloud RTT and overstates QPU compute by 100x+. 0 for
+// CPU/GPU and for QPU rows produced before the miner started
+// surfacing the field. Wipe-on-drift so the column populates on
+// next poll.
+export const SCHEMA_VERSION = 18;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

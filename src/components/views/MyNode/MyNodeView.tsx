@@ -33,7 +33,6 @@ export function MyNodeView() {
   const tipBlock = useTelemetryStore(selectTipBlock);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
-  const selfProblemsAttempted = useTelemetryStore((s) => s.selfProblemsAttempted);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const indexer = useTelemetryStore((s) => s.indexer);
   const serverNowMs = useTelemetryStore(selectServerNowMs);
@@ -62,14 +61,17 @@ export function MyNodeView() {
   const {
     selfAddress,
     chainMinerEntry,
-    minerStats,
     modes,
     lastWonBlock,
+    lastWonProblemNumber,
     blocksMined,
     currentRequirements,
     selfAvgMiningTimeSec,
     self,
     neighbors,
+    recentSubmissions,
+    effectiveMinerStats,
+    effectiveProblemsAttempted,
   } = stats;
   const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
   // `miningTime` is in seconds (substrate-worker converts the block-delta
@@ -194,10 +196,14 @@ export function MyNodeView() {
         />
         <StatTile
           label="Last Problem Won"
-          value={lastWonBlock != null ? `Solution #${formatNumber(Number(blocksMined))}` : "—"}
+          value={
+            lastWonBlock != null && lastWonProblemNumber != null
+              ? `Problem #${formatNumber(lastWonProblemNumber)}`
+              : "—"
+          }
           sublabel={
             lastWonBlock != null && lastWonAgoMs != null
-              ? `${formatDuration(lastWonAgoMs)} ago · at block #${lastWonBlock.substrateBlockNumber}`
+              ? `${formatDuration(lastWonAgoMs)} ago · win ${formatNumber(Number(blocksMined))} of yours · block #${lastWonBlock.substrateBlockNumber}`
               : "No wins yet"
           }
         />
@@ -251,18 +257,18 @@ export function MyNodeView() {
         nowMs={Date.now()}
       />
 
-      {minerStats && (
+      {effectiveMinerStats && (
         <MinerStatsPanel
-          stats={minerStats}
+          stats={effectiveMinerStats}
           chainMinerEntry={chainMinerEntry}
           selfAvgMiningTimeSec={selfAvgMiningTimeSec}
-          problemsAttempted={selfProblemsAttempted}
+          problemsAttempted={effectiveProblemsAttempted}
           modes={modes}
           dataAgeMs={dataAgeMs}
         />
       )}
 
-      <RecentMiningPanel submissions={recentMiningSubmissions} nowMs={Date.now()} />
+      <RecentMiningPanel submissions={recentSubmissions} nowMs={Date.now()} />
 
       <ChartCard title="Rank-Adjacent Miners" subtitle="Your position in the network leaderboard">
         <NeighborsList self={self} neighbors={neighbors} />
