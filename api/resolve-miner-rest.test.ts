@@ -81,7 +81,10 @@ describe("discoverLocalOperator", () => {
     const fetchImpl = fakeFetch({
       "https://qpu-1.nodes.quip.network/api/v1/status": {
         status: 200,
-        body: { success: true, data: { ss58_address: "5HY4e5KJiAu5xhjqQn1bhymmDEvz8EfivCETPW7PkJso7qBe" } },
+        body: {
+          success: true,
+          data: { ss58_address: "5HY4e5KJiAu5xhjqQn1bhymmDEvz8EfivCETPW7PkJso7qBe" },
+        },
       },
     });
     const result = await discoverLocalOperator(db, { fetchImpl });
@@ -181,10 +184,10 @@ describe("discoverLocalOperator", () => {
     }
     const fetchImpl = (async (_input, _init) => {
       calls++;
-      return new Response(
-        JSON.stringify({ success: true, data: { ss58_address: "5HYnoone" } }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ success: true, data: { ss58_address: "5HYnoone" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     }) as typeof fetch;
     const result = await discoverLocalOperator(db, { fetchImpl, maxProbes: 3 });
     expect(result).toBeNull();

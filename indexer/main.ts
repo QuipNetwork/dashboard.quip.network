@@ -86,7 +86,9 @@ async function main(): Promise<number> {
     const existing = await db.getSelfAddress();
     if (!existing) {
       await db.setSelfAddress(config.operatorAccount);
-      console.log(`[indexer] selfAddress seeded from QUIP_OPERATOR_ACCOUNT=${config.operatorAccount}`);
+      console.log(
+        `[indexer] selfAddress seeded from QUIP_OPERATOR_ACCOUNT=${config.operatorAccount}`,
+      );
     }
   }
 
