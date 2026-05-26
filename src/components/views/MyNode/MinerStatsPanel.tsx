@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type {
-  ChainMinerRecord,
-  MinerStats,
-  ModeBreakdown,
-} from "../../../types/telemetry";
+import type { ChainMinerRecord, MinerStats, ModeBreakdown } from "../../../types/telemetry";
 import { formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
 import { StatTile } from "./StatTile";
@@ -99,17 +95,12 @@ export function MinerStatsPanel({
   );
 }
 
-
 // Per-backend breakdown for multi-process containers. Renders one row
 // per active mode under the headline counters; renders nothing when
 // `modes` is undefined / empty so single-process miners keep the same
 // UI. Source: /api/v1/status.modes via the indexer's observability
 // pass-through (no DB persistence — pure pass-through on each poll).
-function ModesBreakdownRow({
-  modes,
-}: {
-  modes: Record<string, ModeBreakdown> | undefined;
-}) {
+function ModesBreakdownRow({ modes }: { modes: Record<string, ModeBreakdown> | undefined }) {
   const entries = modes ? Object.entries(modes) : [];
   if (entries.length === 0) return null;
   // Stable display order: cpu, gpu, qpu, then anything else
@@ -153,9 +144,7 @@ function ModesBreakdownRow({
               <td className="py-1 pr-4 text-brand-gray-5">{formatNumber(m.staleDrops)}</td>
               <td
                 className={
-                  m.submissionErrors > 0
-                    ? "py-1 text-brand-red-0"
-                    : "py-1 text-brand-gray-5"
+                  m.submissionErrors > 0 ? "py-1 text-brand-red-0" : "py-1 text-brand-gray-5"
                 }
               >
                 {formatNumber(m.submissionErrors)}

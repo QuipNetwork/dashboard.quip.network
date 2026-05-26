@@ -99,11 +99,8 @@ function parseModeBreakdownMap(raw: unknown): Record<string, ModeBreakdown> {
   for (const [mode, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!value || typeof value !== "object") continue;
     const v = value as Record<string, unknown>;
-    const n = (x: unknown): number =>
-      typeof x === "number" && Number.isFinite(x) ? x : 0;
-    const minersRaw = Array.isArray(v.miners)
-      ? (v.miners as Array<Record<string, unknown>>)
-      : [];
+    const n = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+    const minersRaw = Array.isArray(v.miners) ? (v.miners as Array<Record<string, unknown>>) : [];
     out[mode] = {
       headsObserved: n(v.headsObserved),
       contextsDispatched: n(v.contextsDispatched),
@@ -113,8 +110,7 @@ function parseModeBreakdownMap(raw: unknown): Record<string, ModeBreakdown> {
       submissionErrors: n(v.submissionErrors),
       miners: minersRaw.map((m) => {
         const t = String(m.type ?? "").toUpperCase();
-        const type =
-          t === "CPU" || t === "GPU" || t === "QPU" ? t : ("OTHER" as const);
+        const type = t === "CPU" || t === "GPU" || t === "QPU" ? t : ("OTHER" as const);
         return { id: String(m.id ?? ""), type };
       }),
     };

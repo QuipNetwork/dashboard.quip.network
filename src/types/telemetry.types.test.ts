@@ -93,8 +93,8 @@ describe("v6 telemetry types", () => {
       finalizedBlockHeight: null,
       chainConnected: false,
       minerStats: null,
-    modes: {},
-  };
+      modes: {},
+    };
     expect(obs.minerStats).toBeNull();
     // @ts-expect-error - epoch fields gone
     obs.nodeLatestEpoch;

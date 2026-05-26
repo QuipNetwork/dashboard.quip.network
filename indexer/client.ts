@@ -197,7 +197,9 @@ function parseModes(raw: unknown): Record<string, ModeBreakdown> {
     if (!value || typeof value !== "object") continue;
     const v = value as Record<string, unknown>;
     const ctrl = (v["controller"] as Record<string, unknown>) ?? {};
-    const minersRaw = Array.isArray(v["miners"]) ? (v["miners"] as Array<Record<string, unknown>>) : [];
+    const minersRaw = Array.isArray(v["miners"])
+      ? (v["miners"] as Array<Record<string, unknown>>)
+      : [];
     out[mode] = {
       headsObserved: Number(ctrl["heads_observed"] ?? 0),
       contextsDispatched: Number(ctrl["contexts_dispatched"] ?? 0),

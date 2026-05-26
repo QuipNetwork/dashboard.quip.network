@@ -41,8 +41,8 @@ describe("IndexerState observability persistence", () => {
       finalizedBlockHeight: "99",
       chainConnected: true, // stored, but must NOT be reflected on load
       minerStats: null,
-    modes: {},
-  };
+      modes: {},
+    };
     await adapter.setIndexerObservability(seed);
 
     const state = new IndexerState(adapter);
