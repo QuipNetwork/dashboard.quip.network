@@ -20,14 +20,12 @@ export async function newInMemoryAdapter(): Promise<DatabaseAdapter> {
 
 export function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfig {
   return {
-    nodeUrl: "https://node.example.com",
-    token: undefined,
+    validatorRpcUrls: ["ws://test-validator:9944"],
     pollIntervalSec: 8,
     nodesRefreshSec: 45,
     once: false,
     verbose: false,
     stallWarnAfterSec: 600,
-    substrateRpcUrl: null,
     substrateRpcTimeoutMs: 15000,
     substrateReconnectMaxBackoffMs: 60000,
     substrateBabePollSec: 30,

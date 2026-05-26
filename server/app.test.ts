@@ -44,7 +44,7 @@ beforeEach(async () => {
   await db.connect();
   await db.migrate();
 
-  app = createApp({ db, enableStatic: false });
+  app = createApp({ db, validatorRpcUrls: ["ws://test-validator:9944"], enableStatic: false });
 });
 
 afterEach(async () => {

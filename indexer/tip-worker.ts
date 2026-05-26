@@ -2,10 +2,11 @@
 
 import type { DatabaseAdapter } from "../api/db/adapter";
 import { MiningSubmissionNotFoundError } from "../api/miner-api";
+import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
 
-import { AuthError, QuipClient } from "./client";
 import type { IndexerConfig } from "./config";
+import { QuipClient } from "./client";
 import { IndexerState } from "./state";
 
 // Cap on per-iteration submission fetches. A miner that's been running for
@@ -16,8 +17,12 @@ import { IndexerState } from "./state";
 // well above realistic submit rates.
 const MINING_ATTEMPTS_PER_POLL_CAP = 25;
 
-export interface TipWorkerDeps {
-  config: IndexerConfig;
+/**
+ * Per-iteration dependencies used by {@link runTipIteration}. The loop
+ * (below) resolves the miner-REST URL up-front and constructs the client;
+ * tests can call `runTipIteration` directly with a fake client.
+ */
+export interface TipIterationDeps {
   client: QuipClient;
   db: DatabaseAdapter;
   state: IndexerState;
@@ -25,18 +30,72 @@ export interface TipWorkerDeps {
 }
 
 /**
+ * Long-running loop dependencies. Compared to {@link TipIterationDeps},
+ * this owns the responsibility of discovering the local operator and
+ * resolving their miner-REST URL per iteration. The factory pattern keeps
+ * production wiring (`new QuipClient(...)`) and test wiring (return a
+ * pre-canned fake) symmetric.
+ */
+export interface TipWorkerDeps {
+  config: IndexerConfig;
+  db: DatabaseAdapter;
+  state: IndexerState;
+  // Returns the SS58 of the local operator (the validator whose session
+  // keys this RPC node holds). Resolves to null when the substrate
+  // client can't probe yet, the RPC node is non-validator, or the
+  // chain doesn't expose `author_hasSessionKeys`. The loop calls this
+  // once per iteration until a non-null result is cached.
+  discoverSelfAccount: () => Promise<string | null>;
+  clientFactory: (baseUrl: string) => QuipClient;
+  now?: () => number;
+}
+
+/**
  * Drive {@link runTipIteration} on a fixed cadence until the abort signal
- * fires. {@link AuthError} bubbles up to the caller (a bad token won't
- * self-heal); every other error is logged and the loop continues so a
- * single bad poll doesn't kill the worker.
+ * fires. Each iteration:
+ *   1. Resolve the local operator's SS58 (cached after the first hit).
+ *   2. Resolve the miner-REST base URL from the descriptor table (or
+ *      the validator RPC URL fallback).
+ *   3. If both are known, construct a {@link QuipClient} and run a full
+ *      iteration. Otherwise flush the heartbeat alone so the UI can
+ *      distinguish "indexer dead" from "indexer running without a
+ *      miner to talk to yet".
+ *
+ * Errors inside an iteration are logged and the loop continues — a
+ * single bad poll doesn't kill the worker. No auth-fatal short-circuit:
+ * REST access control is now a deployment concern (reverse-proxy auth),
+ * not the indexer's.
  */
 export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Promise<void> {
   const intervalMs = deps.config.pollIntervalSec * 1000;
+  let cachedSelfAccount: string | null = null;
   while (!signal.aborted) {
     try {
-      await runTipIteration(deps);
+      if (cachedSelfAccount === null) {
+        cachedSelfAccount = await deps.discoverSelfAccount();
+        if (cachedSelfAccount === null) {
+          // Log once per iteration so operators see WHY MyNode is empty.
+          // Demoted to debug-style noise after the first hit (i.e. cached
+          // populates, subsequent iterations skip the warn).
+          console.warn(
+            "[indexer/tip] local validator not discoverable yet (no session keys on this RPC node, or author_hasSessionKeys is restricted); skipping miner REST polling",
+          );
+        }
+      }
+      const baseUrl = await resolveSelfMinerRestUrl(
+        deps.db,
+        deps.config.validatorRpcUrls,
+        cachedSelfAccount,
+      );
+      if (cachedSelfAccount && baseUrl) {
+        const client = deps.clientFactory(baseUrl);
+        await runTipIteration({ client, db: deps.db, state: deps.state, now: deps.now });
+      } else {
+        // No client this iteration — still advance the heartbeat so
+        // the UI's SyncIndicator knows the indexer process is alive.
+        await flushHeartbeat(deps);
+      }
     } catch (e) {
-      if (e instanceof AuthError) throw e;
       console.error("[indexer/tip] iteration failed:", e instanceof Error ? e.message : e);
     }
     if (deps.config.once) return;
@@ -50,11 +109,8 @@ export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Prom
  * flushes observability at the end so the heartbeat advances even when
  * both upstream calls fail — the UI can then distinguish "indexer dead"
  * from "miner REST temporarily down".
- *
- * {@link AuthError} short-circuits both calls and rethrows so the loop
- * can exit. Other errors are logged and swallowed.
  */
-export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
+export async function runTipIteration(deps: TipIterationDeps): Promise<void> {
   const { client, db, state } = deps;
   const nowMs = (deps.now ?? Date.now)();
   const nowIso = new Date(nowMs).toISOString();
@@ -82,7 +138,6 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
       state.observability.modes = status.modes;
     }
   } catch (e) {
-    if (e instanceof AuthError) throw e;
     console.warn("[indexer/tip] /api/v1/status failed:", e instanceof Error ? e.message : e);
   }
 
@@ -97,7 +152,6 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
     // this counter on the miner side.
     resultsReceived = Number.isFinite(stats.resultsReceived) ? stats.resultsReceived : null;
   } catch (e) {
-    if (e instanceof AuthError) throw e;
     console.warn("[indexer/tip] /api/v1/stats failed:", e instanceof Error ? e.message : e);
   }
 
@@ -113,7 +167,6 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
     try {
       await catchUpMiningAttempts(deps, selfAddress, resultsReceived, nowIso);
     } catch (e) {
-      if (e instanceof AuthError) throw e;
       console.warn(
         "[indexer/tip] mining-attempts catch-up failed:",
         e instanceof Error ? e.message : e,
@@ -129,6 +182,18 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
 }
 
 /**
+ * Heartbeat-only iteration. Used when the local operator hasn't been
+ * discovered yet or the miner-REST URL can't be resolved. Bypasses every
+ * REST call but still writes `lastStatusFetchAt` so the UI sees the
+ * indexer process as live.
+ */
+async function flushHeartbeat(deps: TipWorkerDeps): Promise<void> {
+  const nowIso = new Date((deps.now ?? Date.now)()).toISOString();
+  deps.state.observability.lastStatusFetchAt = nowIso;
+  await deps.db.setIndexerObservability(deps.state.observability);
+}
+
+/**
  * Fetch any solution_ids past the persisted checkpoint, up to
  * {@link MINING_ATTEMPTS_PER_POLL_CAP} per tick. Each successful fetch is
  * persisted via `db.insertMiningSubmission` and then the checkpoint
@@ -139,7 +204,7 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
  * if it's already at or behind the checkpoint, this is a no-op.
  */
 async function catchUpMiningAttempts(
-  deps: TipWorkerDeps,
+  deps: TipIterationDeps,
   minerId: string,
   controllerResultsReceived: number,
   observedAt: string,

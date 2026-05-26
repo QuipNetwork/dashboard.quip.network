@@ -5,6 +5,7 @@ import type { MiddlewareHandler } from "hono";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
 import { parseDispatchAttemptsApiResponse, parseMiningAttemptsApiResponse } from "../api/miner-api";
+import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
 import type {
   CurrentDispatch,
   MiningAttempt,
@@ -39,6 +40,14 @@ type ServeStaticFactory = (options: StaticOptions) => MiddlewareHandler;
 
 export interface CreateAppOptions {
   db: DatabaseAdapter;
+  /**
+   * Ordered fallback list for substrate RPC endpoints. Used to derive the
+   * local operator's miner-REST base URL when no on-chain descriptor row
+   * exists for `selfAddress` yet (the dashboard renders chain views from
+   * day one; miner-REST surfaces depend on this fallback or descriptor
+   * resolution).
+   */
+  validatorRpcUrls: string[];
   enableStatic?: boolean;
   staticDir?: string;
   /**
@@ -50,7 +59,7 @@ export interface CreateAppOptions {
 }
 
 export function createApp(options: CreateAppOptions): Hono {
-  const { db, enableStatic = false, staticDir = "./dist", serveStatic } = options;
+  const { db, validatorRpcUrls, enableStatic = false, staticDir = "./dist", serveStatic } = options;
   const app = new Hono();
 
   app.get("/api/telemetry", async (c) => {
@@ -253,18 +262,19 @@ export function createApp(options: CreateAppOptions): Hono {
     minerId: string,
     dispatchId: number,
   ): Promise<MiningAttempt[]> {
-    const baseUrl = process.env.QUIP_NODE_URL;
+    const selfAddress = await db.getSelfAddress();
+    const baseUrl = await resolveSelfMinerRestUrl(db, validatorRpcUrls, selfAddress);
     if (!baseUrl) return [];
-    const headers: Record<string, string> = { accept: "application/json" };
-    const token = process.env.QUIP_NODE_TOKEN;
-    if (token) headers["authorization"] = `Bearer ${token}`;
     const params = new URLSearchParams({
       miner_id: minerId,
       dispatch_id: String(dispatchId),
     });
-    const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/mining/attempts?${params.toString()}`;
+    const url = `${baseUrl}/api/v1/mining/attempts?${params.toString()}`;
     try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
+      const res = await fetch(url, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(4000),
+      });
       if (!res.ok) return [];
       const parsed = (await res.json()) as { success?: boolean; data?: unknown };
       if (parsed && typeof parsed === "object" && parsed.success === false) return [];
@@ -275,32 +285,31 @@ export function createApp(options: CreateAppOptions): Hono {
   }
 
   // Modal proxy: fetches `/api/v1/mining/attempts?solution_id=N` from the
-  // miner pointed to by QUIP_NODE_URL and re-shapes to camelCase. Kept
-  // here rather than calling the miner directly from the SPA because:
-  //   - QUIP_NODE_URL may not be reachable from the operator's browser
-  //     (private network, no CORS), and
-  //   - QUIP_NODE_TOKEN (if set) lives in the server env and must NOT
-  //     ship to the browser.
+  // local operator's miner-REST endpoint (resolved per-request via the
+  // on-chain descriptor or RPC-URL fallback) and re-shapes to camelCase.
+  // Kept here rather than calling the miner directly from the SPA because
+  // the miner's REST endpoint may not be reachable from the operator's
+  // browser (private network, no CORS).
+  //
   // Returns 404 when the miner returns 404; 502 on any other upstream
   // failure so the SPA can distinguish "no such submission" from
-  // "miner unreachable".
+  // "miner unreachable". Returns 503 when no miner-REST URL can be
+  // resolved yet (no selfAddress / no descriptor).
   app.get("/api/mining/attempts/:solutionId", async (c) => {
     const raw = c.req.param("solutionId");
     const solutionId = Number(raw);
     if (!Number.isFinite(solutionId) || solutionId <= 0 || !Number.isInteger(solutionId)) {
       return c.json({ error: "invalid solution_id" }, 400);
     }
-    const baseUrl = process.env.QUIP_NODE_URL;
+    const selfAddress = await db.getSelfAddress();
+    const baseUrl = await resolveSelfMinerRestUrl(db, validatorRpcUrls, selfAddress);
     if (!baseUrl) {
-      return c.json({ error: "QUIP_NODE_URL not configured" }, 503);
+      return c.json({ error: "miner REST endpoint not resolvable yet" }, 503);
     }
-    const headers: Record<string, string> = { accept: "application/json" };
-    const token = process.env.QUIP_NODE_TOKEN;
-    if (token) headers["authorization"] = `Bearer ${token}`;
-    const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/mining/attempts?solution_id=${solutionId}`;
+    const url = `${baseUrl}/api/v1/mining/attempts?solution_id=${solutionId}`;
     let res: Response;
     try {
-      res = await fetch(url, { headers });
+      res = await fetch(url, { headers: { accept: "application/json" } });
     } catch (e) {
       return c.json(
         { error: "upstream unreachable", detail: e instanceof Error ? e.message : String(e) },

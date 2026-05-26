@@ -130,8 +130,8 @@ export function ChainView() {
         <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
           <p className="font-heading text-2xl text-brand-gray-5">No active validators</p>
           <p className="mt-2 font-accent text-sm text-brand-gray-3">
-            Set <code>QUIP_VALIDATOR_RPC_URL</code> on the indexer to surface the BABE authority set
-            and per-validator authorship stats here.
+            Set <code>QUIP_VALIDATOR_RPC_URLS</code> on the indexer to surface the BABE authority
+            set and per-validator authorship stats here.
           </p>
         </div>
         <BabeAuthoritiesPanel />

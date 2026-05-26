@@ -28,7 +28,14 @@ import type {
 
 export interface SubstrateWorkerDeps {
   config: IndexerConfig;
-  client: SubstrateClient;
+  // Ordered fallback list. The worker round-robins through this on
+  // connect failure so a single-endpoint outage falls over to the
+  // next operator-configured RPC without dropping the indexer.
+  urls: string[];
+  // Builds a fresh SubstrateClient per connect attempt. Production
+  // wraps `new PolkadotSubstrateClient(url, timeoutMs)`; tests return
+  // a pre-canned FakeSubstrateClient ignoring `url`.
+  clientFactory: (url: string) => SubstrateClient;
   db: DatabaseAdapter;
   state: IndexerState;
   // Test hook — defaults to Date.now(). Used for deterministic
@@ -36,6 +43,15 @@ export interface SubstrateWorkerDeps {
   now?: () => number;
   // Test hook — chain_head write debounce. Default 1000ms in prod; tests
   // override to 0 so a single event flushes immediately.
+  chainHeadDebounceMs?: number;
+}
+
+interface ConnectedDeps {
+  config: IndexerConfig;
+  client: SubstrateClient;
+  db: DatabaseAdapter;
+  state: IndexerState;
+  now?: () => number;
   chainHeadDebounceMs?: number;
 }
 
@@ -49,7 +65,7 @@ const CHAIN_HEAD_DEBOUNCE_DEFAULT_MS = 1000;
 // through telemetry yet; this constant tracks it until that wiring lands.
 const BABE_SLOT_DURATION_SEC = 6;
 
-function nowIso(deps: SubstrateWorkerDeps): string {
+function nowIso(deps: ConnectedDeps): string {
   return new Date((deps.now ?? Date.now)()).toISOString();
 }
 
@@ -66,7 +82,7 @@ function backoffMs(attempt: number, capMs: number): number {
  * Returns when the connection drops (caller retries with backoff) or the
  * abort signal fires (caller exits).
  */
-async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Promise<void> {
+async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<void> {
   const { client, db, state } = deps;
 
   await client.connect();
@@ -394,7 +410,7 @@ async function runConnected(deps: SubstrateWorkerDeps, signal: AbortSignal): Pro
  * blocks the chain has ever emitted, which is small (≤ chain height).
  */
 async function backfillHistoricalWins(
-  deps: SubstrateWorkerDeps,
+  deps: ConnectedDeps,
   write: (e: BlockEvents) => Promise<void>,
 ): Promise<void> {
   const { client, db } = deps;
@@ -453,10 +469,7 @@ interface PollIdempotencyCache {
  * matches the last observed values — saves a transaction per uneventful
  * tick. Capability-checked (Fake / chains without BABE return null).
  */
-async function pollBabeEpoch(
-  deps: SubstrateWorkerDeps,
-  cache: PollIdempotencyCache,
-): Promise<void> {
+async function pollBabeEpoch(deps: ConnectedDeps, cache: PollIdempotencyCache): Promise<void> {
   const info = await deps.client.getBabeEpoch();
   if (!info) return;
   const hash = `${info.epochIndex}:${info.currentSlot}`;
@@ -497,10 +510,7 @@ async function pollBabeEpoch(
  * (finalizedBlockHeight=null), we skip — there's no meaningful block to
  * anchor the snapshot to.
  */
-async function pollDifficulty(
-  deps: SubstrateWorkerDeps,
-  cache: PollIdempotencyCache,
-): Promise<void> {
+async function pollDifficulty(deps: ConnectedDeps, cache: PollIdempotencyCache): Promise<void> {
   const info = await deps.client.getDifficulty();
   if (!info) return;
   const observedAtBlock = deps.state.observability.finalizedBlockHeight;
@@ -533,10 +543,7 @@ async function pollDifficulty(
  * authorities write is deferred to the next tick. Miners write
  * unconditionally — they're keyed by account ID, not by era.
  */
-async function pollChainState(
-  deps: SubstrateWorkerDeps,
-  cache: PollIdempotencyCache,
-): Promise<void> {
+async function pollChainState(deps: ConnectedDeps, cache: PollIdempotencyCache): Promise<void> {
   const [miners, authorities, epoch] = await Promise.all([
     deps.client.getChainMiners(),
     deps.client.getBabeAuthorities(),
@@ -583,33 +590,56 @@ async function pollChainState(
 /**
  * Main entry point. Drives an outer reconnect loop around `runConnected`.
  * Non-fatal at every layer — failures are logged and the loop retries
- * with exponential backoff. The indexer's REST workers keep running
- * regardless of substrate health.
+ * with exponential backoff. On each retry the next URL in `deps.urls` is
+ * picked (round-robin) so a single bad endpoint falls over to the rest
+ * of the operator-configured list. The indexer's REST workers keep
+ * running regardless of substrate health.
  */
 export async function runSubstrateLoop(
   deps: SubstrateWorkerDeps,
   signal: AbortSignal,
 ): Promise<void> {
-  const { config } = deps;
+  const { config, urls, clientFactory } = deps;
+  if (urls.length === 0) {
+    throw new Error("[indexer/substrate] urls list is empty; cannot connect");
+  }
   let attempt = 0;
+  let urlIdx = 0;
   while (!signal.aborted) {
+    const url = urls[urlIdx]!;
+    const client = clientFactory(url);
+    const connectedDeps: ConnectedDeps = {
+      config,
+      client,
+      db: deps.db,
+      state: deps.state,
+      ...(deps.now !== undefined ? { now: deps.now } : {}),
+      ...(deps.chainHeadDebounceMs !== undefined
+        ? { chainHeadDebounceMs: deps.chainHeadDebounceMs }
+        : {}),
+    };
     try {
-      await runConnected(deps, signal);
+      await runConnected(connectedDeps, signal);
+      // Successful run → reset the attempt counter but keep the same
+      // URL on the next iteration (we'd return here only on disconnect
+      // or abort; staying on the same URL avoids churn during a
+      // transient drop on the primary endpoint).
       attempt = 0;
-      // runConnected only returns on signal abort or chain disconnect.
-      // The outer while-loop handles the reconnect.
     } catch (e) {
       if (signal.aborted) return;
       if (attempt === 0) {
         // First failure log is informative; subsequent retries log
         // only every minute via the backoff cap.
         console.warn(
-          `[indexer/substrate] connection to ${config.substrateRpcUrl} failed: ${
+          `[indexer/substrate] connection to ${url} failed: ${
             e instanceof Error ? e.message : String(e)
           }`,
         );
       }
       attempt++;
+      // Rotate to next URL on each failure. Single-URL lists fall back
+      // to the same endpoint, mirroring prior behaviour.
+      urlIdx = (urlIdx + 1) % urls.length;
     }
     if (signal.aborted) return;
     const sleep = backoffMs(attempt, config.substrateReconnectMaxBackoffMs);

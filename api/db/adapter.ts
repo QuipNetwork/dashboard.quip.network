@@ -156,10 +156,12 @@ export interface DatabaseAdapter {
   markBlockFinalized(blockHash: string): Promise<void>;
 
   // --- Self-identity ---
-  // SS58 of the locally polled quip-node. Persisted in `meta` so the server
-  // can tell the UI which chain_miners entry is "us" without also knowing
-  // QUIP_NODE_URL. Null until the indexer has completed its first status
-  // poll after deploy.
+  // SS58 of the local operator (the validator whose session keys this
+  // RPC node holds). Persisted in `meta` so the server can tell the UI
+  // which chain_miners entry is "us" without having to re-probe the
+  // substrate client each request. Null until the indexer has resolved
+  // self-identity via `discoverLocalValidator` and successfully polled
+  // the miner's `/api/v1/status`.
   getSelfAddress(): Promise<string | null>;
   setSelfAddress(address: string | null): Promise<void>;
 
@@ -172,9 +174,10 @@ export interface DatabaseAdapter {
   setIndexerObservability(obs: IndexerObservability): Promise<void>;
 
   // --- Substrate-derived state (unchanged from v5) ---
-  // All methods are filled by the substrate worker when QUIP_VALIDATOR_RPC_URL
-  // is set on the indexer; otherwise the tables stay empty and reads return
-  // null/[]. Each upsert is idempotent — a no-change call must be a no-op
+  // All methods are filled by the substrate worker when at least one
+  // URL in QUIP_VALIDATOR_RPC_URLS accepts a connection; otherwise the
+  // tables stay empty and reads return null/[]. Each upsert is
+  // idempotent — a no-change call must be a no-op
   // at the row level (use ON CONFLICT DO UPDATE … WHERE … IS DISTINCT FROM).
 
   upsertChainHead(head: ChainHead): Promise<void>;
@@ -285,6 +288,14 @@ export interface DatabaseAdapter {
    * observed yet. Re-projected to NodesSnapshot at server time.
    */
   getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]>;
+
+  /**
+   * Single-row lookup by SS58 account. Returned by the URL-resolver helper
+   * when deriving the local operator's miner-REST base URL from their
+   * on-chain descriptor (`publicHost`/`publicPort`). Null when the operator
+   * hasn't yet signed a `quip.node_descriptor.v1` remark for this account.
+   */
+  getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null>;
 
   /**
    * Read the highest substrate block height the descriptor worker has

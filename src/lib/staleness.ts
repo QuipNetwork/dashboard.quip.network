@@ -136,7 +136,7 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
 /**
  * Compute substrate-worker health. Three-tier:
  *
- *   - "disabled": QUIP_VALIDATOR_RPC_URL unset on the indexer — the worker
+ *   - "disabled": no validator endpoint usable by the indexer — the worker
  *     was never started, so the UI hides the substrate dot entirely.
  *   - "ok": A substrate event arrived within 30s and the socket is live.
  *   - "stale": Last event > 30s but < 5m ago (transient slowdown).

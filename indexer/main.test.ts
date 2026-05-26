@@ -2,42 +2,17 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { AuthError } from "./client";
 import { runWorkers } from "./main";
 
+const noopRunner = async () => {
+  // No-op for unused worker slots in a focused test case.
+};
+
 describe("runWorkers", () => {
-  it("returns 0 when the tip worker completes normally", async () => {
-    const tipRan = { value: false };
-    const code = await runWorkers({
-      runTip: async () => {
-        tipRan.value = true;
-      },
-    });
-    expect(code).toBe(0);
-    expect(tipRan.value).toBe(true);
-  });
-
-  it("returns 1 when the tip worker throws AuthError", async () => {
-    const code = await runWorkers({
-      runTip: async () => {
-        throw new AuthError("401");
-      },
-    });
-    expect(code).toBe(1);
-  });
-
-  it("returns 1 when a non-auth error leaks out of the tip worker", async () => {
-    const code = await runWorkers({
-      runTip: async () => {
-        throw new Error("boom");
-      },
-    });
-    expect(code).toBe(1);
-  });
-
-  it("runs tip and substrate together when runSubstrate is provided", async () => {
+  it("returns 0 when every worker completes normally", async () => {
     let tipRan = false;
     let subRan = false;
+    let descRan = false;
     const code = await runWorkers({
       runTip: async () => {
         tipRan = true;
@@ -45,17 +20,32 @@ describe("runWorkers", () => {
       runSubstrate: async () => {
         subRan = true;
       },
+      runDescriptor: async () => {
+        descRan = true;
+      },
     });
     expect(code).toBe(0);
     expect(tipRan).toBe(true);
     expect(subRan).toBe(true);
+    expect(descRan).toBe(true);
   });
 
-  it("aborts substrate when the tip worker throws AuthError", async () => {
+  it("returns 1 when the tip worker throws", async () => {
+    const code = await runWorkers({
+      runTip: async () => {
+        throw new Error("boom");
+      },
+      runSubstrate: noopRunner,
+      runDescriptor: noopRunner,
+    });
+    expect(code).toBe(1);
+  });
+
+  it("aborts substrate when the tip worker throws", async () => {
     const subAborted = { value: false };
     const code = await runWorkers({
       runTip: async () => {
-        throw new AuthError("401");
+        throw new Error("tip blew up");
       },
       runSubstrate: async (signal) => {
         await new Promise<void>((resolve, reject) => {
@@ -75,6 +65,7 @@ describe("runWorkers", () => {
           setTimeout(() => reject(new Error("timed out without abort")), 500);
         });
       },
+      runDescriptor: noopRunner,
     });
     expect(code).toBe(1);
     expect(subAborted.value).toBe(true);
@@ -102,23 +93,9 @@ describe("runWorkers", () => {
       runSubstrate: async () => {
         throw new Error("substrate boom");
       },
+      runDescriptor: noopRunner,
     });
     // Substrate failure → exit code 1, but the tip worker completed.
-    expect(code).toBe(1);
-    expect(tipCompleted).toBe(true);
-  });
-
-  it("substrate auth error does not abort the tip worker", async () => {
-    let tipCompleted = false;
-    const code = await runWorkers({
-      runTip: async () => {
-        await new Promise<void>((resolve) => setTimeout(resolve, 20));
-        tipCompleted = true;
-      },
-      runSubstrate: async () => {
-        throw new AuthError("substrate 401");
-      },
-    });
     expect(code).toBe(1);
     expect(tipCompleted).toBe(true);
   });

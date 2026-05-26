@@ -4,10 +4,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { MinerStats } from "../src/types/telemetry";
 
-import { AuthError, type NodeStatus, QuipClient } from "./client";
+import { type NodeStatus, QuipClient } from "./client";
 import { IndexerState } from "./state";
-import { makeConfig, newInMemoryAdapter } from "./test-helpers";
-import { runTipIteration, type TipWorkerDeps } from "./tip-worker";
+import { newInMemoryAdapter } from "./test-helpers";
+import { runTipIteration, type TipIterationDeps } from "./tip-worker";
 
 function fakeClient(opts: {
   status?: Partial<NodeStatus> | "error";
@@ -53,12 +53,11 @@ function fakeClient(opts: {
   } as unknown as QuipClient;
 }
 
-async function setupDeps(overrides: Partial<TipWorkerDeps> = {}): Promise<TipWorkerDeps> {
+async function setupDeps(overrides: Partial<TipIterationDeps> = {}): Promise<TipIterationDeps> {
   const db = await newInMemoryAdapter();
   const state = new IndexerState(db);
   await state.load();
   return {
-    config: makeConfig(),
     client: fakeClient({}),
     db,
     state,
@@ -126,15 +125,6 @@ describe("tip-worker v0.3", () => {
     expect(setCount).toBe(1);
     await runTipIteration(deps);
     expect(setCount).toBe(1); // unchanged, no re-write
-  });
-
-  test("AuthError propagates to caller (fatal)", async () => {
-    const client = {
-      getStatus: () => Promise.reject(new AuthError("[indexer] 401")),
-      getStats: () => Promise.reject(new Error("not reached")),
-    } as unknown as QuipClient;
-    const deps = await setupDeps({ client });
-    await expect(runTipIteration(deps)).rejects.toBeInstanceOf(AuthError);
   });
 
   test("miner reset: results_received < checkpoint wipes mining_submissions", async () => {

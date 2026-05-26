@@ -20,10 +20,28 @@ import { parseAndValidateDescriptor } from "./descriptor-validator";
 import type { IndexerState } from "./state";
 import type { SubstrateClient } from "./substrate-client";
 
+/**
+ * Per-iteration dependencies for {@link runDescriptorIteration}. The loop
+ * (below) constructs the client up front and reuses it across iterations;
+ * tests can call `runDescriptorIteration` directly with a fake client.
+ */
+export interface DescriptorIterationDeps {
+  client: SubstrateClient;
+  db: DatabaseAdapter;
+  now?: () => number;
+}
+
+/**
+ * Long-running loop dependencies. The descriptor worker manages its own
+ * substrate client lifecycle (independent of `runSubstrateLoop`) so a
+ * descriptor-side connection failure doesn't drop the canonical block
+ * writer. URL rotation is best-effort round-robin on connect failure.
+ */
 export interface DescriptorWorkerDeps {
   config: IndexerConfig;
   db: DatabaseAdapter;
-  client: SubstrateClient;
+  urls: string[];
+  clientFactory: (url: string) => SubstrateClient;
   // Shared with substrate-worker — we read `observability.finalizedBlockHeight`
   // as the upper bound of work to do. Substrate-worker is the sole writer of
   // that field; we never mutate it.
@@ -64,7 +82,7 @@ function isPrunedStateError(e: unknown): boolean {
  * (caller retries on next tick without advancing).
  */
 export async function runDescriptorIteration(
-  deps: DescriptorWorkerDeps,
+  deps: DescriptorIterationDeps,
   blockNumber: string,
 ): Promise<boolean> {
   const { client, db } = deps;
@@ -112,12 +130,19 @@ export async function runDescriptorIteration(
  * at a time, then idles when caught up, polling substrate-worker's
  * shared `finalizedBlockHeight` for the next head. Aborts cleanly on
  * signal.
+ *
+ * Owns its own substrate client lifecycle — independent of the canonical
+ * block writer — so a descriptor-side disconnect doesn't drop blocks and
+ * vice versa. Rotates through `urls` round-robin on connect failure.
  */
 export async function runDescriptorLoop(
   deps: DescriptorWorkerDeps,
   signal: AbortSignal,
 ): Promise<void> {
-  const { config, db, state } = deps;
+  const { config, db, state, urls, clientFactory } = deps;
+  if (urls.length === 0) {
+    throw new Error("[indexer/descriptor] urls list is empty; cannot connect");
+  }
 
   // Resume from checkpoint if present, else from the configured start.
   // Checkpoint is the highest *successfully processed* block; we start at
@@ -130,53 +155,76 @@ export async function runDescriptorLoop(
 
   console.log(`[indexer/descriptor] starting scan from block ${nextBlock}`);
 
+  let urlIdx = 0;
   while (!signal.aborted) {
-    const finalizedRaw = state.observability.finalizedBlockHeight;
-    if (finalizedRaw === null) {
-      // Substrate worker hasn't observed a finalized head yet — wait it out.
-      await sleep(IDLE_POLL_MS, signal);
-      continue;
-    }
-    const finalizedNum = parseBigIntOrNull(finalizedRaw);
-    if (finalizedNum === null) {
-      // Defensive — `finalizedBlockHeight` is owned by substrate-worker and
-      // should always be a decimal string. Don't crash if it ever isn't.
-      await sleep(IDLE_POLL_MS, signal);
-      continue;
-    }
-    if (nextBlock > finalizedNum) {
-      // Caught up. Idle until substrate-worker advances the finalized head.
-      await sleep(IDLE_POLL_MS, signal);
+    const url = urls[urlIdx]!;
+    const client = clientFactory(url);
+    try {
+      await client.connect();
+    } catch (e) {
+      console.warn(
+        `[indexer/descriptor] connect to ${url} failed: ${e instanceof Error ? e.message : e}`,
+      );
+      urlIdx = (urlIdx + 1) % urls.length;
+      await sleep(ERROR_BACKOFF_MS, signal);
       continue;
     }
 
+    const iterDeps: DescriptorIterationDeps = {
+      client,
+      db,
+      ...(deps.now !== undefined ? { now: deps.now } : {}),
+    };
     try {
-      const advanced = await runDescriptorIteration(deps, nextBlock.toString());
-      if (advanced) {
-        nextBlock += 1n;
-      } else {
-        // Block not yet on the connected node — back off briefly so we
-        // don't spin on a transient lag.
-        await sleep(ERROR_BACKOFF_MS, signal);
+      while (!signal.aborted && client.isConnected()) {
+        const finalizedRaw = state.observability.finalizedBlockHeight;
+        if (finalizedRaw === null) {
+          await sleep(IDLE_POLL_MS, signal);
+          continue;
+        }
+        const finalizedNum = parseBigIntOrNull(finalizedRaw);
+        if (finalizedNum === null) {
+          await sleep(IDLE_POLL_MS, signal);
+          continue;
+        }
+        if (nextBlock > finalizedNum) {
+          await sleep(IDLE_POLL_MS, signal);
+          continue;
+        }
+
+        try {
+          const advanced = await runDescriptorIteration(iterDeps, nextBlock.toString());
+          if (advanced) {
+            nextBlock += 1n;
+          } else {
+            await sleep(ERROR_BACKOFF_MS, signal);
+          }
+        } catch (e) {
+          if (isPrunedStateError(e)) {
+            console.warn(`[indexer/descriptor] block ${nextBlock} state pruned; skipping`);
+            await db.setDescriptorCheckpoint(nextBlock.toString());
+            nextBlock += 1n;
+          } else {
+            console.warn(
+              `[indexer/descriptor] block ${nextBlock} scan failed:`,
+              e instanceof Error ? e.message : e,
+            );
+            await sleep(ERROR_BACKOFF_MS, signal);
+          }
+        }
       }
-    } catch (e) {
-      if (isPrunedStateError(e)) {
-        // The validator has pruned state for this block. The body/timestamp
-        // can't be decoded any more from this node, so the descriptor (if
-        // any) is unrecoverable. Advance the checkpoint past it — retrying
-        // forever would hot-loop. Operators who need historical descriptor
-        // coverage either run a non-pruning archive node or accept the gap.
-        console.warn(`[indexer/descriptor] block ${nextBlock} state pruned; skipping`);
-        await db.setDescriptorCheckpoint(nextBlock.toString());
-        nextBlock += 1n;
-      } else {
-        console.warn(
-          `[indexer/descriptor] block ${nextBlock} scan failed:`,
-          e instanceof Error ? e.message : e,
-        );
-        await sleep(ERROR_BACKOFF_MS, signal);
+    } finally {
+      try {
+        await client.disconnect();
+      } catch {
+        // best-effort
       }
     }
+
+    if (signal.aborted) return;
+    // Connection dropped — rotate URL and reconnect.
+    urlIdx = (urlIdx + 1) % urls.length;
+    await sleep(ERROR_BACKOFF_MS, signal);
   }
 }
 

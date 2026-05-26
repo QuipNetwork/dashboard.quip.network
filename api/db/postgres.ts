@@ -773,6 +773,24 @@ export class PostgresAdapter implements DatabaseAdapter {
     return rows.map(rowToNodeDescriptorRecord);
   }
 
+  async getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null> {
+    const rows = await this.requireSql()<
+      {
+        account_id: string;
+        block_number: string;
+        block_hash: string;
+        extrinsic_index: number;
+        block_timestamp: string;
+        first_block_timestamp: string;
+        descriptor: unknown;
+        observed_at: Date;
+      }[]
+    >`
+      SELECT * FROM node_descriptors WHERE account_id = ${accountId}
+    `;
+    return rows[0] ? rowToNodeDescriptorRecord(rows[0]) : null;
+  }
+
   async getDescriptorCheckpoint(): Promise<string | null> {
     const rows = await this.requireSql()<{ value: string | null }[]>`
       SELECT value FROM meta WHERE key = ${DESCRIPTOR_CHECKPOINT_KEY}

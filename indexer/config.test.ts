@@ -7,13 +7,11 @@ import { parseConfig } from "./config";
 // parseConfig reads process.env and Bun.argv. These tests control both via
 // scoped setters — don't leak env mutations into unrelated tests.
 const TOUCHED_ENV = [
-  "QUIP_NODE_URL",
-  "QUIP_NODE_TOKEN",
+  "QUIP_VALIDATOR_RPC_URLS",
   "POLL_INTERVAL_SEC",
   "NODES_REFRESH_SEC",
   "STALL_WARN_AFTER_SEC",
   "VERBOSE",
-  "QUIP_VALIDATOR_RPC_URL",
   "QUIP_VALIDATOR_RPC_TIMEOUT_MS",
   "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
   "QUIP_VALIDATOR_BABE_POLL_SEC",
@@ -95,9 +93,9 @@ describe("parseConfig", () => {
     expect(parseConfig([]).stallWarnAfterSec).toBe(600);
   });
 
-  it("defaults substrateRpcUrl to null (degraded mode)", () => {
+  it("defaults validatorRpcUrls to docker-compose service name", () => {
     const cfg = parseConfig([]);
-    expect(cfg.substrateRpcUrl).toBeNull();
+    expect(cfg.validatorRpcUrls).toEqual(["ws://quip-validator:9944"]);
     expect(cfg.substrateRpcTimeoutMs).toBe(15000);
     expect(cfg.substrateReconnectMaxBackoffMs).toBe(60000);
     expect(cfg.substrateBabePollSec).toBe(30);
@@ -121,19 +119,49 @@ describe("parseConfig", () => {
     expect(() => parseConfig(["--descriptor-start-block=0"])).toThrow(/>= 1/);
   });
 
-  it("reads QUIP_VALIDATOR_RPC_URL from env", () => {
-    process.env.QUIP_VALIDATOR_RPC_URL = "ws://quip-validator:9944";
-    expect(parseConfig([]).substrateRpcUrl).toBe("ws://quip-validator:9944");
+  it("reads QUIP_VALIDATOR_RPC_URLS from env (single entry)", () => {
+    process.env.QUIP_VALIDATOR_RPC_URLS = "ws://my-validator:9944";
+    expect(parseConfig([]).validatorRpcUrls).toEqual(["ws://my-validator:9944"]);
   });
 
-  it("honours --substrate-rpc-url flag", () => {
-    const cfg = parseConfig(["--substrate-rpc-url", "wss://x.example/rpc"]);
-    expect(cfg.substrateRpcUrl).toBe("wss://x.example/rpc");
+  it("splits QUIP_VALIDATOR_RPC_URLS on commas, trimming whitespace", () => {
+    process.env.QUIP_VALIDATOR_RPC_URLS =
+      "ws://primary:9944 , wss://secondary.example/rpc, ws://fallback:9944";
+    expect(parseConfig([]).validatorRpcUrls).toEqual([
+      "ws://primary:9944",
+      "wss://secondary.example/rpc",
+      "ws://fallback:9944",
+    ]);
   });
 
-  it("flag overrides env for substrate fields", () => {
-    process.env.QUIP_VALIDATOR_RPC_URL = "ws://env";
-    expect(parseConfig(["--substrate-rpc-url=ws://flag"]).substrateRpcUrl).toBe("ws://flag");
+  it("strips trailing slashes from each rpc url", () => {
+    process.env.QUIP_VALIDATOR_RPC_URLS = "wss://example.com/rpc/,ws://other:9944/";
+    expect(parseConfig([]).validatorRpcUrls).toEqual(["wss://example.com/rpc", "ws://other:9944"]);
+  });
+
+  it("ignores empty entries from leading/trailing/double commas", () => {
+    process.env.QUIP_VALIDATOR_RPC_URLS = ",ws://valid:9944,,";
+    expect(parseConfig([]).validatorRpcUrls).toEqual(["ws://valid:9944"]);
+  });
+
+  it("falls back to defaults when env var is empty / whitespace", () => {
+    process.env.QUIP_VALIDATOR_RPC_URLS = "   ";
+    expect(parseConfig([]).validatorRpcUrls).toEqual(["ws://quip-validator:9944"]);
+  });
+
+  it("rejects env vars that are non-empty but contain no usable urls", () => {
+    // Edge case: all entries got stripped (e.g. ",,,," or whitespace
+    // around empty slots). Operators almost certainly meant something
+    // — fail loudly instead of silently dropping to the default.
+    process.env.QUIP_VALIDATOR_RPC_URLS = ",,,";
+    expect(() => parseConfig([])).toThrow(/no usable entries/);
+  });
+
+  it("honours --validator-rpc-urls flag (overrides env)", () => {
+    process.env.QUIP_VALIDATOR_RPC_URLS = "ws://env:9944";
+    expect(
+      parseConfig(["--validator-rpc-urls=ws://flag:9944,ws://flag2:9944"]).validatorRpcUrls,
+    ).toEqual(["ws://flag:9944", "ws://flag2:9944"]);
   });
 
   it("parses substrate poll intervals from env", () => {
@@ -151,11 +179,5 @@ describe("parseConfig", () => {
   it("rejects non-positive substrate poll intervals", () => {
     expect(() => parseConfig(["--substrate-babe-poll=0"])).toThrow(/> 0/);
     expect(() => parseConfig(["--substrate-chain-poll=-1"])).toThrow(/> 0/);
-  });
-
-  it("rejects empty substrate-rpc-url (use unset/omit for degraded mode)", () => {
-    // Empty string would otherwise look "set" but produce a wss:// connect
-    // failure deep in the worker; reject at config time.
-    expect(() => parseConfig(["--substrate-rpc-url="])).toThrow(/empty/);
   });
 });

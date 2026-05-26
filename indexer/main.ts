@@ -2,26 +2,21 @@
 
 import { createAdapter } from "../api/db";
 
-import { AuthError, QuipClient } from "./client";
+import { QuipClient } from "./client";
 import { parseConfig } from "./config";
 import { runDescriptorLoop } from "./descriptor-worker";
 import { IndexerState } from "./state";
-import { PolkadotSubstrateClient } from "./substrate-client";
+import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
 import { runSubstrateLoop } from "./substrate-worker";
 import { runTipLoop } from "./tip-worker";
 
 export interface WorkerRunner {
   runTip: (signal: AbortSignal) => Promise<void>;
-  // Optional. Configured only when QUIP_VALIDATOR_RPC_URL is set; absence
-  // means the indexer runs in REST-only degraded mode (dashboard chain
-  // surfaces stay null/empty).
-  runSubstrate?: (signal: AbortSignal) => Promise<void>;
+  runSubstrate: (signal: AbortSignal) => Promise<void>;
   // Node-descriptor indexer — scans every finalized block for
   // `System.remark{,_with_event}` extrinsics signed by operators running
-  // `quip-miner identify`. Optional only because it shares a substrate
-  // client with runSubstrate; both are wired together in production when
-  // QUIP_VALIDATOR_RPC_URL is set.
-  runDescriptor?: (signal: AbortSignal) => Promise<void>;
+  // `quip-miner identify`.
+  runDescriptor: (signal: AbortSignal) => Promise<void>;
 }
 
 type WorkerName = "tip" | "substrate" | "descriptor";
@@ -29,14 +24,10 @@ type WorkerName = "tip" | "substrate" | "descriptor";
 /**
  * Run the configured workers concurrently. Each worker receives a composed
  * {@link AbortSignal} that fires when either:
- *   - the tip worker throws an {@link AuthError} or other fatal — this
- *     aborts every sibling
+ *   - any worker throws a non-recoverable error — this aborts every
+ *     sibling so the process exits cleanly rather than running half-up
  *   - the optional {@link parentSignal} (typically a process-level SIGINT
  *     controller) aborts
- *
- * Substrate failures are NON-fatal: they're logged and the indexer keeps
- * running REST polling. The chain surfaces just stop updating until the
- * substrate worker reconnects on its own internal backoff loop.
  *
  * Returns 0 when all workers complete normally, 1 when any rejects.
  */
@@ -52,36 +43,24 @@ export async function runWorkers(
     try {
       await fn(combined);
     } catch (e) {
-      if (e instanceof AuthError) {
-        console.error(`[indexer] ${name} auth failed:`, e.message);
-        // Substrate/descriptor auth errors don't take down REST workers.
-        // The substrate worker's own backoff loop already handles retries;
-        // an auth error means the RPC token is bad, which is operator-
-        // actionable but shouldn't stop block indexing. The descriptor
-        // worker reads from the same substrate client, so its failures
-        // are non-fatal for the same reason.
-        if (name === "tip") ac.abort();
-        throw e;
-      }
       if ((e as Error)?.name === "AbortError") return;
       console.error(
         `[indexer] ${name} unhandled error:`,
         e instanceof Error ? (e.stack ?? e.message) : e,
       );
+      // Tip worker is the only fatal — substrate/descriptor failures
+      // self-heal via their own reconnect loops, so we don't yank the
+      // whole indexer for those.
       if (name === "tip") ac.abort();
       throw e;
     }
   };
 
-  const promises: Promise<void>[] = [wrap("tip", runners.runTip)];
-  if (runners.runSubstrate) {
-    promises.push(wrap("substrate", runners.runSubstrate));
-  }
-  if (runners.runDescriptor) {
-    promises.push(wrap("descriptor", runners.runDescriptor));
-  }
-
-  const results = await Promise.allSettled(promises);
+  const results = await Promise.allSettled([
+    wrap("tip", runners.runTip),
+    wrap("substrate", runners.runSubstrate),
+    wrap("descriptor", runners.runDescriptor),
+  ]);
   const failed = results.some((r) => r.status === "rejected");
   return failed ? 1 : 0;
 }
@@ -89,16 +68,15 @@ export async function runWorkers(
 async function main(): Promise<number> {
   const config = parseConfig();
   console.log(
-    `[indexer] starting node=${config.nodeUrl} poll=${config.pollIntervalSec}s` +
+    `[indexer] starting validators=${config.validatorRpcUrls.join(",")} poll=${config.pollIntervalSec}s` +
       ` nodesRefresh=${config.nodesRefreshSec}s stallWarnAfter=${config.stallWarnAfterSec}s` +
-      ` once=${config.once} substrate=${config.substrateRpcUrl ?? "disabled"}`,
+      ` once=${config.once}`,
   );
 
   const db = await createAdapter();
   await db.connect();
   await db.migrate();
 
-  const tipClient = new QuipClient({ baseUrl: config.nodeUrl, token: config.token });
   const state = new IndexerState(db);
   await state.load();
 
@@ -110,37 +88,80 @@ async function main(): Promise<number> {
   process.on("SIGINT", () => onSignal("SIGINT"));
   process.on("SIGTERM", () => onSignal("SIGTERM"));
 
-  // Substrate worker is opt-in via QUIP_VALIDATOR_RPC_URL. Configured here
-  // so the runner stays a no-op when unset (runWorkers also skips it). The
-  // descriptor worker shares the same client (it reads remarks via RPC and
-  // observes substrate-worker's finalized-head heartbeat through
-  // IndexerState), so it's only configured when the substrate client is.
-  const substrateClient = config.substrateRpcUrl
-    ? new PolkadotSubstrateClient(config.substrateRpcUrl, config.substrateRpcTimeoutMs)
-    : null;
-  const runSubstrate = substrateClient
-    ? (signal: AbortSignal) =>
-        runSubstrateLoop({ config, client: substrateClient, db, state }, signal)
-    : undefined;
-  const runDescriptor = substrateClient
-    ? (signal: AbortSignal) =>
-        runDescriptorLoop({ config, db, client: substrateClient, state }, signal)
-    : undefined;
+  // Substrate client factory: each connect attempt builds a fresh client
+  // pointed at one of the configured RPC URLs (rotated by the worker's
+  // outer reconnect loop). One shared client per worker (substrate +
+  // descriptor) keeps the connect lifecycle independent — descriptor
+  // failures don't drop substrate, and vice versa.
+  const clientFactory = (url: string): SubstrateClient =>
+    new PolkadotSubstrateClient(url, config.substrateRpcTimeoutMs);
+
+  // The substrate worker holds the "primary" client used for
+  // discoverLocalValidator. We hold a reference so the tip worker can
+  // probe it for self-identity. The worker re-creates its client on
+  // each connect attempt; we expose the most-recently-built one via a
+  // box variable, so discover calls always hit the live client.
+  let activeSubstrateClient: SubstrateClient | null = null;
+  const trackedFactory = (url: string): SubstrateClient => {
+    const c = clientFactory(url);
+    activeSubstrateClient = c;
+    return c;
+  };
+
+  const discoverSelfAccount = async (): Promise<string | null> => {
+    const c = activeSubstrateClient;
+    if (!c || !c.isConnected()) return null;
+    try {
+      return await c.discoverLocalValidator();
+    } catch (e) {
+      console.warn("[indexer] discoverLocalValidator failed:", e instanceof Error ? e.message : e);
+      return null;
+    }
+  };
 
   let exitCode = 0;
   try {
     exitCode = await runWorkers(
       {
-        runTip: (signal) => runTipLoop({ config, client: tipClient, db, state }, signal),
-        ...(runSubstrate ? { runSubstrate } : {}),
-        ...(runDescriptor ? { runDescriptor } : {}),
+        runTip: (signal) =>
+          runTipLoop(
+            {
+              config,
+              db,
+              state,
+              discoverSelfAccount,
+              clientFactory: (baseUrl) => new QuipClient({ baseUrl }),
+            },
+            signal,
+          ),
+        runSubstrate: (signal) =>
+          runSubstrateLoop(
+            {
+              config,
+              db,
+              state,
+              urls: config.validatorRpcUrls,
+              clientFactory: trackedFactory,
+            },
+            signal,
+          ),
+        runDescriptor: (signal) =>
+          runDescriptorLoop(
+            {
+              config,
+              db,
+              state,
+              urls: config.validatorRpcUrls,
+              clientFactory,
+            },
+            signal,
+          ),
       },
       processAc.signal,
     );
   } catch (e) {
     exitCode = 1;
-    const label = e instanceof AuthError ? "auth failed" : "workers failed";
-    console.error(`[indexer] ${label}:`, e instanceof Error ? (e.stack ?? e.message) : e);
+    console.error(`[indexer] workers failed:`, e instanceof Error ? (e.stack ?? e.message) : e);
   } finally {
     await db.disconnect();
   }

@@ -37,8 +37,9 @@ export function MyNodeView() {
       <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
         <p className="font-heading text-2xl text-brand-gray-5">Connecting to miner…</p>
         <p className="mt-2 font-accent text-sm text-brand-gray-3">
-          The indexer hasn't received a response from /api/v1/status yet. Verify QUIP_NODE_URL is
-          reachable.
+          The indexer hasn't discovered the local validator's signer yet, or the operator's node
+          descriptor hasn't landed on-chain. Confirm the configured QUIP_VALIDATOR_RPC_URLS point at
+          a validator that holds session keys for your account.
         </p>
       </div>
     );

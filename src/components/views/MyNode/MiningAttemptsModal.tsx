@@ -98,8 +98,9 @@ export function MiningAttemptsModal({
           <div className="rounded border border-brand-red-0/40 bg-brand-red-2/20 p-3">
             <p className="font-accent text-sm text-brand-red-0">{error}</p>
             <p className="mt-1 font-accent text-xs text-brand-gray-4">
-              The dashboard proxies this through the indexer; if the miner is offline or
-              QUIP_NODE_URL is unreachable, the modal can't populate.
+              The dashboard proxies this through the indexer; if the miner is offline or no
+              miner-REST URL has been resolved (no operator descriptor on-chain, validator RPC
+              unreachable), the modal can't populate.
             </p>
           </div>
         )}

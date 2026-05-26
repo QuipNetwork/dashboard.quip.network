@@ -9,9 +9,13 @@
 // state. No DB touch — purely a chain-truth dump.
 //
 // Usage:
-//   QUIP_VALIDATOR_RPC_URL=wss://… bun run indexer/scan-remarks.ts
-//   QUIP_VALIDATOR_RPC_URL=wss://… bun run indexer/scan-remarks.ts --from 1 --to 5000
-//   QUIP_VALIDATOR_RPC_URL=wss://… bun run indexer/scan-remarks.ts --recent 500 --verbose
+//   QUIP_VALIDATOR_RPC_URLS=wss://… bun run indexer/scan-remarks.ts
+//   QUIP_VALIDATOR_RPC_URLS=wss://… bun run indexer/scan-remarks.ts --from 1 --to 5000
+//   QUIP_VALIDATOR_RPC_URLS=wss://… bun run indexer/scan-remarks.ts --recent 500 --verbose
+//
+// When QUIP_VALIDATOR_RPC_URLS contains multiple comma-separated endpoints
+// the scanner uses the first one — failover is the long-running indexer's
+// job, not a one-shot diagnostic tool.
 
 import { parseAndValidateDescriptor } from "./descriptor-validator";
 import { PolkadotSubstrateClient } from "./substrate-client";
@@ -25,8 +29,15 @@ interface ScanOptions {
 }
 
 function parseArgs(argv: string[]): ScanOptions {
+  const envList = process.env.QUIP_VALIDATOR_RPC_URLS;
+  const firstFromEnv = envList
+    ? (envList
+        .split(",")
+        .map((s) => s.trim())
+        .find((s) => s.length > 0) ?? "")
+    : "";
   const opts: ScanOptions = {
-    rpcUrl: process.env.QUIP_VALIDATOR_RPC_URL ?? "",
+    rpcUrl: firstFromEnv,
     from: null,
     to: null,
     recent: null,
@@ -52,7 +63,7 @@ function parseArgs(argv: string[]): ScanOptions {
 function usage(): never {
   console.error(
     "scan-remarks: scan a validator's finalized blocks for quip.node_descriptor.v1 remarks\n\n" +
-      "Set QUIP_VALIDATOR_RPC_URL (or pass --rpc-url) to a ws:// or wss:// endpoint.\n\n" +
+      "Set QUIP_VALIDATOR_RPC_URLS (or pass --rpc-url) to a ws:// or wss:// endpoint.\n\n" +
       "  --from N        starting block number (default: head - 200)\n" +
       "  --to N          ending block number (default: head)\n" +
       "  --recent N      shorthand for --from (head-N) --to head\n" +
@@ -64,7 +75,7 @@ function usage(): never {
 async function main(): Promise<number> {
   const opts = parseArgs(process.argv.slice(2));
   if (!opts.rpcUrl) {
-    console.error("scan-remarks: QUIP_VALIDATOR_RPC_URL is required (or pass --rpc-url)");
+    console.error("scan-remarks: QUIP_VALIDATOR_RPC_URLS is required (or pass --rpc-url)");
     usage();
   }
 

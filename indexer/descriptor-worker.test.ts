@@ -46,11 +46,7 @@ describe("runDescriptorIteration", () => {
   it("upserts a valid descriptor and advances the checkpoint", async () => {
     client.remarksByBlock.set("100", [makeRemark()]);
 
-    const state = new IndexerState(db);
-    const advanced = await runDescriptorIteration(
-      { config: makeConfig(), db, client, state },
-      "100",
-    );
+    const advanced = await runDescriptorIteration({ db, client }, "100");
     expect(advanced).toBe(true);
 
     const all = await db.getAllNodeDescriptors();
@@ -75,11 +71,7 @@ describe("runDescriptorIteration", () => {
       makeRemark({ blockNumber: "200", extrinsicIndex: 1, sender: "5BBB", body: bad }),
     ]);
 
-    const state = new IndexerState(db);
-    const advanced = await runDescriptorIteration(
-      { config: makeConfig(), db, client, state },
-      "200",
-    );
+    const advanced = await runDescriptorIteration({ db, client }, "200");
     expect(advanced).toBe(true);
 
     const all = await db.getAllNodeDescriptors();
@@ -92,23 +84,18 @@ describe("runDescriptorIteration", () => {
     // The fake returns `null` when the key is explicitly set to null.
     client.remarksByBlock.set("999", null);
 
-    const state = new IndexerState(db);
-    const advanced = await runDescriptorIteration(
-      { config: makeConfig(), db, client, state },
-      "999",
-    );
+    const advanced = await runDescriptorIteration({ db, client }, "999");
     expect(advanced).toBe(false);
     // Checkpoint stays at null so the loop retries this block.
     expect(await db.getDescriptorCheckpoint()).toBeNull();
   });
 
   it("preserves first_block_timestamp across upserts (newer block wins on data, older ts on first_seen)", async () => {
-    const state = new IndexerState(db);
     // First descriptor at block 100, timestamp 1000.
     client.remarksByBlock.set("100", [
       makeRemark({ blockNumber: "100", blockTimestamp: 1000, sender: "5XYZ" }),
     ]);
-    await runDescriptorIteration({ config: makeConfig(), db, client, state }, "100");
+    await runDescriptorIteration({ db, client }, "100");
 
     // Newer descriptor at block 200, timestamp 5000 — newer body, but
     // firstBlockTimestamp on the row should stay 1000.
@@ -124,7 +111,7 @@ describe("runDescriptorIteration", () => {
         }),
       }),
     ]);
-    await runDescriptorIteration({ config: makeConfig(), db, client, state }, "200");
+    await runDescriptorIteration({ db, client }, "200");
 
     const rows = await db.getAllNodeDescriptors();
     expect(rows).toHaveLength(1);
@@ -147,7 +134,16 @@ describe("runDescriptorLoop", () => {
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 200);
 
-    await runDescriptorLoop({ config: makeConfig(), db, client, state }, ac.signal);
+    await runDescriptorLoop(
+      {
+        config: makeConfig(),
+        db,
+        state,
+        urls: ["ws://x"],
+        clientFactory: () => client,
+      },
+      ac.signal,
+    );
 
     const rows = await db.getAllNodeDescriptors();
     expect(rows.map((r) => r.accountId).sort()).toEqual(["5BLK2", "5BLK3"]);
@@ -170,7 +166,16 @@ describe("runDescriptorLoop", () => {
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 200);
 
-    await runDescriptorLoop({ config: makeConfig(), db, client, state }, ac.signal);
+    await runDescriptorLoop(
+      {
+        config: makeConfig(),
+        db,
+        state,
+        urls: ["ws://x"],
+        clientFactory: () => client,
+      },
+      ac.signal,
+    );
 
     const rows = await db.getAllNodeDescriptors();
     expect(rows.map((r) => r.accountId)).toEqual(["5BLK6"]);

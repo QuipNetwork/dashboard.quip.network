@@ -58,7 +58,7 @@ describe("ChainView", () => {
     act(() => {
       root.render(createElement(ChainView));
     });
-    expect(container.textContent).toContain("QUIP_VALIDATOR_RPC_URL");
+    expect(container.textContent).toContain("QUIP_VALIDATOR_RPC_URLS");
     expect(getDataRows()).toHaveLength(0);
   });
 

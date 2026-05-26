@@ -37,13 +37,6 @@ export interface NodeStatus {
   modes?: Record<string, ModeBreakdown>;
 }
 
-export class AuthError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthError";
-  }
-}
-
 export class RateLimitError extends Error {
   constructor(message: string) {
     super(message);
@@ -62,18 +55,15 @@ type FetchLike = typeof fetch;
 
 export interface QuipClientOptions {
   baseUrl: string;
-  token?: string | undefined;
   fetchImpl?: FetchLike;
 }
 
 export class QuipClient {
   private readonly baseUrl: string;
-  private readonly token: string | undefined;
   private readonly fetchImpl: FetchLike;
 
   constructor(opts: QuipClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
-    this.token = opts.token;
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
@@ -116,13 +106,8 @@ export class QuipClient {
    * with `observedAt=""` on `submission` — caller stamps the timestamp.
    */
   async getMiningAttempts(solutionId: number): Promise<MiningAttemptsResponse> {
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (this.token) headers["authorization"] = `Bearer ${this.token}`;
     const url = `${this.baseUrl}/api/v1/mining/attempts?solution_id=${solutionId}`;
-    const res = await this.fetchImpl(url, { headers });
-    if (res.status === 401) {
-      throw new AuthError(`[indexer] 401 from /api/v1/mining/attempts. Set QUIP_NODE_TOKEN.`);
-    }
+    const res = await this.fetchImpl(url, { headers: { accept: "application/json" } });
     if (res.status === 404) {
       throw new MiningSubmissionNotFoundError(solutionId);
     }
@@ -155,12 +140,9 @@ export class QuipClient {
   }
 
   private async getJson<T>(path: string): Promise<T> {
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (this.token) headers["authorization"] = `Bearer ${this.token}`;
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, { headers });
-    if (res.status === 401) {
-      throw new AuthError(`[indexer] 401 from ${path}. Set QUIP_NODE_TOKEN.`);
-    }
+    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      headers: { accept: "application/json" },
+    });
     if (res.status === 429) {
       throw new RateLimitError(`[indexer] 429 from ${path}`);
     }

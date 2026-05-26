@@ -878,6 +878,25 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return rows.map(rowToNodeDescriptorRecord);
   }
 
+  async getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null> {
+    const row = this.requireDb()
+      .query<
+        {
+          account_id: string;
+          block_number: string;
+          block_hash: string;
+          extrinsic_index: number;
+          block_timestamp: number;
+          first_block_timestamp: number;
+          descriptor: string;
+          observed_at: string;
+        },
+        [string]
+      >("SELECT * FROM node_descriptors WHERE account_id = ?")
+      .get(accountId);
+    return row ? rowToNodeDescriptorRecord(row) : null;
+  }
+
   async getDescriptorCheckpoint(): Promise<string | null> {
     const row = this.requireDb()
       .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")

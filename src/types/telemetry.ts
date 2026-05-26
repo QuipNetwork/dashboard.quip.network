@@ -57,7 +57,9 @@ export interface RuntimeVersion {
 /**
  * Best/finalized substrate chain heads + runtime version. Single-row snapshot
  * written by the substrate worker on every head event (debounced). Null on
- * /api/telemetry when QUIP_VALIDATOR_RPC_URL is unset on the indexer.
+ * /api/telemetry when no substrate connection has been established yet
+ * (indexer hasn't received its first head from any URL in
+ * QUIP_VALIDATOR_RPC_URLS).
  */
 export interface ChainHead {
   bestBlockNumber: string;
@@ -531,8 +533,9 @@ export interface TelemetryResponse {
   // ISO 8601 timestamp the server stamped this response. Lets the UI
   // compute observability ages relative to server time, not client clock.
   serverTime: string;
-  // Substrate-derived snapshots. Null/empty when QUIP_VALIDATOR_RPC_URL is
-  // unset on the indexer — degrades gracefully to chain-less mode.
+  // Substrate-derived snapshots. Null/empty when the substrate worker
+  // hasn't connected to any endpoint in QUIP_VALIDATOR_RPC_URLS yet —
+  // degrades gracefully to chain-less mode.
   chainHead: ChainHead | null;
   babeEpoch: BabeEpochState | null;
   babeAuthorities: BabeAuthorityRecord[];

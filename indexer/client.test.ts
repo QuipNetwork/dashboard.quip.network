@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, test } from "bun:test";
-import { AuthError, QuipClient, RateLimitError, type NodeStatus } from "./client";
+import { QuipClient, RateLimitError, type NodeStatus } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -118,12 +118,6 @@ describe("QuipClient v0.2", () => {
     expect(r.submissionErrors).toBe(2);
   });
 
-  test("401 raises AuthError", async () => {
-    const fetchImpl = (() => Promise.resolve(jsonResponse({}, 401))) as unknown as typeof fetch;
-    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
-    await expect(c.getStatus()).rejects.toBeInstanceOf(AuthError);
-  });
-
   test("429 raises RateLimitError", async () => {
     const fetchImpl = (() => Promise.resolve(jsonResponse({}, 429))) as unknown as typeof fetch;
     const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
@@ -148,7 +142,7 @@ describe("QuipClient v0.2", () => {
     await expect(c.getStatus()).rejects.toThrow(/502/);
   });
 
-  test("authorization header is included when token is set", async () => {
+  test("no Authorization header is sent — REST access is now a reverse-proxy concern", async () => {
     const captured: { auth: string | null } = { auth: null };
     const fetchImpl = ((_url: string, init?: { headers?: Record<string, string> }) => {
       captured.auth = init?.headers?.["authorization"] ?? null;
@@ -169,9 +163,9 @@ describe("QuipClient v0.2", () => {
         }),
       );
     }) as unknown as typeof fetch;
-    const c = new QuipClient({ baseUrl: "http://x", token: "secret", fetchImpl });
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
     await c.getStatus();
-    expect(captured.auth).toBe("Bearer secret");
+    expect(captured.auth).toBeNull();
   });
 
   test("getStatus parses aggregator modes breakdown", async () => {

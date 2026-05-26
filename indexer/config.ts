@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 export interface IndexerConfig {
-  nodeUrl: string;
-  token: string | undefined;
+  // Ordered list of substrate RPC endpoints. The substrate / descriptor
+  // workers round-robin through this list on connect failure. Index 0 is
+  // the default any other code path uses (e.g. deriving the local miner-
+  // REST URL when no on-chain descriptor has landed yet).
+  //
+  // Always non-empty after parseConfig — empty inputs fall back to the
+  // single-element default below.
+  validatorRpcUrls: string[];
   pollIntervalSec: number;
   nodesRefreshSec: number;
   once: boolean;
@@ -13,10 +19,6 @@ export interface IndexerConfig {
   stallWarnAfterSec: number;
 
   // --- Substrate (quip-protocol-rs validator) RPC options ---
-  // null = no substrate worker, degraded mode (the indexer still polls REST
-  // and the dashboard surfaces null/empty for chain fields). All other
-  // substrate options are inert when this is null.
-  substrateRpcUrl: string | null;
   // Per-request timeout for WsProvider handshake + RPC calls.
   substrateRpcTimeoutMs: number;
   // Upper bound on the exponential-backoff reconnect loop (±20% jitter).
@@ -40,7 +42,11 @@ export interface IndexerConfig {
 }
 
 const DEFAULTS = {
-  nodeUrl: "https://qpu-1.nodes.quip.network",
+  // Docker-compose service name — production deployments override via
+  // QUIP_VALIDATOR_RPC_URLS. The dashboard always co-locates with a
+  // validator (chain-derived identity is the source of truth), so a
+  // hardcoded public fallback isn't useful here.
+  validatorRpcUrls: ["ws://quip-validator:9944"],
   pollIntervalSec: 8,
   nodesRefreshSec: 45,
   stallWarnAfterSec: 600, // 10 minutes — longer than typical QPU block time.
@@ -88,22 +94,40 @@ function takeFlag(argv: string[], name: string): string | boolean | undefined {
   return undefined;
 }
 
+/**
+ * Parse a comma-separated list of validator RPC URLs. Empty entries (from
+ * leading/trailing commas or accidental ",,") are skipped silently so a
+ * stray separator doesn't break startup. Each entry is trimmed and
+ * stripped of trailing slashes for stable comparisons downstream.
+ */
+function parseValidatorRpcUrls(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter((s) => s.length > 0);
+}
+
 export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
-  const nodeUrlFlag = takeFlag(argv, "--node-url");
-  const tokenFlag = takeFlag(argv, "--token");
   const pollFlag = takeFlag(argv, "--poll-interval");
   const nodesFlag = takeFlag(argv, "--nodes-refresh");
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
   const stallFlag = takeFlag(argv, "--stall-warn-after");
 
-  const nodeUrl =
-    (typeof nodeUrlFlag === "string" ? nodeUrlFlag : undefined) ??
-    process.env.QUIP_NODE_URL ??
-    DEFAULTS.nodeUrl;
-
-  const token =
-    (typeof tokenFlag === "string" ? tokenFlag : undefined) ?? process.env.QUIP_NODE_TOKEN;
+  // --- Validator RPC URLs ---
+  const rpcUrlsFlag = takeFlag(argv, "--validator-rpc-urls");
+  const rpcUrlsRaw =
+    (typeof rpcUrlsFlag === "string" ? rpcUrlsFlag : undefined) ??
+    process.env.QUIP_VALIDATOR_RPC_URLS;
+  const validatorRpcUrls =
+    rpcUrlsRaw !== undefined && rpcUrlsRaw.trim() !== ""
+      ? parseValidatorRpcUrls(rpcUrlsRaw)
+      : DEFAULTS.validatorRpcUrls;
+  if (validatorRpcUrls.length === 0) {
+    throw new Error(
+      `[indexer] QUIP_VALIDATOR_RPC_URLS contained no usable entries: ${JSON.stringify(rpcUrlsRaw)}`,
+    );
+  }
 
   const pollIntervalSec =
     typeof pollFlag === "string"
@@ -137,25 +161,10 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
   }
 
   // --- Substrate options ---
-  const substrateRpcUrlFlag = takeFlag(argv, "--substrate-rpc-url");
   const substrateRpcTimeoutFlag = takeFlag(argv, "--substrate-rpc-timeout");
   const substrateBackoffFlag = takeFlag(argv, "--substrate-reconnect-max-backoff");
   const substrateBabePollFlag = takeFlag(argv, "--substrate-babe-poll");
   const substrateChainPollFlag = takeFlag(argv, "--substrate-chain-poll");
-
-  const substrateRpcUrlRaw =
-    (typeof substrateRpcUrlFlag === "string" ? substrateRpcUrlFlag : undefined) ??
-    process.env.QUIP_VALIDATOR_RPC_URL;
-  // Reject empty string explicitly — operators usually mean "leave unset" but
-  // a stray `--substrate-rpc-url=` would otherwise produce a connect-time
-  // failure deep in the substrate worker.
-  if (substrateRpcUrlRaw !== undefined && substrateRpcUrlRaw.trim() === "") {
-    throw new Error(
-      `[indexer] --substrate-rpc-url cannot be empty (omit the flag/env to disable substrate)`,
-    );
-  }
-  const substrateRpcUrl =
-    substrateRpcUrlRaw !== undefined ? substrateRpcUrlRaw.replace(/\/+$/, "") : null;
 
   const substrateRpcTimeoutMs =
     typeof substrateRpcTimeoutFlag === "string"
@@ -221,14 +230,12 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
   }
 
   return {
-    nodeUrl: nodeUrl.replace(/\/+$/, ""),
-    token,
+    validatorRpcUrls,
     pollIntervalSec,
     nodesRefreshSec,
     once,
     verbose,
     stallWarnAfterSec,
-    substrateRpcUrl,
     substrateRpcTimeoutMs,
     substrateReconnectMaxBackoffMs,
     substrateBabePollSec,

@@ -58,11 +58,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -136,11 +136,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -191,11 +191,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -246,11 +246,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -293,11 +293,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -342,11 +342,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -378,11 +378,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -419,11 +419,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1, // 1s timer to exercise the repeat path
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -455,11 +455,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1, // 1s so the difficulty timer fires
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -502,11 +502,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -548,11 +548,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -589,11 +589,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -618,11 +618,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -701,11 +701,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -746,11 +746,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1000,
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
@@ -793,11 +793,11 @@ describe("substrate worker", () => {
     const loop = runSubstrateLoop(
       {
         config: makeConfig({
-          substrateRpcUrl: "ws://x",
           substrateBabePollSec: 1000,
           substrateChainPollSec: 1, // 1s timer so the repeat path runs
         }),
-        client,
+        urls: ["ws://x"],
+        clientFactory: () => client,
         db,
         state,
         chainHeadDebounceMs: 0,
