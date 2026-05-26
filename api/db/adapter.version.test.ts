@@ -4,16 +4,15 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v16: mining_submissions carries num_valid", () => {
-  // v16 reverts the Recent Performance "Solutions" column back to the
-  // submitted iteration's `num_valid` (full unique constraint-valid
-  // count, target-blind, post-dedup). The miner decouples num_valid
-  // and num_solutions_meeting_target — operators reading the
-  // won-blocks table want sampler productivity (num_valid), not the
-  // trivial submitted-K view. The in-flight attempts panel still
-  // surfaces num_solutions_meeting_target. Wipe-on-drift rebuilds
-  // old rows against the new field on next poll.
-  expect(SCHEMA_VERSION).toBe(16);
+test("schema v17: mining_submissions carries miner_type alongside num_valid", () => {
+  // v17 adds miner_type (CPU / CUDA / METAL / MODAL / QPU) to each
+  // mining_submissions row. Multi-backend containers run one
+  // quip-miner process per active group; the dashboard needs to
+  // report which backend produced each winning submission without
+  // parsing miner_id. Empty string for rows from miners that don't
+  // surface the field yet. Wipe-on-drift rebuilds existing rows
+  // against the new shape on next indexer poll.
+  expect(SCHEMA_VERSION).toBe(17);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",

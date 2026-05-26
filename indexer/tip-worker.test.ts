@@ -161,6 +161,7 @@ describe("tip-worker v0.3", () => {
       attemptCount: 2,
       bestEnergyMilli: -14870000,
       numValid: 0,
+      minerType: "CPU",
       observedAt: "2026-05-19T00:00:00.000Z",
     });
     await deps.db.setMiningCheckpoint("5GPP", 22);
@@ -193,6 +194,7 @@ describe("tip-worker v0.3", () => {
       attemptCount: 3,
       bestEnergyMilli: -14000000,
       numValid: 1,
+      minerType: "QPU",
       observedAt: "2026-05-19T00:00:00.000Z",
     });
     await deps.db.setMiningCheckpoint("5GPP", 7);

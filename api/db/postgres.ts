@@ -193,6 +193,10 @@ const SCHEMA_STATEMENTS: string[] = [
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     BIGINT NOT NULL,
      num_valid             INTEGER NOT NULL DEFAULT 0,
+     -- v17: which backend produced this submission (CPU / CUDA /
+     -- METAL / MODAL / QPU). Empty string for rows from miners that
+     -- don't surface the field yet — schema-drift wipe rebuilds them.
+     miner_type            TEXT NOT NULL DEFAULT '',
      observed_at           TIMESTAMPTZ NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -796,14 +800,14 @@ export class PostgresAdapter implements DatabaseAdapter {
         miner_id, solution_id, dispatch_id, ts_ns,
         energy_milli, diversity_milli, threshold_milli,
         last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-        outcome, attempt_count, best_energy_milli, num_valid, observed_at
+        outcome, attempt_count, best_energy_milli, num_valid, miner_type, observed_at
       ) VALUES (
         ${record.minerId}, ${record.solutionId}, ${record.dispatchId}, ${record.tsNs},
         ${record.energyMilli}, ${record.diversityMilli}, ${record.thresholdMilli},
         ${record.lastProofBlockHash}, ${record.extrinsicHash},
         ${record.chainBlockHash}, ${record.chainBlockNumber},
         ${record.outcome}, ${record.attemptCount}, ${record.bestEnergyMilli},
-        ${record.numValid}, ${record.observedAt}
+        ${record.numValid}, ${record.minerType}, ${record.observedAt}
       )
       ON CONFLICT (miner_id, solution_id) DO UPDATE SET
         dispatch_id                    = EXCLUDED.dispatch_id,
@@ -819,6 +823,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         attempt_count                  = EXCLUDED.attempt_count,
         best_energy_milli              = EXCLUDED.best_energy_milli,
         num_valid                      = EXCLUDED.num_valid,
+        miner_type                     = EXCLUDED.miner_type,
         observed_at                    = EXCLUDED.observed_at
     `;
   }
@@ -846,6 +851,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         attempt_count: number;
         best_energy_milli: string;
         num_valid: number;
+        miner_type: string;
         observed_at: Date;
       }[]
     >`
@@ -870,6 +876,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       attemptCount: r.attempt_count,
       bestEnergyMilli: Number(r.best_energy_milli),
       numValid: r.num_valid,
+      minerType: r.miner_type ?? "",
       observedAt:
         r.observed_at instanceof Date ? r.observed_at.toISOString() : String(r.observed_at),
     }));

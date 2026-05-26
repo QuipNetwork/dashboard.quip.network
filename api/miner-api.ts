@@ -16,6 +16,7 @@ interface RawSubmission {
   ts_ns?: number | string;
   solution_id?: number | string;
   miner_id?: string;
+  miner_type?: string;
   dispatch_id?: number | string;
   energy_milli?: number | string;
   diversity_milli?: number | string;
@@ -32,6 +33,7 @@ interface RawAttempt {
   iter?: number | string;
   best_energy_milli?: number | string;
   result_kind?: string;
+  miner_type?: string;
   [k: string]: unknown;
 }
 
@@ -78,6 +80,8 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
   const submission: MiningSubmissionRecord = {
     solutionId: requireNum(s.solution_id, "solution_id"),
     minerId: requireStr(s.miner_id, "miner_id"),
+    // miner_type is optional — older miners omit it; tolerate both.
+    minerType: typeof s.miner_type === "string" ? s.miner_type : "",
     dispatchId: requireNum(s.dispatch_id, "dispatch_id"),
     tsNs: String(s.ts_ns ?? "0"),
     energyMilli: requireNum(s.energy_milli, "energy_milli"),
@@ -160,9 +164,17 @@ function parseAttempts(raw: RawAttempt[] | undefined): MiningAttempt[] {
     // Skip malformed rows rather than throw — one bad iteration shouldn't
     // sink the whole modal payload.
     if (!Number.isFinite(iterN) || !Number.isFinite(bestN)) continue;
+    // miner_type is hoisted to a typed field; exclude it from `extra` so
+    // it isn't displayed twice in the modal's "extras" detail rows.
     const extra: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(a)) {
-      if (k === "type" || k === "iter" || k === "best_energy_milli" || k === "result_kind") {
+      if (
+        k === "type" ||
+        k === "iter" ||
+        k === "best_energy_milli" ||
+        k === "result_kind" ||
+        k === "miner_type"
+      ) {
         continue;
       }
       extra[k] = v;
@@ -171,6 +183,7 @@ function parseAttempts(raw: RawAttempt[] | undefined): MiningAttempt[] {
       iter: iterN,
       bestEnergyMilli: bestN,
       resultKind: typeof a.result_kind === "string" ? a.result_kind : "",
+      minerType: typeof a.miner_type === "string" ? a.miner_type : "",
       extra,
     });
   }

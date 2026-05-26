@@ -428,7 +428,14 @@ export interface DbConfig {
 // panel keeps surfacing num_solutions_meeting_target — different
 // audience, different question. Wipe-on-drift rebuilds against the
 // new field on next poll.
-export const SCHEMA_VERSION = 16;
+// v17: adds `miner_type` column to mining_submissions. Sourced from
+// the submitted iteration's `miner_type` field (CPU / CUDA / METAL /
+// MODAL / QPU). Lets multi-backend containers (entrypoint supervisor
+// with one quip-miner process per active group) report *which*
+// backend produced each winning submission without parsing miner_id.
+// Empty string for legacy rows produced by older miners. Wipe-on-
+// drift so the column populates on next poll.
+export const SCHEMA_VERSION = 17;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

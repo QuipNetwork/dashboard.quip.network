@@ -45,6 +45,12 @@ export function RecentMiningPanel({
             <thead>
               <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
                 <th className="py-2 pr-4">Sol&nbsp;#</th>
+                <th
+                  className="py-2 pr-4"
+                  title="Backend that produced this submission (CPU / CUDA / METAL / MODAL / QPU). Multi-backend rigs run one quip-miner process per active config group; this column shows which one won."
+                >
+                  Backend
+                </th>
                 <th className="py-2 pr-4">Best Energy</th>
                 <th className="py-2 pr-4">Diversity</th>
                 <th
@@ -77,6 +83,9 @@ export function RecentMiningPanel({
                     className="cursor-pointer border-b border-brand-gray-2/40 last:border-0 hover:bg-brand-gray-1/40"
                   >
                     <td className="py-1.5 pr-4 text-brand-gray-5">#{formatNumber(s.solutionId)}</td>
+                    <td className="py-1.5 pr-4 text-brand-gray-5">
+                      {s.minerType ? s.minerType : <span className="text-brand-gray-3">—</span>}
+                    </td>
                     <td className="py-1.5 pr-4 text-brand-gray-6">
                       {milliToFixed(s.bestEnergyMilli, 3)}
                     </td>

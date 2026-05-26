@@ -195,6 +195,10 @@ const SCHEMA_STATEMENTS: string[] = [
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     INTEGER NOT NULL,
      num_valid             INTEGER NOT NULL DEFAULT 0,
+     -- v17: which backend produced this submission (CPU / CUDA /
+     -- METAL / MODAL / QPU). Empty string for rows from miners that
+     -- don't surface the field yet — schema-drift wipe rebuilds them.
+     miner_type            TEXT NOT NULL DEFAULT '',
      observed_at           TEXT NOT NULL,
      PRIMARY KEY (miner_id, solution_id)
    )`,
@@ -905,12 +909,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
            miner_id, solution_id, dispatch_id, ts_ns,
            energy_milli, diversity_milli, threshold_milli,
            last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-           outcome, attempt_count, best_energy_milli, num_valid, observed_at
+           outcome, attempt_count, best_energy_milli, num_valid, miner_type, observed_at
          ) VALUES (
            $miner, $sol, $dispatch, $ts,
            $energy, $div, $thr,
            $lpbh, $extx, $cbh, $cbn,
-           $outcome, $cnt, $best, $nvalid, $observed
+           $outcome, $cnt, $best, $nvalid, $mtype, $observed
          )
          ON CONFLICT(miner_id, solution_id) DO UPDATE SET
            dispatch_id                    = excluded.dispatch_id,
@@ -926,6 +930,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
            attempt_count                  = excluded.attempt_count,
            best_energy_milli              = excluded.best_energy_milli,
            num_valid                      = excluded.num_valid,
+           miner_type                     = excluded.miner_type,
            observed_at                    = excluded.observed_at`,
       )
       .run({
@@ -944,6 +949,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $cnt: record.attemptCount,
         $best: record.bestEnergyMilli,
         $nvalid: record.numValid,
+        $mtype: record.minerType,
         $observed: record.observedAt,
       });
   }
@@ -970,6 +976,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
           attempt_count: number;
           best_energy_milli: number;
           num_valid: number;
+          miner_type: string;
           observed_at: string;
         },
         [string, number]
@@ -1103,6 +1110,7 @@ function rowToMiningSubmission(row: {
   attempt_count: number;
   best_energy_milli: number;
   num_valid: number;
+  miner_type: string;
   observed_at: string;
 }): MiningSubmissionRecord {
   return {
@@ -1121,6 +1129,7 @@ function rowToMiningSubmission(row: {
     attemptCount: row.attempt_count,
     bestEnergyMilli: row.best_energy_milli,
     numValid: row.num_valid,
+    minerType: row.miner_type ?? "",
     observedAt: row.observed_at,
   };
 }

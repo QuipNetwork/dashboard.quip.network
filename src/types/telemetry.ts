@@ -403,6 +403,13 @@ export interface MiningSubmissionRecord {
   // Distinct from chain `proofs_won` (only winners count there).
   solutionId: number;
   minerId: string;
+  // Backend that produced this submission — CPU / CUDA / METAL / MODAL
+  // / QPU. In multi-backend containers (one quip-miner process per
+  // active config group) this is the only way to tell which backend
+  // cleared the target for a given winning block. Empty string for
+  // rows from miners that don't yet surface the field (older images
+  // pre-dating the v17 telemetry plumbing).
+  minerType: string;
   // Per-miner dispatch counter; multiple submissions can share a dispatch_id
   // when the controller batches grinding work.
   dispatchId: number;
@@ -457,6 +464,11 @@ export interface MiningAttempt {
   // Open enum: 'rejected' | 'stored' | 'submitted' | … — preserved verbatim
   // from the miner's `result_kind` field.
   resultKind: string;
+  // Backend that produced this iteration — hoisted from the JSONL's
+  // `miner_type` field so the modal can show per-iteration backend
+  // attribution without unpacking `extra`. Empty string for miners
+  // that don't surface the field yet.
+  minerType: string;
   extra: Record<string, unknown>;
 }
 
