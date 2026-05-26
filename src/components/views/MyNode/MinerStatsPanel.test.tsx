@@ -35,6 +35,7 @@ function makeStats(overrides: Partial<MinerStats> = {}): MinerStats {
     proofsSubmitted: 0,
     staleDrops: 0,
     submissionErrors: 0,
+    duplicateResultDrops: 0,
     ...overrides,
   };
 }
@@ -74,6 +75,7 @@ function render(
   selfAvgMiningTimeSec: number | null = null,
   problemsAttempted: number = 0,
   modes: Record<string, import("../../../types/telemetry").ModeBreakdown> | undefined = undefined,
+  dataAgeMs: number | null = null,
 ) {
   act(() => {
     root.render(
@@ -83,6 +85,7 @@ function render(
         selfAvgMiningTimeSec,
         problemsAttempted,
         modes,
+        dataAgeMs,
       }),
     );
   });
@@ -133,6 +136,28 @@ describe("MinerStatsPanel", () => {
     render(makeStats(), null, 18.42);
     const tile = findTileByLabel("Avg Mining Time");
     expect(tile?.textContent).toContain("18.42s");
+  });
+
+  test("Solutions Computed sub-row surfaces resultsReceived and dedup count", () => {
+    // The diagnostic that prompted this: miner reports 3 results received,
+    // 1 dedup'd, 2 submitted. The sub-row tells operators why
+    // proofsSubmitted (2) is below resultsReceived (3) without shelling
+    // into the miner.
+    render(makeStats({ resultsReceived: 3, proofsSubmitted: 2, duplicateResultDrops: 1 }));
+    const tile = findTileByLabel("Solutions Computed");
+    expect(tile).not.toBeNull();
+    expect(tile?.textContent).toContain("3 results");
+    expect(tile?.textContent).toContain("1 dedup'd");
+  });
+
+  test("Solutions Computed sub-row omits dedup chunk when count is zero", () => {
+    // When there's no dedup activity the sub-row hides the dedup
+    // segment to avoid drawing the eye to a 0. Results count still
+    // renders so operators can spot in-flight vs submitted divergence.
+    render(makeStats({ resultsReceived: 5, proofsSubmitted: 5, duplicateResultDrops: 0 }));
+    const tile = findTileByLabel("Solutions Computed");
+    expect(tile?.textContent).toContain("5 results");
+    expect(tile?.textContent).not.toContain("dedup");
   });
 
   // Walks down through grid wrappers to find the leaf StatTile div whose
@@ -217,6 +242,7 @@ describe("MinerStatsPanel", () => {
         proofsSubmitted: 2,
         staleDrops: 0,
         submissionErrors: 1,
+        duplicateResultDrops: 0,
         miners: [{ id: "rig-QPU-DWAVE-1", type: "QPU" }],
       },
       cpu: {
@@ -226,6 +252,7 @@ describe("MinerStatsPanel", () => {
         proofsSubmitted: 3,
         staleDrops: 1,
         submissionErrors: 0,
+        duplicateResultDrops: 0,
         miners: [{ id: "rig-CPU-1", type: "CPU" }],
       },
     });
@@ -240,6 +267,22 @@ describe("MinerStatsPanel", () => {
     expect(text.indexOf("cpu")).toBeLessThan(text.indexOf("qpu"));
   });
 
+  test("data-age footer renders when dataAgeMs is provided", () => {
+    // Surfaces "fetched Ns ago" so operators can spot a stalled indexer
+    // (last poll minutes/hours old) from the same panel that shows the
+    // counters. Uses formatDuration's "s/m/h/d" buckets.
+    render(makeStats(), null, null, 0, undefined, 12_500);
+    expect(container.textContent).toContain("fetched 12s ago");
+  });
+
+  test("data-age footer hidden when dataAgeMs is null (fresh deploy)", () => {
+    // Pre-first-poll: no `lastStatusFetchAt` means we can't compute an
+    // age. Hide the footer rather than render "fetched 56yr ago" from
+    // a 1970 epoch fallback.
+    render(makeStats(), null, null, 0, undefined, null);
+    expect(container.textContent).not.toContain("fetched");
+  });
+
   test("Backends row submission errors cell uses danger accent when > 0", () => {
     render(makeStats(), null, null, 0, {
       cpu: {
@@ -249,6 +292,7 @@ describe("MinerStatsPanel", () => {
         proofsSubmitted: 0,
         staleDrops: 0,
         submissionErrors: 5,
+        duplicateResultDrops: 0,
         miners: [{ id: "rig-CPU-1", type: "CPU" }],
       },
     });

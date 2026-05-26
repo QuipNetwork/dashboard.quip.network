@@ -79,6 +79,7 @@ describe("v6 telemetry types", () => {
       proofsSubmitted: 0,
       staleDrops: 0,
       submissionErrors: 0,
+      duplicateResultDrops: 0,
     };
     expect(s.headsObserved).toBe(23);
   });

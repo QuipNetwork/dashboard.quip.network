@@ -84,6 +84,7 @@ function parseMinerStats(raw: unknown): MinerStats | null {
     proofsSubmitted: n(r.proofsSubmitted) ?? 0,
     staleDrops: n(r.staleDrops) ?? 0,
     submissionErrors: n(r.submissionErrors) ?? 0,
+    duplicateResultDrops: n(r.duplicateResultDrops) ?? 0,
   };
 }
 
@@ -108,6 +109,7 @@ function parseModeBreakdownMap(raw: unknown): Record<string, ModeBreakdown> {
       proofsSubmitted: n(v.proofsSubmitted),
       staleDrops: n(v.staleDrops),
       submissionErrors: n(v.submissionErrors),
+      duplicateResultDrops: n(v.duplicateResultDrops),
       miners: minersRaw.map((m) => {
         const t = String(m.type ?? "").toUpperCase();
         const type = t === "CPU" || t === "GPU" || t === "QPU" ? t : ("OTHER" as const);

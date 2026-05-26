@@ -136,6 +136,7 @@ export class QuipClient {
       proofsSubmitted: Number(controller["proofs_submitted"] ?? 0),
       staleDrops: Number(controller["stale_drops"] ?? 0),
       submissionErrors: Number(controller["submission_errors"] ?? 0),
+      duplicateResultDrops: Number(controller["duplicate_result_drops"] ?? 0),
     };
   }
 
@@ -189,6 +190,7 @@ function parseModes(raw: unknown): Record<string, ModeBreakdown> {
       proofsSubmitted: Number(ctrl["proofs_submitted"] ?? 0),
       staleDrops: Number(ctrl["stale_drops"] ?? 0),
       submissionErrors: Number(ctrl["submission_errors"] ?? 0),
+      duplicateResultDrops: Number(ctrl["duplicate_result_drops"] ?? 0),
       miners: minersRaw.map((m) => ({
         id: String(m["id"] ?? ""),
         type: narrowMinerType(m["type"]),

@@ -104,6 +104,7 @@ describe("QuipClient v0.2", () => {
               proofs_submitted: 8,
               stale_drops: 1,
               submission_errors: 2,
+              duplicate_result_drops: 4,
             },
           },
         }),
@@ -116,6 +117,7 @@ describe("QuipClient v0.2", () => {
     expect(r.proofsSubmitted).toBe(8);
     expect(r.staleDrops).toBe(1);
     expect(r.submissionErrors).toBe(2);
+    expect(r.duplicateResultDrops).toBe(4);
   });
 
   test("429 raises RateLimitError", async () => {
@@ -209,6 +211,7 @@ describe("QuipClient v0.2", () => {
                   proofs_submitted: 2,
                   stale_drops: 0,
                   submission_errors: 2,
+                  duplicate_result_drops: 7,
                 },
                 miners: [{ id: "rig-QPU-DWAVE-1", type: "QPU" }],
               },
@@ -222,6 +225,8 @@ describe("QuipClient v0.2", () => {
     expect(Object.keys(r.modes ?? {})).toEqual(["cpu", "qpu"]);
     expect(r.modes?.["cpu"]?.proofsSubmitted).toBe(3);
     expect(r.modes?.["qpu"]?.submissionErrors).toBe(2);
+    expect(r.modes?.["qpu"]?.duplicateResultDrops).toBe(7);
+    expect(r.modes?.["cpu"]?.duplicateResultDrops).toBe(0);
     expect(r.modes?.["cpu"]?.miners).toEqual([{ id: "rig-CPU-1", type: "CPU" }]);
   });
 

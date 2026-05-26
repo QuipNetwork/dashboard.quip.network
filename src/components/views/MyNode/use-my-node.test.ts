@@ -63,6 +63,7 @@ function makeMinerStats(overrides: Partial<MinerStats> = {}): MinerStats {
     proofsSubmitted: 12,
     staleDrops: 2,
     submissionErrors: 0,
+    duplicateResultDrops: 0,
     ...overrides,
   };
 }

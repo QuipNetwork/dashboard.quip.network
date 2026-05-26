@@ -2,7 +2,11 @@
 
 import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
 import { formatDuration, formatNumber } from "../../../lib/format";
-import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
+import {
+  selectServerNowMs,
+  selectTipBlock,
+  useTelemetryStore,
+} from "../../../store/telemetry-store";
 import { ChartCard } from "../../layout/ChartCard";
 import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import { useMyNode } from "./use-my-node";
@@ -31,6 +35,16 @@ export function MyNodeView() {
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
   const selfProblemsAttempted = useTelemetryStore((s) => s.selfProblemsAttempted);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const indexer = useTelemetryStore((s) => s.indexer);
+  const serverNowMs = useTelemetryStore(selectServerNowMs);
+  // Age of the most recent /api/v1/status poll, anchored on the
+  // server-stamped `serverTime` so a backgrounded tab can't inflate
+  // it via a drifted client clock. Null pre-first-fetch so the panel
+  // hides the footer rather than showing "fetched 56yr ago" (1970
+  // epoch) on a fresh deploy.
+  const dataAgeMs = indexer?.lastStatusFetchAt
+    ? Math.max(0, serverNowMs - Date.parse(indexer.lastStatusFetchAt))
+    : null;
 
   if (!stats.selfAddress) {
     return (
@@ -244,6 +258,7 @@ export function MyNodeView() {
           selfAvgMiningTimeSec={selfAvgMiningTimeSec}
           problemsAttempted={selfProblemsAttempted}
           modes={modes}
+          dataAgeMs={dataAgeMs}
         />
       )}
 

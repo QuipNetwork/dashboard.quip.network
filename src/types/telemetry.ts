@@ -185,6 +185,12 @@ export interface MinerStats {
   proofsSubmitted: number;
   staleDrops: number;
   submissionErrors: number;
+  // Results the miner produced but then discarded because they
+  // duplicated a prior solution (same hash, same head). Visible on the
+  // dashboard so operators can explain a `resultsReceived` >
+  // `proofsSubmitted` gap without shelling into the miner. 0 for legacy
+  // observability rows persisted before this field landed.
+  duplicateResultDrops: number;
 }
 
 /**
@@ -210,6 +216,10 @@ export interface ModeBreakdown {
   proofsSubmitted: number;
   staleDrops: number;
   submissionErrors: number;
+  // Per-backend dedup count. Aggregator passes this through from the
+  // child's `controller.duplicate_result_drops` so the per-mode table
+  // matches the headline tile.
+  duplicateResultDrops: number;
   // Worker handles this child owns (`{id, type}`). Lets the UI
   // show "cpu mode: 4 workers, qpu mode: 1 dwave handle" without
   // re-deriving from `miners[]` parsing.

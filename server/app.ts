@@ -175,6 +175,11 @@ export function createApp(options: CreateAppOptions): Hono {
       };
     });
 
+    // Telemetry is a moving target — every poll returns different
+    // counters. Without `no-store`, browsers can apply heuristic
+    // freshness to an opaque JSON body and serve a cached response after
+    // a refocus, masking real updates from the indexer.
+    c.header("Cache-Control", "no-store");
     return c.json({
       blocks,
       selfAddress,

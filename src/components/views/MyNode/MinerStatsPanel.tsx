@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { ChainMinerRecord, MinerStats, ModeBreakdown } from "../../../types/telemetry";
-import { formatNumber } from "../../../lib/format";
+import { formatDuration, formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
 import { StatTile } from "./StatTile";
 
@@ -20,6 +20,7 @@ export function MinerStatsPanel({
   selfAvgMiningTimeSec,
   problemsAttempted,
   modes,
+  dataAgeMs,
 }: {
   stats: MinerStats;
   chainMinerEntry: ChainMinerRecord | null;
@@ -34,6 +35,13 @@ export function MinerStatsPanel({
   // mode's contribution. Undefined / empty hides the row entirely so
   // single-process miners see the same UI as before.
   modes?: Record<string, ModeBreakdown>;
+  // Age of the indexer's last /api/v1/status fetch (ms), measured
+  // against the server-stamped `serverTime` anchor. Null when the
+  // indexer hasn't completed a poll yet (fresh deploy) — the footer
+  // hides in that case. Anchored on server time so a backgrounded
+  // tab's drifted clock doesn't inflate the displayed age (audit fix
+  // #3).
+  dataAgeMs?: number | null;
 }) {
   const avgMiningTimeLabel =
     selfAvgMiningTimeSec != null && selfAvgMiningTimeSec > 0
@@ -66,7 +74,17 @@ export function MinerStatsPanel({
         <StatTile
           label="Solutions Computed"
           value={formatNumber(stats.proofsSubmitted)}
-          sublabel="meet on-chain difficulty"
+          sublabel={
+            <>
+              meet on-chain difficulty
+              <span className="mt-0.5 block text-brand-gray-4">
+                {formatNumber(stats.resultsReceived)} results
+                {stats.duplicateResultDrops > 0
+                  ? ` · ${formatNumber(stats.duplicateResultDrops)} dedup'd`
+                  : ""}
+              </span>
+            </>
+          }
         />
         <StatTile label="Submission Rate" value={submissionRateLabel} sublabel="local" />
         <StatTile
@@ -91,6 +109,11 @@ export function MinerStatsPanel({
         />
       </div>
       <ModesBreakdownRow modes={modes} />
+      {dataAgeMs != null && (
+        <p className="mt-4 text-right font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
+          fetched {formatDuration(dataAgeMs)} ago
+        </p>
+      )}
     </ChartCard>
   );
 }

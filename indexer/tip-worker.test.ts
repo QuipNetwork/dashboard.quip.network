@@ -39,6 +39,7 @@ function fakeClient(opts: {
     proofsSubmitted: 0,
     staleDrops: 0,
     submissionErrors: 0,
+    duplicateResultDrops: 0,
     ...overrides,
   });
   return {
