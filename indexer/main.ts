@@ -77,6 +77,19 @@ async function main(): Promise<number> {
   await db.connect();
   await db.migrate();
 
+  // Seed selfAddress from --operator-account / QUIP_OPERATOR_ACCOUNT when
+  // the DB has nothing cached. Skips the tip-worker's descriptor-probe
+  // bootstrap and makes startup deterministic on split-host deployments
+  // where the operator's descriptor hasn't landed yet. A cached value
+  // already in the DB always wins — env config never clobbers history.
+  if (config.operatorAccount) {
+    const existing = await db.getSelfAddress();
+    if (!existing) {
+      await db.setSelfAddress(config.operatorAccount);
+      console.log(`[indexer] selfAddress seeded from QUIP_OPERATOR_ACCOUNT=${config.operatorAccount}`);
+    }
+  }
+
   const state = new IndexerState(db);
   await state.load();
 

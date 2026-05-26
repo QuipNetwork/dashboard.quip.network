@@ -17,6 +17,7 @@ const TOUCHED_ENV = [
   "QUIP_VALIDATOR_BABE_POLL_SEC",
   "QUIP_VALIDATOR_CHAIN_POLL_SEC",
   "QUIP_DESCRIPTOR_START_BLOCK",
+  "QUIP_OPERATOR_ACCOUNT",
 ] as const;
 
 describe("parseConfig", () => {
@@ -179,5 +180,48 @@ describe("parseConfig", () => {
   it("rejects non-positive substrate poll intervals", () => {
     expect(() => parseConfig(["--substrate-babe-poll=0"])).toThrow(/> 0/);
     expect(() => parseConfig(["--substrate-chain-poll=-1"])).toThrow(/> 0/);
+  });
+
+  it("operatorAccount defaults to null when unset", () => {
+    expect(parseConfig([]).operatorAccount).toBeNull();
+  });
+
+  it("reads QUIP_OPERATOR_ACCOUNT env var", () => {
+    process.env.QUIP_OPERATOR_ACCOUNT = "5HY4e5KJiAu5xhjqQn1bhymmDEvz8EfivCETPW7PkJso7qBe";
+    expect(parseConfig([]).operatorAccount).toBe(
+      "5HY4e5KJiAu5xhjqQn1bhymmDEvz8EfivCETPW7PkJso7qBe",
+    );
+  });
+
+  it("--operator-account flag overrides env", () => {
+    // Synthetic SS58-shaped strings: 48 chars, base58 alphabet only
+    // (no 0/O/I/l). Real addresses look the same shape.
+    const envAddr = "5HYfromENVfromENVfromENVfromENVfromENVfromENVxxx";
+    const flagAddr = "5HYfromFLAGfromFLAGfromFLAGfromFLAGfromFLAGfromFx";
+    process.env.QUIP_OPERATOR_ACCOUNT = envAddr;
+    expect(parseConfig([`--operator-account=${flagAddr}`]).operatorAccount).toBe(flagAddr);
+  });
+
+  it("trims surrounding whitespace on operatorAccount", () => {
+    process.env.QUIP_OPERATOR_ACCOUNT = "  5HY4e5KJiAu5xhjqQn1bhymmDEvz8EfivCETPW7PkJso7qBe  ";
+    expect(parseConfig([]).operatorAccount).toBe(
+      "5HY4e5KJiAu5xhjqQn1bhymmDEvz8EfivCETPW7PkJso7qBe",
+    );
+  });
+
+  it("treats empty / whitespace-only operatorAccount as unset", () => {
+    process.env.QUIP_OPERATOR_ACCOUNT = "   ";
+    expect(parseConfig([]).operatorAccount).toBeNull();
+  });
+
+  it("rejects an operatorAccount that doesn't look like SS58", () => {
+    expect(() => parseConfig(["--operator-account=not-a-real-ss58"])).toThrow(/SS58/);
+  });
+
+  it("rejects an operatorAccount containing 0/O/I/l (non-base58)", () => {
+    // Length is in range but contains base58-forbidden chars.
+    expect(() =>
+      parseConfig(["--operator-account=0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIlAB"]),
+    ).toThrow(/SS58/);
   });
 });

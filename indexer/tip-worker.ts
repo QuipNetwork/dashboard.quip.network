@@ -2,7 +2,7 @@
 
 import type { DatabaseAdapter } from "../api/db/adapter";
 import { MiningSubmissionNotFoundError } from "../api/miner-api";
-import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
+import { discoverLocalOperator, resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
 
 import type { IndexerConfig } from "./config";
@@ -73,7 +73,21 @@ export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Prom
   const intervalMs = deps.config.pollIntervalSec * 1000;
   while (!signal.aborted) {
     try {
-      const selfAddress = await deps.db.getSelfAddress();
+      let selfAddress = await deps.db.getSelfAddress();
+      // Bootstrap: when no selfAddress is cached, probe every descriptor
+      // with a publicHost and pick the one whose /api/v1/status reports
+      // a matching ss58_address. Solves split-host deployments where the
+      // derived RPC fallback URL doesn't actually serve miner-REST. Once
+      // a self-consistent match is cached, every subsequent iteration
+      // short-circuits straight to the descriptor lookup.
+      if (!selfAddress) {
+        const discovered = await discoverLocalOperator(deps.db);
+        if (discovered) {
+          await deps.db.setSelfAddress(discovered);
+          selfAddress = discovered;
+          console.log(`[indexer/tip] discovered selfAddress=${discovered} via descriptor probe`);
+        }
+      }
       const baseUrl = await resolveSelfMinerRestUrl(
         deps.db,
         deps.config.validatorRpcUrls,

@@ -39,6 +39,16 @@ export interface IndexerConfig {
   // should set QUIP_DESCRIPTOR_START_BLOCK to a recent block height to
   // avoid an O(history) catch-up walk.
   descriptorStartBlock: string;
+
+  // Operator SS58 to seed `self_address` on first start. Optional escape
+  // hatch for the descriptor-probe bootstrap (tip-worker scans every
+  // descriptor's publicHost looking for a self-consistent identity) —
+  // setting this skips the probe entirely and primes the cache directly.
+  // Useful when the operator's descriptor hasn't landed on-chain yet,
+  // when their publicHost isn't reachable from the indexer host, or
+  // simply to make startup deterministic. Ignored once the DB already
+  // has a selfAddress cached.
+  operatorAccount: string | null;
 }
 
 const DEFAULTS = {
@@ -229,6 +239,12 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     );
   }
 
+  const operatorFlag = takeFlag(argv, "--operator-account");
+  const operatorAccountRaw =
+    (typeof operatorFlag === "string" ? operatorFlag : undefined) ??
+    process.env.QUIP_OPERATOR_ACCOUNT;
+  const operatorAccount = parseOperatorAccount(operatorAccountRaw);
+
   return {
     validatorRpcUrls,
     pollIntervalSec,
@@ -241,5 +257,26 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     substrateBabePollSec,
     substrateChainPollSec,
     descriptorStartBlock,
+    operatorAccount,
   };
+}
+
+/**
+ * Validate a configured operator SS58. Empty / missing → null (no
+ * seeding). Non-empty must look like a substrate base58 address: 46–50
+ * chars, base58 alphabet (no 0/O/I/l). We deliberately don't checksum
+ * here — the indexer can't reach a substrate node before main() runs
+ * config parsing, and a bad address surfaces as "tip-worker probed but
+ * found nothing self-consistent" on the very next poll.
+ */
+function parseOperatorAccount(raw: string | undefined): string | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (!/^[1-9A-HJ-NP-Za-km-z]{46,50}$/.test(trimmed)) {
+    throw new Error(
+      `[indexer] QUIP_OPERATOR_ACCOUNT must be a substrate SS58 address (46–50 base58 chars), got: ${JSON.stringify(raw)}`,
+    );
+  }
+  return trimmed;
 }

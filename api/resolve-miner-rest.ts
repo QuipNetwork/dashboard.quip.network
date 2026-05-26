@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { NodeDescriptorRecord } from "../src/types/telemetry";
+
 import type { DatabaseAdapter } from "./db/adapter";
 
 /**
@@ -60,4 +62,96 @@ export function deriveMinerRestFromRpcUrl(rpcUrl: string): string {
   // Trim any leftover trailing slash for stable concatenation with
   // `/api/v1/...` paths downstream.
   return out.replace(/\/+$/, "");
+}
+
+/**
+ * Build the miner-REST base URL from a descriptor row. Shared between the
+ * descriptor-aware resolver and the discovery probe so both produce the
+ * same canonical shape for a given (publicHost, publicPort) pair.
+ */
+function descriptorRestBaseUrl(record: NodeDescriptorRecord): string | null {
+  const host = record.descriptor.publicHost;
+  if (!host) return null;
+  const port = record.descriptor.publicPort;
+  return port ? `https://${host}:${port}` : `https://${host}`;
+}
+
+const DEFAULT_PROBE_TIMEOUT_MS = 2000;
+const DEFAULT_MAX_PROBES = 8;
+
+/**
+ * Discover the local operator's SS58 by probing every `node_descriptors`
+ * row that carries a `publicHost`. Solves the bootstrap chicken-and-egg
+ * that bit split-host deployments (chain RPC and miner REST on different
+ * hostnames): tip-worker needs `selfAddress` to resolve the REST URL,
+ * but `selfAddress` only gets cached after a successful REST call.
+ *
+ * Strategy: for each candidate URL, fetch `/api/v1/status`. A descriptor
+ * is considered "self" only when the returned `ss58_address` matches the
+ * descriptor's signer account (the row's `accountId`). This filters out
+ * descriptors from other operators on a multi-tenant dashboard — probing
+ * their nodes returns *their* SS58, which won't equal *our* signer.
+ *
+ * Returns the first self-consistent SS58 found, or null when no candidate
+ * responds with a matching identity. Caps probes at `maxProbes` to bound
+ * a tick's worst-case work on a large descriptor table.
+ */
+export async function discoverLocalOperator(
+  db: DatabaseAdapter,
+  options: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    maxProbes?: number;
+  } = {},
+): Promise<string | null> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const maxProbes = options.maxProbes ?? DEFAULT_MAX_PROBES;
+
+  const descriptors = await db.getAllNodeDescriptors();
+  let probed = 0;
+  for (const row of descriptors) {
+    if (probed >= maxProbes) break;
+    const baseUrl = descriptorRestBaseUrl(row);
+    if (!baseUrl) continue;
+    probed++;
+    const reported = await probeStatusSs58(baseUrl, fetchImpl, timeoutMs);
+    if (reported && reported === row.accountId) {
+      return reported;
+    }
+  }
+  return null;
+}
+
+/**
+ * Single-URL probe. Returns the `ss58_address` reported by the miner's
+ * `/api/v1/status`, or null on any failure (non-2xx, malformed envelope,
+ * network error, timeout). Caller compares against the descriptor's
+ * signer for self-consistency.
+ */
+async function probeStatusSs58(
+  baseUrl: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<string | null> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/v1/status`, {
+      headers: { accept: "application/json" },
+      signal: ac.signal,
+    });
+    if (!res.ok) return null;
+    const parsed = (await res.json()) as {
+      success?: boolean;
+      data?: { ss58_address?: unknown };
+    };
+    if (!parsed || parsed.success === false) return null;
+    const ss58 = parsed.data?.ss58_address;
+    return typeof ss58 === "string" && ss58.length > 0 ? ss58 : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
