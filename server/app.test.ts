@@ -140,7 +140,8 @@ describe("server app", () => {
       finalizedBlockHeight: "4937",
       chainConnected: true,
       minerStats: null,
-    });
+    modes: {},
+  });
     const res = await app.fetch(new Request("http://test/api/telemetry"));
     const body = (await res.json()) as TelemetryResponse;
     expect(body.indexer).not.toBeNull();
@@ -276,7 +277,8 @@ describe("server app", () => {
       finalizedBlockHeight: "4937",
       chainConnected: true,
       minerStats: null,
-    });
+    modes: {},
+  });
     const res = await app.fetch(new Request("http://test/api/health"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

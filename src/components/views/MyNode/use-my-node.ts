@@ -3,7 +3,12 @@
 import { useMemo } from "react";
 
 import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
-import type { BlockRecord, ChainMinerRecord, MinerStats } from "../../../types/telemetry";
+import type {
+  BlockRecord,
+  ChainMinerRecord,
+  MinerStats,
+  ModeBreakdown,
+} from "../../../types/telemetry";
 import {
   computeLeaderboard,
   type LeaderboardEntry,
@@ -19,6 +24,11 @@ export interface MyNodeStats {
   selfAddress: string | null;
   chainMinerEntry: ChainMinerRecord | null;
   minerStats: MinerStats | null;
+  // Per-backend breakdown — populated when the operator's container
+  // runs the multi-process aggregator (one quip-miner per active
+  // backend group). Empty / undefined for single-process miners,
+  // in which case the UI omits the per-mode row.
+  modes: Record<string, ModeBreakdown> | undefined;
   lastWonBlock: BlockRecord | null;
   // Total blocks won by self (from chain_miners.proofsWon, u64 string-safe).
   blocksMined: string;
@@ -112,6 +122,7 @@ export function useMyNode(): MyNodeStats {
       selfAddress,
       chainMinerEntry,
       minerStats: indexer?.minerStats ?? null,
+      modes: indexer?.modes,
       lastWonBlock,
       blocksMined,
       selfAvgMiningTimeSec,

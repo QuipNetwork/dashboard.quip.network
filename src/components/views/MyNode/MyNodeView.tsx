@@ -48,6 +48,7 @@ export function MyNodeView() {
     selfAddress,
     chainMinerEntry,
     minerStats,
+    modes,
     lastWonBlock,
     blocksMined,
     currentRequirements,
@@ -241,6 +242,7 @@ export function MyNodeView() {
           chainMinerEntry={chainMinerEntry}
           selfAvgMiningTimeSec={selfAvgMiningTimeSec}
           problemsAttempted={selfProblemsAttempted}
+          modes={modes}
         />
       )}
 

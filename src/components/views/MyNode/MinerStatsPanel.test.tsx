@@ -73,6 +73,7 @@ function render(
   chainMinerEntry: ChainMinerRecord | null = null,
   selfAvgMiningTimeSec: number | null = null,
   problemsAttempted: number = 0,
+  modes: Record<string, import("../../../types/telemetry").ModeBreakdown> | undefined = undefined,
 ) {
   act(() => {
     root.render(
@@ -81,6 +82,7 @@ function render(
         chainMinerEntry,
         selfAvgMiningTimeSec,
         problemsAttempted,
+        modes,
       }),
     );
   });
@@ -190,5 +192,68 @@ describe("MinerStatsPanel", () => {
     // Avoid 0/0 NaN by guarding on chainSubmitted > 0 — verify the em-dash
     // appears in the tile value (sublabel still reads "won / submitted").
     expect(tile?.textContent).toContain("—");
+  });
+
+  test("Backends row hidden when modes is undefined or empty", () => {
+    // Single-process container: no `modes` data → no per-backend
+    // section appears, UI matches pre-W4 layout exactly.
+    render(makeStats(), null, null, 0, undefined);
+    expect(container.textContent).not.toContain("Backends");
+
+    render(makeStats(), null, null, 0, {});
+    expect(container.textContent).not.toContain("Backends");
+  });
+
+  test("Backends row renders one entry per active mode in canonical order", () => {
+    // Multi-process container: aggregator surfaces per-mode breakdown.
+    // The panel renders them in canonical MODE_NAMES order (cpu, gpu,
+    // qpu) regardless of dict iteration order so two operators looking
+    // at the same data see the same row layout.
+    render(makeStats(), null, null, 0, {
+      qpu: {
+        headsObserved: 50,
+        contextsDispatched: 50,
+        resultsReceived: 48,
+        proofsSubmitted: 2,
+        staleDrops: 0,
+        submissionErrors: 1,
+        miners: [{ id: "rig-QPU-DWAVE-1", type: "QPU" }],
+      },
+      cpu: {
+        headsObserved: 50,
+        contextsDispatched: 50,
+        resultsReceived: 50,
+        proofsSubmitted: 3,
+        staleDrops: 1,
+        submissionErrors: 0,
+        miners: [{ id: "rig-CPU-1", type: "CPU" }],
+      },
+    });
+    expect(container.textContent).toContain("Backends");
+    // CPU row appears before QPU row even though `qpu` was first in
+    // the input dict — canonical ordering kicks in. Mode keys render
+    // lowercase in the DOM (the `uppercase` class is a CSS transform);
+    // assert on textContent so we don't depend on CSS resolution.
+    const text = container.textContent ?? "";
+    expect(text.indexOf("cpu")).toBeGreaterThan(-1);
+    expect(text.indexOf("qpu")).toBeGreaterThan(-1);
+    expect(text.indexOf("cpu")).toBeLessThan(text.indexOf("qpu"));
+  });
+
+  test("Backends row submission errors cell uses danger accent when > 0", () => {
+    render(makeStats(), null, null, 0, {
+      cpu: {
+        headsObserved: 10,
+        contextsDispatched: 10,
+        resultsReceived: 8,
+        proofsSubmitted: 0,
+        staleDrops: 0,
+        submissionErrors: 5,
+        miners: [{ id: "rig-CPU-1", type: "CPU" }],
+      },
+    });
+    // The error cell gets the red text class when count > 0 — same
+    // visual convention as the headline Submission Errors tile.
+    expect(container.innerHTML).toContain("text-brand-red-0");
   });
 });

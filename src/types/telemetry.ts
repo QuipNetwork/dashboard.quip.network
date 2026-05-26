@@ -186,6 +186,35 @@ export interface MinerStats {
 }
 
 /**
+ * Per-backend slice of the aggregated container snapshot. In a
+ * single-process container `modes` is `{}` (no breakdown needed); in
+ * a multi-process container (one quip-miner per active backend group)
+ * there's one entry per active mode keyed by `cpu` / `gpu` / `qpu`.
+ *
+ * The aggregator sibling assembles this by reading each child's
+ * `telemetry-stats-<kind>.json` and bucketing under its `mode` field
+ * before merging the top-level counters. Operators reading the
+ * dashboard see the unified numbers AND the per-backend breakdown
+ * for "is the qpu doing anything?" investigations.
+ */
+export interface ModeBreakdown {
+  // Subset of MinerStats counters that survive the per-process split
+  // — only what the snapshot's `controller` block carries (pool /
+  // chain heartbeat counters are container-wide and aggregated out
+  // of this slice).
+  headsObserved: number;
+  contextsDispatched: number;
+  resultsReceived: number;
+  proofsSubmitted: number;
+  staleDrops: number;
+  submissionErrors: number;
+  // Worker handles this child owns (`{id, type}`). Lets the UI
+  // show "cpu mode: 4 workers, qpu mode: 1 dwave handle" without
+  // re-deriving from `miners[]` parsing.
+  miners: Array<{ id: string; type: MinerCategory }>;
+}
+
+/**
  * Observability snapshot written by the indexer on every successful poll.
  * v0.3 drops the dual-cursor epoch/blockIndex model — the chain is now the
  * canonical block source, so we only track:
@@ -211,6 +240,15 @@ export interface IndexerObservability {
   // after the substrate worker's client emits a `connected` event.
   chainConnected: boolean;
   minerStats: MinerStats | null;
+  // Per-backend breakdown from the multi-process aggregator's last
+  // /api/v1/status response. `{}` for single-process miners. UI
+  // renders one row per active mode under the headline counters so
+  // operators can see "qpu produced 0 proofs in the last 10s while
+  // cpu produced 5" without parsing miner ids.
+  //
+  // Optional so persisted v16 observability rows + existing test
+  // fixtures parse cleanly; consumers default to `{}` when reading.
+  modes?: Record<string, ModeBreakdown>;
 }
 
 /**

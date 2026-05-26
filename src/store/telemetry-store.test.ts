@@ -112,7 +112,8 @@ const MOCK_INDEXER: IndexerObservability = {
   finalizedBlockHeight: "97",
   chainConnected: true,
   minerStats: null,
-};
+    modes: {},
+  };
 
 function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResponse {
   return {

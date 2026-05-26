@@ -76,6 +76,10 @@ export async function runTipIteration(deps: TipWorkerDeps): Promise<void> {
       };
       await db.upsertMinerHardware(hardware);
       state.observability.chainHeadFromNode = String(status.chainHeadNumber);
+      // Pass-through the aggregator's per-backend breakdown so the
+      // UI can render it without re-querying. Empty for single-process
+      // miners; one entry per active mode for multi-process containers.
+      state.observability.modes = status.modes;
     }
   } catch (e) {
     if (e instanceof AuthError) throw e;

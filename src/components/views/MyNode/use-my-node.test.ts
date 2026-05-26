@@ -146,6 +146,7 @@ describe("useMyNode", () => {
       selfAddress: null,
       chainMinerEntry: null,
       minerStats: null,
+      modes: undefined,
       lastWonBlock: null,
       blocksMined: "0",
       selfAvgMiningTimeSec: null,

@@ -11,6 +11,7 @@ import type {
   MinerHardwareRecord,
   MinerStats,
   MiningSubmissionRecord,
+  ModeBreakdown,
   NodeDescriptorRecord,
 } from "../../src/types/telemetry";
 
@@ -60,6 +61,7 @@ export function parseIndexerObservability(
     finalizedBlockHeight: p.finalizedBlockHeight,
     chainConnected: p.chainConnected,
     minerStats: parseMinerStats(p.minerStats),
+    modes: parseModeBreakdownMap(p.modes),
   };
 }
 
@@ -83,6 +85,41 @@ function parseMinerStats(raw: unknown): MinerStats | null {
     staleDrops: n(r.staleDrops) ?? 0,
     submissionErrors: n(r.submissionErrors) ?? 0,
   };
+}
+
+/**
+ * Best-effort parse of the per-backend breakdown the aggregator
+ * surfaces on `/api/v1/status.modes`. Defaults to `{}` for legacy
+ * observability rows persisted before v17 — the UI degrades to the
+ * single-process display when modes is empty.
+ */
+function parseModeBreakdownMap(raw: unknown): Record<string, ModeBreakdown> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, ModeBreakdown> = {};
+  for (const [mode, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const n = (x: unknown): number =>
+      typeof x === "number" && Number.isFinite(x) ? x : 0;
+    const minersRaw = Array.isArray(v.miners)
+      ? (v.miners as Array<Record<string, unknown>>)
+      : [];
+    out[mode] = {
+      headsObserved: n(v.headsObserved),
+      contextsDispatched: n(v.contextsDispatched),
+      resultsReceived: n(v.resultsReceived),
+      proofsSubmitted: n(v.proofsSubmitted),
+      staleDrops: n(v.staleDrops),
+      submissionErrors: n(v.submissionErrors),
+      miners: minersRaw.map((m) => {
+        const t = String(m.type ?? "").toUpperCase();
+        const type =
+          t === "CPU" || t === "GPU" || t === "QPU" ? t : ("OTHER" as const);
+        return { id: String(m.id ?? ""), type };
+      }),
+    };
+  }
+  return out;
 }
 
 export interface DatabaseAdapter {

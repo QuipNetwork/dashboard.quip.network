@@ -173,4 +173,88 @@ describe("QuipClient v0.2", () => {
     await c.getStatus();
     expect(captured.auth).toBe("Bearer secret");
   });
+
+  test("getStatus parses aggregator modes breakdown", async () => {
+    // Multi-process container: /api/v1/status carries a `modes` map
+    // alongside the aggregate counters. The parser hoists it onto
+    // NodeStatus so the dashboard can render per-backend rows.
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "5GPP",
+            account_id_hex: "0x",
+            node_id: "rig-01",
+            is_mining: true,
+            uptime_seconds: 100,
+            chain: { head_hash: "0x", head_number: 1 },
+            miner_registered: true,
+            miner_info: null,
+            miners: [
+              { id: "rig-CPU-1", type: "CPU" },
+              { id: "rig-QPU-DWAVE-1", type: "QPU" },
+            ],
+            modes: {
+              cpu: {
+                controller: {
+                  heads_observed: 50,
+                  contexts_dispatched: 50,
+                  results_received: 50,
+                  proofs_submitted: 3,
+                  stale_drops: 1,
+                  submission_errors: 0,
+                },
+                miners: [{ id: "rig-CPU-1", type: "CPU" }],
+              },
+              qpu: {
+                controller: {
+                  heads_observed: 50,
+                  contexts_dispatched: 50,
+                  results_received: 48,
+                  proofs_submitted: 2,
+                  stale_drops: 0,
+                  submission_errors: 2,
+                },
+                miners: [{ id: "rig-QPU-DWAVE-1", type: "QPU" }],
+              },
+            },
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r = await c.getStatus();
+    expect(r.modes).toBeDefined();
+    expect(Object.keys(r.modes ?? {})).toEqual(["cpu", "qpu"]);
+    expect(r.modes?.["cpu"]?.proofsSubmitted).toBe(3);
+    expect(r.modes?.["qpu"]?.submissionErrors).toBe(2);
+    expect(r.modes?.["cpu"]?.miners).toEqual([{ id: "rig-CPU-1", type: "CPU" }]);
+  });
+
+  test("getStatus tolerates missing modes (legacy single-process miner)", async () => {
+    // Older miners + single-process containers don't emit `modes`.
+    // Parser must return undefined (or empty) without complaint so
+    // the rest of NodeStatus is still well-formed.
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "5GPP",
+            account_id_hex: "0x",
+            node_id: "rig",
+            is_mining: true,
+            uptime_seconds: 0,
+            chain: { head_hash: "0x", head_number: 0 },
+            miner_registered: false,
+            miner_info: null,
+            miners: [],
+            // no `modes` key at all
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r = await c.getStatus();
+    expect(r.modes).toEqual({});
+  });
 });

@@ -14,6 +14,7 @@ describe("parseIndexerObservability (v6)", () => {
     finalizedBlockHeight: null,
     chainConnected: false,
     minerStats: null,
+    modes: {},
   };
 
   test("accepts a well-formed v6 payload", () => {

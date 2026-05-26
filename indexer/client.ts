@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { MiningSubmissionNotFoundError, parseMiningAttemptsApiResponse } from "../api/miner-api";
-import type { MinerCategory, MinerStats, MiningAttemptsResponse } from "../src/types/telemetry";
+import type {
+  MinerCategory,
+  MinerStats,
+  MiningAttemptsResponse,
+  ModeBreakdown,
+} from "../src/types/telemetry";
 
 export interface NodeStatus {
   ss58Address: string;
@@ -20,6 +25,16 @@ export interface NodeStatus {
     rewardsEarned: string; // u128 as string
   } | null;
   miners: Array<{ id: string; type: MinerCategory }>;
+  // Per-backend breakdown from the in-container aggregator. Empty
+  // record `{}` for legacy single-process miners; one entry per
+  // active backend group (`cpu` / `gpu` / `qpu`) in multi-process
+  // containers. Lets the UI show "qpu produced 0 proofs while cpu
+  // produced 5" instead of just the aggregate.
+  //
+  // Optional so existing test fixtures and Partial<NodeStatus>
+  // helpers don't have to thread an empty record through every
+  // construction site. Consumers default to `{}` when reading.
+  modes?: Record<string, ModeBreakdown>;
 }
 
 export class AuthError extends Error {
@@ -90,6 +105,7 @@ export class QuipClient {
             type: narrowMinerType(m["type"]),
           }))
         : [],
+      modes: parseModes(data["modes"]),
     };
   }
 
@@ -163,4 +179,37 @@ function narrowMinerType(raw: unknown): MinerCategory {
   const s = String(raw ?? "").toUpperCase();
   if (s === "CPU" || s === "GPU" || s === "QPU") return s;
   return "OTHER";
+}
+
+/**
+ * Parse the `modes` field returned by /api/v1/status. Tolerates the
+ * legacy shape where the miner doesn't emit `modes` (returns `{}`) and
+ * the new aggregator shape `{<mode>: {controller: {...}, miners: [...]}}`.
+ *
+ * Missing / malformed counters default to 0 — the UI shows "no work
+ * yet" rather than crashing on a fresh aggregator that hasn't accrued
+ * data.
+ */
+function parseModes(raw: unknown): Record<string, ModeBreakdown> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, ModeBreakdown> = {};
+  for (const [mode, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const ctrl = (v["controller"] as Record<string, unknown>) ?? {};
+    const minersRaw = Array.isArray(v["miners"]) ? (v["miners"] as Array<Record<string, unknown>>) : [];
+    out[mode] = {
+      headsObserved: Number(ctrl["heads_observed"] ?? 0),
+      contextsDispatched: Number(ctrl["contexts_dispatched"] ?? 0),
+      resultsReceived: Number(ctrl["results_received"] ?? 0),
+      proofsSubmitted: Number(ctrl["proofs_submitted"] ?? 0),
+      staleDrops: Number(ctrl["stale_drops"] ?? 0),
+      submissionErrors: Number(ctrl["submission_errors"] ?? 0),
+      miners: minersRaw.map((m) => ({
+        id: String(m["id"] ?? ""),
+        type: narrowMinerType(m["type"]),
+      })),
+    };
+  }
+  return out;
 }
