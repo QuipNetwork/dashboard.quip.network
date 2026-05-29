@@ -484,15 +484,21 @@ export interface MiningSubmissionRecord {
   // Derived: min(attempts[].best_energy_milli). Lets the table show "best
   // energy this submission ever reached" without unpacking iterations.
   bestEnergyMilli: number;
-  // The `num_valid` count from the submitted iteration — full unique
+  // Sampler-productivity count from the submitted iteration — full unique
   // constraint-valid count across the SA batch, target-blind. Operators
   // read this as "sampler productivity": how many distinct
   // constraint-satisfying spin configurations the sampler produced before
-  // diverse-K selection. Distinct from the chain-side
+  // diverse-K selection. Sourced from the miner's
+  // `solution_meta.n_unique_total` (quip-protocol MR !103+), falling back
+  // to the legacy top-level `num_valid` field for pre-!103 images — !103
+  // re-pointed `num_valid` to the target-AWARE below-threshold count, so
+  // reading it directly would silently collapse this to the trivial
+  // "~min_solutions" figure. Distinct from the chain-side
   // BlockRecord.numValidSolutions (validator's count for a winning proof)
-  // and from per-iter num_solutions_meeting_target (target-aware count,
-  // surfaced in the in-flight attempts panel). 0 when the miner didn't
-  // surface it (older images, chain_error submissions, mempool path).
+  // and from the per-iter below-threshold count
+  // (solution_meta.n_unique_below_threshold, surfaced in the in-flight
+  // attempts panel). 0 when the miner surfaced neither (chain_error
+  // submissions, mempool path, or a miner publishing no diagnostics).
   numValid: number;
   // Per-submission sum of D-Wave's `qpu_access_time` across every
   // iteration of this submission (microseconds). Captures the *real*

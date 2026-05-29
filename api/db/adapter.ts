@@ -482,7 +482,17 @@ export interface DbConfig {
 // CPU/GPU and for QPU rows produced before the miner started
 // surfacing the field. Wipe-on-drift so the column populates on
 // next poll.
-export const SCHEMA_VERSION = 18;
+// v19: re-sources the Recent Performance "Solutions" column
+// (mining_submissions.num_valid) from the submitted iteration's
+// `solution_meta.n_unique_total` (quip-protocol MR !103), falling back
+// to the legacy top-level `num_valid` for pre-!103 miners. !103 dropped
+// the per-iter `num_solutions_meeting_target` field and re-pointed
+// `num_valid` to the target-aware below-threshold count, so an old
+// indexer would have stored the trivial "~min_solutions" figure in the
+// productivity column. The in-flight + modal attempts panels now read
+// the below-target count from `solution_meta.n_unique_below_threshold`.
+// Wipe-on-drift rebuilds the column from n_unique_total on next poll.
+export const SCHEMA_VERSION = 19;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

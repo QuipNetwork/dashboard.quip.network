@@ -4,16 +4,18 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v18: mining_submissions carries qpu_access_time_us alongside miner_type", () => {
-  // v18 adds qpu_access_time_us (microseconds, BIGINT/INTEGER NOT
-  // NULL DEFAULT 0) to each mining_submissions row. Sum of D-Wave's
-  // `qpu_access_time` across every iteration — the real QPU compute
-  // time minus the wall-clock D-Wave cloud RTT overhead. Powers the
-  // "Total Compute Used" QPU bar; 0 for CPU/GPU rows and for QPU
-  // rows produced before the miner started exposing the field.
-  // Wipe-on-drift rebuilds existing rows against the new shape on
-  // next indexer poll.
-  expect(SCHEMA_VERSION).toBe(18);
+test("schema v19: mining_submissions.num_valid re-sourced from solution_meta.n_unique_total", () => {
+  // v19 re-points the Recent Performance "Solutions" column
+  // (mining_submissions.num_valid) at the submitted iteration's
+  // `solution_meta.n_unique_total` (quip-protocol MR !103), falling
+  // back to the legacy top-level `num_valid` for pre-!103 miners.
+  // !103 dropped the per-iter `num_solutions_meeting_target` field and
+  // re-pointed `num_valid` to the target-aware below-threshold count,
+  // so an old indexer would have stored the trivial "~min_solutions"
+  // figure in the productivity column. Wipe-on-drift rebuilds the
+  // column from n_unique_total on next indexer poll. (v18 added the
+  // qpu_access_time_us column; the table shape is otherwise unchanged.)
+  expect(SCHEMA_VERSION).toBe(19);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",

@@ -109,13 +109,21 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
 }
 
 /**
- * Pull `num_valid` off the iteration that was submitted to the chain —
- * the count of unique constraint-valid samples in the SA batch
- * (target-blind, post-dedup). Reflects sampler productivity, which is
- * what operators read in the Recent Performance / won-blocks view.
- * Falls back to 0 when the chain-submitted iteration didn't carry one
- * (chain_error before the count was known, mempool path, or older
- * miner images that didn't publish the field).
+ * Sampler-productivity count off the iteration that was submitted to
+ * the chain — how many distinct constraint-valid spin configurations
+ * the sampler produced (target-blind, post-dedup), before diverse-K
+ * selection. This is what operators read in the Recent Performance /
+ * won-blocks view.
+ *
+ * Sourcing changed with quip-protocol MR !103: the productivity figure
+ * now lives in each iteration's `solution_meta.n_unique_total`, because
+ * the top-level `num_valid` field was re-pointed to the target-AWARE
+ * below-threshold count. So we read `solution_meta.n_unique_total`
+ * first and only fall back to `num_valid` for pre-!103 miner images,
+ * where `num_valid` still carried the target-blind count.
+ *
+ * Falls back to 0 when no iteration carried either field (chain_error
+ * before the count was known, or a miner that publishes neither).
  */
 function extractNumValid(parsed: MiningAttempt[], raw: RawAttempt[] | undefined): number {
   if (!Array.isArray(raw)) return 0;
@@ -127,17 +135,41 @@ function extractNumValid(parsed: MiningAttempt[], raw: RawAttempt[] | undefined)
     if (!r) continue;
     const kind = typeof r.result_kind === "string" ? r.result_kind.toLowerCase() : "";
     if (!kind.includes("submit")) continue;
-    const n = numericExtra(r["num_valid"]);
+    const n = productivityFromRaw(r);
     if (n !== null) return n;
   }
   // Fall back to the last attempt's count if the chain-submitted iteration
   // didn't carry one (mempool path, chain_error). Still 0 if the miner
-  // never published the field.
+  // never published either field.
   for (let i = parsed.length - 1; i >= 0; i--) {
-    const n = numericExtra(parsed[i]?.extra["num_valid"]);
+    const a = parsed[i];
+    if (!a) continue;
+    const n = nestedNumber(a.extra["solution_meta"], "n_unique_total");
     if (n !== null) return n;
+    const legacy = numericExtra(a.extra["num_valid"]);
+    if (legacy !== null) return legacy;
   }
   return 0;
+}
+
+/**
+ * Target-blind productivity from one raw attempt: prefer the !103+
+ * `solution_meta.n_unique_total`, else the legacy top-level `num_valid`.
+ */
+function productivityFromRaw(r: RawAttempt): number | null {
+  const fromMeta = nestedNumber(r["solution_meta"], "n_unique_total");
+  if (fromMeta !== null) return fromMeta;
+  return numericExtra(r["num_valid"]);
+}
+
+/**
+ * Read a numeric scalar out of a nested object field (e.g. the miner's
+ * `solution_meta` dict). Returns null when the container is absent or
+ * the key is missing / non-numeric — never throws.
+ */
+function nestedNumber(container: unknown, key: string): number | null {
+  if (!container || typeof container !== "object") return null;
+  return numericExtra((container as Record<string, unknown>)[key]);
 }
 
 /**

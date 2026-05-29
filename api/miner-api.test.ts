@@ -145,3 +145,85 @@ describe("parseMiningAttemptsApiResponse — qpu_access_time_us aggregation", ()
     expect(parseMiningAttemptsApiResponse(env).submission.qpuAccessTimeUs).toBe(168_000);
   });
 });
+
+describe("parseMiningAttemptsApiResponse — numValid (sampler productivity)", () => {
+  // Post-MR-!103 the miner embeds a `solution_meta` dict per iteration
+  // and its `n_unique_total` is the target-blind unique-solution count
+  // (the "productivity" number the Recent Performance table shows).
+  // The top-level `num_valid` field now carries the target-AWARE
+  // below-threshold count, so we must NOT read it as productivity for
+  // !103+ miners — only as the legacy fallback for older images.
+
+  test("prefers solution_meta.n_unique_total off the submitted iteration", () => {
+    const env = envelope({
+      attempts: [
+        {
+          type: "attempt",
+          iter: 1,
+          best_energy_milli: -14777000,
+          result_kind: "rejected",
+          num_valid: 3,
+          solution_meta: { n_unique_total: 90, n_unique_below_threshold: 3 },
+        },
+        {
+          type: "attempt",
+          iter: 2,
+          best_energy_milli: -14869000,
+          result_kind: "submitted_inblock",
+          // num_valid is the below-target count post-!103 — must be ignored.
+          num_valid: 5,
+          solution_meta: { n_unique_total: 112, n_unique_below_threshold: 5 },
+        },
+      ],
+    });
+    expect(parseMiningAttemptsApiResponse(env).submission.numValid).toBe(112);
+  });
+
+  test("falls back to legacy num_valid when no solution_meta (older miner)", () => {
+    // Pre-!103 image: no solution_meta, and num_valid IS the
+    // target-blind productivity count. Preserve that reading.
+    const env = envelope({
+      attempts: [
+        {
+          type: "attempt",
+          iter: 1,
+          best_energy_milli: -14869000,
+          result_kind: "submitted_inblock",
+          num_valid: 87,
+        },
+      ],
+    });
+    expect(parseMiningAttemptsApiResponse(env).submission.numValid).toBe(87);
+  });
+
+  test("falls back to last iteration's n_unique_total when no submit row", () => {
+    // chain_error / mempool path: no row marked submitted. Use the
+    // most recent iteration's productivity figure rather than 0.
+    const env = envelope({
+      attempts: [
+        {
+          type: "attempt",
+          iter: 1,
+          best_energy_milli: -14700000,
+          result_kind: "stored",
+          solution_meta: { n_unique_total: 64, n_unique_below_threshold: 0 },
+        },
+        {
+          type: "attempt",
+          iter: 2,
+          best_energy_milli: -14800000,
+          result_kind: "stored",
+          solution_meta: { n_unique_total: 71, n_unique_below_threshold: 0 },
+        },
+      ],
+    });
+    expect(parseMiningAttemptsApiResponse(env).submission.numValid).toBe(71);
+  });
+
+  test("defaults to 0 when neither field is present", () => {
+    const env = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    });
+    expect(parseMiningAttemptsApiResponse(env).submission.numValid).toBe(0);
+  });
+});

@@ -57,7 +57,7 @@ export function RecentMiningPanel({
                 <th className="py-2 pr-4">Diversity</th>
                 <th
                   className="py-2 pr-4"
-                  title="num_valid — count of unique constraint-valid samples in the submitted iteration's SA batch (post-dedup, target-blind). Reflects sampler productivity. 0 for chain_error submissions or older miner images that don't publish the field."
+                  title="solution_meta.n_unique_total — count of unique constraint-valid samples in the submitted iteration's SA batch (post-dedup, target-blind). Reflects sampler productivity. Falls back to the legacy top-level num_valid for pre-!103 miners; 0 for chain_error submissions or miners that publish neither."
                 >
                   Solutions
                 </th>

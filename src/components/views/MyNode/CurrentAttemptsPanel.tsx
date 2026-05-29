@@ -80,7 +80,7 @@ export function CurrentAttemptsPanel({
               </th>
               <th
                 className="py-2 pr-4"
-                title="num_solutions_meeting_target — count of batch members with energy strictly below the live chain threshold at iteration time. Em-dash on mempool-path iterations where the miner can't recompute energies against a live threshold."
+                title="solution_meta.n_unique_below_threshold — count of unique samples with energy strictly below the live chain threshold at iteration time. Em-dash on mempool-path iterations where the miner can't recompute energies against a live threshold."
               >
                 Solutions
               </th>
@@ -92,7 +92,7 @@ export function CurrentAttemptsPanel({
           <tbody>
             {sorted.map((a) => {
               const diversityMilli = numericField(a.extra["diversity_milli"]);
-              const numMeetingTarget = numericField(a.extra["num_solutions_meeting_target"]);
+              const numMeetingTarget = meetingTargetCount(a.extra);
               const miningTimeUs = extractMiningTimeUs(a.extra);
               const ageMs = extractAgeMs(a.extra, nowMs);
               return (
@@ -204,4 +204,20 @@ function numericField(v: unknown): number | null {
     return Number.isFinite(n) ? n : null;
   }
   return null;
+}
+
+/**
+ * Count of unique below-threshold samples for one iteration. Post
+ * quip-protocol MR !103 this lives in `solution_meta.n_unique_below_threshold`;
+ * older miner images published it as the now-removed top-level
+ * `num_solutions_meeting_target`. Returns null (rendered as an em-dash)
+ * when neither is present.
+ */
+function meetingTargetCount(extra: Record<string, unknown>): number | null {
+  const meta = extra["solution_meta"];
+  if (meta && typeof meta === "object") {
+    const n = numericField((meta as Record<string, unknown>)["n_unique_below_threshold"]);
+    if (n !== null) return n;
+  }
+  return numericField(extra["num_solutions_meeting_target"]);
 }
