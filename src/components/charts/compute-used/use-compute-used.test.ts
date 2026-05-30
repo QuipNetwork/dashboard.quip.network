@@ -81,6 +81,7 @@ function makeSubmission(overrides: Partial<MiningSubmissionRecord>): MiningSubmi
     extrinsicHash: null,
     chainBlockHash: null,
     chainBlockNumber: null,
+    powSequence: null,
     outcome: "submitted_inblock",
     attemptCount: 2,
     bestEnergyMilli: -14000000,

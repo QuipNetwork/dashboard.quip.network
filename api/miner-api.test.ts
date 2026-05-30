@@ -146,13 +146,14 @@ describe("parseMiningAttemptsApiResponse — qpu_access_time_us aggregation", ()
   });
 });
 
-describe("parseMiningAttemptsApiResponse — numValid (sampler productivity)", () => {
-  // Post-MR-!103 the miner embeds a `solution_meta` dict per iteration
-  // and its `n_unique_total` is the target-blind unique-solution count
-  // (the "productivity" number the Recent Performance table shows).
-  // The top-level `num_valid` field now carries the target-AWARE
-  // below-threshold count, so we must NOT read it as productivity for
-  // !103+ miners — only as the legacy fallback for older images.
+describe("parseMiningAttemptsApiResponse — numValid (pre-!105 iteration fallback)", () => {
+  // These envelopes carry NO submission-level `num_valid` (the field
+  // MR !105 made authoritative), so they exercise the legacy fallback:
+  // derive the count from the iteration trail. Post-!103 the miner
+  // embeds a `solution_meta` dict per iteration whose `n_unique_total`
+  // is the target-blind unique-solution count; pre-!103 images carried
+  // it as the top-level (per-iteration) `num_valid`. Both are honoured
+  // here only when the submission record itself omits `num_valid`.
 
   test("prefers solution_meta.n_unique_total off the submitted iteration", () => {
     const env = envelope({
@@ -225,5 +226,85 @@ describe("parseMiningAttemptsApiResponse — numValid (sampler productivity)", (
       attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
     });
     expect(parseMiningAttemptsApiResponse(env).submission.numValid).toBe(0);
+  });
+});
+
+describe("parseMiningAttemptsApiResponse — numValid (!105 submission-level)", () => {
+  // MR !105 records `num_valid` on every submission and writes it into
+  // submission.json as a stable, target-aware count (unique samples
+  // meeting the energy threshold — the count the chain accepts). When
+  // present it is authoritative and overrides the iteration-derived
+  // fallback above.
+  function withSubmission(fields: Record<string, unknown>): unknown {
+    const base = envelope({
+      attempts: [
+        {
+          type: "attempt",
+          iter: 1,
+          best_energy_milli: -14869000,
+          result_kind: "submitted_inblock",
+          // Iteration-level figures the fallback would otherwise pick —
+          // the submission-level value must win over both.
+          num_valid: 5,
+          solution_meta: { n_unique_total: 112, n_unique_below_threshold: 5 },
+        },
+      ],
+    }) as { submission: Record<string, unknown> };
+    base.submission = { ...base.submission, ...fields };
+    return base;
+  }
+
+  test("prefers submission-level num_valid over the iteration trail", () => {
+    expect(
+      parseMiningAttemptsApiResponse(withSubmission({ num_valid: 7 })).submission.numValid,
+    ).toBe(7);
+  });
+
+  test("accepts a submission-level num_valid of 0 (chain_error before any cleared)", () => {
+    // 0 is a real value here, not "unknown" — it must not fall through
+    // to the iteration trail's 112.
+    expect(
+      parseMiningAttemptsApiResponse(withSubmission({ num_valid: 0 })).submission.numValid,
+    ).toBe(0);
+  });
+
+  test("falls back to the iteration trail when submission num_valid is null", () => {
+    expect(
+      parseMiningAttemptsApiResponse(withSubmission({ num_valid: null })).submission.numValid,
+    ).toBe(112);
+  });
+});
+
+describe("parseMiningAttemptsApiResponse — powSequence (!105 chain-derived Sol#)", () => {
+  // MR !105 attaches the on-chain `proofs_submitted` sequence to
+  // non-winning submissions as `pow_sequence`; winners instead carry
+  // `chain_block_number`. The dashboard derives the "Sol #" column from
+  // whichever is present.
+  function withSubmission(fields: Record<string, unknown>): unknown {
+    const base = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    }) as { submission: Record<string, unknown> };
+    base.submission = { ...base.submission, ...fields };
+    return base;
+  }
+
+  test("parses pow_sequence on a rejected/error submission", () => {
+    const out = parseMiningAttemptsApiResponse(
+      withSubmission({ outcome: "rejected_stale", chain_block_number: null, pow_sequence: 4042 }),
+    ).submission;
+    expect(out.powSequence).toBe(4042);
+    expect(out.chainBlockNumber).toBeNull();
+  });
+
+  test("powSequence is null on a winning submission (chain_block_number carries it)", () => {
+    const out = parseMiningAttemptsApiResponse(
+      withSubmission({ chain_block_number: 44316 }),
+    ).submission;
+    expect(out.powSequence).toBeNull();
+    expect(out.chainBlockNumber).toBe("44316");
+  });
+
+  test("powSequence is null when the miner publishes neither (older image)", () => {
+    expect(parseMiningAttemptsApiResponse(withSubmission({})).submission.powSequence).toBeNull();
   });
 });

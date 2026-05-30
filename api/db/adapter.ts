@@ -492,7 +492,18 @@ export interface DbConfig {
 // productivity column. The in-flight + modal attempts panels now read
 // the below-target count from `solution_meta.n_unique_below_threshold`.
 // Wipe-on-drift rebuilds the column from n_unique_total on next poll.
-export const SCHEMA_VERSION = 19;
+// v20: adds `pow_sequence` and re-sources two columns per quip-protocol
+// MR !105. (1) The "Solutions" column (mining_submissions.num_valid) now
+// reads the submission-level `num_valid` !105 records on every
+// submission — the target-aware count the chain accepts — instead of
+// digging the target-blind productivity figure out of the iteration
+// trail (that becomes the pre-!105 fallback). (2) New `pow_sequence`
+// column holds the on-chain `proofs_submitted` sequence for non-winning
+// submissions; it backs the now chain-derived "Sol #" display
+// (`chain_block_number ?? pow_sequence ?? solution_id`), which no longer
+// shows the controller-local counter that reset on attempts-dir moves.
+// Wipe-on-drift rebuilds both on next poll.
+export const SCHEMA_VERSION = 20;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

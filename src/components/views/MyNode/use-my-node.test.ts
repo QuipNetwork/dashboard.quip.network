@@ -495,6 +495,7 @@ describe("useMyNode", () => {
           extrinsicHash: null,
           chainBlockHash: "0xb",
           chainBlockNumber: "200",
+          powSequence: null,
           outcome: "submitted_inblock",
           attemptCount: 33,
           bestEnergyMilli: -150_000,

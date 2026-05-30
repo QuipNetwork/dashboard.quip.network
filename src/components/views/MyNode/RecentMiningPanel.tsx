@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { formatDuration, formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
@@ -16,10 +16,11 @@ const RECENT_SUBMISSIONS_VISIBLE = 20;
 //     solutionId, attemptCount, outcome.
 //   - Chain-only: synthetic rows for self-won blocks the local table
 //     doesn't cover (miner reset wiped `mining_submissions`).
-//     Identified by `s.chainOnly === true`; the panel renders
-//     em-dashes for solutionId / attemptCount and suppresses the
-//     modal click on those rows since `/api/v1/mining/attempts/0`
-//     doesn't resolve.
+//     Identified by `s.chainOnly === true`; the panel renders an
+//     em-dash for attemptCount and suppresses the modal click on those
+//     rows since `/api/v1/mining/attempts/0` doesn't resolve. Their
+//     "Sol #" still shows the won block number (chain-derived, MR !105),
+//     not an em-dash — the sentinel solutionId 0 is no longer surfaced.
 //
 // Hidden when no submissions of either kind have been observed yet: a
 // fresh miner that hasn't won AND hasn't logged a local row.
@@ -46,7 +47,12 @@ export function RecentMiningPanel({
           <table className="w-full font-accent text-xs tabular-nums">
             <thead>
               <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
-                <th className="py-2 pr-4">Sol&nbsp;#</th>
+                <th
+                  className="py-2 pr-4"
+                  title="Chain-derived submission identifier (quip-protocol MR !105): the won block number for winning submissions, else the on-chain proofs_submitted sequence (pow_sequence) for rejected/errored ones. Falls back to the controller-local solution counter for pre-!105 miners; em-dash for chain-only synthetic rows with neither."
+                >
+                  Sol&nbsp;#
+                </th>
                 <th
                   className="py-2 pr-4"
                   title="Backend that produced this submission (CPU / CUDA / METAL / MODAL / QPU). Multi-backend rigs run one quip-miner process per active config group; this column shows which one won."
@@ -57,7 +63,7 @@ export function RecentMiningPanel({
                 <th className="py-2 pr-4">Diversity</th>
                 <th
                   className="py-2 pr-4"
-                  title="solution_meta.n_unique_total — count of unique constraint-valid samples in the submitted iteration's SA batch (post-dedup, target-blind). Reflects sampler productivity. Falls back to the legacy top-level num_valid for pre-!103 miners; 0 for chain_error submissions or miners that publish neither."
+                  title="Submission-level num_valid (quip-protocol MR !105) — count of unique samples meeting the energy threshold at submit time, i.e. the count the chain accepts (≥ min_solutions below max_energy). Falls back to the submitted iteration's solution_meta.n_unique_total (sampler productivity) for pre-!105 miners; 0 when the miner publishes no count anywhere."
                 >
                   Solutions
                 </th>
@@ -103,13 +109,7 @@ export function RecentMiningPanel({
                         : "cursor-pointer border-b border-brand-gray-2/40 last:border-0 hover:bg-brand-gray-1/40"
                     }
                   >
-                    <td className="py-1.5 pr-4 text-brand-gray-5">
-                      {isChainOnly ? (
-                        <span className="text-brand-gray-3">—</span>
-                      ) : (
-                        `#${formatNumber(s.solutionId)}`
-                      )}
-                    </td>
+                    <td className="py-1.5 pr-4 text-brand-gray-5">{solDisplay(s)}</td>
                     <td className="py-1.5 pr-4 text-brand-gray-5">
                       {s.minerType ? s.minerType : <span className="text-brand-gray-3">—</span>}
                     </td>
@@ -168,6 +168,23 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
       {outcome}
     </span>
   );
+}
+
+/**
+ * Chain-derived "Sol #" label (quip-protocol MR !105). Winners show the
+ * won block number; rejected/errored submissions show the on-chain
+ * proofs_submitted sequence (`powSequence`). Pre-!105 miners carrying
+ * neither fall back to the controller-local solution counter — the
+ * counter resets when the attempts dir moves, which is exactly why !105
+ * made this chain-derived. Chain-only synthetic rows always carry a
+ * block number (they're self-won blocks), so the em-dash is only a
+ * defensive fallback for the impossible neither-field case.
+ */
+function solDisplay(s: MiningSubmissionRecord): ReactNode {
+  if (s.chainBlockNumber) return `#${s.chainBlockNumber}`;
+  if (s.powSequence !== null) return `#${formatNumber(s.powSequence)}`;
+  if (s.solutionId > 0) return `#${formatNumber(s.solutionId)}`;
+  return <span className="text-brand-gray-3">—</span>;
 }
 
 /**

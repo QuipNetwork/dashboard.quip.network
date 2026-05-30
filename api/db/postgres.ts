@@ -189,6 +189,11 @@ const SCHEMA_STATEMENTS: string[] = [
      extrinsic_hash        TEXT,
      chain_block_hash      TEXT,
      chain_block_number    NUMERIC,
+     -- v20: on-chain proofs_submitted sequence for non-winning
+     -- submissions (MR !105). Nullable — winners carry
+     -- chain_block_number instead, and pre-!105 miners publish
+     -- neither. Feeds the chain-derived "Sol #" column.
+     pow_sequence          BIGINT,
      outcome               TEXT NOT NULL,
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     BIGINT NOT NULL,
@@ -824,13 +829,14 @@ export class PostgresAdapter implements DatabaseAdapter {
         miner_id, solution_id, dispatch_id, ts_ns,
         energy_milli, diversity_milli, threshold_milli,
         last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-        outcome, attempt_count, best_energy_milli, num_valid, miner_type,
+        pow_sequence, outcome, attempt_count, best_energy_milli, num_valid, miner_type,
         qpu_access_time_us, observed_at
       ) VALUES (
         ${record.minerId}, ${record.solutionId}, ${record.dispatchId}, ${record.tsNs},
         ${record.energyMilli}, ${record.diversityMilli}, ${record.thresholdMilli},
         ${record.lastProofBlockHash}, ${record.extrinsicHash},
         ${record.chainBlockHash}, ${record.chainBlockNumber},
+        ${record.powSequence},
         ${record.outcome}, ${record.attemptCount}, ${record.bestEnergyMilli},
         ${record.numValid}, ${record.minerType},
         ${record.qpuAccessTimeUs}, ${record.observedAt}
@@ -845,6 +851,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         extrinsic_hash                 = EXCLUDED.extrinsic_hash,
         chain_block_hash               = EXCLUDED.chain_block_hash,
         chain_block_number             = EXCLUDED.chain_block_number,
+        pow_sequence                   = EXCLUDED.pow_sequence,
         outcome                        = EXCLUDED.outcome,
         attempt_count                  = EXCLUDED.attempt_count,
         best_energy_milli              = EXCLUDED.best_energy_milli,
@@ -874,6 +881,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         extrinsic_hash: string | null;
         chain_block_hash: string | null;
         chain_block_number: string | null;
+        pow_sequence: string | null;
         outcome: string;
         attempt_count: number;
         best_energy_milli: string;
@@ -900,6 +908,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       extrinsicHash: r.extrinsic_hash,
       chainBlockHash: r.chain_block_hash,
       chainBlockNumber: r.chain_block_number === null ? null : String(r.chain_block_number),
+      powSequence: r.pow_sequence === null ? null : Number(r.pow_sequence),
       outcome: r.outcome,
       attemptCount: r.attempt_count,
       bestEnergyMilli: Number(r.best_energy_milli),

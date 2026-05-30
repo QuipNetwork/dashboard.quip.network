@@ -451,6 +451,12 @@ export interface NodeDescriptorRecord {
 export interface MiningSubmissionRecord {
   // Monotonic submission counter assigned by the miner's controller.
   // Distinct from chain `proofs_won` (only winners count there).
+  //
+  // This is the controller-local key the modal proxies on
+  // (`/api/v1/mining/attempts?solution_id=N`) and the DB primary key —
+  // NOT what the "Sol #" column displays. That counter resets when the
+  // attempts dir is moved, so MR !105 made the column chain-derived:
+  // it renders `chainBlockNumber ?? powSequence ?? solutionId`.
   solutionId: number;
   minerId: string;
   // Backend that produced this submission — CPU / CUDA / METAL / MODAL
@@ -477,6 +483,13 @@ export interface MiningSubmissionRecord {
   extrinsicHash: string | null;
   chainBlockHash: string | null;
   chainBlockNumber: string | null; // u64 as string
+  // On-chain `proofs_submitted` sequence at submit time (quip-protocol
+  // MR !105), attached to non-winning submissions (rejected_stale /
+  // chain_error). Winners carry `chainBlockNumber` instead — the two
+  // are mutually exclusive by outcome (the controller records one or
+  // the other), and the "Sol #" column reads whichever is present.
+  // Null for winners and for pre-!105 miners that publish neither.
+  powSequence: number | null;
   // Open enum: 'submitted_inblock' | 'rejected' | 'stored' | … — preserved
   // verbatim from the miner so future outcomes show up in the UI unchanged.
   outcome: string;
@@ -484,21 +497,27 @@ export interface MiningSubmissionRecord {
   // Derived: min(attempts[].best_energy_milli). Lets the table show "best
   // energy this submission ever reached" without unpacking iterations.
   bestEnergyMilli: number;
-  // Sampler-productivity count from the submitted iteration — full unique
-  // constraint-valid count across the SA batch, target-blind. Operators
-  // read this as "sampler productivity": how many distinct
-  // constraint-satisfying spin configurations the sampler produced before
-  // diverse-K selection. Sourced from the miner's
-  // `solution_meta.n_unique_total` (quip-protocol MR !103+), falling back
-  // to the legacy top-level `num_valid` field for pre-!103 images — !103
-  // re-pointed `num_valid` to the target-AWARE below-threshold count, so
-  // reading it directly would silently collapse this to the trivial
-  // "~min_solutions" figure. Distinct from the chain-side
-  // BlockRecord.numValidSolutions (validator's count for a winning proof)
-  // and from the per-iter below-threshold count
-  // (solution_meta.n_unique_below_threshold, surfaced in the in-flight
-  // attempts panel). 0 when the miner surfaced neither (chain_error
-  // submissions, mempool path, or a miner publishing no diagnostics).
+  // Count behind the Recent Performance "Solutions" column.
+  //
+  // Authoritative source (quip-protocol MR !105): the submission-level
+  // `num_valid` field, recorded on every submission — the target-AWARE
+  // count of unique samples meeting the energy threshold at submit time
+  // (the count the chain accepts: ≥ min_solutions below max_energy).
+  // !105 added this stable, per-submission value precisely so this
+  // column no longer has to dig into the iteration trail.
+  //
+  // Fallback for pre-!105 envelopes: derived from the submitted
+  // iteration's `solution_meta.n_unique_total` (!103+, the target-BLIND
+  // sampler-productivity count), or the legacy per-iteration `num_valid`
+  // for pre-!103 images. So the column reads "valid solutions meeting
+  // target" for current miners and "sampler productivity" for ancient
+  // ones — it converges on the former as the fleet upgrades.
+  //
+  // Distinct from the chain-side BlockRecord.numValidSolutions
+  // (validator's count for a winning proof) and from the per-iter
+  // below-threshold count (solution_meta.n_unique_below_threshold,
+  // surfaced in the in-flight attempts panel). 0 when the miner
+  // surfaced no count anywhere.
   numValid: number;
   // Per-submission sum of D-Wave's `qpu_access_time` across every
   // iteration of this submission (microseconds). Captures the *real*

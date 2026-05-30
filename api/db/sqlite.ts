@@ -191,6 +191,12 @@ const SCHEMA_STATEMENTS: string[] = [
      extrinsic_hash        TEXT,
      chain_block_hash      TEXT,
      chain_block_number    TEXT,
+     -- v20: on-chain proofs_submitted sequence for non-winning
+     -- submissions (MR !105). Nullable — winners carry
+     -- chain_block_number instead, and pre-!105 miners publish
+     -- neither. Feeds the chain-derived "Sol #" column. INTEGER
+     -- (8-byte signed) holds proofs_submitted with room to spare.
+     pow_sequence          INTEGER,
      outcome               TEXT NOT NULL,
      attempt_count         INTEGER NOT NULL,
      best_energy_milli     INTEGER NOT NULL,
@@ -934,13 +940,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
            miner_id, solution_id, dispatch_id, ts_ns,
            energy_milli, diversity_milli, threshold_milli,
            last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
-           outcome, attempt_count, best_energy_milli, num_valid, miner_type,
+           pow_sequence, outcome, attempt_count, best_energy_milli, num_valid, miner_type,
            qpu_access_time_us, observed_at
          ) VALUES (
            $miner, $sol, $dispatch, $ts,
            $energy, $div, $thr,
            $lpbh, $extx, $cbh, $cbn,
-           $outcome, $cnt, $best, $nvalid, $mtype, $qpu, $observed
+           $powseq, $outcome, $cnt, $best, $nvalid, $mtype, $qpu, $observed
          )
          ON CONFLICT(miner_id, solution_id) DO UPDATE SET
            dispatch_id                    = excluded.dispatch_id,
@@ -952,6 +958,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
            extrinsic_hash                 = excluded.extrinsic_hash,
            chain_block_hash               = excluded.chain_block_hash,
            chain_block_number             = excluded.chain_block_number,
+           pow_sequence                   = excluded.pow_sequence,
            outcome                        = excluded.outcome,
            attempt_count                  = excluded.attempt_count,
            best_energy_milli              = excluded.best_energy_milli,
@@ -972,6 +979,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $extx: record.extrinsicHash,
         $cbh: record.chainBlockHash,
         $cbn: record.chainBlockNumber,
+        $powseq: record.powSequence,
         $outcome: record.outcome,
         $cnt: record.attemptCount,
         $best: record.bestEnergyMilli,
@@ -1000,6 +1008,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
           extrinsic_hash: string | null;
           chain_block_hash: string | null;
           chain_block_number: string | null;
+          pow_sequence: number | null;
           outcome: string;
           attempt_count: number;
           best_energy_milli: number;
@@ -1135,6 +1144,7 @@ function rowToMiningSubmission(row: {
   extrinsic_hash: string | null;
   chain_block_hash: string | null;
   chain_block_number: string | null;
+  pow_sequence: number | null;
   outcome: string;
   attempt_count: number;
   best_energy_milli: number;
@@ -1155,6 +1165,7 @@ function rowToMiningSubmission(row: {
     extrinsicHash: row.extrinsic_hash,
     chainBlockHash: row.chain_block_hash,
     chainBlockNumber: row.chain_block_number,
+    powSequence: row.pow_sequence,
     outcome: row.outcome,
     attemptCount: row.attempt_count,
     bestEnergyMilli: row.best_energy_milli,

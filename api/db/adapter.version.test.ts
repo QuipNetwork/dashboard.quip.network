@@ -4,18 +4,18 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v19: mining_submissions.num_valid re-sourced from solution_meta.n_unique_total", () => {
-  // v19 re-points the Recent Performance "Solutions" column
-  // (mining_submissions.num_valid) at the submitted iteration's
-  // `solution_meta.n_unique_total` (quip-protocol MR !103), falling
-  // back to the legacy top-level `num_valid` for pre-!103 miners.
-  // !103 dropped the per-iter `num_solutions_meeting_target` field and
-  // re-pointed `num_valid` to the target-aware below-threshold count,
-  // so an old indexer would have stored the trivial "~min_solutions"
-  // figure in the productivity column. Wipe-on-drift rebuilds the
-  // column from n_unique_total on next indexer poll. (v18 added the
-  // qpu_access_time_us column; the table shape is otherwise unchanged.)
-  expect(SCHEMA_VERSION).toBe(19);
+test("schema v20: pow_sequence column + num_valid/Sol# re-sourced per MR !105", () => {
+  // v20 adds the `pow_sequence` column and re-sources two columns per
+  // quip-protocol MR !105: (1) mining_submissions.num_valid now reads
+  // the submission-level `num_valid` !105 records on every submission
+  // (the target-aware accepted count) instead of digging the iteration
+  // trail (now the pre-!105 fallback); (2) the new `pow_sequence` column
+  // holds on-chain proofs_submitted for non-winning submissions and
+  // backs the chain-derived "Sol #" display. Wipe-on-drift rebuilds both
+  // on the next indexer poll. (v19 re-sourced num_valid from the
+  // iteration trail; v18 added qpu_access_time_us — table shape is
+  // otherwise unchanged apart from the new pow_sequence column.)
+  expect(SCHEMA_VERSION).toBe(20);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",

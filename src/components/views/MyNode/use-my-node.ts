@@ -189,6 +189,9 @@ export function useMyNode(): MyNodeStats {
         extrinsicHash: null,
         chainBlockHash: b.blockHash,
         chainBlockNumber: b.substrateBlockNumber,
+        // Synthetic rows are self-won blocks — the chain block number is
+        // the Sol# source, so there's no proofs_submitted sequence to set.
+        powSequence: null,
         outcome: "submitted_inblock",
         attemptCount: 0,
         bestEnergyMilli: Math.round(b.energy * 1000),

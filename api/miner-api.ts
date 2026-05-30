@@ -25,6 +25,16 @@ interface RawSubmission {
   extrinsic_hash?: string | null;
   chain_block_hash?: string | null;
   chain_block_number?: number | string | null;
+  // Submission-level count (quip-protocol MR !105): unique samples
+  // meeting the energy threshold at submit time — the target-aware
+  // count the chain accepts. Authoritative source for the "Solutions"
+  // column; the per-iteration trail is only a pre-!105 fallback.
+  num_valid?: number | string | null;
+  // On-chain `proofs_submitted` sequence (MR !105), attached to
+  // non-winning submissions (rejected / chain_error). Winners carry
+  // `chain_block_number` instead — the two are mutually exclusive by
+  // outcome, and "Sol #" is derived from whichever is present.
+  pow_sequence?: number | string | null;
   outcome?: string;
 }
 
@@ -94,10 +104,11 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
       s.chain_block_number === null || s.chain_block_number === undefined
         ? null
         : String(s.chain_block_number),
+    powSequence: optionalNum(s.pow_sequence),
     outcome: requireStr(s.outcome, "outcome"),
     attemptCount: attempts.length,
     bestEnergyMilli: bestEnergy(attempts, submissionEnergy(s)),
-    numValid: extractNumValid(attempts, env.attempts),
+    numValid: extractNumValid(s, attempts, env.attempts),
     qpuAccessTimeUs: sumQpuAccessTimeUs(env.attempts),
     // observedAt is the caller's responsibility — both the indexer (write
     // path) and the server proxy (read-through path) stamp this with the
@@ -109,23 +120,33 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
 }
 
 /**
- * Sampler-productivity count off the iteration that was submitted to
- * the chain — how many distinct constraint-valid spin configurations
- * the sampler produced (target-blind, post-dedup), before diverse-K
- * selection. This is what operators read in the Recent Performance /
- * won-blocks view.
+ * Count behind the Recent Performance "Solutions" column.
  *
- * Sourcing changed with quip-protocol MR !103: the productivity figure
- * now lives in each iteration's `solution_meta.n_unique_total`, because
- * the top-level `num_valid` field was re-pointed to the target-AWARE
- * below-threshold count. So we read `solution_meta.n_unique_total`
- * first and only fall back to `num_valid` for pre-!103 miner images,
- * where `num_valid` still carried the target-blind count.
+ * Authoritative source (quip-protocol MR !105): the submission-level
+ * `num_valid` field, recorded on every submission — the target-aware
+ * count of unique samples meeting the energy threshold (the count the
+ * chain accepts, ≥ min_solutions below max_energy). When present this
+ * wins outright, including a legitimate 0 (e.g. a chain_error before
+ * any candidate cleared the live threshold).
  *
- * Falls back to 0 when no iteration carried either field (chain_error
- * before the count was known, or a miner that publishes neither).
+ * Fallback for pre-!105 envelopes that carry no submission-level count:
+ * derive it from the iteration trail. Post-!103 the per-iteration
+ * figure lives in `solution_meta.n_unique_total` (the target-blind
+ * productivity count); pre-!103 images carried it as the top-level
+ * (per-iteration) `num_valid`. Falls back to 0 when no iteration
+ * carried either field.
+ *
+ * NB the fallback yields the target-BLIND productivity count, whereas
+ * the !105 primary yields the target-AWARE accepted count — the column
+ * meaning converges on the latter as the fleet upgrades.
  */
-function extractNumValid(parsed: MiningAttempt[], raw: RawAttempt[] | undefined): number {
+function extractNumValid(
+  s: RawSubmission,
+  parsed: MiningAttempt[],
+  raw: RawAttempt[] | undefined,
+): number {
+  const submissionLevel = optionalNum(s.num_valid);
+  if (submissionLevel !== null) return submissionLevel;
   if (!Array.isArray(raw)) return 0;
   // Walk in order — pick the LAST submitted row, since miners that
   // resubmit (rare) leave the most recent submission as the canonical
@@ -199,6 +220,18 @@ function numericExtra(v: unknown): number | null {
     return Number.isFinite(n) ? n : null;
   }
   return null;
+}
+
+/**
+ * Parse an optional numeric submission field (number or numeric string)
+ * into `number | null`. Null/undefined/empty/non-numeric all map to
+ * null — the caller treats null as "miner didn't report it". Distinct
+ * from `numericExtra` only in intent (nullable scalar fields vs the
+ * `extra` map), but shares the same coercion so behaviour stays uniform.
+ */
+function optionalNum(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  return numericExtra(v);
 }
 
 function submissionEnergy(s: RawSubmission): number {
