@@ -288,6 +288,24 @@ describe("substrate worker", () => {
     const state = new IndexerState(db);
     await state.load();
     const client = new FakeSubstrateClient();
+    // Two WinningSolutions entries on chain → chain_head.winningSolutionsCount
+    // = 2 (the global solution_number bound; in-flight problem = 3).
+    client.winningSolutionsByBlock.set("40", {
+      miner: "5GPP",
+      energyMilli: -2510,
+      reward: "1000",
+      submittedAt: "40",
+      nonce: "1",
+      difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
+    });
+    client.winningSolutionsByBlock.set("80", {
+      miner: "5GPP",
+      energyMilli: -2520,
+      reward: "1000",
+      submittedAt: "80",
+      nonce: "2",
+      difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
+    });
 
     const ac = new AbortController();
     const loop = runSubstrateLoop(
@@ -329,6 +347,7 @@ describe("substrate worker", () => {
     const head = await db.getChainHead();
     expect(head?.finalizedBlockNumber).toBe("100");
     expect(head?.finalizedBlockHash).toBe("0xab");
+    expect(head?.winningSolutionsCount).toBe(2);
     expect(state.observability.lastSubstrateEventAt).toBe("2026-05-15T00:00:00.000Z");
     expect(state.observability.finalizedBlockHeight).toBe("100");
   });

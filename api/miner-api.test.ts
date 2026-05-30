@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { parseMiningAttemptsApiResponse } from "./miner-api";
 
 // Build a minimal valid envelope and let each test override only the
-// pieces it cares about. The parser requires solution_id, miner_id,
+// pieces it cares about. The parser requires solution_number, miner_id,
 // outcome, energy_milli, diversity_milli, threshold_milli, and
 // last_proof_block_hash on the submission; everything else is
 // optional or has a default.
@@ -14,10 +14,9 @@ function envelope(opts: { attempts: Array<Record<string, unknown>> }): unknown {
     submission: {
       type: "submission",
       ts_ns: 1779800814740919882n.toString(),
-      solution_id: 1,
+      solution_number: 1,
       miner_id: "quip-miner-pow-QPU-DWAVE-1",
       miner_type: "QPU",
-      dispatch_id: 1,
       energy_milli: -14869000,
       diversity_milli: 250,
       threshold_milli: -14910591,
@@ -306,5 +305,27 @@ describe("parseMiningAttemptsApiResponse — powSequence (!105 chain-derived Sol
 
   test("powSequence is null when the miner publishes neither (older image)", () => {
     expect(parseMiningAttemptsApiResponse(withSubmission({})).submission.powSequence).toBeNull();
+  });
+});
+
+describe("parseMiningAttemptsApiResponse — solutionNumber (!105 global key)", () => {
+  // MR !105 replaced the controller-local `solution_id` / `dispatch_id`
+  // counters with the global chain `solution_number` (count(WinningSolutions)
+  // + 1). The parser reads it from `submission.solution_number` and it is a
+  // required field — a submission envelope without it is malformed.
+  test("parses solution_number into solutionNumber", () => {
+    const env = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    }) as { submission: Record<string, unknown> };
+    env.submission.solution_number = 4317;
+    expect(parseMiningAttemptsApiResponse(env).submission.solutionNumber).toBe(4317);
+  });
+
+  test("throws when solution_number is absent", () => {
+    const env = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    }) as { submission: Record<string, unknown> };
+    delete env.submission.solution_number;
+    expect(() => parseMiningAttemptsApiResponse(env)).toThrow(/solution_number/);
   });
 });

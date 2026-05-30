@@ -95,6 +95,10 @@ const SCHEMA_STATEMENTS: string[] = [
      finalized_block_number  TEXT NOT NULL,
      finalized_block_hash    TEXT NOT NULL,
      finality_lag            INTEGER NOT NULL,
+     -- v21: length of quantum_pow.WinningSolutions — the global
+     -- solution_number bound (count + 1 is the in-flight problem, MR
+     -- !105). Nullable: pre-v0.2 chains / pre-first-read.
+     winning_solutions_count INTEGER,
      spec_name               TEXT NOT NULL,
      spec_version            INTEGER NOT NULL,
      transaction_version     INTEGER NOT NULL,
@@ -171,18 +175,20 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
      ON node_descriptors(CAST(block_number AS INTEGER) DESC)`,
   // v13: per-submission summary from the locally-polled miner's
-  // `/api/v1/mining/attempts?solution_id=N` endpoint. Composite PK is
-  // (miner_id, solution_id) so polling multiple miners from one
-  // dashboard never collides on solution_id (each miner's counter starts
-  // at 1). Milli-unit columns keep integer encoding; the UI divides by
+  // `/api/v1/mining/attempts?solution_number=N` endpoint. Composite PK is
+  // (miner_id, solution_number) so polling multiple miners from one
+  // dashboard never collides. v21 (MR !105): the key is the global chain
+  // `solution_number` (count(WinningSolutions)+1) — durable across
+  // restarts — replacing the pre-!105 controller-local `solution_id`, and
+  // the per-dispatch `dispatch_id` column is dropped (gone from the miner
+  // JSON). Milli-unit columns keep integer encoding; the UI divides by
   // 1000 at display time. `extrinsic_hash` / `chain_block_*` are nullable
   // because a freshly-stored submission may not have landed on-chain yet.
   // ts_ns is TEXT (u128 nanoseconds) and chain_block_number is TEXT (u64)
   // for precision; SQLite's INTEGER tops out at 8 bytes signed.
   `CREATE TABLE IF NOT EXISTS mining_submissions (
      miner_id              TEXT NOT NULL,
-     solution_id           INTEGER NOT NULL,
-     dispatch_id           INTEGER NOT NULL,
+     solution_number       INTEGER NOT NULL,
      ts_ns                 TEXT NOT NULL,
      energy_milli          INTEGER NOT NULL,
      diversity_milli       INTEGER NOT NULL,
@@ -212,10 +218,10 @@ const SCHEMA_STATEMENTS: string[] = [
      -- rebuilds them once the miner does.
      qpu_access_time_us    INTEGER NOT NULL DEFAULT 0,
      observed_at           TEXT NOT NULL,
-     PRIMARY KEY (miner_id, solution_id)
+     PRIMARY KEY (miner_id, solution_number)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_mining_submissions_miner_recent
-     ON mining_submissions(miner_id, solution_id DESC)`,
+     ON mining_submissions(miner_id, solution_number DESC)`,
 ];
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
@@ -426,11 +432,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
         `INSERT INTO chain_head (
            id, best_block_number, best_block_hash,
            finalized_block_number, finalized_block_hash, finality_lag,
+           winning_solutions_count,
            spec_name, spec_version, transaction_version, impl_name,
            last_runtime_upgrade, updated_at
          ) VALUES (
            1, $bestNumber, $bestHash,
            $finNumber, $finHash, $finLag,
+           $winSolCount,
            $specName, $specVersion, $txVersion, $implName,
            $lastUpgrade, $updatedAt
          )
@@ -440,6 +448,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
            finalized_block_number=excluded.finalized_block_number,
            finalized_block_hash=excluded.finalized_block_hash,
            finality_lag=excluded.finality_lag,
+           winning_solutions_count=excluded.winning_solutions_count,
            spec_name=excluded.spec_name,
            spec_version=excluded.spec_version,
            transaction_version=excluded.transaction_version,
@@ -449,6 +458,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
          WHERE
            chain_head.best_block_number IS NOT excluded.best_block_number OR
            chain_head.finalized_block_number IS NOT excluded.finalized_block_number OR
+           chain_head.winning_solutions_count IS NOT excluded.winning_solutions_count OR
            chain_head.spec_version IS NOT excluded.spec_version`,
       )
       .run({
@@ -457,6 +467,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $finNumber: head.finalizedBlockNumber,
         $finHash: head.finalizedBlockHash,
         $finLag: head.finalityLag,
+        $winSolCount: head.winningSolutionsCount,
         $specName: head.runtime.specName,
         $specVersion: head.runtime.specVersion,
         $txVersion: head.runtime.transactionVersion,
@@ -475,6 +486,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
           finalized_block_number: string;
           finalized_block_hash: string;
           finality_lag: number;
+          winning_solutions_count: number | null;
           spec_name: string;
           spec_version: number;
           transaction_version: number;
@@ -492,6 +504,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       finalizedBlockNumber: row.finalized_block_number,
       finalizedBlockHash: row.finalized_block_hash,
       finalityLag: row.finality_lag,
+      winningSolutionsCount: row.winning_solutions_count,
       runtime: {
         specName: row.spec_name,
         specVersion: row.spec_version,
@@ -937,19 +950,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
     this.requireDb()
       .prepare(
         `INSERT INTO mining_submissions (
-           miner_id, solution_id, dispatch_id, ts_ns,
+           miner_id, solution_number, ts_ns,
            energy_milli, diversity_milli, threshold_milli,
            last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
            pow_sequence, outcome, attempt_count, best_energy_milli, num_valid, miner_type,
            qpu_access_time_us, observed_at
          ) VALUES (
-           $miner, $sol, $dispatch, $ts,
+           $miner, $sol, $ts,
            $energy, $div, $thr,
            $lpbh, $extx, $cbh, $cbn,
            $powseq, $outcome, $cnt, $best, $nvalid, $mtype, $qpu, $observed
          )
-         ON CONFLICT(miner_id, solution_id) DO UPDATE SET
-           dispatch_id                    = excluded.dispatch_id,
+         ON CONFLICT(miner_id, solution_number) DO UPDATE SET
            ts_ns                          = excluded.ts_ns,
            energy_milli                   = excluded.energy_milli,
            diversity_milli                = excluded.diversity_milli,
@@ -969,8 +981,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       )
       .run({
         $miner: record.minerId,
-        $sol: record.solutionId,
-        $dispatch: record.dispatchId,
+        $sol: record.solutionNumber,
         $ts: record.tsNs,
         $energy: record.energyMilli,
         $div: record.diversityMilli,
@@ -998,8 +1009,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       .query<
         {
           miner_id: string;
-          solution_id: number;
-          dispatch_id: number;
+          solution_number: number;
           ts_ns: string;
           energy_milli: number;
           diversity_milli: number;
@@ -1021,7 +1031,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       >(
         `SELECT * FROM mining_submissions
          WHERE miner_id = ?
-         ORDER BY solution_id DESC
+         ORDER BY solution_number DESC
          LIMIT ?`,
       )
       .all(minerId, limit);
@@ -1047,7 +1057,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return Number.isFinite(n) ? n : null;
   }
 
-  async setMiningCheckpoint(minerId: string, solutionId: number): Promise<void> {
+  async setMiningCheckpoint(minerId: string, solutionNumber: number): Promise<void> {
     // Monotonic advance only — same shape as setDescriptorCheckpoint. Guards
     // against a misconfigured restart that rewinds the cursor.
     this.requireDb()
@@ -1056,7 +1066,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value
          WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)`,
       )
-      .run({ $k: miningCheckpointKey(minerId), $v: String(solutionId) });
+      .run({ $k: miningCheckpointKey(minerId), $v: String(solutionNumber) });
   }
 
   async resetMiningHistory(minerId: string): Promise<void> {
@@ -1134,8 +1144,7 @@ function rowToNodeDescriptorRecord(row: DescriptorRow): NodeDescriptorRecord {
 
 function rowToMiningSubmission(row: {
   miner_id: string;
-  solution_id: number;
-  dispatch_id: number;
+  solution_number: number;
   ts_ns: string;
   energy_milli: number;
   diversity_milli: number;
@@ -1155,8 +1164,7 @@ function rowToMiningSubmission(row: {
 }): MiningSubmissionRecord {
   return {
     minerId: row.miner_id,
-    solutionId: row.solution_id,
-    dispatchId: row.dispatch_id,
+    solutionNumber: row.solution_number,
     tsNs: row.ts_ns,
     energyMilli: row.energy_milli,
     diversityMilli: row.diversity_milli,

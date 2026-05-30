@@ -14,10 +14,13 @@ import type {
 interface RawSubmission {
   type?: string;
   ts_ns?: number | string;
-  solution_id?: number | string;
+  // Global chain solution number (quip-protocol MR !105): the directory
+  // key and stable identity. Replaces the pre-!105 `solution_id` /
+  // `dispatch_id` controller-local counters, which are gone from the
+  // miner JSON entirely.
+  solution_number?: number | string;
   miner_id?: string;
   miner_type?: string;
-  dispatch_id?: number | string;
   energy_milli?: number | string;
   diversity_milli?: number | string;
   threshold_milli?: number | string;
@@ -59,9 +62,9 @@ interface RawEnvelope {
  * the indexer needs both to persist the summary row, and the modal can
  * use them as fallbacks if the miner adds them server-side later.
  *
- * Throws on missing required fields (solutionId, minerId, outcome,
+ * Throws on missing required fields (solutionNumber, minerId, outcome,
  * energyMilli). A `null` envelope.submission means the miner didn't
- * find the requested solution_id — callers should pass through the
+ * find the requested solution_number — callers should pass through the
  * 404, not call this.
  */
 export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResponse {
@@ -88,11 +91,10 @@ export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResp
   };
   const attempts = parseAttempts(env.attempts);
   const submission: MiningSubmissionRecord = {
-    solutionId: requireNum(s.solution_id, "solution_id"),
+    solutionNumber: requireNum(s.solution_number, "solution_number"),
     minerId: requireStr(s.miner_id, "miner_id"),
     // miner_type is optional — older miners omit it; tolerate both.
     minerType: typeof s.miner_type === "string" ? s.miner_type : "",
-    dispatchId: requireNum(s.dispatch_id, "dispatch_id"),
     tsNs: String(s.ts_ns ?? "0"),
     energyMilli: requireNum(s.energy_milli, "energy_milli"),
     diversityMilli: requireNum(s.diversity_milli, "diversity_milli"),
@@ -293,10 +295,10 @@ function bestEnergy(attempts: MiningAttempt[], fallback: number): number {
 }
 
 /**
- * The `?miner_id=X&dispatch_id=Y` form of `/api/v1/mining/attempts`
+ * The `?miner_id=X&solution_number=Y` form of `/api/v1/mining/attempts`
  * returns only `attempts[]` (no submission join). Use this for live
- * polling of the in-flight dispatch — the iterations the miner is
- * currently grinding against the outstanding problem.
+ * polling of the in-flight solution — the iterations the miner is
+ * currently grinding against the current global problem.
  *
  * Returns an empty array on any structural failure; the caller decides
  * whether to surface "empty" as "no attempts yet" or "fetch failed".
@@ -308,14 +310,15 @@ export function parseDispatchAttemptsApiResponse(raw: unknown): MiningAttempt[] 
 }
 
 /**
- * Distinct error type for `solution_id` lookups the miner returns 404 on.
- * Lets the indexer's poll loop treat "not yet observable" differently
- * from a transport failure: we just retry next tick, no checkpoint
- * advancement past the missing id.
+ * Distinct error type for `solution_number` lookups the miner returns
+ * 404 on. Lets the indexer's poll loop treat a sparse gap (a global
+ * solution_number this miner has no directory for — it came online
+ * later, or that win belonged to another miner) differently from a
+ * transport failure: skip the number and advance, never retry it.
  */
 export class MiningSubmissionNotFoundError extends Error {
-  constructor(public readonly solutionId: number) {
-    super(`mining submission ${solutionId} not found`);
+  constructor(public readonly solutionNumber: number) {
+    super(`mining submission ${solutionNumber} not found`);
     this.name = "MiningSubmissionNotFoundError";
   }
 }

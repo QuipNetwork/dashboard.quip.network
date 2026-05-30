@@ -42,7 +42,7 @@ export interface TelemetryState {
   // the "Recent Performance" panel; empty when the miner has not yet
   // submitted a proof (or selfAddress hasn't resolved on the indexer).
   recentMiningSubmissions: MiningSubmissionRecord[];
-  // Lifetime count of self's distinct solution_ids with iterations
+  // Lifetime count of self's distinct solution_numbers with iterations
   // recorded. Drives the "Problems Attempted" tile.
   selfProblemsAttempted: number;
   // The miner's most recent dispatch (in-flight if probe-ahead has

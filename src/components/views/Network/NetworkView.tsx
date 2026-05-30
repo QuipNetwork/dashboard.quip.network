@@ -25,6 +25,7 @@ import { useCumulativeBlocksThreshold } from "../../charts/cumulative-blocks-thr
 import { useLeaderboard } from "../../charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
+import { winningSolutionsSolved } from "../../../lib/chain-solutions";
 import { RecentBlocksTable } from "./RecentBlocksTable";
 
 export function NetworkView() {
@@ -35,10 +36,12 @@ export function NetworkView() {
   const blocks = useTelemetryStore((s) => s.blocks);
   const indexer = useTelemetryStore((s) => s.indexer);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
-  // Chain-wide lifetime PoW solution count. Each chain miner's
-  // `proofs_won` is u64; values up to 2^53 fit Number safely, which covers
-  // any realistic chain lifetime.
-  const totalProofsWon = chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0);
+  const chainHead = useTelemetryStore((s) => s.chainHead);
+  // Chain-wide lifetime PoW solution count = length of WinningSolutions,
+  // sourced from chain via chain_head (falling back to summing per-miner
+  // proofs_won until chain_head lands). u64, but values up to 2^53 fit
+  // Number safely, covering any realistic chain lifetime.
+  const totalProofsWon = winningSolutionsSolved(chainHead, chainMiners);
 
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();

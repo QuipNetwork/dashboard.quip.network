@@ -157,6 +157,7 @@ describe("server app", () => {
       finalizedBlockNumber: "98",
       finalizedBlockHash: "0xdef",
       finalityLag: 2,
+      winningSolutionsCount: null,
       runtime: {
         specName: "quip",
         specVersion: 101,

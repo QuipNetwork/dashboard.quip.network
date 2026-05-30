@@ -12,15 +12,15 @@ const RECENT_SUBMISSIONS_VISIBLE = 20;
 // Row-per-submission view of the operator's recent mining activity.
 // Two row sources merged upstream in `use-my-node`:
 //   - Local: `mining_submissions` rows (fetched via
-//     `/api/v1/mining/attempts?solution_id=N`). Full fidelity —
-//     solutionId, attemptCount, outcome.
+//     `/api/v1/mining/attempts?solution_number=N`). Full fidelity —
+//     solutionNumber, attemptCount, outcome.
 //   - Chain-only: synthetic rows for self-won blocks the local table
-//     doesn't cover (miner reset wiped `mining_submissions`).
+//     doesn't cover (older wins outside the indexer's recent window).
 //     Identified by `s.chainOnly === true`; the panel renders an
 //     em-dash for attemptCount and suppresses the modal click on those
 //     rows since `/api/v1/mining/attempts/0` doesn't resolve. Their
 //     "Sol #" still shows the won block number (chain-derived, MR !105),
-//     not an em-dash — the sentinel solutionId 0 is no longer surfaced.
+//     not an em-dash — the sentinel solutionNumber 0 is no longer surfaced.
 //
 // Hidden when no submissions of either kind have been observed yet: a
 // fresh miner that hasn't won AND hasn't logged a local row.
@@ -33,7 +33,7 @@ export function RecentMiningPanel({
   // and stay swap-friendly for `selectServerNowMs`.
   nowMs: number;
 }) {
-  const [openSolutionId, setOpenSolutionId] = useState<number | null>(null);
+  const [openSolutionNumber, setOpenSolutionNumber] = useState<number | null>(null);
   const shown = submissions.slice(0, RECENT_SUBMISSIONS_VISIBLE);
   if (shown.length === 0) return null;
 
@@ -49,7 +49,7 @@ export function RecentMiningPanel({
               <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
                 <th
                   className="py-2 pr-4"
-                  title="Chain-derived submission identifier (quip-protocol MR !105): the won block number for winning submissions, else the on-chain proofs_submitted sequence (pow_sequence) for rejected/errored ones. Falls back to the controller-local solution counter for pre-!105 miners; em-dash for chain-only synthetic rows with neither."
+                  title="Chain-derived submission identifier (quip-protocol MR !105): the won block number for winning submissions, else the on-chain proofs_submitted sequence (pow_sequence) for rejected/errored ones. Falls back to the global solution_number (also chain-derived and durable) when the miner published neither; em-dash only for the impossible neither-field case."
                 >
                   Sol&nbsp;#
                 </th>
@@ -77,15 +77,15 @@ export function RecentMiningPanel({
               {shown.map((s, idx) => {
                 const ageMs = ageFromTsNs(s.tsNs, nowMs);
                 const isChainOnly = s.chainOnly === true;
-                // Chain-only rows have no real solutionId (sentinel 0)
+                // Chain-only rows have no real solutionNumber (sentinel 0)
                 // and no local attempts log, so don't open the modal.
                 // Key falls back to chain block + index because synthetic
-                // rows share solutionId=0.
+                // rows share solutionNumber=0.
                 const rowKey = isChainOnly
                   ? `chain-${s.chainBlockNumber ?? idx}`
-                  : `${s.minerId}-${s.solutionId}`;
+                  : `${s.minerId}-${s.solutionNumber}`;
                 const handleOpen = () => {
-                  if (!isChainOnly) setOpenSolutionId(s.solutionId);
+                  if (!isChainOnly) setOpenSolutionNumber(s.solutionNumber);
                 };
                 return (
                   <tr
@@ -144,8 +144,11 @@ export function RecentMiningPanel({
         </div>
       </ChartCard>
 
-      {openSolutionId !== null && (
-        <MiningAttemptsModal solutionId={openSolutionId} onClose={() => setOpenSolutionId(null)} />
+      {openSolutionNumber !== null && (
+        <MiningAttemptsModal
+          solutionNumber={openSolutionNumber}
+          onClose={() => setOpenSolutionNumber(null)}
+        />
       )}
     </>
   );
@@ -173,17 +176,16 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
 /**
  * Chain-derived "Sol #" label (quip-protocol MR !105). Winners show the
  * won block number; rejected/errored submissions show the on-chain
- * proofs_submitted sequence (`powSequence`). Pre-!105 miners carrying
- * neither fall back to the controller-local solution counter — the
- * counter resets when the attempts dir moves, which is exactly why !105
- * made this chain-derived. Chain-only synthetic rows always carry a
- * block number (they're self-won blocks), so the em-dash is only a
- * defensive fallback for the impossible neither-field case.
+ * proofs_submitted sequence (`powSequence`). Falls back to the global
+ * `solutionNumber` (itself chain-derived and durable) when the miner
+ * published neither. Chain-only synthetic rows always carry a block
+ * number (they're self-won blocks), so the em-dash is only a defensive
+ * fallback for the impossible neither-field, sentinel-zero case.
  */
 function solDisplay(s: MiningSubmissionRecord): ReactNode {
   if (s.chainBlockNumber) return `#${s.chainBlockNumber}`;
   if (s.powSequence !== null) return `#${formatNumber(s.powSequence)}`;
-  if (s.solutionId > 0) return `#${formatNumber(s.solutionId)}`;
+  if (s.solutionNumber > 0) return `#${formatNumber(s.solutionNumber)}`;
   return <span className="text-brand-gray-3">—</span>;
 }
 

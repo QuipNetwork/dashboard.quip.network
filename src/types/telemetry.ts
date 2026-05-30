@@ -68,6 +68,15 @@ export interface ChainHead {
   finalizedBlockHash: string;
   // bestBlockNumber - finalizedBlockNumber, precomputed for the UI.
   finalityLag: number;
+  // Length of the chain's `quantum_pow.WinningSolutions` storage map — the
+  // count of winning solutions accepted network-wide. This is the
+  // authoritative source for the global "solution number": the in-flight
+  // problem every miner is grinding is `winningSolutionsCount + 1` (MR
+  // !105), which keys the miner's per-solution directories. Null when the
+  // chain doesn't expose it yet (pre-v0.2 runtime, or the substrate worker
+  // hasn't read it). Equals `Σ chain_miners.proofsWon` when that table is
+  // complete, but sourced straight from chain so it can't undercount.
+  winningSolutionsCount: number | null;
   runtime: RuntimeVersion;
   updatedAt: string;
 }
@@ -437,11 +446,11 @@ export interface NodeDescriptorRecord {
 
 /**
  * Per-submission summary record sourced from the miner's
- * `/api/v1/mining/attempts?solution_id=N` endpoint. The indexer fetches one
- * envelope per controller-assigned `solution_id`, derives `attemptCount` and
+ * `/api/v1/mining/attempts?solution_number=N` endpoint. The indexer fetches
+ * one envelope per global `solution_number`, derives `attemptCount` and
  * `bestEnergyMilli` from the iterations array, and persists this row. The
  * full iteration trail is NOT persisted — the modal proxies fresh through
- * `GET /api/mining/attempts/:solutionId` when opened.
+ * `GET /api/mining/attempts/:solutionNumber` when opened.
  *
  * Milli-unit fields (`*Milli`) preserve the chain's integer encoding for
  * lossless re-derivation; the UI divides by 1000 at display time.
@@ -449,15 +458,18 @@ export interface NodeDescriptorRecord {
  * submission lands on-chain (outcome=`submitted_inblock` typically).
  */
 export interface MiningSubmissionRecord {
-  // Monotonic submission counter assigned by the miner's controller.
-  // Distinct from chain `proofs_won` (only winners count there).
+  // Global chain solution number this submission was produced for
+  // (quip-protocol MR !105): `count(WinningSolutions) + 1` at the time
+  // the miner opened the directory — i.e. the network-wide problem
+  // index, durable and monotonic across restarts. Every miner grinds
+  // the same global solution_number, so it's a stable identity/sort key
+  // that no longer resets when the attempts dir is moved.
   //
-  // This is the controller-local key the modal proxies on
-  // (`/api/v1/mining/attempts?solution_id=N`) and the DB primary key —
-  // NOT what the "Sol #" column displays. That counter resets when the
-  // attempts dir is moved, so MR !105 made the column chain-derived:
-  // it renders `chainBlockNumber ?? powSequence ?? solutionId`.
-  solutionId: number;
+  // This is the key the modal proxies on
+  // (`/api/v1/mining/attempts?solution_number=N`) and the DB primary
+  // key. The "Sol #" column does NOT render this raw — it's chain-derived
+  // from `chainBlockNumber ?? powSequence ?? solutionNumber`.
+  solutionNumber: number;
   minerId: string;
   // Backend that produced this submission — CPU / CUDA / METAL / MODAL
   // / QPU. In multi-backend containers (one quip-miner process per
@@ -466,9 +478,6 @@ export interface MiningSubmissionRecord {
   // rows from miners that don't yet surface the field (older images
   // pre-dating the v17 telemetry plumbing).
   minerType: string;
-  // Per-miner dispatch counter; multiple submissions can share a dispatch_id
-  // when the controller batches grinding work.
-  dispatchId: number;
   // Submission wall-clock from the miner. u128 nanoseconds as string —
   // exceeds Number.MAX_SAFE_INTEGER for any chain past ~292 years from
   // epoch, but we keep it precise regardless for future-proofing.
@@ -540,7 +549,7 @@ export interface MiningSubmissionRecord {
   // local mining_submissions table has no matching row (typical after
   // a miner restart that wiped its attempts log). Synthetic rows carry
   // chain-authoritative energy/diversity/numValid but no
-  // `attemptCount` or genuine `solutionId` — the panel renders
+  // `attemptCount` or genuine `solutionNumber` — the panel renders
   // em-dashes for those columns and disables modal click-through.
   // Never set by the server / DB layer; populated only in
   // `use-my-node`.
@@ -549,14 +558,14 @@ export interface MiningSubmissionRecord {
 
 /**
  * Per-iteration row inside a mining submission. Returned by the server's
- * `/api/mining/attempts/:solutionId` proxy on modal open. Not persisted —
- * the iteration trail can grow unbounded per submission so we re-fetch
- * fresh from the miner each time.
+ * `/api/mining/attempts/:solutionNumber` proxy on modal open. Not
+ * persisted — the iteration trail can grow unbounded per submission so we
+ * re-fetch fresh from the miner each time.
  *
  * `extra` carries the additional fields the miner returns beyond the
- * known shape (`dispatch_id`, dispatch timing, etc.) so the modal can
- * display them without the indexer/server having to know about every
- * field the miner adds in the future.
+ * known shape (`ts_ns`, `solution_meta`, iteration timing, etc.) so the
+ * modal can display them without the indexer/server having to know about
+ * every field the miner adds in the future.
  */
 export interface MiningAttempt {
   iter: number;
@@ -573,7 +582,7 @@ export interface MiningAttempt {
 }
 
 /**
- * Envelope returned by `/api/mining/attempts/:solutionId`. Mirrors the
+ * Envelope returned by `/api/mining/attempts/:solutionNumber`. Mirrors the
  * miner's response shape but with camelCase keys; the server proxies and
  * re-shapes via `parseMiningAttemptsApiResponse` in `api/miner-api.ts`.
  */
@@ -616,31 +625,37 @@ export interface TelemetryResponse {
   // the Node Identities panel and joins into ChainMinersTable.
   nodeDescriptors: NodeDescriptorRecord[];
   // Recent submissions by the locally-polled miner, sourced from
-  // `/api/v1/mining/attempts?solution_id=N` on the miner. Newest first,
-  // capped at `RECENT_MINING_SUBMISSIONS_LIMIT` on the server. Drives the
-  // "Recent Performance" panel — click a row to fetch the iteration
-  // trail via `/api/mining/attempts/:solutionId`. Empty when the miner
-  // has not submitted a proof since the indexer started polling.
+  // `/api/v1/mining/attempts?solution_number=N` on the miner. Newest
+  // first, capped at `RECENT_MINING_SUBMISSIONS_LIMIT` on the server.
+  // Drives the "Recent Performance" panel — click a row to fetch the
+  // iteration trail via `/api/mining/attempts/:solutionNumber`. Empty
+  // when the miner has not submitted a proof since the indexer started
+  // polling.
   recentMiningSubmissions: MiningSubmissionRecord[];
-  // Lifetime count of distinct solution_ids the indexer has recorded
+  // Lifetime count of distinct solution_numbers the indexer has recorded
   // for self where the iteration list was non-empty — drives the
   // "Problems Attempted" tile on the Mining Performance card. Counts
   // problems, not dispatches: a controller that re-dispatches the same
   // LastProofBlock won't double-count here. Zero until selfAddress
   // resolves or the indexer's first submission lands.
   selfProblemsAttempted: number;
-  // The miner's most recent dispatch — either the in-flight one (status
-  // "in-flight" when `contextsDispatched + 1` has iterations) or the
-  // just-completed one (status "completed", `contextsDispatched`). Null
-  // when the miner hasn't dispatched anything yet, or when both probes
-  // failed. The UI uses `status` to label the panel header and join
-  // `dispatchId` against `recentMiningSubmissions` to surface the
-  // chain outcome (e.g. chain_error vs submitted_inblock).
+  // The miner's work against the current global solution_number — either
+  // the in-flight problem (status "in-flight", `solution_number =
+  // Σ proofsWon + 1`, which the miner is actively grinding) or the
+  // just-finished one (status "completed", `Σ proofsWon`) when the next
+  // hasn't produced iterations yet. Null when the network has no wins
+  // yet, or when both probes failed. The UI uses `status` to label the
+  // panel header and joins `solutionNumber` against
+  // `recentMiningSubmissions` to surface the chain outcome (e.g.
+  // chain_error vs submitted_inblock).
   currentDispatch: CurrentDispatch | null;
 }
 
 export interface CurrentDispatch {
-  dispatchId: number;
+  // Global solution_number this iteration trail is grinding (MR !105):
+  // `Σ proofsWon + 1` for the in-flight problem, or `Σ proofsWon` for the
+  // just-completed one.
+  solutionNumber: number;
   attempts: MiningAttempt[];
   status: "in-flight" | "completed";
 }

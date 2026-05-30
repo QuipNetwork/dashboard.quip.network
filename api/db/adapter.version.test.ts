@@ -4,18 +4,17 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v20: pow_sequence column + num_valid/Sol# re-sourced per MR !105", () => {
-  // v20 adds the `pow_sequence` column and re-sources two columns per
-  // quip-protocol MR !105: (1) mining_submissions.num_valid now reads
-  // the submission-level `num_valid` !105 records on every submission
-  // (the target-aware accepted count) instead of digging the iteration
-  // trail (now the pre-!105 fallback); (2) the new `pow_sequence` column
-  // holds on-chain proofs_submitted for non-winning submissions and
-  // backs the chain-derived "Sol #" display. Wipe-on-drift rebuilds both
-  // on the next indexer poll. (v19 re-sourced num_valid from the
-  // iteration trail; v18 added qpu_access_time_us — table shape is
-  // otherwise unchanged apart from the new pow_sequence column.)
-  expect(SCHEMA_VERSION).toBe(20);
+test("schema v21: mining_submissions re-keyed on global solution_number (MR !105)", () => {
+  // v21 re-keys mining_submissions on the global chain `solution_number`
+  // (count(WinningSolutions)+1, durable across restarts): the `solution_id`
+  // column is renamed to `solution_number` and becomes the PK with
+  // `miner_id`, and the now-gone controller-local `dispatch_id` column is
+  // dropped. The indexer re-bounds its catch-up on the summed chain
+  // `proofsWon` instead of the controller's `results_received` counter.
+  // Wipe-on-drift rebuilds the table against the new key on the next poll.
+  // (v20 added pow_sequence + re-sourced num_valid/Sol#; table shape is
+  // otherwise unchanged apart from the column rename + dropped column.)
+  expect(SCHEMA_VERSION).toBe(21);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { winningSolutionsSolved } from "../../../lib/chain-solutions";
 import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
 import { formatDuration, formatNumber } from "../../../lib/format";
 import {
@@ -249,10 +250,11 @@ export function MyNodeView() {
         dispatch={currentDispatch}
         recentSubmissions={recentMiningSubmissions}
         problemNumber={
-          // Mining problem # = total proofs ever won (across all miners) + 1.
-          // Matches CurrentBlockIndicator's `nextProblem` derivation so the
-          // panel header agrees with the header indicator.
-          chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0) + 1
+          // Mining problem # = count(WinningSolutions) + 1, sourced from
+          // chain via chain_head (see winningSolutionsSolved). Matches both
+          // CurrentBlockIndicator's header and the server's currentDispatch
+          // probe so all three agree.
+          winningSolutionsSolved(chainHead, chainMiners) + 1
         }
         nowMs={Date.now()}
       />

@@ -9,13 +9,20 @@ import type { IndexerConfig } from "./config";
 import { QuipClient } from "./client";
 import { IndexerState } from "./state";
 
-// Cap on per-iteration submission fetches. A miner that's been running for
-// hours before the indexer connects can have hundreds of submissions in its
-// monotonic counter; fetching them all in one poll would block the loop
-// and pressure the miner. 25 per tick keeps the catch-up bounded — at the
-// default 5s poll cadence, an indexer can absorb 300 submissions/minute,
-// well above realistic submit rates.
+// Cap on per-poll submission fetches. The global solution_number space is
+// dense from this miner's view (every miner grinds the same solutions), so
+// catch-up walks contiguously; 25 per tick bounds the work without starving
+// the loop — at the default 5s cadence that's 300 solutions/minute, well
+// above realistic win rates.
 const MINING_ATTEMPTS_PER_POLL_CAP = 25;
+
+// How far below the current global solution_number to seed the checkpoint on
+// first contact (or after long downtime). The miner only has directories for
+// solution_numbers it was online for, and the UI backfills older self-wins
+// from chain blocks anyway, so there's no point grinding thousands of ancient
+// numbers that predate this miner — we only need a recent, screenful-plus
+// window of live miner-side rows.
+const MINING_ATTEMPTS_BACKFILL_WINDOW = 200;
 
 /**
  * Per-iteration dependencies used by {@link runTipIteration}. The loop
@@ -147,31 +154,28 @@ export async function runTipIteration(deps: TipIterationDeps): Promise<void> {
     console.warn("[indexer/tip] /api/v1/status failed:", e instanceof Error ? e.message : e);
   }
 
-  let resultsReceived: number | null = null;
   try {
     const stats: MinerStats = await client.getStats();
     state.observability.minerStats = stats;
-    // `controller.results_received` covers every dispatch that produced
-    // a result — submitted_inblock AND chain_error. Using proofs_submitted
-    // here would skip chain-rejected solutions, leaving them invisible
-    // in the dashboard. solution_ids are monotonic and 1-indexed against
-    // this counter on the miner side.
-    resultsReceived = Number.isFinite(stats.resultsReceived) ? stats.resultsReceived : null;
   } catch (e) {
     console.warn("[indexer/tip] /api/v1/stats failed:", e instanceof Error ? e.message : e);
   }
 
-  // Mining-attempts catch-up. Only run when both selfAddress and the
-  // results_received counter are known — without either, we can't key
-  // the checkpoint or bound the fetch range. We deliberately enter
-  // even when resultsReceived is 0 so the reset-detection branch can
-  // wipe stale rows when a fresh-restart miner reports an empty log.
-  // Errors here never poison the heartbeat write at the bottom of the
-  // function: catch broadly.
+  // Mining-attempts catch-up. Bound on the current global solution_number
+  // (MR !105) = `count(WinningSolutions) + 1`, read straight from chain via
+  // the substrate worker's `chain_head.winning_solutions_count`. The
+  // miner's controller no longer exposes a per-solution counter, so the
+  // bound is chain-derived, not from /api/v1/stats. Skip when selfAddress
+  // is unknown or the substrate worker hasn't written the count yet (the
+  // helper returns null), leaving the heartbeat write below intact. Errors
+  // here never poison that heartbeat: catch broadly.
   const selfAddress = await db.getSelfAddress();
-  if (selfAddress && resultsReceived !== null) {
+  if (selfAddress) {
     try {
-      await catchUpMiningAttempts(deps, selfAddress, resultsReceived, nowIso);
+      const currentSolutionNumber = await currentGlobalSolutionNumber(db);
+      if (currentSolutionNumber !== null) {
+        await catchUpMiningAttempts(deps, selfAddress, currentSolutionNumber, nowIso);
+      }
     } catch (e) {
       console.warn(
         "[indexer/tip] mining-attempts catch-up failed:",
@@ -200,44 +204,66 @@ async function flushHeartbeat(deps: TipWorkerDeps): Promise<void> {
 }
 
 /**
- * Fetch any solution_ids past the persisted checkpoint, up to
- * {@link MINING_ATTEMPTS_PER_POLL_CAP} per tick. Each successful fetch is
- * persisted via `db.insertMiningSubmission` and then the checkpoint
- * advances past it. A 404 stops the loop (we won't skip past missing
- * ids), and any other error rethrows so the caller can decide.
+ * Current global solution_number = `count(WinningSolutions) + 1` (MR !105),
+ * read straight from chain via the substrate worker's
+ * `chain_head.winning_solutions_count`. +1 is the in-flight problem every
+ * miner is currently grinding.
  *
- * `controllerProofsSubmitted` is the upper bound from `/api/v1/stats`;
- * if it's already at or behind the checkpoint, this is a no-op.
+ * Returns null when chain_head hasn't been written yet, or when the chain
+ * doesn't expose the count (pre-v0.2 runtime → `winningSolutionsCount` is
+ * null) — the caller skips catch-up rather than bounding the walk on a
+ * bogus value.
+ */
+async function currentGlobalSolutionNumber(db: DatabaseAdapter): Promise<number | null> {
+  const head = await db.getChainHead();
+  if (!head || head.winningSolutionsCount === null) return null;
+  return head.winningSolutionsCount + 1;
+}
+
+/**
+ * Persist completed global solution_numbers past the checkpoint, up to
+ * {@link MINING_ATTEMPTS_PER_POLL_CAP} per tick. Completed (stable)
+ * solution_numbers are `1 … currentSolutionNumber - 1`; the current one is
+ * still in flight (the server surfaces it live, we never persist it).
+ *
+ * Unlike the pre-!105 per-result numbering, `solution_number` is the global
+ * chain index and durable across restarts, so:
+ *   - A 404 means this miner has no directory for that solution_number (it
+ *     predates the miner, or — at the very head — the miner's own just-won
+ *     directory hasn't flushed yet). We SKIP and advance rather than stop;
+ *     a skipped self-win still shows in the UI as a chain-derived synthetic
+ *     row, so the degradation is graceful.
+ *   - There is no counter-regression "reset" to detect: the bound only
+ *     advances, so we never wipe history on a restart.
+ *
+ * On first contact (or after long downtime) the checkpoint is seeded to
+ * {@link MINING_ATTEMPTS_BACKFILL_WINDOW} below the head so we don't grind
+ * thousands of ancient numbers this miner never had directories for.
  */
 async function catchUpMiningAttempts(
   deps: TipIterationDeps,
   minerId: string,
-  controllerResultsReceived: number,
+  currentSolutionNumber: number,
   observedAt: string,
 ): Promise<void> {
   const { client, db } = deps;
-  let checkpoint = (await db.getMiningCheckpoint(minerId)) ?? 0;
-  // Miner reset detection: when the controller's results_received drops
-  // below our checkpoint, the miner has wiped its attempts log (restart
-  // without persistent state, or operator nuked /data). The persisted
-  // submissions no longer correspond to anything on the live miner, so
-  // their solution_ids are stale and modal lookups will 404. Drop them
-  // and start over from 1.
-  if (controllerResultsReceived < checkpoint) {
-    console.warn(
-      `[indexer/tip] miner reset detected for ${minerId}: ` +
-        `results_received=${controllerResultsReceived} < checkpoint=${checkpoint}. ` +
-        `Dropping persisted mining_submissions and refetching from 1.`,
-    );
-    await db.resetMiningHistory(minerId);
-    checkpoint = 0;
-  }
-  if (controllerResultsReceived <= checkpoint) return;
+  const highestCompleted = currentSolutionNumber - 1;
+  if (highestCompleted < 1) return; // no winning solutions on-chain yet
 
-  const target = Math.min(controllerResultsReceived, checkpoint + MINING_ATTEMPTS_PER_POLL_CAP);
-  for (let id = checkpoint + 1; id <= target; id++) {
+  let checkpoint = (await db.getMiningCheckpoint(minerId)) ?? 0;
+  const seedFloor = Math.max(0, highestCompleted - MINING_ATTEMPTS_BACKFILL_WINDOW);
+  if (checkpoint < seedFloor) {
+    // setMiningCheckpoint is monotonic-advance-only, so this only ever
+    // skips ancient numbers forward — it can't rewind a healthy cursor.
+    await db.setMiningCheckpoint(minerId, seedFloor);
+    checkpoint = seedFloor;
+  }
+  if (checkpoint >= highestCompleted) return;
+
+  const target = Math.min(highestCompleted, checkpoint + MINING_ATTEMPTS_PER_POLL_CAP);
+  for (let n = checkpoint + 1; n <= target; n++) {
     try {
-      const env = await client.getMiningAttempts(id);
+      const env = await client.getMiningAttempts(n);
       // The miner's API returns `miner_id` as the controller's internal
       // node id (e.g. "quip-miner-pow-CPU-1"). We persist under the chain
       // SS58 (`minerId`/`selfAddress`) so the table joins cleanly against
@@ -248,17 +274,11 @@ async function catchUpMiningAttempts(
         minerId,
         observedAt,
       });
-      await db.setMiningCheckpoint(minerId, id);
     } catch (e) {
-      if (e instanceof MiningSubmissionNotFoundError) {
-        // The controller counter may be ahead of what the miner has
-        // persisted to its attempts log (race between `proofs_submitted`
-        // bump and the index write). Don't advance past the gap — next
-        // poll retries this id.
-        return;
-      }
-      throw e;
+      if (!(e instanceof MiningSubmissionNotFoundError)) throw e;
+      // Sparse gap — skip and advance the checkpoint below.
     }
+    await db.setMiningCheckpoint(minerId, n);
   }
 }
 

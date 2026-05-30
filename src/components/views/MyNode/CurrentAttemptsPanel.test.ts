@@ -27,10 +27,10 @@ function attempt(iter: number, ageMs: number | null): MiningAttempt {
 
 describe("orderAttemptsByRecency", () => {
   test("orders by ts_ns, not iter — the cross-restart collision case", () => {
-    // The bug: a long prior run reached iter 934 (24h ago); the current
-    // run has only reached iter 66 (1 min ago) but appended to the same
-    // dispatch_id log. Sorting by iter would float the 24h-old row to
-    // the top; sorting by ts_ns must surface the fresh one.
+    // The bug: a long prior dispatch reached iter 934 (24h ago); the
+    // current run has only reached iter 66 (1 min ago) but appended to the
+    // same solution_number log. Sorting by iter would float the 24h-old
+    // row to the top; sorting by ts_ns must surface the fresh one.
     const ordered = orderAttemptsByRecency([
       attempt(934, 24 * 60 * 60 * 1000),
       attempt(66, 60 * 1000),

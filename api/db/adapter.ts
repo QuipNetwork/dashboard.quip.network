@@ -310,31 +310,31 @@ export interface DatabaseAdapter {
 
   // --- Mining submissions (v13) ---
   // Per-submission summaries sourced from the locally-polled miner's
-  // `/api/v1/mining/attempts?solution_id=N` endpoint. One row per
-  // `solution_id` (the controller-assigned monotonic submission counter),
-  // keyed by `(minerId, solutionId)` so multiple miners polled by the same
-  // dashboard never collide. Iteration-level rows are NOT stored — the
-  // server proxies them fresh on modal open.
+  // `/api/v1/mining/attempts?solution_number=N` endpoint. One row per
+  // global `solution_number` (the chain winning-solution index the miner
+  // worked, MR !105), keyed by `(minerId, solutionNumber)` so multiple
+  // miners polled by the same dashboard never collide. Iteration-level
+  // rows are NOT stored — the server proxies them fresh on modal open.
 
   /**
-   * Idempotent insert-or-update by `(minerId, solutionId)`. The indexer
-   * may re-fetch a submission whose `chainBlockNumber` was null on first
-   * observation (extrinsic submitted but not yet on-chain); the second
-   * fetch flips that field and we want the row to update without losing
-   * the original `observedAt`.
+   * Idempotent insert-or-update by `(minerId, solutionNumber)`. The
+   * indexer may re-fetch a submission whose `chainBlockNumber` was null on
+   * first observation (extrinsic submitted but not yet on-chain); the
+   * second fetch flips that field and we want the row to update without
+   * losing the original `observedAt`.
    */
   insertMiningSubmission(record: MiningSubmissionRecord): Promise<void>;
 
   /**
-   * Recent submissions by `minerId`, newest first by `solutionId`. The
+   * Recent submissions by `minerId`, newest first by `solutionNumber`. The
    * server caller passes `selfAddress` so only the locally-polled miner's
    * submissions surface in the UI panel.
    */
   getRecentMiningSubmissions(minerId: string, limit: number): Promise<MiningSubmissionRecord[]>;
 
   /**
-   * Lifetime count of distinct `solutionId`s persisted for this miner where
-   * the iteration list was non-empty — the operator-facing "Problems
+   * Lifetime count of distinct `solutionNumber`s persisted for this miner
+   * where the iteration list was non-empty — the operator-facing "Problems
    * Attempted" tile. Differs from `controller.contexts_dispatched` (which
    * counts dispatches, possibly with refreshes per problem); this counts
    * solutions for which at least one iteration row was recorded.
@@ -342,26 +342,29 @@ export interface DatabaseAdapter {
   countMiningSubmissionsWithAttempts(minerId: string): Promise<number>;
 
   /**
-   * Highest `solutionId` the indexer has fetched + persisted for this
-   * miner. Returned as a number (solution_id is u64 but fits comfortably
-   * in Number until ~9 quadrillion submissions). Null until the first
-   * submission lands.
+   * Highest global `solutionNumber` the indexer has fetched + persisted
+   * for this miner. Returned as a number (solution_number is u64 but fits
+   * comfortably in Number until ~9 quadrillion solutions). Null until the
+   * first submission lands.
    */
   getMiningCheckpoint(minerId: string): Promise<number | null>;
 
   /**
    * Monotonic advance — never rewinds. Guards against a misconfigured
    * restart that resumes from an earlier checkpoint than what we already
-   * persisted.
+   * persisted. The catch-up loop also uses it to seed the cursor near the
+   * current global solution_number on first contact (so it never grinds
+   * ancient solution_numbers this miner predates).
    */
-  setMiningCheckpoint(minerId: string, solutionId: number): Promise<void>;
+  setMiningCheckpoint(minerId: string, solutionNumber: number): Promise<void>;
 
   /**
    * Drop every persisted submission for this miner and clear its
-   * checkpoint. Called when the indexer detects that the miner has
-   * been reset (controller's `results_received` regressed below the
-   * checkpoint) so the next catch-up loop refetches from solution_id=1
-   * against the fresh miner instead of leaving stale rows visible.
+   * checkpoint. A maintenance primitive (e.g. an operator nuked the
+   * miner's `/data` so its on-disk solution directories no longer back
+   * the persisted rows). Not triggered automatically: with MR !105 the
+   * global `solution_number` is durable and only advances, so there is no
+   * counter-regression signal to wipe on.
    */
   resetMiningHistory(minerId: string): Promise<void>;
 }
@@ -503,7 +506,18 @@ export interface DbConfig {
 // (`chain_block_number ?? pow_sequence ?? solution_id`), which no longer
 // shows the controller-local counter that reset on attempts-dir moves.
 // Wipe-on-drift rebuilds both on next poll.
-export const SCHEMA_VERSION = 20;
+// v21: re-keys mining_submissions on the global chain `solution_number`
+// (quip-protocol MR !105). The miner dropped its controller-local
+// `solution_id` / `dispatch_id` counters (which reset on restart and on
+// attempts-dir moves) in favour of `solution_number = count(WinningSolutions)
+// + 1` — durable and monotonic across restarts. Renames the `solution_id`
+// column to `solution_number`, makes it the PK with `miner_id`, and drops
+// the now-gone `dispatch_id` column. Also adds `chain_head.winning_solutions_count`
+// (length of quantum_pow.WinningSolutions): the indexer re-bounds its
+// catch-up on `count + 1` read straight from chain (via the substrate
+// worker) instead of the controller's `results_received` counter. Wipe-on-
+// drift rebuilds both on next poll.
+export const SCHEMA_VERSION = 21;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

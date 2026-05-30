@@ -69,10 +69,9 @@ function makeChainMiner(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRe
 
 function makeSubmission(overrides: Partial<MiningSubmissionRecord>): MiningSubmissionRecord {
   return {
-    solutionId: 1,
+    solutionNumber: 1,
     minerId: "5GQpu",
     minerType: "QPU",
-    dispatchId: 1,
     tsNs: "0",
     energyMilli: -14000000,
     diversityMilli: 250,

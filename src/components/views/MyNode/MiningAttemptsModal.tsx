@@ -14,10 +14,10 @@ import type { MiningAttempt, MiningAttemptsResponse } from "../../../types/telem
 // clicks in for detail. The trade-off: a stopped miner means a stale
 // modal; the empty state below makes that explicit.
 export function MiningAttemptsModal({
-  solutionId,
+  solutionNumber,
   onClose,
 }: {
-  solutionId: number;
+  solutionNumber: number;
   onClose: () => void;
 }) {
   const [data, setData] = useState<MiningAttemptsResponse | null>(null);
@@ -37,9 +37,9 @@ export function MiningAttemptsModal({
     setLoading(true);
     setError(null);
     setData(null);
-    fetch(`/api/mining/attempts/${solutionId}`, { signal: ac.signal })
+    fetch(`/api/mining/attempts/${solutionNumber}`, { signal: ac.signal })
       .then(async (res) => {
-        if (res.status === 404) throw new Error(`solution #${solutionId} not found on miner`);
+        if (res.status === 404) throw new Error(`solution #${solutionNumber} not found on miner`);
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as { error?: string } | null;
           throw new Error(body?.error ?? `HTTP ${res.status}`);
@@ -55,13 +55,13 @@ export function MiningAttemptsModal({
         if (!ac.signal.aborted) setLoading(false);
       });
     return () => ac.abort();
-  }, [solutionId]);
+  }, [solutionNumber]);
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`Mining submission ${solutionId} details`}
+      aria-label={`Mining submission ${solutionNumber} details`}
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
     >
@@ -72,7 +72,7 @@ export function MiningAttemptsModal({
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h2 className="font-accent text-lg text-brand-gray-5">
-              Submission #{formatNumber(solutionId)}
+              Submission #{formatNumber(solutionNumber)}
             </h2>
             {data && (
               <p className="font-accent text-xs text-brand-gray-3">
@@ -121,7 +121,7 @@ function SubmissionDetails({ envelope }: { envelope: MiningAttemptsResponse }) {
           mono
           title={submission.minerId}
         />
-        <Row label="Dispatch" value={String(submission.dispatchId)} />
+        <Row label="Solution #" value={formatNumber(submission.solutionNumber)} />
         <Row label="Energy" value={(submission.energyMilli / 1000).toFixed(3)} />
         <Row label="Threshold" value={`≤ ${(submission.thresholdMilli / 1000).toFixed(3)}`} />
         <Row label="Diversity" value={(submission.diversityMilli / 1000).toFixed(3)} />

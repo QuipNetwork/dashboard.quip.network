@@ -209,6 +209,14 @@ export interface SubstrateClient {
   // absent (pre-v0.2) or empty (no wins yet).
   getWinningBlockNumbers(): Promise<string[]>;
 
+  // Count of entries in the `quantum_pow.WinningSolutions` storage map —
+  // the network-wide winning-solution total. The global "solution number"
+  // the miner keys its directories on is this + 1 (MR !105). Reads the
+  // pallet's `CounterFor` companion when the map is a CountedStorageMap
+  // (single storage read); otherwise falls back to counting keys. Null
+  // when the storage map is absent (pre-v0.2).
+  getWinningSolutionsCount(): Promise<number | null>;
+
   // Decode events, author, and timestamp for a specific finalized block,
   // returning the same shape `subscribeBlockEvents` delivers on a live head.
   // Returns null when the block isn't found. Used by the startup backfill
@@ -363,6 +371,9 @@ export class FakeSubstrateClient implements SubstrateClient {
   }
   async getWinningBlockNumbers(): Promise<string[]> {
     return [...this.winningSolutionsByBlock.keys()];
+  }
+  async getWinningSolutionsCount(): Promise<number | null> {
+    return this.winningSolutionsByBlock.size;
   }
   // Tests populate `historicalBlocks` (keyed by blockNumber string) for any
   // historical winning block the backfill loop should be able to fetch.
@@ -811,6 +822,27 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       [{ args: Array<{ toString: () => string }> }, unknown]
     >;
     return entries.map(([key]) => key.args[0]!.toString());
+  }
+
+  async getWinningSolutionsCount(): Promise<number | null> {
+    const api = this.requireApi();
+    const q = api.query.quantumPow;
+    if (!q?.winningSolutions) return null; // pre-v0.2 chain
+    // Prefer the CountedStorageMap companion `counterForWinningSolutions`
+    // — a single O(1) storage read — over scanning every key. FRAME
+    // auto-generates it only when the map is declared `CountedStorageMap`;
+    // fall back to counting keys (one paged scan) when it's a plain map.
+    const counter = (q as Record<string, unknown>)["counterForWinningSolutions"] as
+      | { (): Promise<{ toString: () => string }> }
+      | undefined;
+    if (typeof counter === "function") {
+      const raw = await counter();
+      const n = Number(raw.toString());
+      if (Number.isFinite(n)) return n;
+    }
+    if (!q.winningSolutions.keys) return null;
+    const keys = (await q.winningSolutions.keys()) as unknown as unknown[];
+    return keys.length;
   }
 
   async processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null> {

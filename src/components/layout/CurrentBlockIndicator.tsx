@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { winningSolutionsSolved } from "../../lib/chain-solutions";
 import { selectTipBlock, useTelemetryStore } from "../../store/telemetry-store";
 
 export function CurrentBlockIndicator() {
@@ -12,12 +13,11 @@ export function CurrentBlockIndicator() {
   if (!tip) return null;
   // BABE authors most blocks without a PoW solution attached, so the
   // "problem number" the network is currently racing to solve isn't tied
-  // to the substrate block height. It's the count of proofs ever won
-  // across all chain miners + 1. `quantum_pow.Miners[*].proofs_won` is the
-  // authoritative lifetime counter.
+  // to the substrate block height. It's `count(WinningSolutions) + 1`,
+  // sourced from chain via `chain_head.winningSolutionsCount` (falling back
+  // to summing `quantum_pow.Miners[*].proofs_won` until chain_head lands).
   const tipNum = Number(tip.substrateBlockNumber);
-  const totalProofsWon = chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0);
-  const nextProblem = totalProofsWon + 1;
+  const nextProblem = winningSolutionsSolved(chainHead, chainMiners) + 1;
   // Substrate blocks elapsed since the last winning PoW solution. Derived
   // from chain_head.finalizedBlockNumber (the canonical "where the chain
   // is now") minus the tip-of-winning-blocks substrate height. Hidden when

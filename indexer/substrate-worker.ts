@@ -124,6 +124,11 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
     });
     if (!rt) return;
     const lastUpgrade = await client.getLastRuntimeUpgrade().catch(() => null);
+    // Chain-wide winning-solution count → the global solution_number bound
+    // (MR !105). Best-effort: a failed/absent read leaves it null and the
+    // mining-attempts catch-up simply skips a tick rather than poisoning
+    // the chain_head write.
+    const winningSolutionsCount = await client.getWinningSolutionsCount().catch(() => null);
     const bestN = best.number;
     const finN = finalized.number;
     const lag = (() => {
@@ -139,6 +144,7 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
       finalizedBlockNumber: finN,
       finalizedBlockHash: finalized.hash,
       finalityLag: lag,
+      winningSolutionsCount,
       runtime: {
         specName: rt.specName,
         specVersion: rt.specVersion,

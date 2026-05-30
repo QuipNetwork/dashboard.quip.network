@@ -42,7 +42,7 @@ export interface MyNodeStats {
   // Total blocks won by self (from chain_miners.proofsWon, u64 string-safe).
   blocksMined: string;
   // Merged Recent Performance feed: local `mining_submissions` rows
-  // (full fidelity — solutionId, attemptCount, outcome) plus
+  // (full fidelity — solutionNumber, attemptCount, outcome) plus
   // chain-derived synthetic rows for self-won blocks the local table
   // has no record of (typical after a miner reset wipes
   // mining_submissions). Sorted DESC by timestamp so the freshest row
@@ -55,8 +55,8 @@ export interface MyNodeStats {
   // when no /api/v1/stats poll has landed yet (fresh deploy).
   effectiveMinerStats: MinerStats | null;
   // Chain-floored problemsAttempted. `selfProblemsAttempted` from the
-  // server counts distinct `mining_submissions.solution_id` rows; it
-  // resets on `resetMiningHistory`. We floor at chain proofsSubmitted
+  // server counts distinct `mining_submissions.solution_number` rows, a
+  // recent window the indexer persists. We floor at chain proofsSubmitted
   // since every chain submission was, by definition, a problem
   // attempted.
   effectiveProblemsAttempted: number;
@@ -93,11 +93,11 @@ export function useMyNode(): MyNodeStats {
   // many hours ago. Survives wipe-on-drift restarts where `blocks` starts
   // empty but the indexer's first difficulty poll fires within 300s.
   const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
-  // Local-side fidelity feed: full mining_submissions rows that
-  // survived the most recent `resetMiningHistory` call. Carries
-  // attemptCount + solutionId the chain doesn't expose.
+  // Local-side fidelity feed: full mining_submissions rows persisted by
+  // the indexer. Carries attemptCount + solutionNumber the chain doesn't
+  // expose.
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
-  // Server-counted distinct solution_ids in mining_submissions. Floor
+  // Server-counted distinct solution_numbers in mining_submissions. Floor
   // we apply below with chain proofsSubmitted to never undershoot the
   // chain truth across miner restarts.
   const selfProblemsAttempted = useTelemetryStore((s) => s.selfProblemsAttempted);
@@ -151,16 +151,18 @@ export function useMyNode(): MyNodeStats {
           }
         : null;
     // --- Merged Recent Performance feed ---
-    // After a miner reset the local mining_submissions table is wiped
-    // (`resetMiningHistory` in tip-worker.ts) but the chain still
-    // remembers every winning block. Without this synthesis the panel
-    // collapses to the post-restart fragment and the operator can no
-    // longer scan their lifetime wins from MyNode.
+    // The indexer only persists a recent window of miner-side
+    // mining_submissions (it seeds its checkpoint near the current global
+    // solution_number and the miner only keeps directories for solutions
+    // it was online for), but the chain still remembers every winning
+    // block. Without this synthesis the panel collapses to that recent
+    // fragment and the operator can no longer scan their lifetime wins
+    // from MyNode.
     //
     // Strategy: derive a synthetic MiningSubmissionRecord from each
     // self-won chain block that has no corresponding local row
     // (matched on chainBlockNumber). Local rows always take precedence
-    // because they carry attemptCount + a real solutionId for the
+    // because they carry attemptCount + a real solutionNumber for the
     // modal.
     const localChainBlockNumbers = new Set(
       recentMiningSubmissions.map((s) => s.chainBlockNumber).filter((n): n is string => n != null),
@@ -169,14 +171,13 @@ export function useMyNode(): MyNodeStats {
     const chainOnlyRows: MiningSubmissionRecord[] = selfBlocks
       .filter((b) => !localChainBlockNumbers.has(b.substrateBlockNumber))
       .map((b) => ({
-        // Sentinel id: 0 flags this row as chain-derived. The miner's
-        // real solutionId is 1-indexed so 0 cannot collide with a
+        // Sentinel number: 0 flags this row as chain-derived. A real
+        // global solutionNumber is ≥ 1 so 0 cannot collide with a
         // legitimate entry. RecentMiningPanel uses this (along with
         // `chainOnly: true`) to suppress the modal click.
-        solutionId: 0,
+        solutionNumber: 0,
         minerId: b.minerId,
         minerType: selfMinerType,
-        dispatchId: 0,
         // BlockRecord.timestamp is in seconds (substrate-worker
         // converts before insert). MiningSubmissionRecord.tsNs is
         // u128 nanoseconds-as-string; BigInt arithmetic preserves

@@ -35,6 +35,7 @@ const sampleHead = (): ChainHead => ({
   finalizedBlockNumber: "98",
   finalizedBlockHash: "0xdef",
   finalityLag: 2,
+  winningSolutionsCount: 42,
   runtime: {
     specName: "quip",
     specVersion: 101,

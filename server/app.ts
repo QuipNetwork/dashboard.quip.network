@@ -111,24 +111,18 @@ export function createApp(options: CreateAppOptions): Hono {
     // once.
     const hardwareByAccount = new Map(allHardware.map((h) => [h.accountId, h]));
 
-    // Current-dispatch resolution. The miner's counters give us
-    // unambiguous status:
-    //   - `contextsDispatched` (N): total dispatches started
-    //   - `resultsReceived` (M): total dispatches that produced a result
-    // If M < N, dispatch N is in-flight (the miner is grinding it).
-    // If M == N, dispatch N is completed; the miner may or may not have
-    // started N+1. We probe N+1 to find out.
+    // Current-dispatch resolution. With MR !105 the in-flight problem is
+    // the global solution_number = `count(WinningSolutions) + 1`, sourced
+    // straight from chain via `chain_head.winning_solutions_count` (the
+    // miner's controller no longer exposes a per-solution counter). The
+    // miner grinds that solution_number; the prior one is the just-completed
+    // problem. Skip when the substrate worker hasn't written the count yet.
     const minerHardware = selfAddress ? hardwareByAccount.get(selfAddress) : undefined;
     const minerInternalId = minerHardware?.miners[0]?.id ?? null;
-    const contextsDispatched = indexer?.minerStats?.contextsDispatched ?? null;
-    const resultsReceived = indexer?.minerStats?.resultsReceived ?? null;
+    const winningSolutionsCount = chainHead?.winningSolutionsCount ?? null;
     const currentDispatch: CurrentDispatch | null =
-      selfAddress &&
-      minerInternalId &&
-      contextsDispatched !== null &&
-      resultsReceived !== null &&
-      contextsDispatched > 0
-        ? await resolveCurrentDispatch(minerInternalId, contextsDispatched, resultsReceived)
+      selfAddress && minerInternalId && winningSolutionsCount !== null
+        ? await resolveCurrentDispatch(minerInternalId, winningSolutionsCount + 1)
         : null;
 
     // Project per-account chain descriptors into the legacy NodesSnapshot
@@ -200,79 +194,57 @@ export function createApp(options: CreateAppOptions): Hono {
   });
 
   /**
-   * Resolve which dispatch the panel shows + whether it's in-flight.
+   * Resolve which global solution_number the panel shows + whether it's
+   * in-flight (MR !105).
    *
-   * - `M < N`: dispatch N has no result yet → in-flight on N. One fetch.
-   * - `M == N`: dispatch N is complete; probe N+1 in case the miner
-   *   already started the next one. Two parallel fetches.
+   * The miner is grinding `currentSolutionNumber` (= Σ proofsWon + 1); its
+   * prior problem `currentSolutionNumber - 1` (= Σ proofsWon) was won
+   * network-wide and is finished. Probe both: if the in-flight directory
+   * has iterations the miner is actively working it; otherwise fall back to
+   * the just-completed one for the brief window before the next directory
+   * is written.
    *
-   * Best-effort throughout: any failure path that ends with no
-   * iterations returns null and the panel renders the empty state
-   * (which explains "between dispatches" / "miner unreachable").
+   * Best-effort throughout: any failure path that ends with no iterations
+   * returns null and the panel renders the empty state (which explains
+   * "between dispatches" / "miner unreachable").
    */
   async function resolveCurrentDispatch(
     minerId: string,
-    contextsDispatched: number,
-    resultsReceived: number,
+    currentSolutionNumber: number,
   ): Promise<CurrentDispatch | null> {
-    // Dispatch N is in-flight when results lag behind. The controller
-    // bumps contextsDispatched when it enqueues the next problem, but
-    // the miner doesn't write attempt rows for N until SA emits its
-    // first iteration — so probe both N and N-1 to cover the race
-    // window where N is queued but N-1 is the one still grinding.
-    if (resultsReceived < contextsDispatched) {
-      const [topAttempts, prevAttempts] = await Promise.all([
-        fetchDispatchAttempts(minerId, contextsDispatched),
-        fetchDispatchAttempts(minerId, contextsDispatched - 1),
-      ]);
-      if (topAttempts.length > 0) {
-        return {
-          dispatchId: contextsDispatched,
-          attempts: topAttempts,
-          status: "in-flight",
-        };
-      }
-      if (prevAttempts.length > 0) {
-        return {
-          dispatchId: contextsDispatched - 1,
-          attempts: prevAttempts,
-          status: "in-flight",
-        };
-      }
-      return null;
-    }
-    // Dispatch N is complete; the miner may have started N+1 already.
-    const [nextAttempts, curAttempts] = await Promise.all([
-      fetchDispatchAttempts(minerId, contextsDispatched + 1),
-      fetchDispatchAttempts(minerId, contextsDispatched),
+    const [curAttempts, prevAttempts] = await Promise.all([
+      fetchSolutionAttempts(minerId, currentSolutionNumber),
+      currentSolutionNumber > 1
+        ? fetchSolutionAttempts(minerId, currentSolutionNumber - 1)
+        : Promise.resolve<MiningAttempt[]>([]),
     ]);
-    if (nextAttempts.length > 0) {
+    if (curAttempts.length > 0) {
       return {
-        dispatchId: contextsDispatched + 1,
-        attempts: nextAttempts,
+        solutionNumber: currentSolutionNumber,
+        attempts: curAttempts,
         status: "in-flight",
       };
     }
-    if (curAttempts.length > 0) {
+    if (prevAttempts.length > 0) {
       return {
-        dispatchId: contextsDispatched,
-        attempts: curAttempts,
+        solutionNumber: currentSolutionNumber - 1,
+        attempts: prevAttempts,
         status: "completed",
       };
     }
     return null;
   }
 
-  async function fetchDispatchAttempts(
+  async function fetchSolutionAttempts(
     minerId: string,
-    dispatchId: number,
+    solutionNumber: number,
   ): Promise<MiningAttempt[]> {
     const selfAddress = await db.getSelfAddress();
     const baseUrl = await resolveSelfMinerRestUrl(db, validatorRpcUrls, selfAddress);
     if (!baseUrl) return [];
     const params = new URLSearchParams({
       miner_id: minerId,
-      dispatch_id: String(dispatchId),
+      solution_number: String(solutionNumber),
     });
     const url = `${baseUrl}/api/v1/mining/attempts?${params.toString()}`;
     try {
@@ -289,8 +261,8 @@ export function createApp(options: CreateAppOptions): Hono {
     }
   }
 
-  // Modal proxy: fetches `/api/v1/mining/attempts?solution_id=N` from the
-  // local operator's miner-REST endpoint (resolved per-request via the
+  // Modal proxy: fetches `/api/v1/mining/attempts?solution_number=N` from
+  // the local operator's miner-REST endpoint (resolved per-request via the
   // on-chain descriptor or RPC-URL fallback) and re-shapes to camelCase.
   // Kept here rather than calling the miner directly from the SPA because
   // the miner's REST endpoint may not be reachable from the operator's
@@ -300,18 +272,22 @@ export function createApp(options: CreateAppOptions): Hono {
   // failure so the SPA can distinguish "no such submission" from
   // "miner unreachable". Returns 503 when no miner-REST URL can be
   // resolved yet (no selfAddress / no descriptor).
-  app.get("/api/mining/attempts/:solutionId", async (c) => {
-    const raw = c.req.param("solutionId");
-    const solutionId = Number(raw);
-    if (!Number.isFinite(solutionId) || solutionId <= 0 || !Number.isInteger(solutionId)) {
-      return c.json({ error: "invalid solution_id" }, 400);
+  app.get("/api/mining/attempts/:solutionNumber", async (c) => {
+    const raw = c.req.param("solutionNumber");
+    const solutionNumber = Number(raw);
+    if (
+      !Number.isFinite(solutionNumber) ||
+      solutionNumber <= 0 ||
+      !Number.isInteger(solutionNumber)
+    ) {
+      return c.json({ error: "invalid solution_number" }, 400);
     }
     const selfAddress = await db.getSelfAddress();
     const baseUrl = await resolveSelfMinerRestUrl(db, validatorRpcUrls, selfAddress);
     if (!baseUrl) {
       return c.json({ error: "miner REST endpoint not resolvable yet" }, 503);
     }
-    const url = `${baseUrl}/api/v1/mining/attempts?solution_id=${solutionId}`;
+    const url = `${baseUrl}/api/v1/mining/attempts?solution_number=${solutionNumber}`;
     let res: Response;
     try {
       res = await fetch(url, { headers: { accept: "application/json" } });

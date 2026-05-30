@@ -100,16 +100,16 @@ export class QuipClient {
   }
 
   /**
-   * Fetch the submission + iteration trail for a specific solution_id.
-   * Throws {@link MiningSubmissionNotFoundError} on 404 (miner hasn't
-   * observed this solution_id yet, or it was never assigned). Returns
-   * with `observedAt=""` on `submission` — caller stamps the timestamp.
+   * Fetch the submission + iteration trail for a specific global
+   * solution_number. Throws {@link MiningSubmissionNotFoundError} on 404
+   * (this miner has no directory for that solution_number). Returns with
+   * `observedAt=""` on `submission` — caller stamps the timestamp.
    */
-  async getMiningAttempts(solutionId: number): Promise<MiningAttemptsResponse> {
-    const url = `${this.baseUrl}/api/v1/mining/attempts?solution_id=${solutionId}`;
+  async getMiningAttempts(solutionNumber: number): Promise<MiningAttemptsResponse> {
+    const url = `${this.baseUrl}/api/v1/mining/attempts?solution_number=${solutionNumber}`;
     const res = await this.fetchImpl(url, { headers: { accept: "application/json" } });
     if (res.status === 404) {
-      throw new MiningSubmissionNotFoundError(solutionId);
+      throw new MiningSubmissionNotFoundError(solutionNumber);
     }
     if (res.status === 429) {
       throw new RateLimitError(`[indexer] 429 from /api/v1/mining/attempts`);

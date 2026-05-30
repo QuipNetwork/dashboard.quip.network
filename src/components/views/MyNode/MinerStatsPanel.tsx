@@ -25,7 +25,7 @@ export function MinerStatsPanel({
   stats: MinerStats;
   chainMinerEntry: ChainMinerRecord | null;
   selfAvgMiningTimeSec: number | null;
-  // Lifetime count of distinct solution_ids the indexer has recorded
+  // Lifetime count of distinct solution_numbers the indexer has recorded
   // iterations for. Distinct from `stats.contextsDispatched`, which
   // counts dispatches and can exceed problems when the controller
   // refreshes mid-mine.

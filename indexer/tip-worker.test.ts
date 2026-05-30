@@ -2,16 +2,51 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { MinerStats } from "../src/types/telemetry";
+import { MiningSubmissionNotFoundError } from "../api/miner-api";
+import type {
+  MinerStats,
+  MiningAttemptsResponse,
+  MiningSubmissionRecord,
+} from "../src/types/telemetry";
 
 import { type NodeStatus, QuipClient } from "./client";
 import { IndexerState } from "./state";
 import { newInMemoryAdapter } from "./test-helpers";
 import { runTipIteration, type TipIterationDeps } from "./tip-worker";
 
+// Build a persisted-submission record for a given global solution_number.
+// The catch-up loop overwrites minerId + observedAt, so only the shape and
+// solutionNumber matter here.
+function submissionFor(solutionNumber: number): MiningSubmissionRecord {
+  return {
+    minerId: "quip-miner-pow-CPU-1",
+    solutionNumber,
+    minerType: "CPU",
+    tsNs: "0",
+    energyMilli: -14870000,
+    diversityMilli: 375,
+    thresholdMilli: -14500000,
+    lastProofBlockHash: "0xabc",
+    extrinsicHash: null,
+    chainBlockHash: null,
+    chainBlockNumber: null,
+    powSequence: null,
+    outcome: "submitted_inblock",
+    attemptCount: 2,
+    bestEnergyMilli: -14870000,
+    numValid: 1,
+    qpuAccessTimeUs: 0,
+    observedAt: "",
+  };
+}
+
 function fakeClient(opts: {
   status?: Partial<NodeStatus> | "error";
   stats?: Partial<MinerStats> | "error";
+  // Which global solution_numbers the miner has a directory for. Numbers
+  // outside this predicate 404 (a sparse gap from this miner's view).
+  // Defaults to "none" so tests that don't exercise catch-up stay inert.
+  solutionExists?: (n: number) => boolean;
 }): QuipClient {
   const fullStatus = (overrides?: Partial<NodeStatus>): NodeStatus => ({
     ss58Address: "5GPP",
@@ -42,6 +77,7 @@ function fakeClient(opts: {
     duplicateResultDrops: 0,
     ...overrides,
   });
+  const solutionExists = opts.solutionExists ?? (() => false);
   return {
     getStatus: () =>
       opts.status === "error"
@@ -51,7 +87,33 @@ function fakeClient(opts: {
       opts.stats === "error"
         ? Promise.reject(new Error("[indexer] 502 from /api/v1/stats"))
         : Promise.resolve(fullStats(opts.stats)),
+    getMiningAttempts: (n: number): Promise<MiningAttemptsResponse> =>
+      solutionExists(n)
+        ? Promise.resolve({ submission: submissionFor(n), attempts: [] })
+        : Promise.reject(new MiningSubmissionNotFoundError(n)),
   } as unknown as QuipClient;
+}
+
+// Seed chain_head.winning_solutions_count (length of WinningSolutions) so
+// the catch-up loop can derive the global solution_number bound (count + 1).
+// This is what the substrate worker writes from chain.
+async function seedWinningSolutionsCount(deps: TipIterationDeps, count: number): Promise<void> {
+  await deps.db.upsertChainHead({
+    bestBlockNumber: "1000",
+    bestBlockHash: "0xbest",
+    finalizedBlockNumber: "998",
+    finalizedBlockHash: "0xfin",
+    finalityLag: 2,
+    winningSolutionsCount: count,
+    runtime: {
+      specName: "quip",
+      specVersion: 101,
+      transactionVersion: 1,
+      implName: "quip",
+      lastRuntimeUpgrade: null,
+    },
+    updatedAt: "2026-05-19T00:00:00.000Z",
+  });
 }
 
 async function setupDeps(overrides: Partial<TipIterationDeps> = {}): Promise<TipIterationDeps> {
@@ -128,75 +190,90 @@ describe("tip-worker v0.3", () => {
     expect(setCount).toBe(1); // unchanged, no re-write
   });
 
-  test("miner reset: results_received < checkpoint wipes mining_submissions", async () => {
-    // resultsReceived=0 simulates a fresh-restart miner whose persistent
-    // attempts log is gone. The indexer's checkpoint (22) and any rows
-    // tied to that prior session must be cleared so modal lookups don't
-    // 404 on solution_ids the miner no longer knows about.
+  test("catch-up persists completed solutions bounded by WinningSolutions count", async () => {
+    // winning_solutions_count = 5 → current global solution_number = 6, so
+    // the stable completed range is 1..5. The miner has a directory for
+    // every one (everyone grinds every global solution); all five get
+    // persisted and the checkpoint lands on 5. The in-flight one (6) is
+    // never persisted.
     const deps = await setupDeps({
-      client: fakeClient({ stats: { resultsReceived: 0 } }),
+      client: fakeClient({ solutionExists: () => true }),
     });
-    await deps.db.insertMiningSubmission({
-      minerId: "5GPP",
-      solutionId: 22,
-      dispatchId: 43,
-      tsNs: "0",
-      energyMilli: -14870000,
-      diversityMilli: 375,
-      thresholdMilli: -14500000,
-      lastProofBlockHash: "0xabc",
-      extrinsicHash: null,
-      chainBlockHash: null,
-      chainBlockNumber: null,
-      powSequence: null,
-      outcome: "submitted_inblock",
-      attemptCount: 2,
-      bestEnergyMilli: -14870000,
-      numValid: 0,
-      minerType: "CPU",
-      qpuAccessTimeUs: 0,
-      observedAt: "2026-05-19T00:00:00.000Z",
-    });
-    await deps.db.setMiningCheckpoint("5GPP", 22);
-    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(22);
-    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(1);
+    await seedWinningSolutionsCount(deps, 5);
 
     await runTipIteration(deps);
 
-    expect(await deps.db.getMiningCheckpoint("5GPP")).toBeNull();
-    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(0);
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
+    expect(rows.map((r) => r.solutionNumber).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
   });
 
-  test("steady-state catch-up does not trigger reset (results_received == checkpoint)", async () => {
+  test("404 gaps are skipped, not stopped — the checkpoint still advances", async () => {
+    // Solution 3 has no directory for this miner (it came online late, or
+    // that win was another miner's). The walk must skip it and keep going,
+    // not halt at the gap.
     const deps = await setupDeps({
-      client: fakeClient({ stats: { resultsReceived: 7 } }),
+      client: fakeClient({ solutionExists: (n) => n !== 3 }),
     });
-    await deps.db.insertMiningSubmission({
-      minerId: "5GPP",
-      solutionId: 7,
-      dispatchId: 7,
-      tsNs: "0",
-      energyMilli: -14000000,
-      diversityMilli: 400,
-      thresholdMilli: -14500000,
-      lastProofBlockHash: "0xdef",
-      extrinsicHash: null,
-      chainBlockHash: null,
-      chainBlockNumber: null,
-      powSequence: null,
-      outcome: "submitted_inblock",
-      attemptCount: 3,
-      bestEnergyMilli: -14000000,
-      numValid: 1,
-      minerType: "QPU",
-      qpuAccessTimeUs: 8_400_000,
-      observedAt: "2026-05-19T00:00:00.000Z",
-    });
-    await deps.db.setMiningCheckpoint("5GPP", 7);
+    await seedWinningSolutionsCount(deps, 5);
 
     await runTipIteration(deps);
 
-    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(7);
-    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(1);
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
+    expect(rows.map((r) => r.solutionNumber).sort((a, b) => a - b)).toEqual([1, 2, 4, 5]);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
+  });
+
+  test("first contact seeds the checkpoint near the head (no ancient grind)", async () => {
+    // winning_solutions_count = 1000 → completed range 1..1000, but a fresh
+    // checkpoint must not fetch all 1000. It seeds to 1000 - BACKFILL_WINDOW
+    // (800) and fetches one capped page (801..825), leaving the rest for
+    // later ticks.
+    const deps = await setupDeps({
+      client: fakeClient({ solutionExists: () => true }),
+    });
+    await seedWinningSolutionsCount(deps, 1000);
+
+    await runTipIteration(deps);
+
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 5000);
+    const nums = rows.map((r) => r.solutionNumber).sort((a, b) => a - b);
+    expect(nums[0]).toBe(801);
+    expect(nums.at(-1)).toBe(825);
+    expect(nums.length).toBe(25);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(825);
+  });
+
+  test("no chain_head yet → catch-up is skipped (bound is unknown)", async () => {
+    // The substrate worker hasn't written chain_head.winning_solutions_count,
+    // so the global solution_number can't be derived. Catch-up must no-op
+    // rather than bound the walk on a bogus 0.
+    const deps = await setupDeps({
+      client: fakeClient({ solutionExists: () => true }),
+    });
+
+    await runTipIteration(deps);
+
+    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(0);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBeNull();
+  });
+
+  test("a restart does not wipe persisted history (solution_number only advances)", async () => {
+    // The old reset-on-counter-regression wipe is gone: with a durable,
+    // chain-derived solution_number there's no rewind to detect, so a
+    // restart (controller counters back to 0) must leave history intact.
+    const deps = await setupDeps({
+      client: fakeClient({ stats: { resultsReceived: 0 }, solutionExists: () => true }),
+    });
+    await seedWinningSolutionsCount(deps, 5);
+    await deps.db.insertMiningSubmission({ ...submissionFor(5), minerId: "5GPP" });
+    await deps.db.setMiningCheckpoint("5GPP", 5);
+
+    await runTipIteration(deps);
+
+    // Checkpoint already at the head (5) → nothing new fetched, nothing wiped.
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
+    expect(rows.map((r) => r.solutionNumber)).toEqual([5]);
   });
 });

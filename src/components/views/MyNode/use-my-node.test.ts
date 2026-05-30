@@ -465,7 +465,7 @@ describe("useMyNode", () => {
     expect(rows[0]?.chainBlockNumber).toBe("200");
     expect(rows[0]?.energyMilli).toBe(-150500);
     expect(rows[0]?.numValid).toBe(8);
-    expect(rows[0]?.solutionId).toBe(0); // sentinel
+    expect(rows[0]?.solutionNumber).toBe(0); // sentinel
     expect(rows[1]?.chainBlockNumber).toBe("100");
   });
 
@@ -483,10 +483,9 @@ describe("useMyNode", () => {
       indexer: null,
       recentMiningSubmissions: [
         {
-          solutionId: 42,
+          solutionNumber: 42,
           minerId: "5GAlice",
           minerType: "QPU",
-          dispatchId: 4,
           tsNs: String(BigInt(1_700_000_200) * 1_000_000_000n),
           energyMilli: -150_000,
           diversityMilli: 200,
@@ -508,14 +507,14 @@ describe("useMyNode", () => {
 
     const rows = renderHook().current?.recentSubmissions ?? [];
     expect(rows).toHaveLength(2);
-    // The local row keeps its solutionId + attemptCount; the synthetic
-    // row for #100 carries chainOnly + sentinel solutionId=0.
+    // The local row keeps its solutionNumber + attemptCount; the synthetic
+    // row for #100 carries chainOnly + sentinel solutionNumber=0.
     const local = rows.find((r) => r.chainBlockNumber === "200");
     const synth = rows.find((r) => r.chainBlockNumber === "100");
     expect(local?.chainOnly).toBeUndefined();
     expect(local?.attemptCount).toBe(33);
     expect(synth?.chainOnly).toBe(true);
-    expect(synth?.solutionId).toBe(0);
+    expect(synth?.solutionNumber).toBe(0);
   });
 
   // ---- effective (chain-floored) counters --------------------------------

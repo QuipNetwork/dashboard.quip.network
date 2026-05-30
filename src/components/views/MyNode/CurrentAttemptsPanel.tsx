@@ -8,22 +8,23 @@ import type {
   MiningSubmissionRecord,
 } from "../../../types/telemetry";
 
-// Iteration trail for the miner's most recent dispatch. The server
-// probes `contextsDispatched + 1` (in-flight if the miner has started
-// the next problem) and falls back to `contextsDispatched` (the just-
-// completed dispatch). The badge in the panel header surfaces which
-// case we're in — "In flight" means the miner is actively grinding;
-// "Last completed" means the panel is showing a finished dispatch and
-// no new one has started yet (sometimes a stuck-miner signal); "Stale"
-// means an in-flight dispatch whose newest iteration is older than
-// STALE_ITERATION_MS — the miner stopped emitting iterations, or it
-// reset its dispatch_id on restart and is serving an un-rotated
-// attempts log from a prior run (iter numbers collide across runs, so
-// the trail is ordered by ts_ns, not iter).
+// Iteration trail for the global solution_number the miner is currently
+// grinding (MR !105). The server probes `Σ proofsWon + 1` (in-flight) and
+// falls back to `Σ proofsWon` (the just-completed problem). The badge in
+// the panel header surfaces which case we're in — "In flight" means the
+// miner is actively grinding; "Last completed" means the panel is showing
+// a finished solution and no iterations for the next have landed yet
+// (sometimes a stuck-miner signal); "Stale" means an in-flight trail whose
+// newest iteration is older than STALE_ITERATION_MS — the miner stopped
+// emitting iterations, or it's serving an un-rotated attempts log. A
+// single solution_number directory accumulates iterations from several
+// dispatches (re-dispatch on each new head, or a restart mid-solution),
+// each of which restarts `iter` at 1 — so iter collides within a solution
+// and the trail is ordered by ts_ns, not iter.
 //
-// When the dispatch has produced a chain-side submission record, we
-// also surface the submission's `outcome` (chain_error / submitted_inblock
-// / ...) so the operator can tell a successful submission from a
+// When the solution has produced a chain-side submission record, we also
+// surface the submission's `outcome` (chain_error / submitted_inblock /
+// ...) so the operator can tell a successful submission from a
 // chain-rejected one without scrolling to Recent Performance.
 export function CurrentAttemptsPanel({
   dispatch,
@@ -33,7 +34,7 @@ export function CurrentAttemptsPanel({
 }: {
   dispatch: CurrentDispatch | null;
   // For outcome-badge resolution: find the matching submission row by
-  // dispatchId. Empty array is fine — the badge just doesn't render.
+  // solutionNumber. Empty array is fine — the badge just doesn't render.
   recentSubmissions: MiningSubmissionRecord[];
   // Display label for the current target problem — chain proofs_won + 1.
   // Matches the header indicator. Null when proofs_won isn't known.
@@ -57,17 +58,20 @@ export function CurrentAttemptsPanel({
     );
   }
 
-  // Newest-first by ts_ns, NOT iter — iter collides across miner
-  // restarts that reuse dispatch_id (see orderAttemptsByRecency).
+  // Newest-first by ts_ns, NOT iter — iter collides across the multiple
+  // dispatches accumulated under one solution_number (see
+  // orderAttemptsByRecency).
   const sorted = orderAttemptsByRecency(dispatch.attempts);
-  const matchingSubmission = recentSubmissions.find((s) => s.dispatchId === dispatch.dispatchId);
+  const matchingSubmission = recentSubmissions.find(
+    (s) => s.solutionNumber === dispatch.solutionNumber,
+  );
   const stale = isTrailStale(sorted, dispatch.status, nowMs);
   const newestAgeMs = stale ? newestIterationAgeMs(sorted, nowMs) : null;
 
   return (
     <ChartCard
       title={heading}
-      subtitle={`Dispatch #${formatNumber(dispatch.dispatchId)} · ${sorted.length} iteration${sorted.length === 1 ? "" : "s"}`}
+      subtitle={`Solution #${formatNumber(dispatch.solutionNumber)} · ${sorted.length} iteration${sorted.length === 1 ? "" : "s"}`}
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <StatusBadge status={stale ? "stale" : dispatch.status} />
@@ -237,13 +241,14 @@ export const STALE_ITERATION_MS = 5 * 60 * 1000;
 /**
  * Order the iteration trail newest-first by `ts_ns`.
  *
- * `iter` is NOT a safe recency key. The miner resets its iter counter
- * on restart and appends to the same per-`dispatch_id` attempts log, so
- * a reused `dispatch_id` can accumulate iterations from several runs
- * with colliding iter numbers. Sorting by `iter` then floats a long
- * prior run's high iters (e.g. iter 934 from 24h ago) above the current
- * run's low iters (e.g. iter 66 from minutes ago) — exactly the stale
- * "In flight" trail that motivated this. `ts_ns` never collides.
+ * `iter` is NOT a safe recency key. A single global `solution_number`
+ * directory accumulates iterations from several dispatches (re-dispatch
+ * on each new head, or a restart mid-solution), each of which restarts
+ * `iter` at 1 — so iter numbers collide within one solution. Sorting by
+ * `iter` then floats a long prior run's high iters (e.g. iter 934 from
+ * 24h ago) above the current run's low iters (e.g. iter 66 from minutes
+ * ago) — exactly the stale "In flight" trail that motivated this. `ts_ns`
+ * never collides.
  *
  * Rows missing `ts_ns` sort last, tie-broken by `iter` descending.
  */
@@ -278,8 +283,8 @@ export function newestIterationAgeMs(
  * `STALE_ITERATION_MS`. Only in-flight dispatches qualify — a
  * "completed" trail showing old rows is expected and not misleading.
  * A stale in-flight trail means the miner stopped emitting iterations
- * (stall) or is serving an un-rotated log from a prior run under a
- * reused `dispatch_id`.
+ * (stall) or is serving an un-rotated log whose newest rows predate the
+ * current run.
  */
 export function isTrailStale(
   orderedNewestFirst: MiningAttempt[],

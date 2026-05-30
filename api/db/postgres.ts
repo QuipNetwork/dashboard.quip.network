@@ -97,6 +97,10 @@ const SCHEMA_STATEMENTS: string[] = [
      finalized_block_number  NUMERIC NOT NULL,
      finalized_block_hash    TEXT NOT NULL,
      finality_lag            INTEGER NOT NULL,
+     -- v21: length of quantum_pow.WinningSolutions — the global
+     -- solution_number bound (count + 1 is the in-flight problem, MR
+     -- !105). Nullable: pre-v0.2 chains / pre-first-read.
+     winning_solutions_count BIGINT,
      spec_name               TEXT NOT NULL,
      spec_version            INTEGER NOT NULL,
      transaction_version     INTEGER NOT NULL,
@@ -172,15 +176,18 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
      ON node_descriptors(block_number DESC)`,
   // v13: per-submission summary from the locally-polled miner's
-  // `/api/v1/mining/attempts?solution_id=N` endpoint. Composite PK is
-  // (miner_id, solution_id). ts_ns is NUMERIC (u128 nanoseconds) and
-  // chain_block_number is NUMERIC (u64) for precision. `extrinsic_hash`
-  // / `chain_block_*` are nullable — a freshly-stored submission may not
-  // have landed on-chain yet, and is refreshed on UPSERT once it does.
+  // `/api/v1/mining/attempts?solution_number=N` endpoint. Composite PK is
+  // (miner_id, solution_number) — v21 (MR !105) re-keys on the global
+  // chain `solution_number` (count(WinningSolutions)+1, durable across
+  // restarts), replacing the controller-local `solution_id`, and drops
+  // the per-dispatch `dispatch_id` column (gone from the miner JSON).
+  // ts_ns is NUMERIC (u128 nanoseconds) and chain_block_number is NUMERIC
+  // (u64) for precision. `extrinsic_hash` / `chain_block_*` are nullable —
+  // a freshly-stored submission may not have landed on-chain yet, and is
+  // refreshed on UPSERT once it does.
   `CREATE TABLE IF NOT EXISTS mining_submissions (
      miner_id              TEXT NOT NULL,
-     solution_id           BIGINT NOT NULL,
-     dispatch_id           BIGINT NOT NULL,
+     solution_number       BIGINT NOT NULL,
      ts_ns                 NUMERIC NOT NULL,
      energy_milli          BIGINT NOT NULL,
      diversity_milli       BIGINT NOT NULL,
@@ -209,10 +216,10 @@ const SCHEMA_STATEMENTS: string[] = [
      -- rebuilds them once the miner does.
      qpu_access_time_us    BIGINT NOT NULL DEFAULT 0,
      observed_at           TIMESTAMPTZ NOT NULL,
-     PRIMARY KEY (miner_id, solution_id)
+     PRIMARY KEY (miner_id, solution_number)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_mining_submissions_miner_recent
-     ON mining_submissions(miner_id, solution_id DESC)`,
+     ON mining_submissions(miner_id, solution_number DESC)`,
 ];
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
@@ -395,11 +402,13 @@ export class PostgresAdapter implements DatabaseAdapter {
       INSERT INTO chain_head (
         id, best_block_number, best_block_hash,
         finalized_block_number, finalized_block_hash, finality_lag,
+        winning_solutions_count,
         spec_name, spec_version, transaction_version, impl_name,
         last_runtime_upgrade, updated_at
       ) VALUES (
         1, ${head.bestBlockNumber}, ${head.bestBlockHash},
         ${head.finalizedBlockNumber}, ${head.finalizedBlockHash}, ${head.finalityLag},
+        ${head.winningSolutionsCount},
         ${head.runtime.specName}, ${head.runtime.specVersion}, ${head.runtime.transactionVersion},
         ${head.runtime.implName}, ${head.runtime.lastRuntimeUpgrade}, ${head.updatedAt}
       )
@@ -409,6 +418,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         finalized_block_number = EXCLUDED.finalized_block_number,
         finalized_block_hash = EXCLUDED.finalized_block_hash,
         finality_lag = EXCLUDED.finality_lag,
+        winning_solutions_count = EXCLUDED.winning_solutions_count,
         spec_name = EXCLUDED.spec_name,
         spec_version = EXCLUDED.spec_version,
         transaction_version = EXCLUDED.transaction_version,
@@ -418,6 +428,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       WHERE
         chain_head.best_block_number IS DISTINCT FROM EXCLUDED.best_block_number OR
         chain_head.finalized_block_number IS DISTINCT FROM EXCLUDED.finalized_block_number OR
+        chain_head.winning_solutions_count IS DISTINCT FROM EXCLUDED.winning_solutions_count OR
         chain_head.spec_version IS DISTINCT FROM EXCLUDED.spec_version
     `;
   }
@@ -430,6 +441,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         finalized_block_number: string;
         finalized_block_hash: string;
         finality_lag: number;
+        winning_solutions_count: string | null;
         spec_name: string;
         spec_version: number;
         transaction_version: number;
@@ -446,6 +458,8 @@ export class PostgresAdapter implements DatabaseAdapter {
       finalizedBlockNumber: row.finalized_block_number,
       finalizedBlockHash: row.finalized_block_hash,
       finalityLag: row.finality_lag,
+      winningSolutionsCount:
+        row.winning_solutions_count === null ? null : Number(row.winning_solutions_count),
       runtime: {
         specName: row.spec_name,
         specVersion: row.spec_version,
@@ -826,13 +840,13 @@ export class PostgresAdapter implements DatabaseAdapter {
     // when the indexer re-fetches a previously-pending submission.
     await this.requireSql()`
       INSERT INTO mining_submissions (
-        miner_id, solution_id, dispatch_id, ts_ns,
+        miner_id, solution_number, ts_ns,
         energy_milli, diversity_milli, threshold_milli,
         last_proof_block_hash, extrinsic_hash, chain_block_hash, chain_block_number,
         pow_sequence, outcome, attempt_count, best_energy_milli, num_valid, miner_type,
         qpu_access_time_us, observed_at
       ) VALUES (
-        ${record.minerId}, ${record.solutionId}, ${record.dispatchId}, ${record.tsNs},
+        ${record.minerId}, ${record.solutionNumber}, ${record.tsNs},
         ${record.energyMilli}, ${record.diversityMilli}, ${record.thresholdMilli},
         ${record.lastProofBlockHash}, ${record.extrinsicHash},
         ${record.chainBlockHash}, ${record.chainBlockNumber},
@@ -841,8 +855,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         ${record.numValid}, ${record.minerType},
         ${record.qpuAccessTimeUs}, ${record.observedAt}
       )
-      ON CONFLICT (miner_id, solution_id) DO UPDATE SET
-        dispatch_id                    = EXCLUDED.dispatch_id,
+      ON CONFLICT (miner_id, solution_number) DO UPDATE SET
         ts_ns                          = EXCLUDED.ts_ns,
         energy_milli                   = EXCLUDED.energy_milli,
         diversity_milli                = EXCLUDED.diversity_milli,
@@ -871,8 +884,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         miner_id: string;
         // BIGINT/NUMERIC columns come back as strings from postgres-js to
         // preserve precision; convert at the adapter boundary.
-        solution_id: string;
-        dispatch_id: string;
+        solution_number: string;
         ts_ns: string;
         energy_milli: string;
         diversity_milli: string;
@@ -893,13 +905,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     >`
       SELECT * FROM mining_submissions
       WHERE miner_id = ${minerId}
-      ORDER BY solution_id DESC
+      ORDER BY solution_number DESC
       LIMIT ${limit}
     `;
     return rows.map((r) => ({
       minerId: r.miner_id,
-      solutionId: Number(r.solution_id),
-      dispatchId: Number(r.dispatch_id),
+      solutionNumber: Number(r.solution_number),
       tsNs: String(r.ts_ns),
       energyMilli: Number(r.energy_milli),
       diversityMilli: Number(r.diversity_milli),
@@ -938,11 +949,11 @@ export class PostgresAdapter implements DatabaseAdapter {
     return Number.isFinite(n) ? n : null;
   }
 
-  async setMiningCheckpoint(minerId: string, solutionId: number): Promise<void> {
+  async setMiningCheckpoint(minerId: string, solutionNumber: number): Promise<void> {
     // Monotonic advance only — parallels setDescriptorCheckpoint.
     await this.requireSql()`
       INSERT INTO meta (key, value)
-      VALUES (${miningCheckpointKey(minerId)}, ${String(solutionId)})
+      VALUES (${miningCheckpointKey(minerId)}, ${String(solutionNumber)})
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       WHERE CAST(meta.value AS NUMERIC) < CAST(EXCLUDED.value AS NUMERIC)
     `;

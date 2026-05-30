@@ -52,6 +52,7 @@ const MOCK_CHAIN_HEAD: ChainHead = {
   finalizedBlockNumber: "97",
   finalizedBlockHash: "0xfin",
   finalityLag: 3,
+  winningSolutionsCount: 99,
   runtime: {
     specName: "quip",
     specVersion: 101,
