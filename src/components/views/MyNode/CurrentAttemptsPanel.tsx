@@ -2,7 +2,11 @@
 
 import { formatDuration, formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
-import type { CurrentDispatch, MiningSubmissionRecord } from "../../../types/telemetry";
+import type {
+  CurrentDispatch,
+  MiningAttempt,
+  MiningSubmissionRecord,
+} from "../../../types/telemetry";
 
 // Iteration trail for the miner's most recent dispatch. The server
 // probes `contextsDispatched + 1` (in-flight if the miner has started
@@ -10,7 +14,12 @@ import type { CurrentDispatch, MiningSubmissionRecord } from "../../../types/tel
 // completed dispatch). The badge in the panel header surfaces which
 // case we're in — "In flight" means the miner is actively grinding;
 // "Last completed" means the panel is showing a finished dispatch and
-// no new one has started yet (sometimes a stuck-miner signal).
+// no new one has started yet (sometimes a stuck-miner signal); "Stale"
+// means an in-flight dispatch whose newest iteration is older than
+// STALE_ITERATION_MS — the miner stopped emitting iterations, or it
+// reset its dispatch_id on restart and is serving an un-rotated
+// attempts log from a prior run (iter numbers collide across runs, so
+// the trail is ordered by ts_ns, not iter).
 //
 // When the dispatch has produced a chain-side submission record, we
 // also surface the submission's `outcome` (chain_error / submitted_inblock
@@ -48,8 +57,12 @@ export function CurrentAttemptsPanel({
     );
   }
 
-  const sorted = [...dispatch.attempts].sort((a, b) => b.iter - a.iter);
+  // Newest-first by ts_ns, NOT iter — iter collides across miner
+  // restarts that reuse dispatch_id (see orderAttemptsByRecency).
+  const sorted = orderAttemptsByRecency(dispatch.attempts);
   const matchingSubmission = recentSubmissions.find((s) => s.dispatchId === dispatch.dispatchId);
+  const stale = isTrailStale(sorted, dispatch.status, nowMs);
+  const newestAgeMs = stale ? newestIterationAgeMs(sorted, nowMs) : null;
 
   return (
     <ChartCard
@@ -57,7 +70,13 @@ export function CurrentAttemptsPanel({
       subtitle={`Dispatch #${formatNumber(dispatch.dispatchId)} · ${sorted.length} iteration${sorted.length === 1 ? "" : "s"}`}
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <StatusBadge status={dispatch.status} />
+        <StatusBadge status={stale ? "stale" : dispatch.status} />
+        {stale && newestAgeMs !== null && (
+          <span className="font-accent text-[10px] text-brand-yellow-0">
+            newest iteration {formatDuration(newestAgeMs)} old — miner may be stalled or serving an
+            un-rotated attempts log
+          </span>
+        )}
         {matchingSubmission && <OutcomeBadge outcome={matchingSubmission.outcome} />}
         {matchingSubmission?.chainBlockNumber && (
           <span className="font-accent text-[10px] text-brand-gray-4">
@@ -126,12 +145,15 @@ export function CurrentAttemptsPanel({
   );
 }
 
-function StatusBadge({ status }: { status: CurrentDispatch["status"] }) {
+function StatusBadge({ status }: { status: CurrentDispatch["status"] | "stale" }) {
   const tone =
     status === "in-flight"
       ? "border-brand-green-0/40 text-brand-green-0"
-      : "border-brand-gray-2 text-brand-gray-4";
-  const label = status === "in-flight" ? "In flight" : "Last completed";
+      : status === "stale"
+        ? "border-brand-yellow-0/40 text-brand-yellow-0"
+        : "border-brand-gray-2 text-brand-gray-4";
+  const label =
+    status === "in-flight" ? "In flight" : status === "stale" ? "Stale" : "Last completed";
   return (
     <span
       className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
@@ -182,19 +204,91 @@ function extractMiningTimeUs(extra: Record<string, unknown>): number | null {
   return numericField(extra["mining_time_us"]);
 }
 
-function extractAgeMs(extra: Record<string, unknown>, nowMs: number): number | null {
+/**
+ * Absolute wall-clock of one iteration, in ms, from its `ts_ns` field
+ * (u128 nanoseconds, number or string). Returns null when the field is
+ * absent or unparseable — callers render an em-dash rather than NaN.
+ */
+function iterTsMs(extra: Record<string, unknown>): number | null {
   const tsNs = extra["ts_ns"];
   try {
-    if (typeof tsNs === "number" && Number.isFinite(tsNs)) {
-      return nowMs - Math.floor(tsNs / 1_000_000);
-    }
-    if (typeof tsNs === "string") {
-      return nowMs - Number(BigInt(tsNs) / 1_000_000n);
-    }
+    if (typeof tsNs === "number" && Number.isFinite(tsNs)) return Math.floor(tsNs / 1_000_000);
+    if (typeof tsNs === "string") return Number(BigInt(tsNs) / 1_000_000n);
   } catch {
     return null;
   }
   return null;
+}
+
+function extractAgeMs(extra: Record<string, unknown>, nowMs: number): number | null {
+  const tsMs = iterTsMs(extra);
+  return tsMs === null ? null : nowMs - tsMs;
+}
+
+/**
+ * Newest iteration is stale beyond this → demote the "In flight" badge.
+ * Headroom over the slowest realistic gap between QPU iterations
+ * (D-Wave cloud queue + anneal can run tens of seconds per iter); past
+ * this the trail almost certainly reflects a stalled miner or an
+ * un-rotated attempts log, not live grinding.
+ */
+export const STALE_ITERATION_MS = 5 * 60 * 1000;
+
+/**
+ * Order the iteration trail newest-first by `ts_ns`.
+ *
+ * `iter` is NOT a safe recency key. The miner resets its iter counter
+ * on restart and appends to the same per-`dispatch_id` attempts log, so
+ * a reused `dispatch_id` can accumulate iterations from several runs
+ * with colliding iter numbers. Sorting by `iter` then floats a long
+ * prior run's high iters (e.g. iter 934 from 24h ago) above the current
+ * run's low iters (e.g. iter 66 from minutes ago) — exactly the stale
+ * "In flight" trail that motivated this. `ts_ns` never collides.
+ *
+ * Rows missing `ts_ns` sort last, tie-broken by `iter` descending.
+ */
+export function orderAttemptsByRecency(attempts: MiningAttempt[]): MiningAttempt[] {
+  return [...attempts].sort((a, b) => {
+    const ta = iterTsMs(a.extra);
+    const tb = iterTsMs(b.extra);
+    if (ta !== null && tb !== null && ta !== tb) return tb - ta;
+    if (ta !== null && tb === null) return -1;
+    if (ta === null && tb !== null) return 1;
+    return b.iter - a.iter;
+  });
+}
+
+/**
+ * Age (ms) of the most recent iteration in a recency-ordered trail, or
+ * null when no iteration carries a parseable `ts_ns`.
+ */
+export function newestIterationAgeMs(
+  orderedNewestFirst: MiningAttempt[],
+  nowMs: number,
+): number | null {
+  for (const a of orderedNewestFirst) {
+    const tsMs = iterTsMs(a.extra);
+    if (tsMs !== null) return nowMs - tsMs;
+  }
+  return null;
+}
+
+/**
+ * True when an in-flight dispatch's newest iteration is older than
+ * `STALE_ITERATION_MS`. Only in-flight dispatches qualify — a
+ * "completed" trail showing old rows is expected and not misleading.
+ * A stale in-flight trail means the miner stopped emitting iterations
+ * (stall) or is serving an un-rotated log from a prior run under a
+ * reused `dispatch_id`.
+ */
+export function isTrailStale(
+  orderedNewestFirst: MiningAttempt[],
+  status: CurrentDispatch["status"],
+  nowMs: number,
+): boolean {
+  if (status !== "in-flight") return false;
+  const ageMs = newestIterationAgeMs(orderedNewestFirst, nowMs);
+  return ageMs !== null && ageMs > STALE_ITERATION_MS;
 }
 
 function numericField(v: unknown): number | null {
