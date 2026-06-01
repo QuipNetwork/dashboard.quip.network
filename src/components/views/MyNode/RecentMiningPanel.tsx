@@ -18,9 +18,9 @@ const RECENT_SUBMISSIONS_VISIBLE = 20;
 //     doesn't cover (older wins outside the indexer's recent window).
 //     Identified by `s.chainOnly === true`; the panel renders an
 //     em-dash for attemptCount and suppresses the modal click on those
-//     rows since `/api/v1/mining/attempts/0` doesn't resolve. Their
-//     "Sol #" still shows the won block number (chain-derived, MR !105),
-//     not an em-dash — the sentinel solutionNumber 0 is no longer surfaced.
+//     rows (no local attempts log to fetch). Their "Sol #" shows the
+//     win's solution_number ordinal (derived from its rank among all
+//     winning blocks in use-my-node), and "Block" shows the block height.
 //
 // Hidden when no submissions of either kind have been observed yet: a
 // fresh miner that hasn't won AND hasn't logged a local row.
@@ -49,7 +49,7 @@ export function RecentMiningPanel({
               <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
                 <th
                   className="py-2 pr-4"
-                  title="Chain-derived submission identifier (quip-protocol MR !105): the won block number for winning submissions, else the on-chain proofs_submitted sequence (pow_sequence) for rejected/errored ones. Falls back to the global solution_number (also chain-derived and durable) when the miner published neither; em-dash only for the impossible neither-field case."
+                  title="Global chain solution_number (quip-protocol MR !105) — the winning-solution ordinal the miner works, durable across restarts. Distinct from the substrate block height where a win landed (the 'Block' column)."
                 >
                   Sol&nbsp;#
                 </th>
@@ -174,17 +174,15 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
 }
 
 /**
- * Chain-derived "Sol #" label (quip-protocol MR !105). Winners show the
- * won block number; rejected/errored submissions show the on-chain
- * proofs_submitted sequence (`powSequence`). Falls back to the global
- * `solutionNumber` (itself chain-derived and durable) when the miner
- * published neither. Chain-only synthetic rows always carry a block
- * number (they're self-won blocks), so the em-dash is only a defensive
- * fallback for the impossible neither-field, sentinel-zero case.
+ * "Sol #" = the global chain solution_number (quip-protocol MR !105): the
+ * winning-solution ordinal the miner keys its directories on. This is
+ * distinct from the substrate block height where a win landed — that's the
+ * separate "Block" column. Local rows carry the miner's solution_number
+ * directly; chain-only synthetic rows derive it as the block's rank among
+ * all wins (see use-my-node). Em-dash only for the sentinel-zero case (a
+ * synthetic row whose block fell outside the loaded list).
  */
 function solDisplay(s: MiningSubmissionRecord): ReactNode {
-  if (s.chainBlockNumber) return `#${s.chainBlockNumber}`;
-  if (s.powSequence !== null) return `#${formatNumber(s.powSequence)}`;
   if (s.solutionNumber > 0) return `#${formatNumber(s.solutionNumber)}`;
   return <span className="text-brand-gray-3">—</span>;
 }

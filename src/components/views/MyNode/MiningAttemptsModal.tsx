@@ -122,6 +122,9 @@ function SubmissionDetails({ envelope }: { envelope: MiningAttemptsResponse }) {
           title={submission.minerId}
         />
         <Row label="Solution #" value={formatNumber(submission.solutionNumber)} />
+        {submission.powSequence !== null && (
+          <Row label="PoW Seq" value={formatNumber(submission.powSequence)} />
+        )}
         <Row label="Energy" value={(submission.energyMilli / 1000).toFixed(3)} />
         <Row label="Threshold" value={`≤ ${(submission.thresholdMilli / 1000).toFixed(3)}`} />
         <Row label="Diversity" value={(submission.diversityMilli / 1000).toFixed(3)} />

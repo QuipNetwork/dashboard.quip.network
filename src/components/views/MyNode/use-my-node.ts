@@ -170,42 +170,50 @@ export function useMyNode(): MyNodeStats {
     const selfMinerType = chainMinerEntry?.hardware?.primaryType ?? "";
     const chainOnlyRows: MiningSubmissionRecord[] = selfBlocks
       .filter((b) => !localChainBlockNumbers.has(b.substrateBlockNumber))
-      .map((b) => ({
-        // Sentinel number: 0 flags this row as chain-derived. A real
-        // global solutionNumber is ≥ 1 so 0 cannot collide with a
-        // legitimate entry. RecentMiningPanel uses this (along with
-        // `chainOnly: true`) to suppress the modal click.
-        solutionNumber: 0,
-        minerId: b.minerId,
-        minerType: selfMinerType,
-        // BlockRecord.timestamp is in seconds (substrate-worker
-        // converts before insert). MiningSubmissionRecord.tsNs is
-        // u128 nanoseconds-as-string; BigInt arithmetic preserves
-        // precision past Number.MAX_SAFE_INTEGER.
-        tsNs: String(BigInt(b.timestamp) * 1_000_000_000n),
-        energyMilli: Math.round(b.energy * 1000),
-        diversityMilli: Math.round(b.diversity * 1000),
-        thresholdMilli: Math.round(b.difficultyEnergy * 1000),
-        lastProofBlockHash: "",
-        extrinsicHash: null,
-        chainBlockHash: b.blockHash,
-        chainBlockNumber: b.substrateBlockNumber,
-        // Synthetic rows are self-won blocks — the chain block number is
-        // the Sol# source, so there's no proofs_submitted sequence to set.
-        powSequence: null,
-        outcome: "submitted_inblock",
-        attemptCount: 0,
-        bestEnergyMilli: Math.round(b.energy * 1000),
-        numValid: b.numValidSolutions,
-        // Synthetic chain-only rows have no iteration data to sum
-        // qpu_access_time_us from. Surface 0 — the QPU compute bar
-        // simply omits these rows from its aggregation rather than
-        // double-counting wall-clock for blocks we don't have local
-        // attempts for.
-        qpuAccessTimeUs: 0,
-        observedAt: new Date(b.timestamp * 1000).toISOString(),
-        chainOnly: true,
-      }));
+      .map((b) => {
+        // True global solution_number = the block's 1-based ASC rank among
+        // all winning blocks. `blocks` is DESC and v0.3 inserts one row per
+        // winning solution, so rank = blocks.length - its DESC index — the
+        // same derivation `lastWonProblemNumber` uses, so "Sol #" matches
+        // the page-wide "problem #" numbering. This is distinct from the
+        // substrate block height (the separate "Block" column); showing the
+        // height here was the bug this replaces. Falls back to 0 — a
+        // not-a-real-solution sentinel that suppresses the modal click — if
+        // the block somehow isn't in the list.
+        const descIdx = blocks.findIndex((x) => x.substrateBlockNumber === b.substrateBlockNumber);
+        return {
+          solutionNumber: descIdx >= 0 ? blocks.length - descIdx : 0,
+          minerId: b.minerId,
+          minerType: selfMinerType,
+          // BlockRecord.timestamp is in seconds (substrate-worker
+          // converts before insert). MiningSubmissionRecord.tsNs is
+          // u128 nanoseconds-as-string; BigInt arithmetic preserves
+          // precision past Number.MAX_SAFE_INTEGER.
+          tsNs: String(BigInt(b.timestamp) * 1_000_000_000n),
+          energyMilli: Math.round(b.energy * 1000),
+          diversityMilli: Math.round(b.diversity * 1000),
+          thresholdMilli: Math.round(b.difficultyEnergy * 1000),
+          lastProofBlockHash: "",
+          extrinsicHash: null,
+          chainBlockHash: b.blockHash,
+          chainBlockNumber: b.substrateBlockNumber,
+          // Winners carry their block number (the "Block" column), not a
+          // proofs_submitted sequence.
+          powSequence: null,
+          outcome: "submitted_inblock",
+          attemptCount: 0,
+          bestEnergyMilli: Math.round(b.energy * 1000),
+          numValid: b.numValidSolutions,
+          // Synthetic chain-only rows have no iteration data to sum
+          // qpu_access_time_us from. Surface 0 — the QPU compute bar
+          // simply omits these rows from its aggregation rather than
+          // double-counting wall-clock for blocks we don't have local
+          // attempts for.
+          qpuAccessTimeUs: 0,
+          observedAt: new Date(b.timestamp * 1000).toISOString(),
+          chainOnly: true,
+        };
+      });
     // Merge then DESC-sort by tsNs (u128, BigInt-safe). Both row
     // sources stamp tsNs in the same nanosecond format so the
     // comparison is total.

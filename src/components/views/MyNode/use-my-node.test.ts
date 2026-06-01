@@ -465,8 +465,11 @@ describe("useMyNode", () => {
     expect(rows[0]?.chainBlockNumber).toBe("200");
     expect(rows[0]?.energyMilli).toBe(-150500);
     expect(rows[0]?.numValid).toBe(8);
-    expect(rows[0]?.solutionNumber).toBe(0); // sentinel
+    // Sol # = the block's rank among all 3 winning blocks (DESC: #200 is
+    // newest → solution 3; #150 → 2; #100 → 1). NOT the block height.
+    expect(rows[0]?.solutionNumber).toBe(3);
     expect(rows[1]?.chainBlockNumber).toBe("100");
+    expect(rows[1]?.solutionNumber).toBe(1);
   });
 
   it("recentSubmissions de-dupes chain-only rows against existing local rows by chainBlockNumber", () => {
@@ -507,14 +510,16 @@ describe("useMyNode", () => {
 
     const rows = renderHook().current?.recentSubmissions ?? [];
     expect(rows).toHaveLength(2);
-    // The local row keeps its solutionNumber + attemptCount; the synthetic
-    // row for #100 carries chainOnly + sentinel solutionNumber=0.
+    // The local row keeps its own solutionNumber (42) + attemptCount; the
+    // synthetic row for #100 derives its solution_number from rank among
+    // the 2 winning blocks (#100 is oldest → solution 1).
     const local = rows.find((r) => r.chainBlockNumber === "200");
     const synth = rows.find((r) => r.chainBlockNumber === "100");
     expect(local?.chainOnly).toBeUndefined();
     expect(local?.attemptCount).toBe(33);
+    expect(local?.solutionNumber).toBe(42);
     expect(synth?.chainOnly).toBe(true);
-    expect(synth?.solutionNumber).toBe(0);
+    expect(synth?.solutionNumber).toBe(1);
   });
 
   // ---- effective (chain-floored) counters --------------------------------
