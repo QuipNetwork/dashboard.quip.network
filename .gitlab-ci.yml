@@ -4,7 +4,9 @@
 #   - merge_request_event  →  test + build (SHA-tagged only, for verification)
 #   - push to master       →  build + publish (:latest)
 #   - push to v0.2         →  build + publish (:v0.2-preview)
-#   - git tag              →  build + publish (:latest, :<tag>)
+#   - git tag vX.Y.Z       →  build + publish (:latest, :vX.Y, :<tag>)
+#   - git tag vX.Y.Z<pre>  →  build + publish (:vX.Y, :<tag>)   # no :latest
+#                             (pre-release: rc/alpha/beta suffix, e.g. v0.2.0rc1)
 
 stages:
   - test
@@ -120,14 +122,24 @@ manifest:
     # CI_COMMIT_TAG unset — default each to empty so the checks are safe.
     - |
       TARGETS="$IMAGE:$CI_COMMIT_SHA"
-      if [ "${CI_COMMIT_BRANCH:-}" = "master" ] || [ -n "${CI_COMMIT_TAG:-}" ]; then
+      if [ "${CI_COMMIT_BRANCH:-}" = "master" ]; then
         TARGETS="$TARGETS $IMAGE:latest"
       fi
       if [ "${CI_COMMIT_BRANCH:-}" = "v0.2" ]; then
         TARGETS="$TARGETS $IMAGE:v0.2-preview"
       fi
       if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        # Immutable, exact-version tag (e.g. v0.2.0rc1).
         TARGETS="$TARGETS $IMAGE:$CI_COMMIT_TAG"
+        # Floating minor-line tag: v0.2.0rc1 -> v0.2.
+        MINOR="$(printf '%s' "$CI_COMMIT_TAG" | sed -E 's/^(v[0-9]+\.[0-9]+).*/\1/')"
+        if [ "$MINOR" != "$CI_COMMIT_TAG" ]; then
+          TARGETS="$TARGETS $IMAGE:$MINOR"
+        fi
+        # :latest only for stable releases — never for rc/alpha/beta pre-releases.
+        if printf '%s' "$CI_COMMIT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+          TARGETS="$TARGETS $IMAGE:latest"
+        fi
       fi
       for T in $TARGETS; do
         manifest-tool \
