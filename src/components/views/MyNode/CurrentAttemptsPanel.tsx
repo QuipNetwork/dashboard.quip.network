@@ -7,6 +7,7 @@ import type {
   MiningAttempt,
   MiningSubmissionRecord,
 } from "../../../types/telemetry";
+import { meetingTargetCount, numericField, tsNsToMs } from "./mining-shared";
 
 // Iteration trail for the global solution_number the miner is currently
 // grinding (MR !105). The server probes `Σ proofsWon + 1` (in-flight) and
@@ -214,14 +215,7 @@ function extractMiningTimeUs(extra: Record<string, unknown>): number | null {
  * absent or unparseable — callers render an em-dash rather than NaN.
  */
 function iterTsMs(extra: Record<string, unknown>): number | null {
-  const tsNs = extra["ts_ns"];
-  try {
-    if (typeof tsNs === "number" && Number.isFinite(tsNs)) return Math.floor(tsNs / 1_000_000);
-    if (typeof tsNs === "string") return Number(BigInt(tsNs) / 1_000_000n);
-  } catch {
-    return null;
-  }
-  return null;
+  return tsNsToMs(extra["ts_ns"]);
 }
 
 function extractAgeMs(extra: Record<string, unknown>, nowMs: number): number | null {
@@ -294,29 +288,4 @@ export function isTrailStale(
   if (status !== "in-flight") return false;
   const ageMs = newestIterationAgeMs(orderedNewestFirst, nowMs);
   return ageMs !== null && ageMs > STALE_ITERATION_MS;
-}
-
-function numericField(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-/**
- * Count of unique below-threshold samples for one iteration. Post
- * quip-protocol MR !103 this lives in `solution_meta.n_unique_below_threshold`;
- * older miner images published it as the now-removed top-level
- * `num_solutions_meeting_target`. Returns null (rendered as an em-dash)
- * when neither is present.
- */
-function meetingTargetCount(extra: Record<string, unknown>): number | null {
-  const meta = extra["solution_meta"];
-  if (meta && typeof meta === "object") {
-    const n = numericField((meta as Record<string, unknown>)["n_unique_below_threshold"]);
-    if (n !== null) return n;
-  }
-  return numericField(extra["num_solutions_meeting_target"]);
 }

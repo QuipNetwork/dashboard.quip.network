@@ -108,15 +108,25 @@ export function useMyNode(): MyNodeStats {
       : null;
     const selfBlocks = selfAddress ? blocks.filter((b) => b.minerId === selfAddress) : [];
     const lastWonBlock = selfBlocks[0] ?? null;
-    // `blocks` arrives DESC by substrateBlockNumber (api/db sorts), so
-    // problem # of our latest win = blocks.length - its DESC index.
-    // Equivalent to 1-based ASC position. Same derivation the header's
-    // "next problem" indicator uses, kept consistent so operators see
-    // matching numbers across the page.
+    // 1-based ASC "problem number" for every loaded block. `blocks` arrives
+    // DESC by substrateBlockNumber (api/db sorts) with one row per winning
+    // solution, so a block's problem # = blocks.length - its DESC index
+    // (equivalent to its 1-based ASC position). Built once here so the
+    // "Last Problem Won" tile and every chain-only synthetic row read the
+    // same mapping — the same derivation the header's "next problem"
+    // indicator uses, kept consistent so operators see matching numbers
+    // across the page. Capped by blocks.length (server returns the 500 most
+    // recent), so accuracy degrades past problem #500 — fine for current
+    // chain depths.
+    const problemNumberByBlock = new Map<string, number>();
+    blocks.forEach((b, i) => {
+      if (!problemNumberByBlock.has(b.substrateBlockNumber)) {
+        problemNumberByBlock.set(b.substrateBlockNumber, blocks.length - i);
+      }
+    });
     const lastWonProblemNumber =
       lastWonBlock != null
-        ? blocks.length -
-          blocks.findIndex((b) => b.substrateBlockNumber === lastWonBlock.substrateBlockNumber)
+        ? (problemNumberByBlock.get(lastWonBlock.substrateBlockNumber) ?? null)
         : null;
     const selfAvgMiningTimeSec =
       selfBlocks.length > 0
@@ -172,17 +182,15 @@ export function useMyNode(): MyNodeStats {
       .filter((b) => !localChainBlockNumbers.has(b.substrateBlockNumber))
       .map((b) => {
         // True global solution_number = the block's 1-based ASC rank among
-        // all winning blocks. `blocks` is DESC and v0.3 inserts one row per
-        // winning solution, so rank = blocks.length - its DESC index — the
-        // same derivation `lastWonProblemNumber` uses, so "Sol #" matches
-        // the page-wide "problem #" numbering. This is distinct from the
+        // all winning blocks — read from `problemNumberByBlock` above, the
+        // same mapping `lastWonProblemNumber` uses, so "Sol #" matches the
+        // page-wide "problem #" numbering. This is distinct from the
         // substrate block height (the separate "Block" column); showing the
         // height here was the bug this replaces. Falls back to 0 — a
         // not-a-real-solution sentinel that suppresses the modal click — if
         // the block somehow isn't in the list.
-        const descIdx = blocks.findIndex((x) => x.substrateBlockNumber === b.substrateBlockNumber);
         return {
-          solutionNumber: descIdx >= 0 ? blocks.length - descIdx : 0,
+          solutionNumber: problemNumberByBlock.get(b.substrateBlockNumber) ?? 0,
           minerId: b.minerId,
           minerType: selfMinerType,
           // BlockRecord.timestamp is in seconds (substrate-worker

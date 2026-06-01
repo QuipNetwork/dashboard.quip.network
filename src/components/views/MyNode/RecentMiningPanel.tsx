@@ -6,6 +6,7 @@ import { formatDuration, formatNumber } from "../../../lib/format";
 import { ChartCard } from "../../layout/ChartCard";
 import type { MiningSubmissionRecord } from "../../../types/telemetry";
 import { MiningAttemptsModal } from "./MiningAttemptsModal";
+import { tsNsToMs } from "./mining-shared";
 
 const RECENT_SUBMISSIONS_VISIBLE = 20;
 
@@ -203,11 +204,6 @@ function milliToFixed(milli: number, digits: number): string {
  * surface NaN durations.
  */
 function ageFromTsNs(tsNs: string, nowMs: number): number | null {
-  try {
-    const tsMs = Number(BigInt(tsNs) / 1_000_000n);
-    if (!Number.isFinite(tsMs)) return null;
-    return nowMs - tsMs;
-  } catch {
-    return null;
-  }
+  const tsMs = tsNsToMs(tsNs);
+  return tsMs === null ? null : nowMs - tsMs;
 }

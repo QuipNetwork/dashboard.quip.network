@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { formatNumber } from "../../../lib/format";
 import { shortAddress } from "../../../lib/format-chain";
 import type { MiningAttempt, MiningAttemptsResponse } from "../../../types/telemetry";
+import { meetingTargetCount } from "./mining-shared";
 
 // Modal for a single mining submission: shows the submission summary in
 // a dt/dl grid and the per-iteration trail in a table below. Data is
@@ -207,31 +208,6 @@ function AttemptsTable({ attempts }: { attempts: MiningAttempt[] }) {
       </table>
     </div>
   );
-}
-
-function numericField(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-/**
- * Count of unique below-threshold samples for one iteration. Post
- * quip-protocol MR !103 this lives in `solution_meta.n_unique_below_threshold`;
- * older miner images published it as the now-removed top-level
- * `num_solutions_meeting_target`. Returns null (rendered as an em-dash)
- * when neither is present.
- */
-function meetingTargetCount(extra: Record<string, unknown>): number | null {
-  const meta = extra["solution_meta"];
-  if (meta && typeof meta === "object") {
-    const n = numericField((meta as Record<string, unknown>)["n_unique_below_threshold"]);
-    if (n !== null) return n;
-  }
-  return numericField(extra["num_solutions_meeting_target"]);
 }
 
 function ResultBadge({ kind }: { kind: string }) {

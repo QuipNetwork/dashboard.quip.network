@@ -3,7 +3,7 @@
 import type { IndexerObservability } from "../types/telemetry";
 
 export type HealthLevel = "healthy" | "warning" | "stalled";
-export type SyncStage = "connecting" | "synchronizing" | "caught_up" | "stalled";
+export type SyncStage = "connecting" | "caught_up" | "stalled";
 
 /** Substrate worker health (separate dimension from REST chain health). */
 export type SubstrateHealthLevel = "disabled" | "ok" | "stale" | "offline";

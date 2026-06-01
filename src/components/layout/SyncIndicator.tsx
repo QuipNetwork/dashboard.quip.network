@@ -31,13 +31,6 @@ const STYLES: Record<
     dotColor: "#A9A9A9",
     dotAnim: "spin",
   },
-  synchronizing: {
-    bg: "bg-[#4CE0FF]/10",
-    border: "border-[#4CE0FF]/40",
-    text: "text-[#4CE0FF]",
-    dotColor: "#4CE0FF",
-    dotAnim: "pulse",
-  },
   caught_up: {
     bg: "bg-[#67E347]/10",
     border: "border-[#67E347]/40",
@@ -58,10 +51,6 @@ function composeText(stage: SyncStage, detail: string | null): string {
   switch (stage) {
     case "connecting":
       return detail ?? "Connecting to miner…";
-    case "synchronizing":
-      // Reserved for future use; no synchronization stages exist in v0.3
-      // (substrate worker is the sole writer). Detail still flows through.
-      return detail === null ? "Synchronizing" : `Synchronizing · ${detail}`;
     case "caught_up":
       return "Live";
     case "stalled":

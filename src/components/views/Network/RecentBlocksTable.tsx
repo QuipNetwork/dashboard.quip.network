@@ -96,7 +96,7 @@ export function RecentBlocksTable({
               </td>
               <td className="py-2 pr-4 font-mono text-brand-gray-4">#{tipSolutionNumber - i}</td>
               <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
-                {truncateMinerId(b.minerId)}
+                {shortAddress(b.minerId, 22, 4)}
               </td>
               <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
                 {b.energy.toFixed(1)}
@@ -138,13 +138,6 @@ export function RecentBlocksTable({
       )}
     </div>
   );
-}
-
-// Keep the table compact while preserving enough of the minerId to be
-// recognizable. Full id lives in the cell's `title` for hover disclosure.
-function truncateMinerId(id: string): string {
-  if (id.length <= 28) return id;
-  return `${id.slice(0, 22)}…${id.slice(-4)}`;
 }
 
 // Inline banner that surfaces the three-state health from computeChainHealth.

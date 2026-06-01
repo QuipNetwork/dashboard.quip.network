@@ -117,12 +117,24 @@ function parseValidatorRpcUrls(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Resolve an integer config option from, in priority order: a CLI flag, an
+ * environment variable, then `fallback`. The flag and env paths both run
+ * through parseIntStrict so non-decimal-integer inputs fail loudly (an empty
+ * env var is treated as unset and falls through to the default). Callers
+ * apply their own range checks on the returned value.
+ */
+function parseIntOption(argv: string[], flag: string, env: string, fallback: number): number {
+  const flagVal = takeFlag(argv, flag);
+  if (typeof flagVal === "string") return parseIntStrict(flag, flagVal);
+  const envVal = process.env[env];
+  if (envVal) return parseIntStrict(env, envVal);
+  return fallback;
+}
+
 export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
-  const pollFlag = takeFlag(argv, "--poll-interval");
-  const nodesFlag = takeFlag(argv, "--nodes-refresh");
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
-  const stallFlag = takeFlag(argv, "--stall-warn-after");
 
   // --- Validator RPC URLs ---
   const rpcUrlsFlag = takeFlag(argv, "--validator-rpc-urls");
@@ -139,19 +151,19 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     );
   }
 
-  const pollIntervalSec =
-    typeof pollFlag === "string"
-      ? parseIntStrict("--poll-interval", pollFlag)
-      : process.env.POLL_INTERVAL_SEC
-        ? parseIntStrict("POLL_INTERVAL_SEC", process.env.POLL_INTERVAL_SEC)
-        : DEFAULTS.pollIntervalSec;
+  const pollIntervalSec = parseIntOption(
+    argv,
+    "--poll-interval",
+    "POLL_INTERVAL_SEC",
+    DEFAULTS.pollIntervalSec,
+  );
 
-  const nodesRefreshSec =
-    typeof nodesFlag === "string"
-      ? parseIntStrict("--nodes-refresh", nodesFlag)
-      : process.env.NODES_REFRESH_SEC
-        ? parseIntStrict("NODES_REFRESH_SEC", process.env.NODES_REFRESH_SEC)
-        : DEFAULTS.nodesRefreshSec;
+  const nodesRefreshSec = parseIntOption(
+    argv,
+    "--nodes-refresh",
+    "NODES_REFRESH_SEC",
+    DEFAULTS.nodesRefreshSec,
+  );
 
   const once = onceFlag === true || onceFlag === "true" || onceFlag === "1";
   const verbose =
@@ -160,63 +172,55 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     verboseFlag === "1" ||
     process.env.VERBOSE === "1";
 
-  const stallWarnAfterSec =
-    typeof stallFlag === "string"
-      ? parseIntStrict("--stall-warn-after", stallFlag)
-      : process.env.STALL_WARN_AFTER_SEC
-        ? parseIntStrict("STALL_WARN_AFTER_SEC", process.env.STALL_WARN_AFTER_SEC)
-        : DEFAULTS.stallWarnAfterSec;
+  const stallWarnAfterSec = parseIntOption(
+    argv,
+    "--stall-warn-after",
+    "STALL_WARN_AFTER_SEC",
+    DEFAULTS.stallWarnAfterSec,
+  );
   if (stallWarnAfterSec < 0) {
     throw new Error(`[indexer] --stall-warn-after must be >= 0, got: ${stallWarnAfterSec}`);
   }
 
   // --- Substrate options ---
-  const substrateRpcTimeoutFlag = takeFlag(argv, "--substrate-rpc-timeout");
-  const substrateBackoffFlag = takeFlag(argv, "--substrate-reconnect-max-backoff");
-  const substrateBabePollFlag = takeFlag(argv, "--substrate-babe-poll");
-  const substrateChainPollFlag = takeFlag(argv, "--substrate-chain-poll");
-
-  const substrateRpcTimeoutMs =
-    typeof substrateRpcTimeoutFlag === "string"
-      ? parseIntStrict("--substrate-rpc-timeout", substrateRpcTimeoutFlag)
-      : process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS
-        ? parseIntStrict("QUIP_VALIDATOR_RPC_TIMEOUT_MS", process.env.QUIP_VALIDATOR_RPC_TIMEOUT_MS)
-        : DEFAULTS.substrateRpcTimeoutMs;
+  const substrateRpcTimeoutMs = parseIntOption(
+    argv,
+    "--substrate-rpc-timeout",
+    "QUIP_VALIDATOR_RPC_TIMEOUT_MS",
+    DEFAULTS.substrateRpcTimeoutMs,
+  );
   if (substrateRpcTimeoutMs <= 0) {
     throw new Error(`[indexer] substrate RPC timeout must be > 0, got: ${substrateRpcTimeoutMs}`);
   }
 
-  const substrateReconnectMaxBackoffMs =
-    typeof substrateBackoffFlag === "string"
-      ? parseIntStrict("--substrate-reconnect-max-backoff", substrateBackoffFlag)
-      : process.env.QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS
-        ? parseIntStrict(
-            "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
-            process.env.QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS,
-          )
-        : DEFAULTS.substrateReconnectMaxBackoffMs;
+  const substrateReconnectMaxBackoffMs = parseIntOption(
+    argv,
+    "--substrate-reconnect-max-backoff",
+    "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
+    DEFAULTS.substrateReconnectMaxBackoffMs,
+  );
   if (substrateReconnectMaxBackoffMs <= 0) {
     throw new Error(
       `[indexer] substrate reconnect backoff must be > 0, got: ${substrateReconnectMaxBackoffMs}`,
     );
   }
 
-  const substrateBabePollSec =
-    typeof substrateBabePollFlag === "string"
-      ? parseIntStrict("--substrate-babe-poll", substrateBabePollFlag)
-      : process.env.QUIP_VALIDATOR_BABE_POLL_SEC
-        ? parseIntStrict("QUIP_VALIDATOR_BABE_POLL_SEC", process.env.QUIP_VALIDATOR_BABE_POLL_SEC)
-        : DEFAULTS.substrateBabePollSec;
+  const substrateBabePollSec = parseIntOption(
+    argv,
+    "--substrate-babe-poll",
+    "QUIP_VALIDATOR_BABE_POLL_SEC",
+    DEFAULTS.substrateBabePollSec,
+  );
   if (substrateBabePollSec <= 0) {
     throw new Error(`[indexer] --substrate-babe-poll must be > 0, got: ${substrateBabePollSec}`);
   }
 
-  const substrateChainPollSec =
-    typeof substrateChainPollFlag === "string"
-      ? parseIntStrict("--substrate-chain-poll", substrateChainPollFlag)
-      : process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC
-        ? parseIntStrict("QUIP_VALIDATOR_CHAIN_POLL_SEC", process.env.QUIP_VALIDATOR_CHAIN_POLL_SEC)
-        : DEFAULTS.substrateChainPollSec;
+  const substrateChainPollSec = parseIntOption(
+    argv,
+    "--substrate-chain-poll",
+    "QUIP_VALIDATOR_CHAIN_POLL_SEC",
+    DEFAULTS.substrateChainPollSec,
+  );
   if (substrateChainPollSec <= 0) {
     throw new Error(`[indexer] --substrate-chain-poll must be > 0, got: ${substrateChainPollSec}`);
   }
