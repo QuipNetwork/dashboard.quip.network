@@ -2,7 +2,7 @@
 
 import type { DatabaseAdapter } from "../api/db/adapter";
 import { MiningSubmissionNotFoundError } from "../api/miner-api";
-import { discoverLocalOperator, resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
+import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
 
 import type { IndexerConfig } from "./config";
@@ -80,31 +80,25 @@ export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Prom
   const intervalMs = deps.config.pollIntervalSec * 1000;
   while (!signal.aborted) {
     try {
-      let selfAddress = await deps.db.getSelfAddress();
-      // Bootstrap: when no selfAddress is cached, probe every descriptor
-      // with a publicHost and pick the one whose /api/v1/status reports
-      // a matching ss58_address. Solves split-host deployments where the
-      // derived RPC fallback URL doesn't actually serve miner-REST. Once
-      // a self-consistent match is cached, every subsequent iteration
-      // short-circuits straight to the descriptor lookup.
-      if (!selfAddress) {
-        const discovered = await discoverLocalOperator(deps.db);
-        if (discovered) {
-          await deps.db.setSelfAddress(discovered);
-          selfAddress = discovered;
-          console.log(`[indexer/tip] discovered selfAddress=${discovered} via descriptor probe`);
-        }
-      }
-      const baseUrl = await resolveSelfMinerRestUrl(
-        deps.db,
-        deps.config.validatorRpcUrls,
-        selfAddress,
-      );
+      // Identity comes ONLY from local network access: poll the co-located
+      // miner's /api/v1/status through the configured front door, which
+      // back-fills selfAddress (see runTipIteration). We never probe on-chain
+      // descriptors to find "self" — a reachable global node is not us, and
+      // adopting one would mis-identify this deployment. If the local miner is
+      // unreachable we warn and leave selfAddress null rather than guessing.
+      const baseUrl = resolveSelfMinerRestUrl(deps.config.validatorRpcUrls);
       if (baseUrl) {
         const client = deps.clientFactory(baseUrl);
         await runTipIteration({ client, db: deps.db, state: deps.state, now: deps.now });
+        if (!(await deps.db.getSelfAddress())) {
+          console.warn(
+            `[indexer/tip] could not identify this node: local miner REST ${baseUrl}/api/v1 ` +
+              `is unreachable or returned no ss58. Check that the miner is running and that ` +
+              `Caddy fronts /api/v1. Not falling back to a network node.`,
+          );
+        }
       } else {
-        // No URL resolves yet — keep the heartbeat fresh so the UI's
+        // No front door configured — keep the heartbeat fresh so the UI's
         // SyncIndicator knows the indexer process is alive.
         await flushHeartbeat(deps);
       }

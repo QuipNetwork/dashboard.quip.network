@@ -239,8 +239,7 @@ export function createApp(options: CreateAppOptions): Hono {
     minerId: string,
     solutionNumber: number,
   ): Promise<MiningAttempt[]> {
-    const selfAddress = await db.getSelfAddress();
-    const baseUrl = await resolveSelfMinerRestUrl(db, validatorRpcUrls, selfAddress);
+    const baseUrl = resolveSelfMinerRestUrl(validatorRpcUrls);
     if (!baseUrl) return [];
     const params = new URLSearchParams({
       miner_id: minerId,
@@ -282,8 +281,7 @@ export function createApp(options: CreateAppOptions): Hono {
     ) {
       return c.json({ error: "invalid solution_number" }, 400);
     }
-    const selfAddress = await db.getSelfAddress();
-    const baseUrl = await resolveSelfMinerRestUrl(db, validatorRpcUrls, selfAddress);
+    const baseUrl = resolveSelfMinerRestUrl(validatorRpcUrls);
     if (!baseUrl) {
       return c.json({ error: "miner REST endpoint not resolvable yet" }, 503);
     }
