@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useMemo } from "react";
+import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-category";
+import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
 import { useUIStore } from "../../../store/ui-store";
 
@@ -17,10 +21,13 @@ const NUM_BANDS = 12;
 
 export function useWinRateByDifficulty(): WinRateByDifficultyResult {
   const blocks = useFilteredBlocks();
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
 
   return useMemo(() => {
-    const filtered = blocks.filter((b) => selectedTypes.includes(b.minerCategory));
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
+    const filtered = blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)));
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
     const sorted = [...filtered].sort((a, b) => a.difficultyEnergy - b.difficultyEnergy);
@@ -55,7 +62,8 @@ export function useWinRateByDifficulty(): WinRateByDifficultyResult {
       // Count wins per type
       const wins: Record<string, number> = {};
       for (const b of band) {
-        wins[b.minerCategory] = (wins[b.minerCategory] ?? 0) + 1;
+        const cat = categoryFor(b.minerId, catIndex);
+        wins[cat] = (wins[cat] ?? 0) + 1;
       }
 
       for (const type of selectedTypes) {
@@ -78,5 +86,5 @@ export function useWinRateByDifficulty(): WinRateByDifficultyResult {
     const xMax = cleaned[cleaned.length - 1]!.difficultyEnergy;
 
     return { series: result, xMin: Math.floor(xMin), xMax: Math.ceil(xMax) };
-  }, [blocks, selectedTypes]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes]);
 }

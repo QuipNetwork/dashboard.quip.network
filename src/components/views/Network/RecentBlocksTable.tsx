@@ -1,42 +1,69 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { SERIES_COLORS } from "../../../lib/colors";
+import { useEffect, useState } from "react";
+
 import { formatDuration } from "../../../lib/format";
+import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
 import { computeChainHealth, type ChainHealth } from "../../../lib/staleness";
 import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
+import { FinalityBadge } from "../../blocks/FinalityBadge";
 
 interface RecentBlocksTableProps {
   blocks: BlockRecord[];
   indexer?: IndexerObservability | null;
-  limit?: number;
+  // Chain-wide total of accepted PoW proofs (sum of
+  // `chainMiners[].proofsWon`). The tip row is solution #totalProofsWon,
+  // each row below decrements by one. When omitted (e.g., legacy callers
+  // and unit tests), Solution# falls back to indexing from `blocks.length`,
+  // which is accurate after a fresh wipe-on-drift but undercounts when
+  // older proofs predate the current `blocks` window.
+  totalProofsWon?: number;
 }
 
-const DEFAULT_LIMIT = 10;
+// Client-side pagination page size. The telemetry store already caps the
+// rolling window at 500 blocks (Phase 0.7), so slicing in JS is cheap; the
+// server-side `getRecentBlocks(limit, offset)` endpoint is plumbed and ready
+// for a future "infinite scroll" upgrade.
+const PAGE_SIZE = 100;
 
-// Renders the most recent N completed blocks with their winner, solved
-// energy, mining time, and time-since-completion. `blocks` is expected in
-// ascending order (tip last) — matching how the store ships it.
+// Renders the most recent solutions (one per chain block) with click-to-open
+// detail modal. `blocks` is expected in descending order (tip first) —
+// matching how the store ships it.
 export function RecentBlocksTable({
   blocks,
   indexer = null,
-  limit = DEFAULT_LIMIT,
+  totalProofsWon,
 }: RecentBlocksTableProps) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
+  const [selectedBlock, setSelectedBlock] = useState<{
+    block: BlockRecord;
+    solutionNumber: number;
+  } | null>(null);
   const now = Date.now();
-  const recent = blocks.slice(-limit).reverse();
-  const tip = blocks.length > 0 ? (blocks[blocks.length - 1] ?? null) : null;
+  const tip = blocks.length > 0 ? (blocks[0] ?? null) : null;
   const health = computeChainHealth({
     nowMs: now,
     tipBlockTimestampMs: tip ? tip.timestamp * 1000 : null,
     indexer,
   });
 
-  if (recent.length === 0) {
+  if (blocks.length === 0) {
     return (
-      <p className="flex h-full items-center justify-center font-accent text-sm text-brand-gray-3">
-        No blocks yet
-      </p>
+      <>
+        <HealthBanner health={health} />
+        <p className="flex h-full items-center justify-center font-accent text-sm text-brand-gray-3">
+          No solutions yet
+        </p>
+      </>
     );
   }
+
+  const visibleBlocks = blocks.slice(0, pageSize);
+  const canLoadMore = pageSize < blocks.length;
+  const remaining = blocks.length - pageSize;
+  // blocks is DESC by substrateBlockNumber, so blocks[0] is the most recent
+  // winning solution. Solution numbering walks down from totalProofsWon.
+  const tipSolutionNumber = totalProofsWon ?? blocks.length;
 
   return (
     <div className="h-full overflow-auto">
@@ -45,64 +72,72 @@ export function RecentBlocksTable({
         <thead>
           <tr className="border-b border-brand-gray-2 text-left text-[10px] uppercase tracking-wider text-brand-gray-3">
             <th className="pb-2 pr-4">Block</th>
+            <th className="pb-2 pr-4">Solution#</th>
             <th className="pb-2 pr-4">Winner</th>
-            <th className="pb-2 pr-4">Type</th>
             <th className="pb-2 pr-4 text-right">Energy</th>
-            <th className="pb-2 pr-4 text-right">Mining Time</th>
+            <th className="pb-2 pr-4 text-right">Target Energy</th>
+            <th className="pb-2 pr-4 text-right">Time to Solution</th>
+            <th className="pb-2 pr-4 text-right">Reward</th>
             <th className="pb-2 text-right">When</th>
           </tr>
         </thead>
         <tbody>
-          {recent.map((b) => {
-            const color = SERIES_COLORS[b.minerCategory];
-            return (
-              <tr
-                key={`${b.epoch}:${b.blockIndex}`}
-                className="border-b border-brand-gray-1 last:border-b-0"
-              >
-                <td className="py-2 pr-4 font-mono text-brand-gray-5">#{b.blockIndex}</td>
-                <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
-                  {truncateMinerId(b.minerId)}
-                </td>
-                <td className="py-2 pr-4">
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 font-accent text-xs"
-                    style={{
-                      borderColor: `${color}55`,
-                      backgroundColor: `${color}15`,
-                      color,
-                    }}
-                  >
-                    <span
-                      className="inline-block h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
-                    {b.minerCategory}
-                  </span>
-                </td>
-                <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
-                  {b.energy.toFixed(1)}
-                </td>
-                <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
-                  {formatDuration(b.miningTime * 1000)}
-                </td>
-                <td className="py-2 text-right tabular-nums text-brand-gray-3">
-                  {formatDuration(now - b.timestamp * 1000)} ago
-                </td>
-              </tr>
-            );
-          })}
+          {visibleBlocks.map((b, i) => (
+            <tr
+              key={b.blockHash}
+              onClick={() => setSelectedBlock({ block: b, solutionNumber: tipSolutionNumber - i })}
+              className="cursor-pointer border-b border-brand-gray-1 transition-colors last:border-b-0 hover:bg-brand-gray-1/30"
+            >
+              <td className="py-2 pr-4 font-mono text-brand-gray-5">
+                <span className="inline-flex items-center gap-1.5">
+                  #{b.substrateBlockNumber}
+                  <FinalityBadge block={b} />
+                </span>
+              </td>
+              <td className="py-2 pr-4 font-mono text-brand-gray-4">#{tipSolutionNumber - i}</td>
+              <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
+                {shortAddress(b.minerId, 22, 4)}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
+                {b.energy.toFixed(1)}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
+                {b.difficultyEnergy.toFixed(1)}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
+                {formatDuration(b.miningTime * 1000)}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
+                {formatBalance(b.reward)}
+              </td>
+              <td className="py-2 text-right tabular-nums text-brand-gray-3">
+                {formatDuration(now - b.timestamp * 1000)} ago
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
+      {canLoadMore && (
+        <div className="mt-3 flex justify-center">
+          <button
+            type="button"
+            data-testid="load-more"
+            onClick={() => setPageSize((s) => Math.min(s + PAGE_SIZE, blocks.length))}
+            className="cursor-pointer rounded-md border border-brand-gray-2 px-3 py-1.5 font-accent text-xs uppercase tracking-wider text-brand-gray-3 transition-all hover:border-brand-gray-3 hover:text-brand-gray-5"
+          >
+            Load more ({remaining} remaining)
+          </button>
+        </div>
+      )}
+      {selectedBlock && (
+        <SolutionDetailsModal
+          block={selectedBlock.block}
+          solutionNumber={selectedBlock.solutionNumber}
+          onClose={() => setSelectedBlock(null)}
+        />
+      )}
     </div>
   );
-}
-
-// Keep the table compact while preserving enough of the minerId to be
-// recognizable. Full id lives in the cell's `title` for hover disclosure.
-function truncateMinerId(id: string): string {
-  if (id.length <= 28) return id;
-  return `${id.slice(0, 22)}…${id.slice(-4)}`;
 }
 
 // Inline banner that surfaces the three-state health from computeChainHealth.
@@ -125,6 +160,129 @@ function HealthBanner({ health }: { health: ChainHealth }) {
         {isStalled ? "■" : "▲"}
       </span>
       {health.reason}
+    </div>
+  );
+}
+
+// Centered overlay with a single solution's full detail. Closes on Escape,
+// backdrop click, or the explicit close button.
+function SolutionDetailsModal({
+  block,
+  solutionNumber,
+  onClose,
+}: {
+  block: BlockRecord;
+  solutionNumber: number;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const completedAt = new Date(block.timestamp * 1000).toISOString();
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Solution #${solutionNumber} details`}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-lg border border-brand-gray-2 bg-brand-bg p-6 shadow-2xl"
+      >
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-accent text-lg text-brand-gray-5">Solution #{solutionNumber}</h2>
+            <p className="font-accent text-xs text-brand-gray-3">
+              Block #{block.substrateBlockNumber}{" "}
+              {block.finalized ? "· finalized" : "· best (unfinalized)"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="cursor-pointer rounded border border-brand-gray-2 px-2 py-0.5 font-accent text-xs text-brand-gray-3 hover:border-brand-gray-3 hover:text-brand-gray-5"
+          >
+            ×
+          </button>
+        </div>
+
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 font-accent text-sm">
+          <Row
+            label="Winner"
+            value={shortAddress(block.minerId, 8, 6)}
+            mono
+            title={block.minerId}
+          />
+          <Row label="Energy" value={block.energy.toFixed(3)} />
+          <Row label="Target Energy" value={block.difficultyEnergy.toFixed(3)} />
+          <Row label="Diversity" value={block.diversity.toFixed(3)} />
+          <Row label="Min Diversity" value={block.minDiversity.toFixed(3)} />
+          <Row label="Solutions Found" value={String(block.numValidSolutions)} />
+          <Row label="Min Solutions" value={String(block.minSolutions)} />
+          <Row label="Time to Solution" value={formatDuration(block.miningTime * 1000)} />
+          <Row label="Reward" value={formatBalance(block.reward)} />
+          <Row label="Nodes" value={String(block.numNodes)} />
+          <Row label="Edges" value={String(block.numEdges)} />
+          <Row label="Completed At" value={completedAt} />
+          <Row
+            label="Substrate Block Hash"
+            value={shortAddress(block.substrateBlockHash, 10, 8)}
+            mono
+            title={block.substrateBlockHash}
+            span={2}
+          />
+          <Row
+            label="Parent Hash"
+            value={shortAddress(block.substrateParentHash, 10, 8)}
+            mono
+            title={block.substrateParentHash}
+            span={2}
+          />
+          <Row
+            label="Solution Hash"
+            value={shortAddress(block.blockHash, 10, 8)}
+            mono
+            title={block.blockHash}
+            span={2}
+          />
+          <Row label="Nonce" value={formatNonce(block.nonce)} mono title={block.nonce} span={2} />
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  mono = false,
+  title,
+  span = 1,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  title?: string;
+  span?: 1 | 2;
+}) {
+  return (
+    <div className={span === 2 ? "col-span-2" : ""}>
+      <dt className="text-[10px] uppercase tracking-wider text-brand-gray-3">{label}</dt>
+      <dd
+        title={title}
+        className={`tabular-nums text-brand-gray-5 ${mono ? "break-all font-mono text-xs" : ""}`}
+      >
+        {value}
+      </dd>
     </div>
   );
 }

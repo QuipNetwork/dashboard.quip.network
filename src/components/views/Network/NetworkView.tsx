@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useMemo } from "react";
-
 import { ChartCard } from "../../layout/ChartCard";
 import { BlocksOverTimeChart } from "../../charts/blocks-over-time/BlocksOverTimeChart";
 import { MiningTimeChart } from "../../charts/mining-time/MiningTimeChart";
@@ -27,32 +25,23 @@ import { useCumulativeBlocksThreshold } from "../../charts/cumulative-blocks-thr
 import { useLeaderboard } from "../../charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
-import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
+import { winningSolutionsSolved } from "../../../lib/chain-solutions";
 import { RecentBlocksTable } from "./RecentBlocksTable";
 
 export function NetworkView() {
   const byType = useUIStore((s) => s.aggregationMode) === "byType";
-  const selectedEpoch = useUIStore((s) => s.selectedEpoch);
-  const allBlocks = useTelemetryStore((s) => s.blocks);
+  // v0.3 substrate worker is the sole writer — all blocks in the store are
+  // canonical-by-construction (finalized substrate blocks only). The store
+  // ships DESC by substrate_block_number, which is the order the table wants.
+  const blocks = useTelemetryStore((s) => s.blocks);
   const indexer = useTelemetryStore((s) => s.indexer);
-  const filtered = useFilteredBlocks();
-
-  // When a specific epoch is selected, show every block in it — a single
-  // epoch is narrow enough that fork interleaving is rare in practice, and
-  // users expect the header control to actually scope this table. When "All"
-  // is selected, fall back to tip-epoch filtering so the server's default
-  // ORDER BY (timestamp, block_index) doesn't interleave abandoned branches
-  // that share timestamps with the winning chain.
-  const canonicalChainBlocks = useMemo(() => {
-    if (allBlocks.length === 0) return allBlocks;
-    if (selectedEpoch !== "all") {
-      return [...filtered].sort((a, b) => a.blockIndex - b.blockIndex);
-    }
-    const tipEpoch = allBlocks[allBlocks.length - 1]!.epoch;
-    return allBlocks
-      .filter((b) => b.epoch === tipEpoch)
-      .sort((a, b) => a.blockIndex - b.blockIndex);
-  }, [allBlocks, filtered, selectedEpoch]);
+  const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  const chainHead = useTelemetryStore((s) => s.chainHead);
+  // Chain-wide lifetime PoW solution count = length of WinningSolutions,
+  // sourced from chain via chain_head (falling back to summing per-miner
+  // proofs_won until chain_head lands). u64, but values up to 2^53 fit
+  // Number safely, covering any realistic chain lifetime.
+  const totalProofsWon = winningSolutionsSolved(chainHead, chainMiners);
 
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();
@@ -69,16 +58,16 @@ export function NetworkView() {
   return (
     <>
       <ChartCard
-        title="Recent Blocks"
-        subtitle="Last 10 completed blocks on the current chain tip"
+        title="Recent Solutions"
+        subtitle="Last 10 mined solutions on the current chain tip"
         className="mb-5"
       >
-        <RecentBlocksTable blocks={canonicalChainBlocks} indexer={indexer} />
+        <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
       </ChartCard>
 
       <ChartCard
         title="Mining Leaderboard"
-        subtitle="Top performing nodes by blocks mined"
+        subtitle="Top performing miners by solutions"
         className="mb-5"
       >
         <Leaderboard data={leaderboard} />
@@ -86,14 +75,16 @@ export function NetworkView() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard
-          title="Blocks Mined Over Time"
-          subtitle={byType ? "Cumulative blocks per unit type" : "Cumulative blocks per miner"}
+          title="Solutions Mined Over Time"
+          subtitle={
+            byType ? "Cumulative solutions per unit type" : "Cumulative solutions per miner"
+          }
         >
           <BlocksOverTimeChart data={blocksOverTime} />
         </ChartCard>
 
         <ChartCard
-          title="Mining Time per Block"
+          title="Mining Time per Solution"
           subtitle={byType ? "Time to solution by processor type" : "Time to solution by miner"}
         >
           <MiningTimeChart data={miningTime} />
@@ -102,7 +93,9 @@ export function NetworkView() {
         <ChartCard
           title="Total Compute Used"
           subtitle={
-            byType ? "Wall clock × units (CPU/GPU) or raw QPU time" : "Wall clock × units per miner"
+            byType
+              ? "Wall-clock for CPU/GPU · D-Wave anneal+readout time for QPU"
+              : "Wall-clock (CPU/GPU) or D-Wave qpu_access_time (QPU) per miner"
           }
         >
           <ComputeUsedChart data={computeUsed} />
@@ -168,11 +161,11 @@ export function NetworkView() {
         </ChartCard>
 
         <ChartCard
-          title="Cumulative Blocks by Threshold"
+          title="Cumulative Solutions by Threshold"
           subtitle={
             byType
-              ? "Blocks meeting energy threshold per unit"
-              : "Blocks meeting energy threshold per miner"
+              ? "Solutions meeting energy threshold per type"
+              : "Solutions meeting energy threshold per miner"
           }
         >
           <CumulativeBlocksThresholdChart data={cumulativeBlocks} />

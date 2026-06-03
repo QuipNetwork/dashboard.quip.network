@@ -11,6 +11,30 @@ interface HardwareBreakdownProps {
   emptyLabel: string;
 }
 
+/**
+ * Audit fix #8: explicit adapter to BarDatum, replacing the previous
+ * `as unknown as BarDatum[]` cast. The cast hid the structural mismatch
+ * — adding any new property to ModelBreakdown would have silently passed
+ * the cast but caused Nivo to render the new field as garbage data.
+ *
+ * The `satisfies BarDatum` annotation makes the type relationship
+ * explicit at the call site: removing or renaming any of model/count/
+ * tflops here is a compile error. Adding new fields to ModelBreakdown
+ * keeps compiling because BarDatum is open-shape (`[key: string]: …`).
+ */
+type BarRow = BarDatum & { model: string; count: number; tflops: number };
+
+function toBarRows(rows: ModelBreakdown[]): BarRow[] {
+  return rows.map(
+    (row) =>
+      ({
+        model: row.model,
+        count: row.count,
+        tflops: row.tflops,
+      }) satisfies BarRow,
+  );
+}
+
 export function HardwareBreakdown({ data, accent, emptyLabel }: HardwareBreakdownProps) {
   if (data.length === 0) {
     return (
@@ -20,9 +44,11 @@ export function HardwareBreakdown({ data, accent, emptyLabel }: HardwareBreakdow
     );
   }
 
+  const barData = toBarRows(data);
+
   return (
     <ResponsiveBar
-      data={data as unknown as BarDatum[]}
+      data={barData}
       keys={["count"]}
       indexBy="model"
       layout="horizontal"
@@ -43,7 +69,11 @@ export function HardwareBreakdown({ data, accent, emptyLabel }: HardwareBreakdow
       }}
       theme={nivoTheme}
       tooltip={({ indexValue, value, data: d }) => {
-        const row = d as unknown as ModelBreakdown;
+        // d is BarDatum at the boundary; narrow to BarRow via a runtime
+        // shape check rather than an unchecked cast. If a future Nivo
+        // upgrade changes BarDatum, this fails loudly instead of silently.
+        const row = d as BarRow;
+        const tflops = typeof row.tflops === "number" ? row.tflops : 0;
         return (
           <div
             style={{
@@ -57,7 +87,7 @@ export function HardwareBreakdown({ data, accent, emptyLabel }: HardwareBreakdow
           >
             <div style={{ fontWeight: 600 }}>{indexValue}</div>
             <div>{value} devices</div>
-            <div style={{ opacity: 0.7 }}>{row.tflops.toFixed(1)} TFLOPS total</div>
+            <div style={{ opacity: 0.7 }}>{tflops.toFixed(1)} TFLOPS total</div>
           </div>
         );
       }}

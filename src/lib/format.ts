@@ -1,28 +1,4 @@
-// Epoch IDs are 16-char hex hashes (e.g. "e0a08eef1dfff726"). They're
-// opaque — no ordering or time info in the hash itself — so we render a
-// short prefix. When a `firstBlockTimestamp` (block_index=1's unix seconds)
-// is known, suffix the short hash with a localized date so the selector
-// keeps the time cue operators used pre-cutover.
-const EPOCH_ID_PREFIX_CHARS = 8;
-
-export function formatEpochId(epochHash: string, firstBlockTimestamp?: number | null): string {
-  const short =
-    epochHash.length > EPOCH_ID_PREFIX_CHARS
-      ? `${epochHash.slice(0, EPOCH_ID_PREFIX_CHARS)}…`
-      : epochHash;
-  if (firstBlockTimestamp == null || !Number.isFinite(firstBlockTimestamp)) {
-    return short;
-  }
-  const d = new Date(firstBlockTimestamp * 1000);
-  if (Number.isNaN(d.getTime())) return short;
-  const when = d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `${short} · ${when}`;
-}
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 export function formatSeconds(s: number): string {
   if (s < 60) return `${s.toFixed(1)}s`;

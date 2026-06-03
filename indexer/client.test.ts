@@ -1,171 +1,259 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { QuipClient, RateLimitError, type NodeStatus } from "./client";
 
-import { QuipClient } from "./client";
-import { buildBlockPayload, makeFetch } from "./test-helpers";
-
-// These fixtures are copy-pasted from real responses captured against
-// https://qpu-1.nodes.quip.network on 2026-04-22 (v0.0.6 dashboard, post-v4
-// node telemetry). The point of this test is to pin the hash-valued epoch
-// id shape at the client boundary so pre-cutover numeric-parse regressions
-// (Number("e0a08eef1dfff726") → NaN) can't come back.
-
-const LIVE_STATUS = {
-  success: true,
-  data: {
-    epochs: ["2d09646aa4a2fbd7", "329c3c4e821fb776", "e0a08eef1dfff726", "f1d71b7d890e16e4"],
-    latest_epoch: "e0a08eef1dfff726",
-    latest_block_index: 186,
-    total_blocks: 888,
-    node_count: 242,
-    active_node_count: 184,
-    nodes_updated_at: "2026-04-22T23:58:10.185971+00:00",
-  },
-  timestamp: 1776902326,
-};
-
-const LIVE_EPOCHS = {
-  success: true,
-  data: {
-    epochs: [
-      {
-        epoch: "2d09646aa4a2fbd7",
-        block_count: 3,
-        first_block: 1,
-        last_block: 3,
-        status: "stale_fork",
-      },
-      {
-        epoch: "e0a08eef1dfff726",
-        block_count: 186,
-        first_block: 1,
-        last_block: 186,
-        status: "live",
-      },
-      // Exercises the narrower: unknown status falls back to stale_fork
-      // and does not crash the parse.
-      {
-        epoch: "ffffffffffffffff",
-        block_count: 1,
-        first_block: 1,
-        last_block: 1,
-        status: "orphaned",
-      },
-    ],
-  },
-  timestamp: 1776902327,
-};
-
-function fetchStubbed(map: Record<string, unknown>): typeof fetch {
-  return (async (input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input.toString();
-    for (const [suffix, body] of Object.entries(map)) {
-      if (url.endsWith(suffix)) {
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-    }
-    return new Response("", { status: 404 });
-  }) as typeof fetch;
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
-describe("QuipClient against live-format telemetry", () => {
-  it("keeps latestEpoch as the verbatim hash string", async () => {
-    const client = new QuipClient({
-      baseUrl: "https://qpu-1.example.com",
-      fetchImpl: fetchStubbed({ "/api/v1/telemetry/status": LIVE_STATUS }),
-    });
-    const res = await client.getStatus(null);
-    expect(res.body?.latestEpoch).toBe("e0a08eef1dfff726");
-    // Defensive: make absolutely sure no Number() coercion snuck back in.
-    expect(typeof res.body?.latestEpoch).toBe("string");
-    expect(res.body?.epochs).toContain("2d09646aa4a2fbd7");
+describe("QuipClient v0.2", () => {
+  test("getStatus parses v0.2 envelope and miner identity", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "5GPP",
+            account_id_hex: "0xbf",
+            node_id: "quip-miner-pow",
+            is_mining: true,
+            uptime_seconds: 407,
+            chain: { head_hash: "0x9a", head_number: 4939 },
+            miner_registered: true,
+            miner_info: {
+              registered_at: 4361,
+              deposit: 1000000000000,
+              proofs_submitted: 0,
+              proofs_won: 0,
+              rewards_earned: 0,
+            },
+            miners: [{ id: "quip-miner-pow-CPU-1", type: "CPU" }],
+          },
+          timestamp: 1779214930,
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r: NodeStatus = await c.getStatus();
+    expect(r.ss58Address).toBe("5GPP");
+    expect(r.nodeId).toBe("quip-miner-pow");
+    expect(r.chainHeadNumber).toBe(4939);
+    expect(r.minerInfo?.deposit).toBe("1000000000000");
+    expect(r.miners).toEqual([{ id: "quip-miner-pow-CPU-1", type: "CPU" }]);
   });
 
-  it("parses each epoch entry with a string id and narrowed status", async () => {
-    const client = new QuipClient({
-      baseUrl: "https://qpu-1.example.com",
-      fetchImpl: fetchStubbed({ "/api/v1/telemetry/epochs": LIVE_EPOCHS }),
-    });
-    const body = await client.getEpochs();
-    expect(body.epochs).toHaveLength(3);
-    const canonical = body.epochs.find((e) => e.epoch === "e0a08eef1dfff726");
-    expect(canonical?.status).toBe("live");
-    const stale = body.epochs.find((e) => e.epoch === "2d09646aa4a2fbd7");
-    expect(stale?.status).toBe("stale_fork");
-    // Unknown status narrows safely.
-    const unknown = body.epochs.find((e) => e.epoch === "ffffffffffffffff");
-    expect(unknown?.status).toBe("stale_fork");
+  test("getStatus narrows unknown miner type to OTHER", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "5GPP",
+            account_id_hex: "0x",
+            node_id: "n",
+            is_mining: false,
+            uptime_seconds: 0,
+            chain: { head_hash: "0x", head_number: 0 },
+            miner_registered: false,
+            miner_info: null,
+            miners: [{ id: "weird-miner", type: "ASIC" }],
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r = await c.getStatus();
+    expect(r.miners[0]?.type).toBe("OTHER");
   });
 
-  it("builds block-fetch URLs with the hash epoch id verbatim", async () => {
-    let seenUrl = "";
-    const fetchImpl = (async (input: RequestInfo | URL) => {
-      seenUrl = typeof input === "string" ? input : input.toString();
-      return new Response("", { status: 404 });
-    }) as typeof fetch;
-    const client = new QuipClient({
-      baseUrl: "https://qpu-1.example.com",
-      fetchImpl,
-    });
-    await client.getBlock("e0a08eef1dfff726", 7);
-    expect(seenUrl).toContain("/api/v1/telemetry/epochs/e0a08eef1dfff726/blocks/7");
-  });
-});
-
-describe("QuipClient error handling", () => {
-  it("throws when the envelope reports success:false", async () => {
-    const fetchImpl = makeFetch(() => ({
-      status: 200,
-      rawText: JSON.stringify({ success: false, error: "internal error" }),
-    }));
-    const client = new QuipClient({
-      baseUrl: "https://node.example.com",
-      fetchImpl,
-    });
-
-    await expect(client.getStatus(null)).rejects.toThrow(/internal error/);
+  test("getStatus tolerates missing miner_info (null)", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "5GPP",
+            account_id_hex: "0x",
+            node_id: "n",
+            is_mining: false,
+            uptime_seconds: 0,
+            chain: { head_hash: "0x", head_number: 0 },
+            miner_registered: false,
+            miner_info: null,
+            miners: [],
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r = await c.getStatus();
+    expect(r.minerInfo).toBeNull();
   });
 
-  it("throws when a block response has a non-numeric nonce string", async () => {
-    // If the upstream API ever hands us a nonce that's already a non-numeric
-    // string, the regex pre-pass won't touch it and the raw value lands in
-    // the parsed payload. assertNonceShape should refuse to ingest it rather
-    // than letting a bad row reach the DB.
-    const payload = buildBlockPayload("1000", 1, "abc");
-    const rawBlockJson = JSON.stringify({ success: true, data: payload });
-
-    const fetchImpl = makeFetch(() => ({ status: 200, rawText: rawBlockJson }));
-    const client = new QuipClient({
-      baseUrl: "https://node.example.com",
-      fetchImpl,
-    });
-
-    await expect(client.getBlock("1000", 1)).rejects.toThrow(/malformed nonce/);
+  test("getStats reads controller sub-object", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            controller: {
+              heads_observed: 23,
+              contexts_dispatched: 46,
+              results_received: 12,
+              proofs_submitted: 8,
+              stale_drops: 1,
+              submission_errors: 2,
+              duplicate_result_drops: 4,
+            },
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r = await c.getStats();
+    expect(r.headsObserved).toBe(23);
+    expect(r.contextsDispatched).toBe(46);
+    expect(r.resultsReceived).toBe(12);
+    expect(r.proofsSubmitted).toBe(8);
+    expect(r.staleDrops).toBe(1);
+    expect(r.submissionErrors).toBe(2);
+    expect(r.duplicateResultDrops).toBe(4);
   });
 
-  it("preserves big-int nonce as an exact string through getBlock", async () => {
-    // Nonces above 2^53 arrive as bare JSON integers; the client's regex
-    // pre-pass must quote them before JSON.parse so precision is kept.
-    const nonceDigits = "14191405648832262461";
-    const rawBlockJson = JSON.stringify({
-      success: true,
-      data: buildBlockPayload("1000", 1, 0),
-    }).replace(/"nonce":0/, `"nonce":${nonceDigits}`);
+  test("429 raises RateLimitError", async () => {
+    const fetchImpl = (() => Promise.resolve(jsonResponse({}, 429))) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    await expect(c.getStatus()).rejects.toBeInstanceOf(RateLimitError);
+  });
 
-    const fetchImpl = makeFetch(() => ({ status: 200, rawText: rawBlockJson }));
-    const client = new QuipClient({
-      baseUrl: "https://node.example.com",
-      fetchImpl,
-    });
+  test("envelope success=false surfaces error message", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: false,
+          error: "node not ready",
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    await expect(c.getStatus()).rejects.toThrow(/node not ready/);
+  });
 
-    const raw = await client.getBlock("1000", 1);
-    expect(raw).not.toBeNull();
-    // The nonce is nested under quantum_proof in the raw payload shape.
-    const quantumProof = raw?.quantum_proof as Record<string, unknown> | undefined;
-    expect(quantumProof?.nonce).toBe(nonceDigits);
+  test("non-OK status raises generic Error with status code", async () => {
+    const fetchImpl = (() => Promise.resolve(jsonResponse({}, 502))) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    await expect(c.getStatus()).rejects.toThrow(/502/);
+  });
+
+  test("no Authorization header is sent — REST access is now a reverse-proxy concern", async () => {
+    const captured: { auth: string | null } = { auth: null };
+    const fetchImpl = ((_url: string, init?: { headers?: Record<string, string> }) => {
+      captured.auth = init?.headers?.["authorization"] ?? null;
+      return Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "",
+            account_id_hex: "",
+            node_id: "",
+            is_mining: false,
+            uptime_seconds: 0,
+            chain: { head_hash: "", head_number: 0 },
+            miner_registered: false,
+            miner_info: null,
+            miners: [],
+          },
+        }),
+      );
+    }) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    await c.getStatus();
+    expect(captured.auth).toBeNull();
+  });
+
+  test("getStatus parses aggregator modes breakdown", async () => {
+    // Multi-process container: /api/v1/status carries a `modes` map
+    // alongside the aggregate counters. The parser hoists it onto
+    // NodeStatus so the dashboard can render per-backend rows.
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "5GPP",
+            account_id_hex: "0x",
+            node_id: "rig-01",
+            is_mining: true,
+            uptime_seconds: 100,
+            chain: { head_hash: "0x", head_number: 1 },
+            miner_registered: true,
+            miner_info: null,
+            miners: [
+              { id: "rig-CPU-1", type: "CPU" },
+              { id: "rig-QPU-DWAVE-1", type: "QPU" },
+            ],
+            modes: {
+              cpu: {
+                controller: {
+                  heads_observed: 50,
+                  contexts_dispatched: 50,
+                  results_received: 50,
+                  proofs_submitted: 3,
+                  stale_drops: 1,
+                  submission_errors: 0,
+                },
+                miners: [{ id: "rig-CPU-1", type: "CPU" }],
+              },
+              qpu: {
+                controller: {
+                  heads_observed: 50,
+                  contexts_dispatched: 50,
+                  results_received: 48,
+                  proofs_submitted: 2,
+                  stale_drops: 0,
+                  submission_errors: 2,
+                  duplicate_result_drops: 7,
+                },
+                miners: [{ id: "rig-QPU-DWAVE-1", type: "QPU" }],
+              },
+            },
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r = await c.getStatus();
+    expect(r.modes).toBeDefined();
+    expect(Object.keys(r.modes ?? {})).toEqual(["cpu", "qpu"]);
+    expect(r.modes?.["cpu"]?.proofsSubmitted).toBe(3);
+    expect(r.modes?.["qpu"]?.submissionErrors).toBe(2);
+    expect(r.modes?.["qpu"]?.duplicateResultDrops).toBe(7);
+    expect(r.modes?.["cpu"]?.duplicateResultDrops).toBe(0);
+    expect(r.modes?.["cpu"]?.miners).toEqual([{ id: "rig-CPU-1", type: "CPU" }]);
+  });
+
+  test("getStatus tolerates missing modes (legacy single-process miner)", async () => {
+    // Older miners + single-process containers don't emit `modes`.
+    // Parser must return undefined (or empty) without complaint so
+    // the rest of NodeStatus is still well-formed.
+    const fetchImpl = (() =>
+      Promise.resolve(
+        jsonResponse({
+          success: true,
+          data: {
+            ss58_address: "5GPP",
+            account_id_hex: "0x",
+            node_id: "rig",
+            is_mining: true,
+            uptime_seconds: 0,
+            chain: { head_hash: "0x", head_number: 0 },
+            miner_registered: false,
+            miner_info: null,
+            miners: [],
+            // no `modes` key at all
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const c = new QuipClient({ baseUrl: "http://x", fetchImpl });
+    const r = await c.getStatus();
+    expect(r.modes).toEqual({});
   });
 });

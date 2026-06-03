@@ -3,9 +3,13 @@
 import { ChartCard } from "../../layout/ChartCard";
 import { SERIES_COLORS } from "../../../lib/colors";
 import { formatDuration, formatNumber } from "../../../lib/format";
+import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
 import { StatTile } from "../MyNode/StatTile";
+import { ChainMinersTable } from "../Chain/ChainMinersView";
+import { DifficultyChart } from "../Chain/DifficultyChart";
 import { HardwareBreakdown } from "./HardwareBreakdown";
+import { NodeIdentitiesPanel } from "./NodeIdentitiesPanel";
 import { NodeLeaderboard } from "./NodeLeaderboard";
 import { NodeLocationMap } from "./NodeLocationMap";
 import { useComputeAvailable } from "./use-compute-available";
@@ -13,6 +17,35 @@ import { useComputeAvailable } from "./use-compute-available";
 export function ComputeAvailableView() {
   const compute = useComputeAvailable();
   const byNode = useUIStore((s) => s.aggregationMode) === "byNode";
+  // Live decayed difficulty from `current_difficulty()` runtime API
+  // (refreshed every chain poll). Falls back to the per-block snapshot
+  // from the tip block when no live poll has landed yet — same chain of
+  // precedence used by the MyNode "Current Difficulty" detail card.
+  const liveDifficulty = useTelemetryStore((s) => s.recentDifficulty[0] ?? null);
+  const chainHead = useTelemetryStore((s) => s.chainHead);
+  const currentDifficulty =
+    liveDifficulty ??
+    (compute.lastBlock
+      ? {
+          difficultyEnergy: compute.lastBlock.difficultyEnergy,
+          minDiversity: compute.lastBlock.minDiversity,
+          minSolutions: compute.lastBlock.minSolutions,
+        }
+      : null);
+  // Number of difficulty-decay steps applied since the last winning proof.
+  // Matches quip-protocol-rs `apply_decay` (pallets/quantum-pow/src/
+  // difficulty.rs:261): one step per `QuantumPowEpochLength = 100` blocks
+  // past `LastProofBlock`. Same hard-coded constant as `CurrentBlockIndicator`.
+  const QUANTUM_POW_EPOCH_LENGTH = 100;
+  const finalizedNum =
+    chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
+  const lastProofBlockNum = compute.lastBlock
+    ? Number(compute.lastBlock.substrateBlockNumber)
+    : null;
+  const decaysApplied =
+    finalizedNum != null && lastProofBlockNum != null
+      ? Math.max(0, Math.floor((finalizedNum - lastProofBlockNum) / QUANTUM_POW_EPOCH_LENGTH))
+      : null;
 
   return (
     <>
@@ -46,7 +79,7 @@ export function ComputeAvailableView() {
             <StatTile
               label="Total CPUs"
               value={formatNumber(compute.totalCpus)}
-              sublabel="Logical cores across network"
+              sublabel="Utilized CPUs across network"
               accent={SERIES_COLORS.CPU}
             />
             <StatTile
@@ -70,8 +103,9 @@ export function ComputeAvailableView() {
         )}
       </div>
 
-      {/* Block-ceiling FLOPS — orthogonal to By Node / By Type, visible in both modes */}
-      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      {/* Block-ceiling FLOPS + live difficulty — orthogonal to By Node / By
+          Type, visible in both modes. Three columns on lg; stacks below. */}
+      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
         <StatTile
           label="Last Block FLOPS"
           value={
@@ -81,7 +115,7 @@ export function ComputeAvailableView() {
           }
           sublabel={
             compute.lastBlock != null
-              ? `#${compute.lastBlock.blockIndex} · solved in ${formatDuration(compute.lastBlock.miningTime * 1000)}`
+              ? `#${compute.lastBlock.substrateBlockNumber} · solved in ${formatDuration(compute.lastBlock.miningTime * 1000)}`
               : "Awaiting first block"
           }
           accent={SERIES_COLORS.GPU}
@@ -95,10 +129,22 @@ export function ComputeAvailableView() {
           }
           sublabel={
             compute.lastBlock != null && compute.currentBlockElapsedSeconds != null
-              ? `#${compute.lastBlock.blockIndex + 1} · ${formatDuration(compute.currentBlockElapsedSeconds * 1000)} and counting`
+              ? `#${Number(compute.lastBlock.substrateBlockNumber) + 1} · ${formatDuration(compute.currentBlockElapsedSeconds * 1000)} and counting`
               : "Awaiting first block"
           }
           accent={SERIES_COLORS.QPU}
+        />
+        <StatTile
+          label="Current Difficulty"
+          value={
+            currentDifficulty != null ? `≤ ${currentDifficulty.difficultyEnergy.toFixed(1)}` : "—"
+          }
+          sublabel={
+            currentDifficulty != null
+              ? `${decaysApplied != null ? `${decaysApplied} ${decaysApplied === 1 ? "decay" : "decays"} · ` : ""}min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
+              : "Awaiting first difficulty poll"
+          }
+          accent={SERIES_COLORS.CPU}
         />
       </div>
 
@@ -133,17 +179,26 @@ export function ComputeAvailableView() {
         </div>
       )}
 
-      <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-5 backdrop-blur-xl">
-        <div className="mb-4">
-          <h2 className="font-heading text-lg text-brand-gray-5">Node Locations</h2>
-          <p className="font-accent text-xs text-brand-gray-3">
-            Geo-IP derived from <code>publicHost</code>; marker size scales with estimated TFLOPS
-          </p>
-        </div>
-        <div className="h-[440px]">
+      {/* v0.2 additions: chain-side miners table + difficulty chart land
+          under the same view since they describe network-wide compute state. */}
+      <ChartCard
+        title="Node Locations"
+        subtitle={`${compute.locatedNodes.length} of ${compute.totalNodes} nodes geo-located via publicHost`}
+      >
+        <div className="h-[440px] w-full">
           <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
         </div>
+      </ChartCard>
+
+      <div className="mb-5">
+        <ChainMinersTable />
       </div>
+
+      <div className="mb-5">
+        <NodeIdentitiesPanel />
+      </div>
+
+      <DifficultyChart />
     </>
   );
 }

@@ -1,611 +1,279 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-import type { BlockRecord } from "../src/types/telemetry";
+import { MiningSubmissionNotFoundError } from "../api/miner-api";
+import type {
+  MinerStats,
+  MiningAttemptsResponse,
+  MiningSubmissionRecord,
+} from "../src/types/telemetry";
 
-import { AuthError, QuipClient, RateLimitError } from "./client";
+import { type NodeStatus, QuipClient } from "./client";
 import { IndexerState } from "./state";
-import {
-  FakeDb,
-  buildBlockPayload,
-  makeConfig,
-  makeFetch,
-  statusBody,
-  type Router,
-} from "./test-helpers";
-import { runTipIteration, runTipLoop } from "./tip-worker";
+import { newInMemoryAdapter } from "./test-helpers";
+import { runTipIteration, type TipIterationDeps } from "./tip-worker";
 
-// Frozen wall-clock used across deterministic assertions. 2023-11-14T22:13:20Z.
-const FIXED_MS = 1_700_000_000_000;
-
-/**
- * Build a router that returns:
- *  - a /status body
- *  - a /epochs body
- *  - per-epoch /blocks responses derived from `chainOf(epoch)` so tests can
- *    make two epochs live on the same chain (shared block-1 hash) or two
- *    live on different chains.
- */
-function tipRouter(opts: {
-  status: Record<string, unknown>;
-  epochs: Array<Record<string, unknown>>;
-  chainOf: (epoch: string) => string;
-  onBlockFetch?: (epoch: string, index: number) => void;
-}): Router {
-  return (url) => {
-    if (url.endsWith("/api/v1/telemetry/status")) {
-      return { status: 200, body: opts.status };
-    }
-    if (url.endsWith("/api/v1/telemetry/epochs")) {
-      return { status: 200, body: { epochs: opts.epochs } };
-    }
-    const m = url.match(/\/epochs\/([^/]+)\/blocks\/(\d+)$/);
-    if (m) {
-      const epoch = m[1]!;
-      const idx = Number(m[2]);
-      opts.onBlockFetch?.(epoch, idx);
-      return { status: 200, body: buildBlockPayload(epoch, idx, 123, opts.chainOf(epoch)) };
-    }
-    return { status: 404 };
+// Build a persisted-submission record for a given global solution_number.
+// The catch-up loop overwrites minerId + observedAt, so only the shape and
+// solutionNumber matter here.
+function submissionFor(solutionNumber: number): MiningSubmissionRecord {
+  return {
+    minerId: "quip-miner-pow-CPU-1",
+    solutionNumber,
+    minerType: "CPU",
+    tsNs: "0",
+    energyMilli: -14870000,
+    diversityMilli: 375,
+    thresholdMilli: -14500000,
+    lastProofBlockHash: "0xabc",
+    extrinsicHash: null,
+    chainBlockHash: null,
+    chainBlockNumber: null,
+    powSequence: null,
+    outcome: "submitted_inblock",
+    attemptCount: 2,
+    bestEnergyMilli: -14870000,
+    numValid: 1,
+    qpuAccessTimeUs: 0,
+    observedAt: "",
   };
 }
 
-function makeClient(router: Router): QuipClient {
-  return new QuipClient({
-    baseUrl: "https://node.example.com",
-    fetchImpl: makeFetch(router),
+function fakeClient(opts: {
+  status?: Partial<NodeStatus> | "error";
+  stats?: Partial<MinerStats> | "error";
+  // Which global solution_numbers the miner has a directory for. Numbers
+  // outside this predicate 404 (a sparse gap from this miner's view).
+  // Defaults to "none" so tests that don't exercise catch-up stay inert.
+  solutionExists?: (n: number) => boolean;
+}): QuipClient {
+  const fullStatus = (overrides?: Partial<NodeStatus>): NodeStatus => ({
+    ss58Address: "5GPP",
+    accountIdHex: "0x",
+    nodeId: "quip-miner-pow",
+    isMining: true,
+    uptimeSeconds: 100,
+    chainHeadHash: "0xab",
+    chainHeadNumber: 4939,
+    minerRegistered: true,
+    minerInfo: {
+      registeredAt: 4361,
+      deposit: "1000000000000",
+      proofsSubmitted: "0",
+      proofsWon: "0",
+      rewardsEarned: "0",
+    },
+    miners: [{ id: "quip-miner-pow-CPU-1", type: "CPU" }],
+    ...overrides,
+  });
+  const fullStats = (overrides?: Partial<MinerStats>): MinerStats => ({
+    headsObserved: 23,
+    contextsDispatched: 46,
+    resultsReceived: 0,
+    proofsSubmitted: 0,
+    staleDrops: 0,
+    submissionErrors: 0,
+    duplicateResultDrops: 0,
+    ...overrides,
+  });
+  const solutionExists = opts.solutionExists ?? (() => false);
+  return {
+    getStatus: () =>
+      opts.status === "error"
+        ? Promise.reject(new Error("[indexer] 502 from /api/v1/status"))
+        : Promise.resolve(fullStatus(opts.status)),
+    getStats: () =>
+      opts.stats === "error"
+        ? Promise.reject(new Error("[indexer] 502 from /api/v1/stats"))
+        : Promise.resolve(fullStats(opts.stats)),
+    getMiningAttempts: (n: number): Promise<MiningAttemptsResponse> =>
+      solutionExists(n)
+        ? Promise.resolve({ submission: submissionFor(n), attempts: [] })
+        : Promise.reject(new MiningSubmissionNotFoundError(n)),
+  } as unknown as QuipClient;
+}
+
+// Seed chain_head.winning_solutions_count (length of WinningSolutions) so
+// the catch-up loop can derive the global solution_number bound (count + 1).
+// This is what the substrate worker writes from chain.
+async function seedWinningSolutionsCount(deps: TipIterationDeps, count: number): Promise<void> {
+  await deps.db.upsertChainHead({
+    bestBlockNumber: "1000",
+    bestBlockHash: "0xbest",
+    finalizedBlockNumber: "998",
+    finalizedBlockHash: "0xfin",
+    finalityLag: 2,
+    winningSolutionsCount: count,
+    runtime: {
+      specName: "quip",
+      specVersion: 101,
+      transactionVersion: 1,
+      implName: "quip",
+      lastRuntimeUpgrade: null,
+    },
+    updatedAt: "2026-05-19T00:00:00.000Z",
   });
 }
 
-describe("runTipIteration", () => {
-  it("seeds tipCursor from ownedStart when a prior epoch exists on the same chain", async () => {
-    // tipA is on the same chain as priorA (shared block-1 hash "canonical").
-    // priorA's lastBlock=100 means tipA owns 101..102. First poll should walk
-    // exactly those two blocks.
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
+async function setupDeps(overrides: Partial<TipIterationDeps> = {}): Promise<TipIterationDeps> {
+  const db = await newInMemoryAdapter();
+  const state = new IndexerState(db);
+  await state.load();
+  return {
+    client: fakeClient({}),
+    db,
+    state,
+    now: () => Date.parse("2026-05-19T00:00:00Z"),
+    ...overrides,
+  };
+}
 
-    const walkIndices: number[] = [];
-    const client = makeClient(
-      tipRouter({
-        status: statusBody("tipA", 102),
-        epochs: [
-          { epoch: "priorA", block_count: 100, first_block: 1, last_block: 100 },
-          { epoch: "tipA", block_count: 102, first_block: 1, last_block: 102 },
-        ],
-        chainOf: () => "canonical",
-        onBlockFetch: (epoch, idx) => {
-          // Block 1 is fetched by computeTipOwnedStart to resolve chain
-          // anchors; filter it out so the walk count is unambiguous.
-          if (epoch === "tipA" && idx > 1) walkIndices.push(idx);
+describe("tip-worker v0.3", () => {
+  test("writes self miner_hardware and minerStats on happy path", async () => {
+    const deps = await setupDeps({ client: fakeClient({}) });
+    await runTipIteration(deps);
+
+    expect(await deps.db.getSelfAddress()).toBe("5GPP");
+    const hw = await deps.db.getMinerHardware("5GPP");
+    expect(hw?.primaryType).toBe("CPU");
+    expect(hw?.source).toBe("self");
+    expect(hw?.observedAt).toBe("2026-05-19T00:00:00.000Z");
+    const obs = await deps.db.getIndexerObservability();
+    expect(obs?.minerStats?.headsObserved).toBe(23);
+    expect(obs?.chainHeadFromNode).toBe("4939");
+  });
+
+  test("derivePrimaryType picks dominant type (multi-miner node)", async () => {
+    const deps = await setupDeps({
+      client: fakeClient({
+        status: {
+          miners: [
+            { id: "a", type: "CPU" },
+            { id: "b", type: "GPU" },
+            { id: "c", type: "GPU" },
+          ],
         },
       }),
-    );
-
-    const r = await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: FIXED_MS },
-    );
-
-    expect(r.fetchedStatus).toBe(true);
-    expect(state.tipCursor).toEqual({ epoch: "tipA", blockIndex: 102 });
-    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([
-      ["tipA", 101],
-      ["tipA", 102],
-    ]);
-    expect(walkIndices).toEqual([101, 102]);
-  });
-
-  it("resets tipCursor on epoch rollover", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    state.tipCursor = { epoch: "tipA", blockIndex: 49 };
-    await state.save();
-
-    const client = makeClient(
-      tipRouter({
-        status: statusBody("tipB", 50),
-        epochs: [
-          { epoch: "tipA", block_count: 49, first_block: 1, last_block: 49, status: "stale_fork" },
-          { epoch: "tipB", block_count: 50, first_block: 1, last_block: 50, status: "live" },
-        ],
-        chainOf: () => "canonical",
-      }),
-    );
-
-    await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: FIXED_MS },
-    );
-
-    // tipA's lastBlock=49 is the prior on-chain tip; tipB owns 50..50.
-    expect(state.tipCursor.epoch).toBe("tipB");
-    expect(state.tipCursor.blockIndex).toBe(50);
-    expect(db.inserted.map((b) => [b.epoch, b.blockIndex])).toEqual([["tipB", 50]]);
-  });
-
-  it("walks only new same-epoch blocks without re-fetching prior ones", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    state.tipCursor = { epoch: "tipA", blockIndex: 102 };
-    await state.save();
-    // Seed chain anchor so the owned-start computation doesn't refetch block 1
-    // (irrelevant for the assertion, but keeps the touched-index set tight).
-    state.chainAnchors.set("tipA", "hash-canonical-1");
-
-    const fetchedIndices: number[] = [];
-    const client = makeClient(
-      tipRouter({
-        status: statusBody("tipA", 105),
-        epochs: [{ epoch: "tipA", block_count: 105, first_block: 1, last_block: 105 }],
-        chainOf: () => "canonical",
-        onBlockFetch: (_epoch, idx) => {
-          fetchedIndices.push(idx);
-        },
-      }),
-    );
-
-    const r = await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: FIXED_MS },
-    );
-
-    expect(r.blocksIndexed).toBe(3);
-    expect(fetchedIndices).toEqual([103, 104, 105]);
-    expect(state.tipCursor).toEqual({ epoch: "tipA", blockIndex: 105 });
-  });
-
-  it("writes observability heartbeat even when /status returns no body", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const client = makeClient((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) return { status: 304 };
-      return { status: 404 };
     });
-
-    await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: FIXED_MS },
-    );
-
-    expect(db.observabilityWrites).toHaveLength(1);
-    expect(db.observability?.lastStatusFetchAt).toBe(new Date(FIXED_MS).toISOString());
-    // No blocks walked, no blocks inserted.
-    expect(db.inserted).toHaveLength(0);
+    await runTipIteration(deps);
+    expect((await deps.db.getMinerHardware("5GPP"))?.primaryType).toBe("GPU");
   });
 
-  it("calls replaceEpochStatus with every /epochs entry", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const client = makeClient(
-      tipRouter({
-        status: statusBody("tipB", 2),
-        epochs: [
-          { epoch: "tipA", block_count: 1, first_block: 1, last_block: 1, status: "stale_fork" },
-          { epoch: "tipB", block_count: 2, first_block: 1, last_block: 2, status: "live" },
-        ],
-        chainOf: () => "canonical",
-      }),
-    );
-
-    await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: FIXED_MS },
-    );
-
-    expect(db.epochStatus).toEqual([
-      { epoch: "tipA", status: "stale_fork" },
-      { epoch: "tipB", status: "live" },
-    ]);
+  test("502 on /status leaves selfAddress null but heartbeat still advances", async () => {
+    const deps = await setupDeps({ client: fakeClient({ status: "error" }) });
+    await runTipIteration(deps);
+    expect(await deps.db.getSelfAddress()).toBeNull();
+    const obs = await deps.db.getIndexerObservability();
+    expect(obs?.lastStatusFetchAt).toBe("2026-05-19T00:00:00.000Z");
   });
 
-  it("advances stall tracker when the node tip moves", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    state.tipCursor = { epoch: "tipA", blockIndex: 100 };
-    state.stall = {
-      lastObserved: { epoch: "tipA", blockIndex: 99 },
-      lastAdvanceAtMs: 1_000,
-      lastWarnAtMs: 0,
+  test("502 on /stats leaves minerStats null but selfAddress lands", async () => {
+    const deps = await setupDeps({ client: fakeClient({ stats: "error" }) });
+    await runTipIteration(deps);
+    expect(await deps.db.getSelfAddress()).toBe("5GPP");
+    const obs = await deps.db.getIndexerObservability();
+    expect(obs?.minerStats).toBeNull();
+  });
+
+  test("setSelfAddress only fires on change (avoids unnecessary writes)", async () => {
+    const deps = await setupDeps({ client: fakeClient({}) });
+    let setCount = 0;
+    const origSet = deps.db.setSelfAddress.bind(deps.db);
+    deps.db.setSelfAddress = async (addr: string | null) => {
+      setCount++;
+      return origSet(addr);
     };
-    state.chainAnchors.set("tipA", "hash-canonical-1");
-    await state.save();
-
-    const client = makeClient(
-      tipRouter({
-        status: statusBody("tipA", 100),
-        epochs: [{ epoch: "tipA", block_count: 100, first_block: 1, last_block: 100 }],
-        chainOf: () => "canonical",
-      }),
-    );
-
-    await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: FIXED_MS },
-    );
-
-    expect(state.stall.lastObserved).toEqual({ epoch: "tipA", blockIndex: 100 });
-    expect(state.stall.lastAdvanceAtMs).toBe(FIXED_MS);
+    await runTipIteration(deps);
+    expect(setCount).toBe(1);
+    await runTipIteration(deps);
+    expect(setCount).toBe(1); // unchanged, no re-write
   });
 
-  it("advances cursor and skips on 404 blocks in the middle of the tip epoch", async () => {
-    // Block 2 is pruned/missing; blocks 1 and 3 resolve normally. The walker
-    // should advance past the 404 rather than retry it each poll.
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-    state.chainAnchors.set("tipA", "hash-canonical-1");
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) {
-        return { status: 200, body: statusBody("tipA", 3) };
-      }
-      if (url.endsWith("/api/v1/telemetry/epochs")) {
-        return {
-          status: 200,
-          body: { epochs: [{ epoch: "tipA", block_count: 3, first_block: 1, last_block: 3 }] },
-        };
-      }
-      if (/\/blocks\/2$/.test(url)) return { status: 404 };
-      const m = url.match(/\/epochs\/([^/]+)\/blocks\/(\d+)$/);
-      if (m) return { status: 200, body: buildBlockPayload(m[1]!, Number(m[2])) };
-      return { status: 404 };
+  test("catch-up persists completed solutions bounded by WinningSolutions count", async () => {
+    // winning_solutions_count = 5 → current global solution_number = 6, so
+    // the stable completed range is 1..5. The miner has a directory for
+    // every one (everyone grinds every global solution); all five get
+    // persisted and the checkpoint lands on 5. The in-flight one (6) is
+    // never persisted.
+    const deps = await setupDeps({
+      client: fakeClient({ solutionExists: () => true }),
     });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+    await seedWinningSolutionsCount(deps, 5);
 
-    const r = await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: FIXED_MS },
-    );
+    await runTipIteration(deps);
 
-    expect(r.blocksIndexed).toBe(2);
-    expect(r.blocksSkipped).toBe(1);
-    expect(db.inserted.map((b) => b.blockIndex).sort()).toEqual([1, 3]);
-    expect(state.tipCursor).toEqual({ epoch: "tipA", blockIndex: 3 });
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
+    expect(rows.map((r) => r.solutionNumber).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
   });
 
-  it("rethrows RateLimitError from getBlock and persists cursor at last successful insert", async () => {
-    // Without rethrow, block-level 429s get swallowed and the loop retries
-    // every pollIntervalSec — hammering the upstream instead of backing off.
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-    state.chainAnchors.set("tipA", "hash-canonical-1");
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) {
-        return { status: 200, body: statusBody("tipA", 5) };
-      }
-      if (url.endsWith("/api/v1/telemetry/epochs")) {
-        return {
-          status: 200,
-          body: { epochs: [{ epoch: "tipA", block_count: 5, first_block: 1, last_block: 5 }] },
-        };
-      }
-      if (/\/blocks\/3$/.test(url)) return { status: 429 };
-      const m = url.match(/\/epochs\/([^/]+)\/blocks\/(\d+)$/);
-      if (m) return { status: 200, body: buildBlockPayload(m[1]!, Number(m[2])) };
-      return { status: 404 };
+  test("404 gaps are skipped, not stopped — the checkpoint still advances", async () => {
+    // Solution 3 has no directory for this miner (it came online late, or
+    // that win was another miner's). The walk must skip it and keep going,
+    // not halt at the gap.
+    const deps = await setupDeps({
+      client: fakeClient({ solutionExists: (n) => n !== 3 }),
     });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+    await seedWinningSolutionsCount(deps, 5);
 
-    await expect(
-      runTipIteration({ config: makeConfig(), client, db, state, now: () => FIXED_MS }, FIXED_MS, {
-        value: FIXED_MS,
-      }),
-    ).rejects.toBeInstanceOf(RateLimitError);
+    await runTipIteration(deps);
 
-    expect(db.inserted.map((b) => b.blockIndex)).toEqual([1, 2]);
-    expect(db.savedCursors.at(-1)?.tipCursor).toEqual({ epoch: "tipA", blockIndex: 2 });
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
+    expect(rows.map((r) => r.solutionNumber).sort((a, b) => a - b)).toEqual([1, 2, 4, 5]);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
   });
 
-  it("throws and persists cursor up to last successful insert on db error", async () => {
-    const db = new FakeDb();
-    let inserts = 0;
-    db.insertBlock = async (b: BlockRecord): Promise<boolean> => {
-      inserts += 1;
-      if (inserts === 2) throw new Error("simulated db write error");
-      db.inserted.push(b);
-      return true;
-    };
-    const state = new IndexerState(db);
-    await state.load();
-    state.chainAnchors.set("tipA", "hash-canonical-1");
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) {
-        return { status: 200, body: statusBody("tipA", 3) };
-      }
-      if (url.endsWith("/api/v1/telemetry/epochs")) {
-        return {
-          status: 200,
-          body: { epochs: [{ epoch: "tipA", block_count: 3, first_block: 1, last_block: 3 }] },
-        };
-      }
-      const m = url.match(/\/epochs\/([^/]+)\/blocks\/(\d+)$/);
-      if (m) return { status: 200, body: buildBlockPayload(m[1]!, Number(m[2])) };
-      return { status: 404 };
+  test("first contact seeds the checkpoint near the head (no ancient grind)", async () => {
+    // winning_solutions_count = 1000 → completed range 1..1000, but a fresh
+    // checkpoint must not fetch all 1000. It seeds to 1000 - BACKFILL_WINDOW
+    // (800) and fetches one capped page (801..825), leaving the rest for
+    // later ticks.
+    const deps = await setupDeps({
+      client: fakeClient({ solutionExists: () => true }),
     });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+    await seedWinningSolutionsCount(deps, 1000);
 
-    await expect(
-      runTipIteration({ config: makeConfig(), client, db, state, now: () => FIXED_MS }, FIXED_MS, {
-        value: FIXED_MS,
-      }),
-    ).rejects.toThrow(/simulated db write error/);
+    await runTipIteration(deps);
 
-    expect(db.inserted).toHaveLength(1);
-    expect(db.savedCursors.at(-1)?.tipCursor).toEqual({ epoch: "tipA", blockIndex: 1 });
-  });
-});
-
-describe("runTipIteration self-address", () => {
-  // /api/v1/status is the node's own identity endpoint — it returns the
-  // exact peer-list key the node uses for itself. The telemetry endpoint is
-  // /api/v1/telemetry/status. Router order matters: match the more specific
-  // identity path first, otherwise endsWith("/status") swallows both.
-  function nodesRouter(
-    selfHost: string | null,
-    nodes: Record<string, Record<string, unknown>>,
-  ): Router {
-    return (url) => {
-      if (url.endsWith("/api/v1/status")) {
-        return {
-          status: 200,
-          body: selfHost !== null ? { host: selfHost } : {},
-        };
-      }
-      if (url.endsWith("/api/v1/telemetry/status")) {
-        return { status: 200, etag: "e", body: statusBody("1000", 0) };
-      }
-      if (url.endsWith("/api/v1/telemetry/nodes")) {
-        return {
-          status: 200,
-          body: {
-            updated_at: "2025-01-01T00:00:00Z",
-            node_count: Object.keys(nodes).length,
-            active_count: Object.keys(nodes).length,
-            nodes,
-          },
-        };
-      }
-      return { status: 404 };
-    };
-  }
-
-  function baseNode(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-    return {
-      status: "online",
-      first_seen: 1,
-      last_seen: 2,
-      last_heartbeat: 2,
-      ...overrides,
-    };
-  }
-
-  it("persists the address the node reports as its own in /api/v1/status", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const fetchImpl = makeFetch(
-      nodesRouter("node.example.com:20049", {
-        "other.example.com:20049": baseNode({ address: "other.example.com:20049" }),
-        "node.example.com:20049": baseNode({ address: "node.example.com:20049" }),
-      }),
-    );
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
-
-    await runTipIteration(
-      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: -1_000_000 },
-    );
-
-    expect(db.selfAddress).toBe("node.example.com:20049");
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 5000);
+    const nums = rows.map((r) => r.solutionNumber).sort((a, b) => a - b);
+    expect(nums[0]).toBe(801);
+    expect(nums.at(-1)).toBe(825);
+    expect(nums.length).toBe(25);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(825);
   });
 
-  it("leaves the address null when the node reports a host missing from the snapshot", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const fetchImpl = makeFetch(
-      nodesRouter("node.example.com:20049", {
-        "other.example.com:20049": baseNode({ address: "other.example.com:20049" }),
-      }),
-    );
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
-
-    await runTipIteration(
-      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: -1_000_000 },
-    );
-
-    expect(db.selfAddress).toBeNull();
-  });
-
-  it("leaves the address null when the node lacks /api/v1/status (older version)", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const fetchImpl = makeFetch(
-      nodesRouter(null, {
-        "node.example.com:20049": baseNode({ address: "node.example.com:20049" }),
-      }),
-    );
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
-
-    await runTipIteration(
-      { config: makeConfig({ nodesRefreshSec: 0 }), client, db, state, now: () => FIXED_MS },
-      FIXED_MS,
-      { value: -1_000_000 },
-    );
-
-    expect(db.selfAddress).toBeNull();
-  });
-});
-
-describe("runTipIteration observability persistence", () => {
-  it("writes observability even when insertBlock throws", async () => {
-    // Rate-limit and db-error paths rethrow; without try/finally they'd skip
-    // the heartbeat and operators would lose visibility exactly when they
-    // need it most.
-    const db = new FakeDb();
-    db.insertBlock = async (): Promise<boolean> => {
-      throw new Error("simulated db write error");
-    };
-    const state = new IndexerState(db);
-    await state.load();
-    state.chainAnchors.set("tipA", "hash-canonical-1");
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) {
-        return { status: 200, body: statusBody("tipA", 3) };
-      }
-      if (url.endsWith("/api/v1/telemetry/epochs")) {
-        return {
-          status: 200,
-          body: { epochs: [{ epoch: "tipA", block_count: 3, first_block: 1, last_block: 3 }] },
-        };
-      }
-      const m = url.match(/\/epochs\/([^/]+)\/blocks\/(\d+)$/);
-      if (m) return { status: 200, body: buildBlockPayload(m[1]!, Number(m[2])) };
-      return { status: 404 };
+  test("no chain_head yet → catch-up is skipped (bound is unknown)", async () => {
+    // The substrate worker hasn't written chain_head.winning_solutions_count,
+    // so the global solution_number can't be derived. Catch-up must no-op
+    // rather than bound the walk on a bogus 0.
+    const deps = await setupDeps({
+      client: fakeClient({ solutionExists: () => true }),
     });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
 
-    await expect(
-      runTipIteration({ config: makeConfig(), client, db, state, now: () => FIXED_MS }, FIXED_MS, {
-        value: FIXED_MS,
-      }),
-    ).rejects.toThrow(/simulated db write error/);
+    await runTipIteration(deps);
 
-    // Heartbeat still advanced, even though the iteration threw.
-    expect(db.observabilityWrites).toHaveLength(1);
-    expect(db.observability?.lastStatusFetchAt).toBe(new Date(FIXED_MS).toISOString());
+    expect((await deps.db.getRecentMiningSubmissions("5GPP", 50)).length).toBe(0);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBeNull();
   });
 
-  it("carries lastBlockInsertAt across iterations without new inserts", async () => {
-    const db = new FakeDb();
-    // Prior run persisted this timestamp. A subsequent poll with no new
-    // blocks should not clobber it back to null.
-    db.observability = {
-      nodeLatestEpoch: "tipA",
-      nodeLatestBlockIndex: 5,
-      tipEpoch: "tipA",
-      tipBlockIndex: 5,
-      backfillEpoch: null,
-      backfillBlockIndex: 0,
-      lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
-      lastBlockInsertAt: "2026-01-01T00:00:00.000Z",
-    };
-    db.cursor = { epoch: "tipA", blockIndex: 5 }; // caught up
-    const state = new IndexerState(db);
-    await state.load();
-    state.chainAnchors.set("tipA", "hash-canonical-1");
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) {
-        return { status: 200, body: statusBody("tipA", 5) };
-      }
-      if (url.endsWith("/api/v1/telemetry/epochs")) {
-        return {
-          status: 200,
-          body: { epochs: [{ epoch: "tipA", block_count: 5, first_block: 1, last_block: 5 }] },
-        };
-      }
-      return { status: 404 };
+  test("a restart does not wipe persisted history (solution_number only advances)", async () => {
+    // The old reset-on-counter-regression wipe is gone: with a durable,
+    // chain-derived solution_number there's no rewind to detect, so a
+    // restart (controller counters back to 0) must leave history intact.
+    const deps = await setupDeps({
+      client: fakeClient({ stats: { resultsReceived: 0 }, solutionExists: () => true }),
     });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
+    await seedWinningSolutionsCount(deps, 5);
+    await deps.db.insertMiningSubmission({ ...submissionFor(5), minerId: "5GPP" });
+    await deps.db.setMiningCheckpoint("5GPP", 5);
 
-    await runTipIteration(
-      { config: makeConfig(), client, db, state, now: () => 1_800_000_000_000 },
-      1_800_000_000_000,
-      { value: FIXED_MS },
-    );
+    await runTipIteration(deps);
 
-    expect(db.observability?.lastBlockInsertAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(db.observability?.lastStatusFetchAt).toBe(new Date(1_800_000_000_000).toISOString());
-  });
-});
-
-describe("runTipLoop", () => {
-  it("surfaces AuthError to the caller so cleanup can run", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) return { status: 401 };
-      return { status: 404 };
-    });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
-
-    await expect(
-      runTipLoop(
-        { config: makeConfig({ once: true }), client, db, state },
-        new AbortController().signal,
-      ),
-    ).rejects.toBeInstanceOf(AuthError);
-  });
-
-  it("rethrows RateLimitError from a 429 in --once mode", async () => {
-    // Exponential-backoff behavior between retries isn't easily unit-tested
-    // from the outside without faking setTimeout; --once mode is where the
-    // caller cares about the thrown class (so they can surface exit code 1).
-    // Abort the signal on the first 429 so sleepInterruptible returns
-    // immediately, keeping the test fast.
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const controller = new AbortController();
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) {
-        controller.abort();
-        return { status: 429 };
-      }
-      return { status: 404 };
-    });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
-
-    await expect(
-      runTipLoop({ config: makeConfig({ once: true }), client, db, state }, controller.signal),
-    ).rejects.toBeInstanceOf(RateLimitError);
-  });
-
-  it("propagates iteration errors in --once mode as a rejection", async () => {
-    const db = new FakeDb();
-    const state = new IndexerState(db);
-    await state.load();
-
-    const fetchImpl = makeFetch((url) => {
-      if (url.endsWith("/api/v1/telemetry/status")) return { status: 500 };
-      return { status: 404 };
-    });
-    const client = new QuipClient({ baseUrl: "https://node.example.com", fetchImpl });
-
-    await expect(
-      runTipLoop(
-        { config: makeConfig({ once: true }), client, db, state },
-        new AbortController().signal,
-      ),
-    ).rejects.toThrow(/500/);
+    // Checkpoint already at the head (5) → nothing new fetched, nothing wiped.
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
+    expect(rows.map((r) => r.solutionNumber)).toEqual([5]);
   });
 });

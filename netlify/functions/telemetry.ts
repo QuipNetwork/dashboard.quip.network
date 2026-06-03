@@ -13,7 +13,15 @@ async function buildFetcher(): Promise<Fetcher> {
   const db: DatabaseAdapter = await createAdapter(cfg);
   await db.connect();
   await db.migrate();
-  const app = createApp({ db, enableStatic: false });
+  // Netlify deployments are chain-only (no embedded miner); the URL list
+  // exists to satisfy the createApp contract but is never used because
+  // the modal proxy endpoint is gated on db.getSelfAddress() being
+  // populated — which only happens when a co-located indexer writes it.
+  const validatorRpcUrls = (process.env.QUIP_VALIDATOR_RPC_URLS ?? "ws://quip-validator:9944")
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter((s) => s.length > 0);
+  const app = createApp({ db, validatorRpcUrls, enableStatic: false });
   return async (req) => app.fetch(req);
 }
 

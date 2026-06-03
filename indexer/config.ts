@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 export interface IndexerConfig {
-  nodeUrl: string;
-  token: string | undefined;
+  // Ordered list of substrate RPC endpoints. The substrate / descriptor
+  // workers round-robin through this list on connect failure. Index 0 is
+  // the default any other code path uses (e.g. deriving the local miner-
+  // REST URL when no on-chain descriptor has landed yet).
+  //
+  // Always non-empty after parseConfig — empty inputs fall back to the
+  // single-element default below.
+  validatorRpcUrls: string[];
   pollIntervalSec: number;
   nodesRefreshSec: number;
   once: boolean;
@@ -11,18 +17,60 @@ export interface IndexerConfig {
   // after which the indexer emits a WARN that the polled node looks stalled.
   // 0 disables the check.
   stallWarnAfterSec: number;
-  // Interval (seconds) the backfill worker sleeps between plan re-checks when
-  // idle (plan fully indexed). Guards against a chain that was the tip mid-walk
-  // and became a dead fork before being fully indexed.
-  backfillIdleRecheckSec: number;
+
+  // --- Substrate (quip-protocol-rs validator) RPC options ---
+  // Per-request timeout for WsProvider handshake + RPC calls.
+  substrateRpcTimeoutMs: number;
+  // Upper bound on the exponential-backoff reconnect loop (±20% jitter).
+  substrateReconnectMaxBackoffMs: number;
+  // Cadence at which we re-poll BABE epoch state (cheap; epoch changes are
+  // ~hourly on quip-protocol-rs spec 101). Also re-polled on every finalized head.
+  substrateBabePollSec: number;
+  // Cadence at which we re-poll the bigger chain surfaces — quantum_pow.Miners,
+  // quantum_pow.Difficulty, session.validators. More expensive: O(miners) RPCs.
+  substrateChainPollSec: number;
+
+  // --- Node descriptor indexer (v0.2) ---
+  // Substrate block number (as decimal string, u64-precision-safe) the
+  // descriptor worker starts scanning from on a fresh database. Resume-
+  // from-checkpoint takes over once the first iteration completes; this
+  // bound only matters on a never-indexed DB. Default "1" backfills from
+  // genesis — acceptable for short-lived testnets; long-running chains
+  // should set QUIP_DESCRIPTOR_START_BLOCK to a recent block height to
+  // avoid an O(history) catch-up walk.
+  descriptorStartBlock: string;
+
+  // Operator SS58 to seed `self_address` on first start. Optional escape
+  // hatch for the descriptor-probe bootstrap (tip-worker scans every
+  // descriptor's publicHost looking for a self-consistent identity) —
+  // setting this skips the probe entirely and primes the cache directly.
+  // Useful when the operator's descriptor hasn't landed on-chain yet,
+  // when their publicHost isn't reachable from the indexer host, or
+  // simply to make startup deterministic. Ignored once the DB already
+  // has a selfAddress cached.
+  operatorAccount: string | null;
 }
 
 const DEFAULTS = {
-  nodeUrl: "https://qpu-1.nodes.quip.network",
+  // Docker-compose service name — production deployments override via
+  // QUIP_VALIDATOR_RPC_URLS. The dashboard always co-locates with a
+  // validator (chain-derived identity is the source of truth), so a
+  // hardcoded public fallback isn't useful here.
+  validatorRpcUrls: ["ws://quip-validator:9944"],
   pollIntervalSec: 8,
   nodesRefreshSec: 45,
   stallWarnAfterSec: 600, // 10 minutes — longer than typical QPU block time.
-  backfillIdleRecheckSec: 300,
+  substrateRpcTimeoutMs: 15000,
+  substrateReconnectMaxBackoffMs: 60000,
+  substrateBabePollSec: 30,
+  // Matches BABE slot duration (6s on quip-protocol-rs) so chain_miners
+  // and difficulty_history poll once per block. The reads are cheap
+  // storage hits and the UI's "Problems Won" tile would otherwise show a
+  // ~5min stale snapshot of `quantum_pow.Miners`.
+  substrateChainPollSec: 6,
+  // "1" backfills from genesis. Operators on long-lived chains override
+  // via QUIP_DESCRIPTOR_START_BLOCK.
+  descriptorStartBlock: "1",
 };
 
 function parseIntStrict(name: string, raw: string): number {
@@ -56,37 +104,66 @@ function takeFlag(argv: string[], name: string): string | boolean | undefined {
   return undefined;
 }
 
+/**
+ * Parse a comma-separated list of validator RPC URLs. Empty entries (from
+ * leading/trailing commas or accidental ",,") are skipped silently so a
+ * stray separator doesn't break startup. Each entry is trimmed and
+ * stripped of trailing slashes for stable comparisons downstream.
+ */
+function parseValidatorRpcUrls(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Resolve an integer config option from, in priority order: a CLI flag, an
+ * environment variable, then `fallback`. The flag and env paths both run
+ * through parseIntStrict so non-decimal-integer inputs fail loudly (an empty
+ * env var is treated as unset and falls through to the default). Callers
+ * apply their own range checks on the returned value.
+ */
+function parseIntOption(argv: string[], flag: string, env: string, fallback: number): number {
+  const flagVal = takeFlag(argv, flag);
+  if (typeof flagVal === "string") return parseIntStrict(flag, flagVal);
+  const envVal = process.env[env];
+  if (envVal) return parseIntStrict(env, envVal);
+  return fallback;
+}
+
 export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
-  const nodeUrlFlag = takeFlag(argv, "--node-url");
-  const tokenFlag = takeFlag(argv, "--token");
-  const pollFlag = takeFlag(argv, "--poll-interval");
-  const nodesFlag = takeFlag(argv, "--nodes-refresh");
   const onceFlag = takeFlag(argv, "--once");
   const verboseFlag = takeFlag(argv, "--verbose");
-  const stallFlag = takeFlag(argv, "--stall-warn-after");
-  const backfillIdleFlag = takeFlag(argv, "--backfill-idle-recheck");
 
-  const nodeUrl =
-    (typeof nodeUrlFlag === "string" ? nodeUrlFlag : undefined) ??
-    process.env.QUIP_NODE_URL ??
-    DEFAULTS.nodeUrl;
+  // --- Validator RPC URLs ---
+  const rpcUrlsFlag = takeFlag(argv, "--validator-rpc-urls");
+  const rpcUrlsRaw =
+    (typeof rpcUrlsFlag === "string" ? rpcUrlsFlag : undefined) ??
+    process.env.QUIP_VALIDATOR_RPC_URLS;
+  const validatorRpcUrls =
+    rpcUrlsRaw !== undefined && rpcUrlsRaw.trim() !== ""
+      ? parseValidatorRpcUrls(rpcUrlsRaw)
+      : DEFAULTS.validatorRpcUrls;
+  if (validatorRpcUrls.length === 0) {
+    throw new Error(
+      `[indexer] QUIP_VALIDATOR_RPC_URLS contained no usable entries: ${JSON.stringify(rpcUrlsRaw)}`,
+    );
+  }
 
-  const token =
-    (typeof tokenFlag === "string" ? tokenFlag : undefined) ?? process.env.QUIP_NODE_TOKEN;
+  const pollIntervalSec = parseIntOption(
+    argv,
+    "--poll-interval",
+    "POLL_INTERVAL_SEC",
+    DEFAULTS.pollIntervalSec,
+  );
 
-  const pollIntervalSec =
-    typeof pollFlag === "string"
-      ? parseIntStrict("--poll-interval", pollFlag)
-      : process.env.POLL_INTERVAL_SEC
-        ? parseIntStrict("POLL_INTERVAL_SEC", process.env.POLL_INTERVAL_SEC)
-        : DEFAULTS.pollIntervalSec;
-
-  const nodesRefreshSec =
-    typeof nodesFlag === "string"
-      ? parseIntStrict("--nodes-refresh", nodesFlag)
-      : process.env.NODES_REFRESH_SEC
-        ? parseIntStrict("NODES_REFRESH_SEC", process.env.NODES_REFRESH_SEC)
-        : DEFAULTS.nodesRefreshSec;
+  const nodesRefreshSec = parseIntOption(
+    argv,
+    "--nodes-refresh",
+    "NODES_REFRESH_SEC",
+    DEFAULTS.nodesRefreshSec,
+  );
 
   const once = onceFlag === true || onceFlag === "true" || onceFlag === "1";
   const verbose =
@@ -95,36 +172,115 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     verboseFlag === "1" ||
     process.env.VERBOSE === "1";
 
-  const stallWarnAfterSec =
-    typeof stallFlag === "string"
-      ? parseIntStrict("--stall-warn-after", stallFlag)
-      : process.env.STALL_WARN_AFTER_SEC
-        ? parseIntStrict("STALL_WARN_AFTER_SEC", process.env.STALL_WARN_AFTER_SEC)
-        : DEFAULTS.stallWarnAfterSec;
+  const stallWarnAfterSec = parseIntOption(
+    argv,
+    "--stall-warn-after",
+    "STALL_WARN_AFTER_SEC",
+    DEFAULTS.stallWarnAfterSec,
+  );
   if (stallWarnAfterSec < 0) {
     throw new Error(`[indexer] --stall-warn-after must be >= 0, got: ${stallWarnAfterSec}`);
   }
 
-  const backfillIdleRecheckSec =
-    typeof backfillIdleFlag === "string"
-      ? parseIntStrict("--backfill-idle-recheck", backfillIdleFlag)
-      : process.env.BACKFILL_IDLE_RECHECK_SEC
-        ? parseIntStrict("BACKFILL_IDLE_RECHECK_SEC", process.env.BACKFILL_IDLE_RECHECK_SEC)
-        : DEFAULTS.backfillIdleRecheckSec;
-  if (backfillIdleRecheckSec <= 0) {
+  // --- Substrate options ---
+  const substrateRpcTimeoutMs = parseIntOption(
+    argv,
+    "--substrate-rpc-timeout",
+    "QUIP_VALIDATOR_RPC_TIMEOUT_MS",
+    DEFAULTS.substrateRpcTimeoutMs,
+  );
+  if (substrateRpcTimeoutMs <= 0) {
+    throw new Error(`[indexer] substrate RPC timeout must be > 0, got: ${substrateRpcTimeoutMs}`);
+  }
+
+  const substrateReconnectMaxBackoffMs = parseIntOption(
+    argv,
+    "--substrate-reconnect-max-backoff",
+    "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
+    DEFAULTS.substrateReconnectMaxBackoffMs,
+  );
+  if (substrateReconnectMaxBackoffMs <= 0) {
     throw new Error(
-      `[indexer] --backfill-idle-recheck must be > 0, got: ${backfillIdleRecheckSec}`,
+      `[indexer] substrate reconnect backoff must be > 0, got: ${substrateReconnectMaxBackoffMs}`,
     );
   }
 
+  const substrateBabePollSec = parseIntOption(
+    argv,
+    "--substrate-babe-poll",
+    "QUIP_VALIDATOR_BABE_POLL_SEC",
+    DEFAULTS.substrateBabePollSec,
+  );
+  if (substrateBabePollSec <= 0) {
+    throw new Error(`[indexer] --substrate-babe-poll must be > 0, got: ${substrateBabePollSec}`);
+  }
+
+  const substrateChainPollSec = parseIntOption(
+    argv,
+    "--substrate-chain-poll",
+    "QUIP_VALIDATOR_CHAIN_POLL_SEC",
+    DEFAULTS.substrateChainPollSec,
+  );
+  if (substrateChainPollSec <= 0) {
+    throw new Error(`[indexer] --substrate-chain-poll must be > 0, got: ${substrateChainPollSec}`);
+  }
+
+  const descriptorStartFlag = takeFlag(argv, "--descriptor-start-block");
+  const descriptorStartRaw =
+    (typeof descriptorStartFlag === "string" ? descriptorStartFlag : undefined) ??
+    process.env.QUIP_DESCRIPTOR_START_BLOCK ??
+    DEFAULTS.descriptorStartBlock;
+  // Validate via parseIntStrict to reject hex/scientific/whitespace
+  // (consistent with other numeric config), then re-stringify so the
+  // worker's BigInt() call doesn't see exotic shapes. We keep it as a
+  // string in the IndexerConfig type for u64-precision-safety.
+  const descriptorStartBlock = String(
+    parseIntStrict("QUIP_DESCRIPTOR_START_BLOCK", descriptorStartRaw),
+  );
+  if (Number(descriptorStartBlock) < 1) {
+    throw new Error(
+      `[indexer] QUIP_DESCRIPTOR_START_BLOCK must be >= 1, got: ${descriptorStartBlock}`,
+    );
+  }
+
+  const operatorFlag = takeFlag(argv, "--operator-account");
+  const operatorAccountRaw =
+    (typeof operatorFlag === "string" ? operatorFlag : undefined) ??
+    process.env.QUIP_OPERATOR_ACCOUNT;
+  const operatorAccount = parseOperatorAccount(operatorAccountRaw);
+
   return {
-    nodeUrl: nodeUrl.replace(/\/+$/, ""),
-    token,
+    validatorRpcUrls,
     pollIntervalSec,
     nodesRefreshSec,
     once,
     verbose,
     stallWarnAfterSec,
-    backfillIdleRecheckSec,
+    substrateRpcTimeoutMs,
+    substrateReconnectMaxBackoffMs,
+    substrateBabePollSec,
+    substrateChainPollSec,
+    descriptorStartBlock,
+    operatorAccount,
   };
+}
+
+/**
+ * Validate a configured operator SS58. Empty / missing → null (no
+ * seeding). Non-empty must look like a substrate base58 address: 46–50
+ * chars, base58 alphabet (no 0/O/I/l). We deliberately don't checksum
+ * here — the indexer can't reach a substrate node before main() runs
+ * config parsing, and a bad address surfaces as "tip-worker probed but
+ * found nothing self-consistent" on the very next poll.
+ */
+function parseOperatorAccount(raw: string | undefined): string | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (!/^[1-9A-HJ-NP-Za-km-z]{46,50}$/.test(trimmed)) {
+    throw new Error(
+      `[indexer] QUIP_OPERATOR_ACCOUNT must be a substrate SS58 address (46–50 base58 chars), got: ${JSON.stringify(raw)}`,
+    );
+  }
+  return trimmed;
 }

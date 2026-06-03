@@ -1,38 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { EpochId, EpochStatus } from "../src/types/telemetry";
+import { MiningSubmissionNotFoundError, parseMiningAttemptsApiResponse } from "../api/miner-api";
+import type {
+  MinerCategory,
+  MinerStats,
+  MiningAttemptsResponse,
+  ModeBreakdown,
+} from "../src/types/telemetry";
 
-export interface StatusBody {
-  epochs: EpochId[];
-  latestEpoch: EpochId;
-  latestBlockIndex: number;
-  totalBlocks: number;
-  nodeCount: number;
-  activeNodeCount: number;
-  nodesUpdatedAt: string | null;
-}
-
-export interface EpochsBody {
-  epochs: Array<{
-    epoch: EpochId;
-    blockCount: number;
-    firstBlock: number;
-    lastBlock: number;
-    status: EpochStatus;
-  }>;
-}
-
-export interface ClientResponse<T> {
-  status: number;
-  etag: string | null;
-  body: T | null;
-}
-
-export class AuthError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthError";
-  }
+export interface NodeStatus {
+  ss58Address: string;
+  accountIdHex: string;
+  nodeId: string;
+  isMining: boolean;
+  uptimeSeconds: number;
+  chainHeadHash: string;
+  chainHeadNumber: number;
+  minerRegistered: boolean;
+  minerInfo: {
+    registeredAt: number;
+    deposit: string; // u128 as string
+    proofsSubmitted: string; // u64 as string
+    proofsWon: string;
+    rewardsEarned: string; // u128 as string
+  } | null;
+  miners: Array<{ id: string; type: MinerCategory }>;
+  // Per-backend breakdown from the in-container aggregator. Empty
+  // record `{}` for legacy single-process miners; one entry per
+  // active backend group (`cpu` / `gpu` / `qpu`) in multi-process
+  // containers. Lets the UI show "qpu produced 0 proofs while cpu
+  // produced 5" instead of just the aggregate.
+  //
+  // Optional so existing test fixtures and Partial<NodeStatus>
+  // helpers don't have to thread an empty record through every
+  // construction site. Consumers default to `{}` when reading.
+  modes?: Record<string, ModeBreakdown>;
 }
 
 export class RateLimitError extends Error {
@@ -46,187 +48,154 @@ interface ApiEnvelope<T> {
   success?: boolean;
   data?: T;
   error?: string;
-  timestamp?: string;
+  timestamp?: number;
 }
 
 type FetchLike = typeof fetch;
 
 export interface QuipClientOptions {
   baseUrl: string;
-  token?: string | undefined;
   fetchImpl?: FetchLike;
 }
 
 export class QuipClient {
   private readonly baseUrl: string;
-  private readonly token: string | undefined;
   private readonly fetchImpl: FetchLike;
 
   constructor(opts: QuipClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
-    this.token = opts.token;
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
-  async getStatus(etag: string | null): Promise<ClientResponse<StatusBody>> {
-    const path = "/api/v1/telemetry/status";
-    const res = await this.request(path, etag);
-    if (res.status === 304) return { status: 304, etag, body: null };
-    const raw = await this.readEnvelope<Record<string, unknown>>(res, path);
-    const data = raw ?? {};
-    const body: StatusBody = {
-      epochs: Array.isArray(data["epochs"])
-        ? (data["epochs"] as unknown[]).map((s) => String(s))
-        : [],
-      latestEpoch: String(data["latest_epoch"] ?? ""),
-      latestBlockIndex: Number(data["latest_block_index"] ?? 0),
-      totalBlocks: Number(data["total_blocks"] ?? 0),
-      nodeCount: Number(data["node_count"] ?? 0),
-      activeNodeCount: Number(data["active_node_count"] ?? 0),
-      nodesUpdatedAt: (data["nodes_updated_at"] as string | null) ?? null,
-    };
-    return { status: res.status, etag: res.headers.get("etag"), body };
-  }
-
-  async getEpochs(): Promise<EpochsBody> {
-    const path = "/api/v1/telemetry/epochs";
-    const res = await this.request(path, null);
-    const data = (await this.readEnvelope<Record<string, unknown>>(res, path)) ?? {};
-    const rawEpochs = Array.isArray(data["epochs"])
-      ? (data["epochs"] as Array<Record<string, unknown>>)
-      : [];
+  async getStatus(): Promise<NodeStatus> {
+    const data = await this.getJson<Record<string, unknown>>("/api/v1/status");
+    const chain = (data["chain"] as Record<string, unknown>) ?? {};
+    const minerInfoRaw = data["miner_info"] as Record<string, unknown> | undefined;
     return {
-      epochs: rawEpochs.map((e) => ({
-        epoch: String(e["epoch"] ?? ""),
-        blockCount: Number(e["block_count"] ?? 0),
-        firstBlock: Number(e["first_block"] ?? 0),
-        lastBlock: Number(e["last_block"] ?? 0),
-        status: narrowEpochStatus(e["status"], path),
-      })),
+      ss58Address: String(data["ss58_address"] ?? ""),
+      accountIdHex: String(data["account_id_hex"] ?? ""),
+      nodeId: String(data["node_id"] ?? ""),
+      isMining: Boolean(data["is_mining"]),
+      uptimeSeconds: Number(data["uptime_seconds"] ?? 0),
+      chainHeadHash: String(chain["head_hash"] ?? ""),
+      chainHeadNumber: Number(chain["head_number"] ?? 0),
+      minerRegistered: Boolean(data["miner_registered"]),
+      minerInfo: minerInfoRaw
+        ? {
+            registeredAt: Number(minerInfoRaw["registered_at"] ?? 0),
+            deposit: String(minerInfoRaw["deposit"] ?? "0"),
+            proofsSubmitted: String(minerInfoRaw["proofs_submitted"] ?? "0"),
+            proofsWon: String(minerInfoRaw["proofs_won"] ?? "0"),
+            rewardsEarned: String(minerInfoRaw["rewards_earned"] ?? "0"),
+          }
+        : null,
+      miners: Array.isArray(data["miners"])
+        ? (data["miners"] as Array<Record<string, unknown>>).map((m) => ({
+            id: String(m["id"] ?? ""),
+            type: narrowMinerType(m["type"]),
+          }))
+        : [],
+      modes: parseModes(data["modes"]),
     };
   }
 
   /**
-   * Fetch a single block. Returns null on 404. The `nonce` field is
-   * preserved as a string because u64 values exceed Number.MAX_SAFE_INTEGER.
+   * Fetch the submission + iteration trail for a specific global
+   * solution_number. Throws {@link MiningSubmissionNotFoundError} on 404
+   * (this miner has no directory for that solution_number). Returns with
+   * `observedAt=""` on `submission` — caller stamps the timestamp.
    */
-  async getBlock(epoch: EpochId, blockIndex: number): Promise<Record<string, unknown> | null> {
-    const path = `/api/v1/telemetry/epochs/${epoch}/blocks/${blockIndex}`;
-    const res = await this.request(path, null);
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      this.throwForStatus(res.status, path);
-    }
-    const text = await res.text();
-    // Preserve nonce precision: quote the bare integer before JSON.parse.
-    const safe = text.replace(/"nonce"\s*:\s*(\d+)/g, '"nonce":"$1"');
-    const parsed = JSON.parse(safe) as ApiEnvelope<Record<string, unknown>>;
-    if (parsed && typeof parsed === "object" && parsed.success === false) {
-      throw new Error(`[indexer] ${path}: ${parsed.error ?? "envelope reported failure"}`);
-    }
-    const data =
-      parsed && typeof parsed === "object" && "data" in parsed
-        ? ((parsed.data ?? null) as Record<string, unknown> | null)
-        : (parsed as unknown as Record<string, unknown>);
-    if (data) assertNonceShape(data, path);
-    return data;
-  }
-
-  async getNodes(etag: string | null): Promise<ClientResponse<Record<string, unknown>>> {
-    const res = await this.request("/api/v1/telemetry/nodes", etag);
-    if (res.status === 304) return { status: 304, etag, body: null };
-    const body = await this.readEnvelope<Record<string, unknown>>(res, "/api/v1/telemetry/nodes");
-    return { status: res.status, etag: res.headers.get("etag"), body };
-  }
-
-  /**
-   * Fetch the node's own peer-list address via GET /api/v1/status. This is
-   * the authoritative "who am I" signal: the node tells us the exact key it
-   * uses to identify itself to peers, so we can match the self entry in the
-   * nodes snapshot without heuristics. Returns null if the node doesn't
-   * expose this field (older node versions).
-   */
-  async getSelfHost(): Promise<string | null> {
-    const path = "/api/v1/status";
-    const res = await this.request(path, null);
-    if (res.status === 404) return null;
-    const data = (await this.readEnvelope<Record<string, unknown>>(res, path)) ?? {};
-    const host = data["host"];
-    return typeof host === "string" && host.length > 0 ? host : null;
-  }
-
-  private async request(path: string, etag: string | null): Promise<Response> {
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (this.token) headers["authorization"] = `Bearer ${this.token}`;
-    if (etag) headers["if-none-match"] = etag;
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, { headers });
-    if (res.status === 401) {
-      throw new AuthError(
-        `[indexer] 401 Unauthorized from ${path}. Set QUIP_NODE_TOKEN (or --token) to a valid bearer token.`,
-      );
+  async getMiningAttempts(solutionNumber: number): Promise<MiningAttemptsResponse> {
+    const url = `${this.baseUrl}/api/v1/mining/attempts?solution_number=${solutionNumber}`;
+    const res = await this.fetchImpl(url, { headers: { accept: "application/json" } });
+    if (res.status === 404) {
+      throw new MiningSubmissionNotFoundError(solutionNumber);
     }
     if (res.status === 429) {
-      throw new RateLimitError(`[indexer] 429 Too Many Requests from ${path}`);
+      throw new RateLimitError(`[indexer] 429 from /api/v1/mining/attempts`);
     }
-    return res;
-  }
-
-  private throwForStatus(status: number, path: string): never {
-    throw new Error(`[indexer] ${status} from ${path}`);
-  }
-
-  private async readEnvelope<T>(res: Response, path: string): Promise<T | null> {
-    if (res.status === 304) return null;
     if (!res.ok) {
-      this.throwForStatus(res.status, path);
+      throw new Error(`[indexer] ${res.status} from /api/v1/mining/attempts`);
+    }
+    const parsed = (await res.json()) as { success?: boolean; data?: unknown; error?: string };
+    if (parsed && typeof parsed === "object" && parsed.success === false) {
+      throw new Error(
+        `[indexer] /api/v1/mining/attempts: ${parsed.error ?? "envelope reported failure"}`,
+      );
+    }
+    return parseMiningAttemptsApiResponse(parsed?.data ?? parsed);
+  }
+
+  async getStats(): Promise<MinerStats> {
+    const data = await this.getJson<Record<string, unknown>>("/api/v1/stats");
+    const controller = (data["controller"] as Record<string, unknown>) ?? {};
+    return {
+      headsObserved: Number(controller["heads_observed"] ?? 0),
+      contextsDispatched: Number(controller["contexts_dispatched"] ?? 0),
+      resultsReceived: Number(controller["results_received"] ?? 0),
+      proofsSubmitted: Number(controller["proofs_submitted"] ?? 0),
+      staleDrops: Number(controller["stale_drops"] ?? 0),
+      submissionErrors: Number(controller["submission_errors"] ?? 0),
+      duplicateResultDrops: Number(controller["duplicate_result_drops"] ?? 0),
+    };
+  }
+
+  private async getJson<T>(path: string): Promise<T> {
+    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      headers: { accept: "application/json" },
+    });
+    if (res.status === 429) {
+      throw new RateLimitError(`[indexer] 429 from ${path}`);
+    }
+    if (!res.ok) {
+      throw new Error(`[indexer] ${res.status} from ${path}`);
     }
     const parsed = (await res.json()) as ApiEnvelope<T>;
     if (parsed && typeof parsed === "object" && parsed.success === false) {
       throw new Error(`[indexer] ${path}: ${parsed.error ?? "envelope reported failure"}`);
     }
-    if (parsed && typeof parsed === "object" && "data" in parsed) {
-      return (parsed.data ?? null) as T | null;
-    }
-    return parsed as unknown as T;
+    return (parsed?.data ?? parsed) as T;
   }
 }
 
-// Fired at most once per process — operators need the warn but not a flood
-// when a single poll produces hundreds of unknown-status rows.
-let epochStatusWarned = false;
-
-/**
- * Narrow the raw `status` field from the node into our EpochStatus literal.
- * The node's API contract allows "live" or "stale_fork"; anything else
- * (schema drift, new chain-state label we don't yet know about) is treated
- * as stale_fork for display — the UI will visibly mark it as not-current
- * rather than silently labelling it "live".
- */
-function narrowEpochStatus(raw: unknown, path: string): EpochStatus {
-  if (raw === "live" || raw === "stale_fork") return raw;
-  if (!epochStatusWarned) {
-    epochStatusWarned = true;
-    console.warn(
-      `[indexer] ${path}: unrecognized epoch.status=${JSON.stringify(raw)}; treating as stale_fork`,
-    );
-  }
-  return "stale_fork";
+function narrowMinerType(raw: unknown): MinerCategory {
+  const s = String(raw ?? "").toUpperCase();
+  if (s === "CPU" || s === "GPU" || s === "QPU") return s;
+  return "OTHER";
 }
 
 /**
- * Guard that the regex pre-pass actually produced a well-formed string nonce.
- * A failed substitution (e.g. nonce already quoted non-numerically, or a
- * decimal literal) would otherwise surface as a generic DB error at insert
- * time; fail loud at the boundary instead.
+ * Parse the `modes` field returned by /api/v1/status. Tolerates the
+ * legacy shape where the miner doesn't emit `modes` (returns `{}`) and
+ * the new aggregator shape `{<mode>: {controller: {...}, miners: [...]}}`.
+ *
+ * Missing / malformed counters default to 0 — the UI shows "no work
+ * yet" rather than crashing on a fresh aggregator that hasn't accrued
+ * data.
  */
-function assertNonceShape(data: Record<string, unknown>, path: string): void {
-  const qp = data["quantum_proof"];
-  if (qp == null || typeof qp !== "object") return;
-  const nonce = (qp as Record<string, unknown>)["nonce"];
-  if (nonce === undefined) return;
-  if (typeof nonce !== "string" || !/^\d+$/.test(nonce)) {
-    throw new Error(
-      `[indexer] ${path}: malformed nonce (expected digit string, got ${typeof nonce}: ${String(nonce).slice(0, 64)})`,
-    );
+function parseModes(raw: unknown): Record<string, ModeBreakdown> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, ModeBreakdown> = {};
+  for (const [mode, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const ctrl = (v["controller"] as Record<string, unknown>) ?? {};
+    const minersRaw = Array.isArray(v["miners"])
+      ? (v["miners"] as Array<Record<string, unknown>>)
+      : [];
+    out[mode] = {
+      headsObserved: Number(ctrl["heads_observed"] ?? 0),
+      contextsDispatched: Number(ctrl["contexts_dispatched"] ?? 0),
+      resultsReceived: Number(ctrl["results_received"] ?? 0),
+      proofsSubmitted: Number(ctrl["proofs_submitted"] ?? 0),
+      staleDrops: Number(ctrl["stale_drops"] ?? 0),
+      submissionErrors: Number(ctrl["submission_errors"] ?? 0),
+      duplicateResultDrops: Number(ctrl["duplicate_result_drops"] ?? 0),
+      miners: minersRaw.map((m) => ({
+        id: String(m["id"] ?? ""),
+        type: narrowMinerType(m["type"]),
+      })),
+    };
   }
+  return out;
 }

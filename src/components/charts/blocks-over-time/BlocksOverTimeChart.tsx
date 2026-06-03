@@ -62,7 +62,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
           legendPosition: "middle",
         }}
         axisLeft={{
-          legend: "Cumulative Blocks",
+          legend: "Cumulative Solutions",
           legendOffset: -50,
           legendPosition: "middle",
         }}

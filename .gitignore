@@ -9,3 +9,9 @@
 
 # Superpowers brainstorming companion
 .superpowers/
+
+# Local SQLite runtime data — never committed; rebuilt by the indexer.
+/data/
+
+# Stray deno lockfile from tooling experiments (this is a Bun project).
+/deno.lock

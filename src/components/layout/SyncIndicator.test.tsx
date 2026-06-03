@@ -14,38 +14,38 @@ import { SyncIndicator } from "./SyncIndicator";
 function recentBlock(): BlockRecord {
   const nowSec = Math.floor(Date.now() / 1000);
   return {
-    epoch: "x",
-    blockIndex: 10,
     blockHash: "h",
+    substrateBlockNumber: "10",
+    substrateBlockHash: "sub-h",
+    substrateParentHash: "sub-p",
     timestamp: nowSec - 5,
-    previousHash: "p",
     minerId: "m",
-    minerCategory: "QPU",
-    ecdsaPublicKey: "pk",
     energy: -1,
     diversity: 0.5,
     numValidSolutions: 1,
     miningTime: 1,
+    reward: "1000000000000",
     nonce: "1",
     numNodes: 1,
     numEdges: 1,
     difficultyEnergy: -1,
     minDiversity: 0,
     minSolutions: 1,
+    finalized: false,
   };
 }
 
 function baseObs(overrides: Partial<IndexerObservability> = {}): IndexerObservability {
   const now = Date.now();
   return {
-    nodeLatestEpoch: "x",
-    nodeLatestBlockIndex: 10,
-    tipEpoch: "x",
-    tipBlockIndex: 10,
-    backfillEpoch: null,
-    backfillBlockIndex: 0,
+    chainHeadFromNode: "10",
     lastStatusFetchAt: new Date(now - 10_000).toISOString(),
     lastBlockInsertAt: new Date(now - 10_000).toISOString(),
+    lastSubstrateEventAt: null,
+    bestBlockHeight: null,
+    finalizedBlockHeight: null,
+    chainConnected: false,
+    minerStats: null,
     ...overrides,
   };
 }
@@ -62,7 +62,6 @@ beforeEach(() => {
   useTelemetryStore.setState((s) => ({
     ...s,
     blocks: [],
-    nodes: null,
     selfAddress: null,
     indexer: null,
     loading: false,
@@ -82,9 +81,9 @@ function render(ui: ReturnType<typeof createElement>) {
 }
 
 describe("SyncIndicator", () => {
-  test("renders 'Connecting to node…' when indexer is null", () => {
+  test("renders 'Connecting to miner…' when indexer is null", () => {
     render(createElement(SyncIndicator));
-    expect(container.textContent).toContain("Connecting to node…");
+    expect(container.textContent).toContain("Connecting to miner…");
   });
 
   test("renders 'Live' when caught up", () => {
@@ -95,36 +94,6 @@ describe("SyncIndicator", () => {
     }));
     render(createElement(SyncIndicator));
     expect(container.textContent).toContain("Live");
-  });
-
-  test("renders 'Synchronizing · N blocks behind' when tip lags same epoch", () => {
-    useTelemetryStore.setState((s) => ({
-      ...s,
-      blocks: [recentBlock()],
-      indexer: baseObs({ nodeLatestBlockIndex: 25, tipBlockIndex: 18 }),
-    }));
-    render(createElement(SyncIndicator));
-    expect(container.textContent).toMatch(/Synchronizing · 7 blocks behind/);
-  });
-
-  test("renders 'Catching up to new epoch' on epoch mismatch", () => {
-    useTelemetryStore.setState((s) => ({
-      ...s,
-      blocks: [recentBlock()],
-      indexer: baseObs({ nodeLatestEpoch: "Y", tipEpoch: "X" }),
-    }));
-    render(createElement(SyncIndicator));
-    expect(container.textContent).toContain("Catching up to new epoch");
-  });
-
-  test("renders 'Backfilling history' when tip caught up and backfill active", () => {
-    useTelemetryStore.setState((s) => ({
-      ...s,
-      blocks: [recentBlock()],
-      indexer: baseObs({ backfillEpoch: "dead-fork", backfillBlockIndex: 3 }),
-    }));
-    render(createElement(SyncIndicator));
-    expect(container.textContent).toContain("Backfilling history");
   });
 
   test("renders 'Indexer offline · Xm' when heartbeat is stale", () => {

@@ -39,36 +39,33 @@ Database configuration is read from env via `api/db`:
 ## How it works
 
 Two concurrent async workers run in one process. They share the same
-`IndexerState`, `DatabaseAdapter`, and `chainAnchors` cache, but each holds
-its own `QuipClient` so rate-limit backoff in one worker does not stall the
-other.
+`IndexerState` and `DatabaseAdapter`. Canonical block data comes from the
+substrate worker (chain events); the tip worker only refreshes node
+self-identity, miner stats, and observability heartbeat.
 
-- **Tip worker** (`indexer/tip-worker.ts`) runs a tight poll loop: GET
-  `/status` → GET `/epochs` → compute the tip epoch's owned block range →
-  walk any new blocks → refresh the nodes snapshot on cadence → write
-  observability. It only fetches blocks that belong to `status.latestEpoch`,
-  so the dashboard sees at least one block of the live chain within a single
-  poll interval.
-- **Backfill worker** (`indexer/backfill-worker.ts`) walks the full
-  canonical plan (every epoch except the tip), ordered canonical-chain-first
-  and then dead forks. When every plan entry is fully indexed, it sleeps for
-  `backfillIdleRecheckSec` (default 300s) before rebuilding the plan. That
-  re-check catches chains that became dead forks mid-walk and new dead forks
-  the node starts exposing later.
-- **Orchestrator** (`indexer/main.ts`) spawns both workers under a shared
-  `AbortController`. An `AuthError` in either worker aborts its sibling and
-  exits with code 1. `SIGINT` / `SIGTERM` aborts both cleanly.
+- **Tip worker** (`indexer/tip-worker.ts`) runs a poll loop against the
+  node's REST surface: GET `/status` for self-identity, fetch miner stats,
+  and flush the observability heartbeat every iteration so the dashboard
+  knows the indexer is alive.
+- **Substrate worker** (`indexer/substrate-worker.ts`, opt-in via
+  `QUIP_VALIDATOR_RPC_URL`) subscribes to the chain over WSS and is the
+  canonical source of `BlockRecord` rows. When the env var is unset, the
+  indexer runs in REST-only degraded mode and the chain surfaces stay
+  null/empty.
+- **Orchestrator** (`indexer/main.ts`) spawns the workers under a shared
+  `AbortController`. An `AuthError` from the tip worker aborts substrate
+  and exits with code 1; substrate failures are non-fatal and the tip
+  worker keeps running. `SIGINT` / `SIGTERM` aborts cleanly.
 
 ### Error handling
 
-| Situation            | Behavior                                              |
-| -------------------- | ----------------------------------------------------- |
-| 304                  | no-op, sleep `pollIntervalSec`, continue              |
-| 404 on a block       | warn, advance cursor, continue                        |
-| 401                  | abort sibling worker, `process.exit(1)`               |
-| 429                  | exponential backoff 5s → 60s (reset on success)       |
-| 5xx / network error  | warn, sleep `pollIntervalSec`, retry                  |
-| `SIGINT` / `SIGTERM` | finish iteration, persist cursors, disconnect, exit 0 |
+| Situation            | Behavior                                        |
+| -------------------- | ----------------------------------------------- |
+| 401 (tip)            | abort substrate, `process.exit(1)`              |
+| 401 (substrate)      | log, keep tip running                           |
+| 429                  | exponential backoff 5s → 60s (reset on success) |
+| 5xx / network error  | warn, sleep `pollIntervalSec`, retry            |
+| `SIGINT` / `SIGTERM` | finish iteration, disconnect, exit 0            |
 
 ### Big-int nonce
 
@@ -86,12 +83,12 @@ bun test indexer/
 Tests stub `fetch` and use an in-memory fake `DatabaseAdapter`; they do not
 touch SQLite.
 
-| File                              | Covers                                                                                                                 |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `indexer/shared.test.ts`          | helpers: `buildCanonicalPlan`, stall tracker, `sleepInterruptible`, `saveStateSafely`                                  |
-| `indexer/tip-worker.test.ts`      | tip iteration: `ownedStart` seeding, epoch rollover, same-epoch advance, observability heartbeat, `replaceEpochStatus` |
-| `indexer/backfill-worker.test.ts` | plan reordering, `markPlanEntriesDone`, tip-epoch filter, idle transition, `RateLimitError` rethrow, abort during walk |
-| `indexer/main.test.ts`            | orchestration: both workers complete normally; `AuthError` aborts sibling; unhandled error returns 1                   |
-| `indexer/config.test.ts`          | flag / env parsing, validation, whitespace handling                                                                    |
-| `indexer/client.test.ts`          | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                       |
-| `indexer/state.test.ts`           | `IndexerState` load/save, schema-drift reset                                                                           |
+| File                               | Covers                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `indexer/tip-worker.test.ts`       | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
+| `indexer/substrate-worker.test.ts` | substrate event subscription, canonical block writes, reconnect backoff                                             |
+| `indexer/main.test.ts`             | orchestration: tip alone or with substrate; `AuthError` from tip aborts substrate; substrate failures are non-fatal |
+| `indexer/config.test.ts`           | flag / env parsing, validation, whitespace handling                                                                 |
+| `indexer/client.test.ts`           | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |
+| `indexer/state.test.ts`            | `IndexerState` load, observability seeding on restart                                                               |
+| `indexer/substrate-client.test.ts` | substrate client transport, event parsing                                                                           |
