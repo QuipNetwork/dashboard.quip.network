@@ -5,6 +5,7 @@ import { useLayoutEffect, useMemo, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 
 import { buildAppEventBus } from "../event-bus/build-app-event-bus";
+import { TelemetryClientContext, telemetryClient, type TelemetryClient } from "./telemetry-client";
 import {
   TelemetryStoreContext,
   telemetryStore,
@@ -19,6 +20,7 @@ export interface ServicesProviderProps {
   telemetryStore?: StoreApi<TelemetryState>;
   uiStore?: UIStore;
   eventBus?: IEventBus;
+  client?: TelemetryClient;
 }
 
 export function ServicesProvider({
@@ -26,6 +28,7 @@ export function ServicesProvider({
   telemetryStore: telemetry = telemetryStore,
   uiStore: ui = uiStore,
   eventBus,
+  client = telemetryClient,
 }: ServicesProviderProps) {
   const bus = useMemo(
     () => eventBus ?? buildAppEventBus({ telemetryStore: telemetry, uiStore: ui }),
@@ -40,10 +43,12 @@ export function ServicesProvider({
   }, [bus]);
 
   return (
-    <TelemetryStoreContext.Provider value={telemetry}>
-      <UIStoreContext.Provider value={ui}>
-        <EventBusContext.Provider value={bus}>{children}</EventBusContext.Provider>
-      </UIStoreContext.Provider>
-    </TelemetryStoreContext.Provider>
+    <TelemetryClientContext.Provider value={client}>
+      <TelemetryStoreContext.Provider value={telemetry}>
+        <UIStoreContext.Provider value={ui}>
+          <EventBusContext.Provider value={bus}>{children}</EventBusContext.Provider>
+        </UIStoreContext.Provider>
+      </TelemetryStoreContext.Provider>
+    </TelemetryClientContext.Provider>
   );
 }

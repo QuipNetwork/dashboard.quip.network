@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import { createStore, useStore, type StateCreator, type StoreApi } from "zustand";
-import { HttpTelemetryClient, type TelemetryClient } from "../services/telemetry-client";
+import { telemetryClient, type TelemetryClient } from "../services/telemetry-client";
 import type {
   BabeAuthorityRecord,
   BabeEpochState,
@@ -123,11 +123,11 @@ const createTelemetryState =
 export const createTelemetryStore = (deps: TelemetryStoreDeps): StoreApi<TelemetryState> =>
   createStore<TelemetryState>(createTelemetryState(deps));
 
-export const telemetryStore = createTelemetryStore({ client: new HttpTelemetryClient() });
+export const telemetryStore = createTelemetryStore({ client: telemetryClient });
 
 export const TelemetryStoreContext = createContext<StoreApi<TelemetryState>>(telemetryStore);
 
-const identity = <T,>(state: T): T => state;
+const identity = <T>(state: T): T => state;
 
 function useTelemetryStoreBase<T = TelemetryState>(
   selector: (state: TelemetryState) => T = identity as (state: TelemetryState) => T,

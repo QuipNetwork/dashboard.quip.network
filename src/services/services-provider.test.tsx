@@ -4,11 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import {
-  createTelemetryStore,
-  telemetryStore,
-  useTelemetryStore,
-} from "../store/telemetry-store";
+import { createTelemetryStore, telemetryStore, useTelemetryStore } from "../store/telemetry-store";
 import { createUIStore, useUIStore } from "../store/ui-store";
 import type { MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
 import { ServicesProvider } from "./services-provider";

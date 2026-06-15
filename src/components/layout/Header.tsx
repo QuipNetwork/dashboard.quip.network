@@ -1,10 +1,6 @@
 import { useEventBus } from "@vaaas/rx-react/event-bus";
 
-import {
-  SetAggregationMode,
-  SetViewMode,
-  ToggleMinerType,
-} from "../../event-bus/ui-actions";
+import { SetAggregationMode, SetViewMode, ToggleMinerType } from "../../event-bus/ui-actions";
 import { useTelemetryStore } from "../../store/telemetry-store";
 import { useUIStore, type AggregationMode, type ViewMode } from "../../store/ui-store";
 import { SERIES_COLORS } from "../../lib/colors";

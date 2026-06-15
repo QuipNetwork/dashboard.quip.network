@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { createContext, useContext } from "react";
+
 import type { MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
 
 export interface TelemetryClient {
   fetchTelemetry(signal?: AbortSignal): Promise<TelemetryResponse>;
-  fetchMiningAttempts(solutionNumber: number, signal?: AbortSignal): Promise<MiningAttemptsResponse>;
+  fetchMiningAttempts(
+    solutionNumber: number,
+    signal?: AbortSignal,
+  ): Promise<MiningAttemptsResponse>;
 }
 
 export interface HttpTelemetryClientOptions {
@@ -48,3 +53,9 @@ export class HttpTelemetryClient implements TelemetryClient {
     return (await res.json()) as MiningAttemptsResponse;
   }
 }
+
+export const telemetryClient = new HttpTelemetryClient();
+
+export const TelemetryClientContext = createContext<TelemetryClient>(telemetryClient);
+
+export const useTelemetryClient = (): TelemetryClient => useContext(TelemetryClientContext);

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { formatNumber } from "../../../lib/format";
 import { shortAddress } from "../../../lib/format-chain";
+import { useTelemetryClient } from "../../../services/telemetry-client";
 import type { MiningAttempt, MiningAttemptsResponse } from "../../../types/telemetry";
 import { meetingTargetCount } from "./mining-shared";
 
@@ -21,6 +22,7 @@ export function MiningAttemptsModal({
   solutionNumber: number;
   onClose: () => void;
 }) {
+  const client = useTelemetryClient();
   const [data, setData] = useState<MiningAttemptsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -38,15 +40,8 @@ export function MiningAttemptsModal({
     setLoading(true);
     setError(null);
     setData(null);
-    fetch(`/api/mining/attempts/${solutionNumber}`, { signal: ac.signal })
-      .then(async (res) => {
-        if (res.status === 404) throw new Error(`solution #${solutionNumber} not found on miner`);
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error ?? `HTTP ${res.status}`);
-        }
-        return res.json() as Promise<MiningAttemptsResponse>;
-      })
+    client
+      .fetchMiningAttempts(solutionNumber, ac.signal)
       .then((env) => setData(env))
       .catch((e: unknown) => {
         if (ac.signal.aborted) return;
@@ -56,7 +51,7 @@ export function MiningAttemptsModal({
         if (!ac.signal.aborted) setLoading(false);
       });
     return () => ac.abort();
-  }, [solutionNumber]);
+  }, [solutionNumber, client]);
 
   return (
     <div

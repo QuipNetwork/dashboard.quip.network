@@ -41,7 +41,7 @@ export const uiStore = createUIStore();
 
 export const UIStoreContext = createContext<StoreApi<UIState>>(uiStore);
 
-const identity = <T,>(state: T): T => state;
+const identity = <T>(state: T): T => state;
 
 function useUIStoreBase<T = UIState>(
   selector: (state: UIState) => T = identity as (state: UIState) => T,

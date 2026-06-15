@@ -18,28 +18,32 @@ const idleClient: TelemetryClient = {
 export interface TestServicesOverrides {
   telemetry?: Partial<TelemetryState>;
   ui?: Partial<UIState>;
+  client?: TelemetryClient;
 }
 
 export interface TestServices {
   telemetryStore: StoreApi<TelemetryState>;
   uiStore: StoreApi<UIState>;
   eventBus: IEventBus;
+  client: TelemetryClient;
 }
 
 export function createTestServices(overrides: TestServicesOverrides = {}): TestServices {
-  const telemetryStore = createTelemetryStore({ client: idleClient });
+  const client = overrides.client ?? idleClient;
+  const telemetryStore = createTelemetryStore({ client });
   if (overrides.telemetry) telemetryStore.setState(overrides.telemetry);
   const uiStore = createUIStore();
   if (overrides.ui) uiStore.setState(overrides.ui);
   const eventBus = buildAppEventBus({ telemetryStore, uiStore });
-  return { telemetryStore, uiStore, eventBus };
+  return { telemetryStore, uiStore, eventBus, client };
 }
 
 export function StoryServices({
   children,
   telemetry,
   ui,
+  client,
 }: TestServicesOverrides & { children: ReactNode }) {
-  const services = useMemo(() => createTestServices({ telemetry, ui }), []);
+  const services = useMemo(() => createTestServices({ telemetry, ui, client }), []);
   return <ServicesProvider {...services}>{children}</ServicesProvider>;
 }
