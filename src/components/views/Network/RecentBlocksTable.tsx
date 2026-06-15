@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import clsx from "clsx";
 import { useEffect, useState } from "react";
 
 import { formatDuration } from "@/lib/format";
-import { formatBalance, formatNonce, shortAddress } from "@/lib/format-chain";
+import { formatBalance, shortAddress } from "@/lib/format-chain";
 import { useTelemetryClient } from "@/services/telemetry-client";
-import { computeChainHealth, type ChainHealth } from "@/lib/staleness";
+import { computeChainHealth } from "@/lib/staleness";
 import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
 import { FinalityBadge } from "@/components/blocks/FinalityBadge";
 import { SearchInput } from "@/components/common/SearchInput";
-import { Modal } from "@/components/ui/Modal";
+import { HealthBanner } from "./HealthBanner";
+import { SolutionDetailsModal } from "./SolutionDetailsModal";
 
 export interface NumberedBlock {
   block: BlockRecord;
@@ -217,123 +217,6 @@ export function RecentBlocksTable({
           onClose={() => setSelectedBlock(null)}
         />
       )}
-    </div>
-  );
-}
-
-// Inline banner that surfaces the three-state health from computeChainHealth.
-// "healthy" renders nothing so the feed stays compact during normal operation.
-// Tailwind color tokens are chosen for semantic match with existing usage
-// (amber-ish = warning, red-ish = error) without introducing new palette keys.
-function HealthBanner({ health }: { health: ChainHealth }) {
-  if (health.level === "healthy") return null;
-  const isStalled = health.level === "stalled";
-  return (
-    <div
-      role="status"
-      className={
-        isStalled
-          ? "mb-2 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 font-accent text-xs text-red-300"
-          : "mb-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 font-accent text-xs text-amber-200"
-      }
-    >
-      <span className="mr-1.5" aria-hidden="true">
-        {isStalled ? "■" : "▲"}
-      </span>
-      {health.reason}
-    </div>
-  );
-}
-
-// Centered overlay with a single solution's full detail. Closes on Escape,
-// backdrop click, or the explicit close button.
-function SolutionDetailsModal({
-  block,
-  solutionNumber,
-  onClose,
-}: {
-  block: BlockRecord;
-  solutionNumber: number;
-  onClose: () => void;
-}) {
-  const completedAt = new Date(block.timestamp * 1000).toISOString();
-
-  return (
-    <Modal isOpen onClose={onClose} size="xl" ariaLabel={`Solution #${solutionNumber} details`}>
-      <Modal.Header>Solution #{solutionNumber}</Modal.Header>
-      <Modal.Body>
-        <p className="-mt-2 mb-4 font-accent text-xs text-ink-subtle">
-          Block #{block.substrateBlockNumber}{" "}
-          {block.finalized ? "· finalized" : "· best (unfinalized)"}
-        </p>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 font-accent text-sm">
-          <Row
-            label="Winner"
-            value={shortAddress(block.minerId, 8, 6)}
-            mono
-            title={block.minerId}
-          />
-          <Row label="Energy" value={block.energy.toFixed(3)} />
-          <Row label="Target Energy" value={block.difficultyEnergy.toFixed(3)} />
-          <Row label="Diversity" value={block.diversity.toFixed(3)} />
-          <Row label="Min Diversity" value={block.minDiversity.toFixed(3)} />
-          <Row label="Solutions Found" value={String(block.numValidSolutions)} />
-          <Row label="Min Solutions" value={String(block.minSolutions)} />
-          <Row label="Time to Solution" value={formatDuration(block.miningTime * 1000)} />
-          <Row label="Reward" value={formatBalance(block.reward)} />
-          <Row label="Nodes" value={String(block.numNodes)} />
-          <Row label="Edges" value={String(block.numEdges)} />
-          <Row label="Completed At" value={completedAt} />
-          <Row
-            label="Substrate Block Hash"
-            value={shortAddress(block.substrateBlockHash, 10, 8)}
-            mono
-            title={block.substrateBlockHash}
-            span={2}
-          />
-          <Row
-            label="Parent Hash"
-            value={shortAddress(block.substrateParentHash, 10, 8)}
-            mono
-            title={block.substrateParentHash}
-            span={2}
-          />
-          <Row
-            label="Solution Hash"
-            value={shortAddress(block.blockHash, 10, 8)}
-            mono
-            title={block.blockHash}
-            span={2}
-          />
-          <Row label="Nonce" value={formatNonce(block.nonce)} mono title={block.nonce} span={2} />
-        </dl>
-      </Modal.Body>
-    </Modal>
-  );
-}
-
-function Row({
-  label,
-  value,
-  mono = false,
-  title,
-  span = 1,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  title?: string;
-  span?: 1 | 2;
-}) {
-  return (
-    <div className={span === 2 ? "col-span-2" : ""}>
-      <dt className="text-[10px] uppercase tracking-wider text-ink-subtle">{label}</dt>
-      <dd
-        title={title}
-        className={clsx("tabular-nums text-ink-strong", mono && "break-all font-mono text-xs")}
-      >
-        {value}
-      </dd>
     </div>
   );
 }
