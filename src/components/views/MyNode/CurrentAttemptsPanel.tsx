@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import clsx from "clsx";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { ChartCard } from "@/components/layout/ChartCard";
 import type { CurrentDispatch, MiningAttempt, MiningSubmissionRecord } from "@/types/telemetry";
+import { OutcomeBadge, ResultBadge, StatusBadge } from "./mining-badges";
 import { meetingTargetCount, numericField, tsNsToMs } from "./mining-shared";
 
 // Iteration trail for the global solution_number the miner is currently
@@ -79,7 +79,9 @@ export function CurrentAttemptsPanel({
             un-rotated attempts log
           </span>
         )}
-        {matchingSubmission && <OutcomeBadge outcome={matchingSubmission.outcome} />}
+        {matchingSubmission && (
+          <OutcomeBadge outcome={matchingSubmission.outcome} prefix="outcome: " />
+        )}
         {matchingSubmission?.chainBlockNumber && (
           <span className="font-accent text-[10px] text-ink-body">
             chain block #{matchingSubmission.chainBlockNumber}
@@ -144,55 +146,6 @@ export function CurrentAttemptsPanel({
         </table>
       </div>
     </ChartCard>
-  );
-}
-
-function StatusBadge({ status }: { status: CurrentDispatch["status"] | "stale" }) {
-  const tone =
-    status === "in-flight"
-      ? "border-positive/40 text-positive"
-      : status === "stale"
-        ? "border-warning/40 text-warning"
-        : "border-border text-ink-body";
-  const label =
-    status === "in-flight" ? "In flight" : status === "stale" ? "Stale" : "Last completed";
-  return (
-    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
-      {label}
-    </span>
-  );
-}
-
-function OutcomeBadge({ outcome }: { outcome: string }) {
-  const lower = outcome.toLowerCase();
-  // Match chain_error (and friends like submission_error) explicitly —
-  // the operator's diagnostic flag for "miner submitted but chain
-  // rejected", which is otherwise invisible in the iteration trail.
-  const tone: string = lower.includes("error")
-    ? "border-coral/40 text-coral"
-    : lower.includes("inblock") || lower.includes("submitted")
-      ? "border-positive/40 text-positive"
-      : "border-border text-ink-body";
-  return (
-    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
-      outcome: {outcome}
-    </span>
-  );
-}
-
-function ResultBadge({ kind }: { kind: string }) {
-  const lower = kind.toLowerCase();
-  const tone: string = lower.includes("submitted")
-    ? "border-positive/40 text-positive"
-    : lower.includes("reject")
-      ? "border-coral/40 text-coral"
-      : lower.includes("stored")
-        ? "border-warning/40 text-warning"
-        : "border-border text-ink-body";
-  return (
-    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
-      {kind || "—"}
-    </span>
   );
 }
 

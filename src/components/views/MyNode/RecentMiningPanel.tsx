@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import clsx from "clsx";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { formatDuration, formatNumber } from "@/lib/format";
 import { ChartCard } from "@/components/layout/ChartCard";
 import type { MiningSubmissionRecord } from "@/types/telemetry";
 import { MiningAttemptsModal } from "./MiningAttemptsModal";
+import { OutcomeBadge } from "./mining-badges";
 import { tsNsToMs } from "./mining-shared";
 
 const RECENT_SUBMISSIONS_VISIBLE = 20;
@@ -153,23 +153,6 @@ export function RecentMiningPanel({
         />
       )}
     </>
-  );
-}
-
-function OutcomeBadge({ outcome }: { outcome: string }) {
-  // The miner's outcome string is an open enum — match a few known values
-  // and fall back to a neutral style for anything else. Keep the labels
-  // verbatim so the operator sees exactly what the miner reported.
-  const lower = outcome.toLowerCase();
-  const tone: string = lower.includes("submitted")
-    ? "border-positive/40 text-positive"
-    : lower.includes("reject")
-      ? "border-coral/40 text-coral"
-      : "border-border text-ink-body";
-  return (
-    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
-      {outcome}
-    </span>
   );
 }
 

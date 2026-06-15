@@ -8,6 +8,7 @@ import { formatNumber } from "@/lib/format";
 import { shortAddress } from "@/lib/format-chain";
 import { useTelemetryClient } from "@/services/telemetry-client";
 import type { MiningAttempt, MiningAttemptsResponse } from "@/types/telemetry";
+import { ResultBadge } from "./mining-badges";
 import { meetingTargetCount } from "./mining-shared";
 
 // Modal for a single mining submission: shows the submission summary in
@@ -177,20 +178,6 @@ function AttemptsTable({ attempts }: { attempts: MiningAttempt[] }) {
         </tbody>
       </table>
     </div>
-  );
-}
-
-function ResultBadge({ kind }: { kind: string }) {
-  const lower = kind.toLowerCase();
-  const tone: string = lower.includes("submitted")
-    ? "border-positive/40 text-positive"
-    : lower.includes("reject")
-      ? "border-coral/40 text-coral"
-      : "border-border text-ink-body";
-  return (
-    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
-      {kind || "—"}
-    </span>
   );
 }
 
