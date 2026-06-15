@@ -2,7 +2,6 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { SCHEMA_VERSION } from "./adapter";
 import { PostgresAdapter } from "./postgres";
 import type {
   BabeAuthorityRecord,
@@ -13,13 +12,16 @@ import type {
 
 // Postgres integration tests require a reachable database. Gate behind
 // TEST_POSTGRES_URL so CI and dev environments without a local postgres
-// don't spuriously fail. The URL should point at a disposable database —
-// the migrate step drops all owned tables when schema_version drifts.
+// don't spuriously fail. The URL should point at a disposable database.
 const TEST_URL = process.env.TEST_POSTGRES_URL;
 const maybeDescribe = TEST_URL ? describe : describe.skip;
 
 interface SqlClient {
-  unsafe: (sql: string) => Promise<unknown>;
+  unsafe: (sql: string) => Promise<unknown[]>;
+}
+
+function rawSql(db: PostgresAdapter): SqlClient {
+  return (db as unknown as { sql: SqlClient }).sql;
 }
 
 async function truncateAll(db: PostgresAdapter): Promise<void> {
@@ -71,8 +73,29 @@ const sampleMiner = (
   rewardsEarned,
 });
 
-maybeDescribe("PostgresAdapter.migrate schema-version drift", () => {
+maybeDescribe("PostgresAdapter.migrate (forward-only)", () => {
   let db: PostgresAdapter;
+
+  const sampleBlock = (blockHash: string) => ({
+    blockHash,
+    substrateBlockNumber: "1",
+    substrateBlockHash: "0xs",
+    substrateParentHash: "0xp",
+    timestamp: 1,
+    minerId: "M",
+    energy: 0,
+    diversity: 0,
+    numValidSolutions: 0,
+    miningTime: 0,
+    reward: "0",
+    nonce: "0",
+    numNodes: 0,
+    numEdges: 0,
+    difficultyEnergy: 0,
+    minDiversity: 0,
+    minSolutions: 0,
+    finalized: false,
+  });
 
   beforeEach(async () => {
     db = new PostgresAdapter({ adapter: "postgres", databaseUrl: TEST_URL });
@@ -85,48 +108,26 @@ maybeDescribe("PostgresAdapter.migrate schema-version drift", () => {
     await db.disconnect();
   });
 
-  test("writes SCHEMA_VERSION to meta on a fresh migrate", async () => {
-    await db.migrate();
-    // After migrate, meta.schema_version should equal the current code version.
-    const sql = (
-      db as unknown as {
-        sql: (s: TemplateStringsArray) => Promise<Array<{ value: string }>>;
-      }
-    ).sql;
-    const rows = await sql`SELECT value FROM meta WHERE key = 'schema_version'`;
-    expect(rows[0]?.value).toBe(String(SCHEMA_VERSION));
+  test("records the migration in the kysely_migration ledger", async () => {
+    const rows = (await rawSql(db).unsafe(
+      "SELECT name FROM kysely_migration ORDER BY name",
+    )) as Array<{ name: string }>;
+    expect(rows.map((r) => r.name)).toEqual(["0001_initial"]);
   });
 
-  test("drops and recreates all tables when schema_version is stale", async () => {
-    // First run leaves the schema at the current version.
-    await db.migrate();
-    // Seed one block so we can prove the wipe.
-    await db.insertBlock({
-      blockHash: "0xpow-drift",
-      substrateBlockNumber: "1",
-      substrateBlockHash: "0xs",
-      substrateParentHash: "0xp",
-      timestamp: 1,
-      minerId: "M",
-      energy: 0,
-      diversity: 0,
-      numValidSolutions: 0,
-      miningTime: 0,
-      reward: "0",
-      nonce: "0",
-      numNodes: 0,
-      numEdges: 0,
-      difficultyEnergy: 0,
-      minDiversity: 0,
-      minSolutions: 0,
-      finalized: false,
-    });
+  test("preserves data across a re-migrate (idempotent, never drops)", async () => {
+    await db.insertBlock(sampleBlock("0xpow-keep"));
     expect((await db.getRecentBlocks(10)).length).toBe(1);
-    // Simulate an older binary by writing a stale sentinel.
-    await db.setMetaRaw("schema_version", "-1");
     await db.migrate();
-    // Data was wiped because the stored version didn't match the code version.
-    expect((await db.getRecentBlocks(10)).length).toBe(0);
+    expect((await db.getRecentBlocks(10)).length).toBe(1);
+  });
+
+  test("adopts a pre-migration DB (tables + data, no ledger) without wiping it", async () => {
+    await db.insertBlock(sampleBlock("0xpow-adopt"));
+    // Emulate a DB that predates proper migrations: schema + data, no ledger.
+    await rawSql(db).unsafe("DROP TABLE kysely_migration");
+    await db.migrate();
+    expect((await db.getRecentBlocks(10)).length).toBe(1);
   });
 });
 

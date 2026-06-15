@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { Kysely } from "kysely";
+import { PostgresJSDialect } from "kysely-postgres-js";
 import postgres, { type Sql } from "postgres";
 
 import type {
@@ -16,211 +18,8 @@ import type {
   NodeDescriptor,
   NodeDescriptorRecord,
 } from "../../src/types/telemetry";
-import {
-  OWNED_TABLES,
-  SCHEMA_VERSION,
-  parseIndexerObservability,
-  type DatabaseAdapter,
-  type DbConfig,
-} from "./adapter";
-
-// v5→v6 legacy tables that pre-existed the OWNED_TABLES drift sweep. Listed
-// explicitly so a fresh v0.3 migrate against a v0.2 DB drops them before the
-// new schema is created. After v6 ships everywhere, the inner DROPs become
-// no-ops on already-clean databases.
-const LEGACY_DROP_STATEMENTS: string[] = [
-  "DROP TABLE IF EXISTS epoch_status CASCADE",
-  // v10's HTTP-fanout survey table. v11 sources NodesSnapshot from
-  // `node_descriptors` projected at read time.
-  "DROP TABLE IF EXISTS nodes_snapshot CASCADE",
-  "DROP TABLE IF EXISTS self_address CASCADE",
-  "DROP TABLE IF EXISTS indexer_cursors CASCADE",
-  "DROP TABLE IF EXISTS indexer_etags CASCADE",
-  // v12 → v13: chain-side proof_attempts replaced by mining_submissions.
-  // No longer in OWNED_TABLES so drift-sweep wouldn't reach it; drop here.
-  "DROP TABLE IF EXISTS proof_attempts CASCADE",
-];
-
-const SCHEMA_STATEMENTS: string[] = [
-  // Blocks: substrate worker is the sole writer in v6. Every column is
-  // populated at insert time — no two-phase enrichment, no canonical flag.
-  // NUMERIC stores arbitrary-precision integers natively, so unlike SQLite
-  // we don't need CAST in the index — ORDER BY is already numeric. At the
-  // adapter boundary we convert NUMERIC ↔ string for the BlockRecord type
-  // to preserve u64/u128 precision.
-  `CREATE TABLE IF NOT EXISTS blocks (
-     block_hash              TEXT PRIMARY KEY,
-     substrate_block_number  NUMERIC NOT NULL,
-     substrate_block_hash    TEXT NOT NULL,
-     substrate_parent_hash   TEXT NOT NULL,
-     timestamp               BIGINT NOT NULL,
-     miner_id                TEXT NOT NULL,
-     energy                  DOUBLE PRECISION NOT NULL,
-     diversity               DOUBLE PRECISION NOT NULL,
-     num_valid_solutions     INTEGER NOT NULL,
-     mining_time             DOUBLE PRECISION NOT NULL,
-     reward                  NUMERIC NOT NULL,
-     nonce                   NUMERIC NOT NULL,
-     num_nodes               INTEGER NOT NULL,
-     num_edges               INTEGER NOT NULL,
-     difficulty_energy       DOUBLE PRECISION NOT NULL,
-     min_diversity           DOUBLE PRECISION NOT NULL,
-     min_solutions           INTEGER NOT NULL,
-     finalized               BOOLEAN NOT NULL DEFAULT FALSE
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_substrate_number
-     ON blocks(substrate_block_number DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_miner_id
-     ON blocks(miner_id, substrate_block_number DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks(timestamp DESC)`,
-  // Per-miner hardware inventory. v0.3 only writes one row (source='self').
-  // JSONB for `miners` so the array is queryable and indexable natively;
-  // TIMESTAMPTZ for observed_at so DESC ordering is calendar-correct.
-  `CREATE TABLE IF NOT EXISTS miner_hardware (
-     account_id    TEXT PRIMARY KEY,
-     node_id       TEXT NOT NULL,
-     miners        JSONB NOT NULL,
-     primary_type  TEXT NOT NULL,
-     source        TEXT NOT NULL,
-     observed_at   TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS meta (
-     key   TEXT PRIMARY KEY,
-     value TEXT
-   )`,
-  // v5 substrate-derived tables (unchanged from v5). NUMERIC for u64/u128;
-  // BIGINT for fields that fit in 63 bits.
-  `CREATE TABLE IF NOT EXISTS chain_head (
-     id                      INTEGER PRIMARY KEY CHECK (id = 1),
-     best_block_number       NUMERIC NOT NULL,
-     best_block_hash         TEXT NOT NULL,
-     finalized_block_number  NUMERIC NOT NULL,
-     finalized_block_hash    TEXT NOT NULL,
-     finality_lag            INTEGER NOT NULL,
-     -- v21: latest monotonic qblock id / global solution_number bound
-     -- (id + 1 is the in-flight problem). Nullable: pre-first-read.
-     winning_solutions_count BIGINT,
-     spec_name               TEXT NOT NULL,
-     spec_version            INTEGER NOT NULL,
-     transaction_version     INTEGER NOT NULL,
-     impl_name               TEXT NOT NULL,
-     last_runtime_upgrade    NUMERIC,
-     updated_at              TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS babe_epochs (
-     epoch_index             INTEGER PRIMARY KEY,
-     current_slot            NUMERIC NOT NULL,
-     epoch_start_slot        NUMERIC NOT NULL,
-     slots_per_epoch         INTEGER NOT NULL,
-     current_slot_in_epoch   INTEGER NOT NULL,
-     authority_count         INTEGER NOT NULL,
-     is_current              BOOLEAN NOT NULL DEFAULT FALSE,
-     updated_at              TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_babe_epochs_current ON babe_epochs(is_current) WHERE is_current`,
-  `CREATE TABLE IF NOT EXISTS babe_authorities (
-     account_id    TEXT NOT NULL,
-     epoch_index   INTEGER NOT NULL,
-     display_name  TEXT,
-     is_active     BOOLEAN NOT NULL DEFAULT FALSE,
-     updated_at    TIMESTAMPTZ NOT NULL,
-     PRIMARY KEY (account_id, epoch_index)
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_babe_authorities_active
-     ON babe_authorities(epoch_index, is_active)`,
-  `CREATE TABLE IF NOT EXISTS chain_miners (
-     account_id        TEXT PRIMARY KEY,
-     deposit           NUMERIC NOT NULL,
-     proofs_submitted  NUMERIC NOT NULL,
-     proofs_won        NUMERIC NOT NULL,
-     rewards_earned    NUMERIC NOT NULL,
-     updated_at        TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS difficulty_history (
-     observed_at_block  NUMERIC PRIMARY KEY,
-     difficulty_energy  DOUBLE PRECISION NOT NULL,
-     min_diversity      DOUBLE PRECISION NOT NULL,
-     min_solutions      INTEGER NOT NULL,
-     observed_at        TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_difficulty_history_observed
-     ON difficulty_history(observed_at DESC)`,
-  // v7: per-validator authorship counters. BIGINT counters since long-
-  // running validators easily exceed INTEGER range; TIMESTAMPTZ for
-  // last_authored_at so DESC ordering is calendar-correct.
-  `CREATE TABLE IF NOT EXISTS validator_authorship (
-     account_id                 TEXT PRIMARY KEY,
-     blocks_authored            BIGINT NOT NULL DEFAULT 0,
-     blocks_authored_with_pow   BIGINT NOT NULL DEFAULT 0,
-     last_authored_block        NUMERIC NOT NULL,
-     last_authored_at           TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_validator_authorship_authored
-     ON validator_authorship(blocks_authored DESC)`,
-  // v11: per-account chain-signed identity. One row per AccountId, sourced
-  // from `MinerRegistry.NodeDescriptors` by the descriptor worker.
-  // (block_number, extrinsic_index) stays as the upsert tie-breaker for
-  // compatibility; registry snapshots use extrinsic_index=0 and the
-  // descriptor's `updated_at` block number. `first_block_timestamp` is
-  // preserved across upserts to support "first observed" without history.
-  `CREATE TABLE IF NOT EXISTS node_descriptors (
-     account_id              TEXT PRIMARY KEY,
-     block_number            NUMERIC NOT NULL,
-     block_hash              TEXT NOT NULL,
-     extrinsic_index         INTEGER NOT NULL,
-     block_timestamp         BIGINT NOT NULL,
-     first_block_timestamp   BIGINT NOT NULL,
-     descriptor              JSONB NOT NULL,
-     observed_at             TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_node_descriptors_block
-     ON node_descriptors(block_number DESC)`,
-  // v13: per-submission summary from the locally-polled miner's
-  // `/api/v1/mining/attempts?solution_number=N` endpoint. Composite PK is
-  // (miner_id, solution_number) — v21 re-keys on the global chain
-  // `solution_number` (LatestQBlockId+1, durable across restarts),
-  // replacing the controller-local `solution_id`, and drops
-  // the per-dispatch `dispatch_id` column (gone from the miner JSON).
-  // ts_ns is NUMERIC (u128 nanoseconds) and chain_block_number is NUMERIC
-  // (u64) for precision. `extrinsic_hash` / `chain_block_*` are nullable —
-  // a freshly-stored submission may not have landed on-chain yet, and is
-  // refreshed on UPSERT once it does.
-  `CREATE TABLE IF NOT EXISTS mining_submissions (
-     miner_id              TEXT NOT NULL,
-     solution_number       BIGINT NOT NULL,
-     ts_ns                 NUMERIC NOT NULL,
-     energy_milli          BIGINT NOT NULL,
-     diversity_milli       BIGINT NOT NULL,
-     threshold_milli       BIGINT NOT NULL,
-     last_proof_block_hash TEXT NOT NULL,
-     extrinsic_hash        TEXT,
-     chain_block_hash      TEXT,
-     chain_block_number    NUMERIC,
-     -- v20: on-chain proofs_submitted sequence for non-winning
-     -- submissions (MR !105). Nullable — winners carry
-     -- chain_block_number instead, and pre-!105 miners publish
-     -- neither. Feeds the chain-derived "Sol #" column.
-     pow_sequence          BIGINT,
-     outcome               TEXT NOT NULL,
-     attempt_count         INTEGER NOT NULL,
-     best_energy_milli     BIGINT NOT NULL,
-     num_valid             INTEGER NOT NULL DEFAULT 0,
-     -- v17: which backend produced this submission (CPU / CUDA /
-     -- METAL / MODAL / QPU). Empty string for rows from miners that
-     -- don't surface the field yet — schema-drift wipe rebuilds them.
-     miner_type            TEXT NOT NULL DEFAULT '',
-     -- v18: per-submission sum of D-Wave qpu_access_time across
-     -- every iteration anneal+readout (microseconds). 0 for
-     -- CPU/GPU rows and for QPU rows from miners that haven't
-     -- exposed qpu_access_time_us yet -- schema-drift wipe
-     -- rebuilds them once the miner does.
-     qpu_access_time_us    BIGINT NOT NULL DEFAULT 0,
-     observed_at           TIMESTAMPTZ NOT NULL,
-     PRIMARY KEY (miner_id, solution_number)
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_mining_submissions_miner_recent
-     ON mining_submissions(miner_id, solution_number DESC)`,
-];
+import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
+import { migrateToLatest } from "./migrator";
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
 
@@ -257,45 +56,10 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   async migrate(): Promise<void> {
-    const sql = this.requireSql();
-    // Drop v5/legacy tables before anything else. These were owned by workers
-    // that no longer exist in v0.3 (epoch_status, nodes_snapshot, self_address,
-    // indexer_cursors, indexer_etags). On a fresh database these are all
-    // no-ops; on a v0.2 Postgres they clear the worker-state remnants.
-    for (const stmt of LEGACY_DROP_STATEMENTS) await sql.unsafe(stmt);
-    // meta must exist before we can read/write schema_version. Created as a
-    // standalone CREATE IF NOT EXISTS so the drift check can run before we
-    // apply the rest of SCHEMA_STATEMENTS.
-    await sql.unsafe(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
-    // v4→v5 leftover: indexer_state was retired before v4 shipped and is
-    // not in OWNED_TABLES, so the drift path doesn't sweep it.
-    await sql.unsafe(`DROP TABLE IF EXISTS indexer_state CASCADE`);
-    const rows = await sql<{ value: string | null }[]>`
-      SELECT value FROM meta WHERE key = 'schema_version'
-    `;
-    const stored =
-      rows[0]?.value !== undefined && rows[0].value !== null ? Number(rows[0].value) : null;
-
-    if (stored !== SCHEMA_VERSION) {
-      // Drop-on-drift runs unconditionally. The dashboard DB is purely indexer
-      // state derived from the chain + miner REST; nothing here is canonical,
-      // so a wipe is recoverable on the next indexer poll.
-      console.warn(
-        `[db] SCHEMA DRIFT detected (stored=${stored ?? "none"}, code=${SCHEMA_VERSION}); dropping all owned tables`,
-      );
-      for (const table of OWNED_TABLES) {
-        await sql.unsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);
-      }
-      // meta was just dropped — recreate before the drift-write below would
-      // otherwise hit a missing table.
-      await sql.unsafe(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
-    }
-
-    for (const stmt of SCHEMA_STATEMENTS) await sql.unsafe(stmt);
-    await sql`
-      INSERT INTO meta (key, value) VALUES ('schema_version', ${String(SCHEMA_VERSION)})
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-    `;
+    const kysely = new Kysely<unknown>({
+      dialect: new PostgresJSDialect({ postgres: this.requireSql() }),
+    });
+    await migrateToLatest(kysely, "postgres");
   }
 
   // --- Blocks ---

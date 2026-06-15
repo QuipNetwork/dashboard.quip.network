@@ -5,7 +5,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SCHEMA_VERSION } from "./adapter";
 import { Database } from "./sqlite-driver";
 import { SQLiteAdapter } from "./sqlite";
 import type { BlockRecord } from "../../src/types/telemetry";
@@ -32,7 +31,7 @@ const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   ...overrides,
 });
 
-describe("SQLiteAdapter.migrate schema-version check", () => {
+describe("SQLiteAdapter.migrate (forward-only)", () => {
   let dir: string;
   let dbPath: string;
 
@@ -42,21 +41,22 @@ describe("SQLiteAdapter.migrate schema-version check", () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("writes SCHEMA_VERSION to meta on a fresh migrate", async () => {
+  it("records the migration in the kysely_migration ledger on a fresh migrate", async () => {
     const db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
     await db.connect();
     await db.migrate();
     await db.disconnect();
 
     const raw = new Database(dbPath);
-    const row = raw
-      .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'")
-      .get();
-    expect(row?.value).toBe(String(SCHEMA_VERSION));
+    const names = raw
+      .query<{ name: string }, []>("SELECT name FROM kysely_migration ORDER BY name")
+      .all()
+      .map((r) => r.name);
+    expect(names).toEqual(["0001_initial"]);
     raw.close();
   });
 
-  it("preserves data when migrate runs against a matching schema_version", async () => {
+  it("preserves data across a re-migrate (idempotent, never drops)", async () => {
     const db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
     await db.connect();
     await db.migrate();
@@ -67,31 +67,9 @@ describe("SQLiteAdapter.migrate schema-version check", () => {
     expect(blocks).toHaveLength(1);
   });
 
-  it("drops and recreates all tables when schema_version is stale", async () => {
-    const db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
-    await db.connect();
-    await db.migrate();
-    await db.insertBlock(sampleBlock());
-    await db.disconnect();
-
-    // Simulate an old binary that wrote a previous schema version.
-    const raw = new Database(dbPath);
-    raw.run(
-      "INSERT INTO meta (key, value) VALUES ('schema_version', '0') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    );
-    raw.close();
-
-    const db2 = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
-    await db2.connect();
-    await db2.migrate();
-    const blocks = await db2.getRecentBlocks(10);
-    await db2.disconnect();
-    // Data was wiped because the stored version didn't match the code version.
-    expect(blocks).toHaveLength(0);
-  });
-
-  it("treats a missing schema_version row as drift (first-run after upgrade)", async () => {
-    // Emulate a pre-version-check database: tables exist but no meta row.
+  it("adopts a pre-migration DB (tables + data, no ledger) without wiping it", async () => {
+    // Seed the full schema + a row, then drop the ledger to emulate a DB that
+    // predates proper migrations: the realistic prod state at cutover.
     const seed = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
     await seed.connect();
     await seed.migrate();
@@ -99,7 +77,7 @@ describe("SQLiteAdapter.migrate schema-version check", () => {
     await seed.disconnect();
 
     const raw = new Database(dbPath);
-    raw.run("DELETE FROM meta WHERE key = 'schema_version'");
+    raw.run("DROP TABLE kysely_migration");
     raw.close();
 
     const db2 = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
@@ -107,6 +85,6 @@ describe("SQLiteAdapter.migrate schema-version check", () => {
     await db2.migrate();
     const blocks = await db2.getRecentBlocks(10);
     await db2.disconnect();
-    expect(blocks).toHaveLength(0);
+    expect(blocks).toHaveLength(1);
   });
 });
