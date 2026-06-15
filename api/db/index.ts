@@ -23,20 +23,16 @@ export function getConfigFromEnv(): DbConfig {
 export async function createAdapter(config?: DbConfig): Promise<DatabaseAdapter> {
   const cfg = config ?? getConfigFromEnv();
 
-  switch (cfg.adapter) {
-    case "sqlite": {
-      const { SQLiteAdapter } = await import("./sqlite");
-      console.log(`[db] using sqlite at ${cfg.sqlitePath ?? "./data/telemetry.db"}`);
-      return new SQLiteAdapter(cfg);
-    }
-    case "postgres": {
-      const { PostgresAdapter } = await import("./postgres");
-      console.log("[db] using postgres");
-      return new PostgresAdapter(cfg);
-    }
-    default:
-      throw new Error(`Unknown DB_ADAPTER: ${cfg.adapter}. Expected: sqlite, postgres`);
+  if (cfg.adapter !== "sqlite" && cfg.adapter !== "postgres") {
+    throw new Error(`Unknown DB_ADAPTER: ${cfg.adapter}. Expected: sqlite, postgres`);
   }
+  const { KyselyAdapter } = await import("./kysely-adapter");
+  console.log(
+    cfg.adapter === "postgres"
+      ? "[db] using postgres"
+      : `[db] using sqlite at ${cfg.sqlitePath ?? "./data/telemetry.db"}`,
+  );
+  return new KyselyAdapter(cfg);
 }
 
 export type { DatabaseAdapter, DbConfig } from "./adapter";

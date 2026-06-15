@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import { SQLiteAdapter } from "../api/db/sqlite";
+import { KyselyAdapter } from "../api/db/kysely-adapter";
 import type { BlockRecord, TelemetryResponse } from "../src/types/telemetry";
 import { createApp } from "./app";
 
@@ -40,7 +40,7 @@ let app: ReturnType<typeof createApp>;
 
 beforeEach(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), "quip-server-test-"));
-  db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: join(tmpDir, "t.db") });
+  db = new KyselyAdapter({ adapter: "sqlite", sqlitePath: join(tmpDir, "t.db") });
   await db.connect();
   await db.migrate();
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import { SQLiteAdapter } from "../api/db/sqlite";
+import { KyselyAdapter } from "../api/db/kysely-adapter";
 
 import type { IndexerConfig } from "./config";
 
@@ -12,7 +12,7 @@ import type { IndexerConfig } from "./config";
  * the fake would mask.
  */
 export async function newInMemoryAdapter(): Promise<DatabaseAdapter> {
-  const adapter = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: ":memory:" });
+  const adapter = new KyselyAdapter({ adapter: "sqlite", sqlitePath: ":memory:" });
   await adapter.connect();
   await adapter.migrate();
   return adapter;

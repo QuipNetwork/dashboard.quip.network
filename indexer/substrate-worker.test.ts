@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SQLiteAdapter } from "../api/db/sqlite";
+import { KyselyAdapter } from "../api/db/kysely-adapter";
 
 import { FakeSubstrateClient } from "./substrate-client";
 import { IndexerState } from "./state";
@@ -15,11 +15,11 @@ import { makeConfig } from "./test-helpers";
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 let dir: string;
-let db: SQLiteAdapter;
+let db: KyselyAdapter;
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "quip-substrate-"));
-  db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: join(dir, "telemetry.db") });
+  db = new KyselyAdapter({ adapter: "sqlite", sqlitePath: join(dir, "telemetry.db") });
   await db.connect();
   await db.migrate();
 });

@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { KyselyAdapter } from "./kysely-adapter";
 import { Database } from "./sqlite-driver";
-import { SQLiteAdapter } from "./sqlite";
 import type { BlockRecord } from "../../src/types/telemetry";
 
 const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
@@ -31,7 +31,7 @@ const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   ...overrides,
 });
 
-describe("SQLiteAdapter.migrate (forward-only)", () => {
+describe("KyselyAdapter.migrate (sqlite, forward-only)", () => {
   let dir: string;
   let dbPath: string;
 
@@ -42,7 +42,7 @@ describe("SQLiteAdapter.migrate (forward-only)", () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it("records the migration in the kysely_migration ledger on a fresh migrate", async () => {
-    const db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
+    const db = new KyselyAdapter({ adapter: "sqlite", sqlitePath: dbPath });
     await db.connect();
     await db.migrate();
     await db.disconnect();
@@ -57,7 +57,7 @@ describe("SQLiteAdapter.migrate (forward-only)", () => {
   });
 
   it("preserves data across a re-migrate (idempotent, never drops)", async () => {
-    const db = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
+    const db = new KyselyAdapter({ adapter: "sqlite", sqlitePath: dbPath });
     await db.connect();
     await db.migrate();
     await db.insertBlock(sampleBlock());
@@ -70,7 +70,7 @@ describe("SQLiteAdapter.migrate (forward-only)", () => {
   it("adopts a pre-migration DB (tables + data, no ledger) without wiping it", async () => {
     // Seed the full schema + a row, then drop the ledger to emulate a DB that
     // predates proper migrations: the realistic prod state at cutover.
-    const seed = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
+    const seed = new KyselyAdapter({ adapter: "sqlite", sqlitePath: dbPath });
     await seed.connect();
     await seed.migrate();
     await seed.insertBlock(sampleBlock());
@@ -80,7 +80,7 @@ describe("SQLiteAdapter.migrate (forward-only)", () => {
     raw.run("DROP TABLE kysely_migration");
     raw.close();
 
-    const db2 = new SQLiteAdapter({ adapter: "sqlite", sqlitePath: dbPath });
+    const db2 = new KyselyAdapter({ adapter: "sqlite", sqlitePath: dbPath });
     await db2.connect();
     await db2.migrate();
     const blocks = await db2.getRecentBlocks(10);
