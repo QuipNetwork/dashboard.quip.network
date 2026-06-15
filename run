@@ -15,40 +15,40 @@ shift 2>/dev/null || true
 
 case "$CMD" in
   dev)
-    exec podman run -it \
+    exec podman run --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \
       node node_modules/.bin/netlify dev --port 8888 --offline "$@"
     ;;
   build)
-    exec podman run \
+    exec podman run --rm \
       -v "$PROJECT_DIR:/app:Z" \
       "$IMAGE_NAME" \
       bun run build "$@"
     ;;
   ladle)
-    exec podman run -it \
+    exec podman run --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       --network host \
       "$IMAGE_NAME" \
       bun run ladle -- --host 0.0.0.0 "$@"
     ;;
   sh)
-    exec podman run -it \
+    exec podman run --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \
       bash "$@"
     ;;
   bun)
-    exec podman run -it \
+    exec podman run --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       "$IMAGE_NAME" \
       bun "$@"
     ;;
   *)
-    exec podman run -it \
+    exec podman run --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \
