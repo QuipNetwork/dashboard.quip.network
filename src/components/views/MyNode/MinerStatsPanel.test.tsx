@@ -296,8 +296,8 @@ describe("MinerStatsPanel", () => {
         miners: [{ id: "rig-CPU-1", type: "CPU" }],
       },
     });
-    // The error cell gets the red text class when count > 0 — same
+    // The error cell gets the danger (coral) text class when count > 0 — same
     // visual convention as the headline Submission Errors tile.
-    expect(container.innerHTML).toContain("text-brand-red-0");
+    expect(container.innerHTML).toContain("text-coral");
   });
 });

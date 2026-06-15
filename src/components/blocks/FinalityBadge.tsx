@@ -36,7 +36,10 @@ export function FinalityBadge({ block }: FinalityBadgeProps) {
       className="inline-flex items-center gap-1 border border-warning/40 bg-warning/10 px-1.5 py-0.5 font-accent text-[10px] text-warning"
       title={`Substrate block ${block.substrateBlockNumber} awaiting Grandpa finalization`}
     >
-      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" aria-hidden />
+      <span
+        className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning"
+        aria-hidden
+      />
       pending
     </span>
   );

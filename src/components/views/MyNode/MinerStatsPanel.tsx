@@ -165,11 +165,7 @@ function ModesBreakdownRow({ modes }: { modes: Record<string, ModeBreakdown> | u
               <td className="py-1 pr-4 text-ink-strong">{formatNumber(m.contextsDispatched)}</td>
               <td className="py-1 pr-4 text-ink-strong">{formatNumber(m.proofsSubmitted)}</td>
               <td className="py-1 pr-4 text-ink-strong">{formatNumber(m.staleDrops)}</td>
-              <td
-                className={
-                  m.submissionErrors > 0 ? "py-1 text-brand-red-0" : "py-1 text-ink-strong"
-                }
-              >
+              <td className={m.submissionErrors > 0 ? "py-1 text-coral" : "py-1 text-ink-strong"}>
                 {formatNumber(m.submissionErrors)}
               </td>
             </tr>

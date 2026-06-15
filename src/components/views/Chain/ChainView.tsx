@@ -195,7 +195,7 @@ export function ChainView() {
                     <td className="px-4 py-2 text-right tabular-nums">{v.blocksAuthoredWithPow}</td>
                     <td className="px-4 py-2">
                       {v.online ? (
-                        <span className="text-brand-green-0">● online</span>
+                        <span className="text-positive">● online</span>
                       ) : (
                         <span className="text-ink-subtle">○ offline</span>
                       )}

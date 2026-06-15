@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { Modal } from "@/components/ui/Modal";
 import { formatNumber } from "@/lib/format";
 import { shortAddress } from "@/lib/format-chain";
 import { useTelemetryClient } from "@/services/telemetry-client";
@@ -28,14 +29,6 @@ export function MiningAttemptsModal({
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  useEffect(() => {
     const ac = new AbortController();
     setLoading(true);
     setError(null);
@@ -54,45 +47,26 @@ export function MiningAttemptsModal({
   }, [solutionNumber, client]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Mining submission ${solutionNumber} details`}
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="4xl"
+      ariaLabel={`Mining submission ${solutionNumber} details`}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-3xl overflow-auto border border-border bg-brand-bg p-6 shadow-2xl"
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="font-accent text-lg text-ink-strong">
-              Submission #{formatNumber(solutionNumber)}
-            </h2>
-            {data && (
-              <p className="font-accent text-xs text-ink-subtle">
-                {data.submission.outcome}
-                {data.submission.chainBlockNumber
-                  ? ` · landed at block #${data.submission.chainBlockNumber}`
-                  : ""}
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="cursor-pointer rounded border border-border px-2 py-0.5 font-accent text-xs text-ink-subtle hover:border-border-strong hover:text-ink-strong"
-          >
-            ×
-          </button>
-        </div>
-
+      <Modal.Header>Submission #{formatNumber(solutionNumber)}</Modal.Header>
+      <Modal.Body>
+        {data && (
+          <p className="-mt-2 mb-4 font-accent text-xs text-ink-subtle">
+            {data.submission.outcome}
+            {data.submission.chainBlockNumber
+              ? ` · landed at block #${data.submission.chainBlockNumber}`
+              : ""}
+          </p>
+        )}
         {loading && <p className="font-accent text-sm text-ink-subtle">Fetching from miner…</p>}
         {error && (
-          <div className="rounded border border-brand-red-0/40 bg-brand-red-2/20 p-3">
-            <p className="font-accent text-sm text-brand-red-0">{error}</p>
+          <div className="border border-coral/40 bg-coral/10 p-3">
+            <p className="font-accent text-sm text-coral">{error}</p>
             <p className="mt-1 font-accent text-xs text-ink-body">
               The dashboard proxies this through the indexer; if the miner is offline or no
               miner-REST URL has been resolved (no operator descriptor on-chain, validator RPC
@@ -101,8 +75,8 @@ export function MiningAttemptsModal({
           </div>
         )}
         {data && <SubmissionDetails envelope={data} />}
-      </div>
-    </div>
+      </Modal.Body>
+    </Modal>
   );
 }
 
@@ -208,9 +182,9 @@ function AttemptsTable({ attempts }: { attempts: MiningAttempt[] }) {
 function ResultBadge({ kind }: { kind: string }) {
   const lower = kind.toLowerCase();
   const tone: string = lower.includes("submitted")
-    ? "border-brand-green-0/40 text-brand-green-0"
+    ? "border-positive/40 text-positive"
     : lower.includes("reject")
-      ? "border-brand-red-0/40 text-brand-red-0"
+      ? "border-coral/40 text-coral"
       : "border-border text-ink-body";
   return (
     <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>

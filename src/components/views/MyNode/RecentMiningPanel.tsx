@@ -161,9 +161,9 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
   // verbatim so the operator sees exactly what the miner reported.
   const lower = outcome.toLowerCase();
   const tone: string = lower.includes("submitted")
-    ? "border-brand-green-0/40 text-brand-green-0"
+    ? "border-positive/40 text-positive"
     : lower.includes("reject")
-      ? "border-brand-red-0/40 text-brand-red-0"
+      ? "border-coral/40 text-coral"
       : "border-border text-ink-body";
   return (
     <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>

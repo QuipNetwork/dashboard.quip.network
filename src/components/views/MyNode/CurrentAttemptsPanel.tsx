@@ -73,7 +73,7 @@ export function CurrentAttemptsPanel({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <StatusBadge status={stale ? "stale" : dispatch.status} />
         {stale && newestAgeMs !== null && (
-          <span className="font-accent text-[10px] text-brand-yellow-0">
+          <span className="font-accent text-[10px] text-warning">
             newest iteration {formatDuration(newestAgeMs)} old — miner may be stalled or serving an
             un-rotated attempts log
           </span>
@@ -88,7 +88,7 @@ export function CurrentAttemptsPanel({
 
       <div className="max-h-[60vh] overflow-auto">
         <table className="w-full font-accent text-xs tabular-nums">
-          <thead className="sticky top-0 bg-brand-bg">
+          <thead className="sticky top-0 bg-white">
             <tr className="border-b border-border text-left text-ink-subtle">
               <th className="py-2 pr-4">Iter</th>
               <th className="py-2 pr-4">Best Energy</th>
@@ -149,9 +149,9 @@ export function CurrentAttemptsPanel({
 function StatusBadge({ status }: { status: CurrentDispatch["status"] | "stale" }) {
   const tone =
     status === "in-flight"
-      ? "border-brand-green-0/40 text-brand-green-0"
+      ? "border-positive/40 text-positive"
       : status === "stale"
-        ? "border-brand-yellow-0/40 text-brand-yellow-0"
+        ? "border-warning/40 text-warning"
         : "border-border text-ink-body";
   const label =
     status === "in-flight" ? "In flight" : status === "stale" ? "Stale" : "Last completed";
@@ -168,9 +168,9 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
   // the operator's diagnostic flag for "miner submitted but chain
   // rejected", which is otherwise invisible in the iteration trail.
   const tone: string = lower.includes("error")
-    ? "border-brand-red-0/40 text-brand-red-0"
+    ? "border-coral/40 text-coral"
     : lower.includes("inblock") || lower.includes("submitted")
-      ? "border-brand-green-0/40 text-brand-green-0"
+      ? "border-positive/40 text-positive"
       : "border-border text-ink-body";
   return (
     <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
@@ -182,11 +182,11 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
 function ResultBadge({ kind }: { kind: string }) {
   const lower = kind.toLowerCase();
   const tone: string = lower.includes("submitted")
-    ? "border-brand-green-0/40 text-brand-green-0"
+    ? "border-positive/40 text-positive"
     : lower.includes("reject")
-      ? "border-brand-red-0/40 text-brand-red-0"
+      ? "border-coral/40 text-coral"
       : lower.includes("stored")
-        ? "border-brand-yellow-0/40 text-brand-yellow-0"
+        ? "border-warning/40 text-warning"
         : "border-border text-ink-body";
   return (
     <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>

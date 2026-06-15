@@ -9,6 +9,7 @@ import { computeChainHealth, type ChainHealth } from "@/lib/staleness";
 import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
 import { FinalityBadge } from "@/components/blocks/FinalityBadge";
 import { SearchInput } from "@/components/common/SearchInput";
+import { Modal } from "@/components/ui/Modal";
 
 export interface NumberedBlock {
   block: BlockRecord;
@@ -254,46 +255,16 @@ function SolutionDetailsModal({
   solutionNumber: number;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const completedAt = new Date(block.timestamp * 1000).toISOString();
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Solution #${solutionNumber} details`}
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-xl overflow-auto border border-border bg-brand-bg p-6 shadow-2xl"
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="font-accent text-lg text-ink-strong">Solution #{solutionNumber}</h2>
-            <p className="font-accent text-xs text-ink-subtle">
-              Block #{block.substrateBlockNumber}{" "}
-              {block.finalized ? "· finalized" : "· best (unfinalized)"}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="cursor-pointer rounded border border-border px-2 py-0.5 font-accent text-xs text-ink-subtle hover:border-border-strong hover:text-ink-strong"
-          >
-            ×
-          </button>
-        </div>
-
+    <Modal isOpen onClose={onClose} size="xl" ariaLabel={`Solution #${solutionNumber} details`}>
+      <Modal.Header>Solution #{solutionNumber}</Modal.Header>
+      <Modal.Body>
+        <p className="-mt-2 mb-4 font-accent text-xs text-ink-subtle">
+          Block #{block.substrateBlockNumber}{" "}
+          {block.finalized ? "· finalized" : "· best (unfinalized)"}
+        </p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 font-accent text-sm">
           <Row
             label="Winner"
@@ -335,8 +306,8 @@ function SolutionDetailsModal({
           />
           <Row label="Nonce" value={formatNonce(block.nonce)} mono title={block.nonce} span={2} />
         </dl>
-      </div>
-    </div>
+      </Modal.Body>
+    </Modal>
   );
 }
 

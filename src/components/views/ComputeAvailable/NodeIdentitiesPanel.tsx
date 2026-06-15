@@ -56,7 +56,7 @@ export function NodeIdentitiesPanel() {
           No nodes match “{query}”
         </p>
       ) : (
-        <div className="divide-y divide-brand-gray-2">
+        <div className="divide-y divide-border">
           {filtered.map((d) => (
             <NodeRow key={d.accountId} record={d} />
           ))}
@@ -143,7 +143,7 @@ function Badge({ label, tone }: { label: string; tone: "info" | "muted" | "succe
     tone === "info"
       ? "bg-surface-2 text-ink-strong"
       : tone === "success"
-        ? "bg-brand-green-0/20 text-brand-green-0"
+        ? "bg-positive/20 text-positive"
         : "bg-surface-1 text-ink-subtle";
   return <span className={`rounded px-2 py-0.5 ${cls}`}>{label}</span>;
 }
