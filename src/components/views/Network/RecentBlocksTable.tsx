@@ -7,6 +7,23 @@ import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-ch
 import { computeChainHealth, type ChainHealth } from "../../../lib/staleness";
 import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
 import { FinalityBadge } from "../../blocks/FinalityBadge";
+import { SearchInput } from "../../common/SearchInput";
+
+export interface NumberedBlock {
+  block: BlockRecord;
+  solutionNumber: number;
+}
+
+export function filterRecentBlocks(rows: readonly NumberedBlock[], query: string): NumberedBlock[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...rows];
+  return rows.filter(
+    ({ block, solutionNumber }) =>
+      block.minerId.toLowerCase().includes(q) ||
+      block.substrateBlockNumber.toLowerCase().includes(q) ||
+      String(solutionNumber).includes(q),
+  );
+}
 
 interface RecentBlocksTableProps {
   blocks: BlockRecord[];
@@ -35,6 +52,7 @@ export function RecentBlocksTable({
   totalProofsWon,
 }: RecentBlocksTableProps) {
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
+  const [query, setQuery] = useState<string>("");
   const [selectedBlock, setSelectedBlock] = useState<{
     block: BlockRecord;
     solutionNumber: number;
@@ -58,77 +76,96 @@ export function RecentBlocksTable({
     );
   }
 
-  const visibleBlocks = blocks.slice(0, pageSize);
-  const canLoadMore = pageSize < blocks.length;
-  const remaining = blocks.length - pageSize;
   // blocks is DESC by substrateBlockNumber, so blocks[0] is the most recent
-  // winning solution. Solution numbering walks down from totalProofsWon.
+  // winning solution. Solution numbering walks down from totalProofsWon —
+  // computed from the full-list index so search doesn't perturb it.
   const tipSolutionNumber = totalProofsWon ?? blocks.length;
+  const numbered: NumberedBlock[] = blocks.map((block, i) => ({
+    block,
+    solutionNumber: tipSolutionNumber - i,
+  }));
+  const matched = filterRecentBlocks(numbered, query);
+  const visible = matched.slice(0, pageSize);
+  const canLoadMore = pageSize < matched.length;
+  const remaining = matched.length - pageSize;
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="flex h-full flex-col gap-2">
       <HealthBanner health={health} />
-      <table className="w-full font-accent text-sm">
-        <thead>
-          <tr className="border-b border-brand-gray-2 text-left text-[10px] uppercase tracking-wider text-brand-gray-3">
-            <th className="pb-2 pr-4">Block</th>
-            <th className="pb-2 pr-4">Solution#</th>
-            <th className="pb-2 pr-4">Winner</th>
-            <th className="pb-2 pr-4 text-right">Energy</th>
-            <th className="pb-2 pr-4 text-right">Target Energy</th>
-            <th className="pb-2 pr-4 text-right">Time to Solution</th>
-            <th className="pb-2 pr-4 text-right">Reward</th>
-            <th className="pb-2 text-right">When</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visibleBlocks.map((b, i) => (
-            <tr
-              key={b.blockHash}
-              onClick={() => setSelectedBlock({ block: b, solutionNumber: tipSolutionNumber - i })}
-              className="cursor-pointer border-b border-brand-gray-1 transition-colors last:border-b-0 hover:bg-brand-gray-1/30"
+      <SearchInput
+        value={query}
+        onChange={setQuery}
+        placeholder="Search by winner, block, or solution #…"
+      />
+      <div className="flex-1 overflow-auto">
+        {visible.length === 0 ? (
+          <p className="flex h-full items-center justify-center font-accent text-sm text-brand-gray-3">
+            No solutions match “{query}”
+          </p>
+        ) : (
+          <table className="w-full font-accent text-sm">
+            <thead>
+              <tr className="border-b border-brand-gray-2 text-left text-[10px] uppercase tracking-wider text-brand-gray-3">
+                <th className="pb-2 pr-4">Block</th>
+                <th className="pb-2 pr-4">Solution#</th>
+                <th className="pb-2 pr-4">Winner</th>
+                <th className="pb-2 pr-4 text-right">Energy</th>
+                <th className="pb-2 pr-4 text-right">Target Energy</th>
+                <th className="pb-2 pr-4 text-right">Time to Solution</th>
+                <th className="pb-2 pr-4 text-right">Reward</th>
+                <th className="pb-2 text-right">When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(({ block: b, solutionNumber }) => (
+                <tr
+                  key={b.blockHash}
+                  onClick={() => setSelectedBlock({ block: b, solutionNumber })}
+                  className="cursor-pointer border-b border-brand-gray-1 transition-colors last:border-b-0 hover:bg-brand-gray-1/30"
+                >
+                  <td className="py-2 pr-4 font-mono text-brand-gray-5">
+                    <span className="inline-flex items-center gap-1.5">
+                      #{b.substrateBlockNumber}
+                      <FinalityBadge block={b} />
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 font-mono text-brand-gray-4">#{solutionNumber}</td>
+                  <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
+                    {shortAddress(b.minerId, 22, 4)}
+                  </td>
+                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
+                    {b.energy.toFixed(1)}
+                  </td>
+                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
+                    {b.difficultyEnergy.toFixed(1)}
+                  </td>
+                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
+                    {formatDuration(b.miningTime * 1000)}
+                  </td>
+                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
+                    {formatBalance(b.reward)}
+                  </td>
+                  <td className="py-2 text-right tabular-nums text-brand-gray-3">
+                    {formatDuration(now - b.timestamp * 1000)} ago
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {canLoadMore && (
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              data-testid="load-more"
+              onClick={() => setPageSize((s) => Math.min(s + PAGE_SIZE, matched.length))}
+              className="cursor-pointer rounded-md border border-brand-gray-2 px-3 py-1.5 font-accent text-xs uppercase tracking-wider text-brand-gray-3 transition-all hover:border-brand-gray-3 hover:text-brand-gray-5"
             >
-              <td className="py-2 pr-4 font-mono text-brand-gray-5">
-                <span className="inline-flex items-center gap-1.5">
-                  #{b.substrateBlockNumber}
-                  <FinalityBadge block={b} />
-                </span>
-              </td>
-              <td className="py-2 pr-4 font-mono text-brand-gray-4">#{tipSolutionNumber - i}</td>
-              <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
-                {shortAddress(b.minerId, 22, 4)}
-              </td>
-              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
-                {b.energy.toFixed(1)}
-              </td>
-              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
-                {b.difficultyEnergy.toFixed(1)}
-              </td>
-              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
-                {formatDuration(b.miningTime * 1000)}
-              </td>
-              <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
-                {formatBalance(b.reward)}
-              </td>
-              <td className="py-2 text-right tabular-nums text-brand-gray-3">
-                {formatDuration(now - b.timestamp * 1000)} ago
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {canLoadMore && (
-        <div className="mt-3 flex justify-center">
-          <button
-            type="button"
-            data-testid="load-more"
-            onClick={() => setPageSize((s) => Math.min(s + PAGE_SIZE, blocks.length))}
-            className="cursor-pointer rounded-md border border-brand-gray-2 px-3 py-1.5 font-accent text-xs uppercase tracking-wider text-brand-gray-3 transition-all hover:border-brand-gray-3 hover:text-brand-gray-5"
-          >
-            Load more ({remaining} remaining)
-          </button>
-        </div>
-      )}
+              Load more ({remaining} remaining)
+            </button>
+          </div>
+        )}
+      </div>
       {selectedBlock && (
         <SolutionDetailsModal
           block={selectedBlock.block}

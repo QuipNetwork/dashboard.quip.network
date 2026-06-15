@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
 
-import { RecentBlocksTable } from "./RecentBlocksTable";
+import { filterRecentBlocks, RecentBlocksTable, type NumberedBlock } from "./RecentBlocksTable";
 
 // Component tests cover two surfaces:
 //   1. The chain-health banner the staleness library surfaces — wording is
@@ -187,5 +187,71 @@ describe("RecentBlocksTable pagination", () => {
     render(createElement(RecentBlocksTable, { blocks: makeNBlocks(42), indexer: obs() }));
     expect(countDataRows()).toBe(42);
     expect(loadMoreButton()).toBeNull();
+  });
+});
+
+describe("filterRecentBlocks", () => {
+  const rows: NumberedBlock[] = [
+    { block: makeBlock(10, 0), solutionNumber: 50 },
+    { block: makeBlock(11, 0), solutionNumber: 51 },
+    { block: makeBlock(12, 0), solutionNumber: 52 },
+  ];
+
+  test("returns all rows for an empty query", () => {
+    expect(filterRecentBlocks(rows, "")).toHaveLength(3);
+  });
+
+  test("matches on winner (minerId)", () => {
+    expect(filterRecentBlocks(rows, "miner-11").map((r) => r.block.substrateBlockNumber)).toEqual([
+      "11",
+    ]);
+  });
+
+  test("matches on substrate block number", () => {
+    expect(filterRecentBlocks(rows, "12").map((r) => r.solutionNumber)).toEqual([52]);
+  });
+
+  test("matches on solution number", () => {
+    expect(filterRecentBlocks(rows, "50").map((r) => r.block.substrateBlockNumber)).toEqual(["10"]);
+  });
+});
+
+describe("RecentBlocksTable search", () => {
+  function typeSearch(value: string) {
+    const input = container.querySelector('input[type="search"]') as HTMLInputElement;
+    const win = (globalThis as unknown as { window: Window & typeof globalThis }).window;
+    const setValue = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value")?.set;
+    act(() => {
+      setValue?.call(input, value);
+      input.dispatchEvent(new win.Event("input", { bubbles: true }));
+    });
+  }
+
+  test("filters rows by winner as the operator types", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const blocks = [
+      makeBlock(10, nowSec - 30),
+      makeBlock(11, nowSec - 36),
+      makeBlock(12, nowSec - 42),
+    ];
+    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(3);
+
+    typeSearch("miner-11");
+
+    const rows = container.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(1);
+    expect(container.textContent).toContain("#11");
+  });
+
+  test("shows an empty message when nothing matches", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const blocks = [makeBlock(10, nowSec - 30)];
+    render(createElement(RecentBlocksTable, { blocks, indexer: obs() }));
+
+    typeSearch("nope");
+
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(0);
+    expect(container.textContent).toContain("No solutions match");
   });
 });
