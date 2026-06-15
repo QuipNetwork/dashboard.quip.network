@@ -147,6 +147,7 @@ export async function runTipIteration(deps: TipIterationDeps): Promise<void> {
         observedAt: nowIso,
       };
       await db.upsertMinerHardware(hardware);
+      state.observability.selfIdentified = true;
       state.observability.chainHeadFromNode = String(status.chainHeadNumber);
       // Pass-through the aggregator's per-backend breakdown so the
       // UI can render it without re-querying. Empty for single-process

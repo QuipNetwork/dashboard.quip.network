@@ -60,6 +60,7 @@ export function parseIndexerObservability(
     bestBlockHeight: p.bestBlockHeight,
     finalizedBlockHeight: p.finalizedBlockHeight,
     chainConnected: p.chainConnected,
+    selfIdentified: typeof p.selfIdentified === "boolean" ? p.selfIdentified : undefined,
     minerStats: parseMinerStats(p.minerStats),
     modes: parseModeBreakdownMap(p.modes),
   };

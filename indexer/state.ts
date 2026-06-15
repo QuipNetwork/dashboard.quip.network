@@ -24,6 +24,7 @@ export class IndexerState {
     // Transient — never seeded from the DB on restart, since a prior
     // process's WSS connection state is meaningless to a new process.
     chainConnected: false,
+    selfIdentified: false,
     minerStats: null,
     // Same transient story as chainConnected — re-fetched on next
     // /api/v1/status poll. Default empty so a fresh process renders
@@ -42,7 +43,7 @@ export class IndexerState {
   async load(): Promise<void> {
     const prior = await this.db.getIndexerObservability();
     if (prior) {
-      this.observability = { ...prior, chainConnected: false };
+      this.observability = { ...prior, chainConnected: false, selfIdentified: false };
     }
   }
 }

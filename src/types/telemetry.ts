@@ -259,6 +259,10 @@ export interface IndexerObservability {
   // Live WSS socket state. Always false on a fresh process — only flips true
   // after the substrate worker's client emits a `connected` event.
   chainConnected: boolean;
+  // True only after a live /api/v1/status probe confirmed the local miner's
+  // ss58. selfAddress set + selfIdentified false = configured (e.g. via
+  // QUIP_OPERATOR_ACCOUNT) but miner unreachable — the otherwise-silent case.
+  selfIdentified?: boolean;
   minerStats: MinerStats | null;
   // Per-backend breakdown from the multi-process aggregator's last
   // /api/v1/status response. `{}` for single-process miners. UI

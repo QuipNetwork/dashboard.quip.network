@@ -170,6 +170,24 @@ describe("tip-worker v0.3", () => {
     expect(obs?.lastStatusFetchAt).toBe("2026-05-19T00:00:00.000Z");
   });
 
+  test("marks selfIdentified once a live /status probe confirms the ss58", async () => {
+    const deps = await setupDeps({ client: fakeClient({}) });
+    expect(deps.state.observability.selfIdentified).toBe(false);
+
+    await runTipIteration(deps);
+
+    expect(deps.state.observability.selfIdentified).toBe(true);
+    expect((await deps.db.getIndexerObservability())?.selfIdentified).toBe(true);
+  });
+
+  test("leaves selfIdentified false when /status is unreachable (configured but not confirmed)", async () => {
+    const deps = await setupDeps({ client: fakeClient({ status: "error" }) });
+
+    await runTipIteration(deps);
+
+    expect(deps.state.observability.selfIdentified).toBe(false);
+  });
+
   test("502 on /stats leaves minerStats null but selfAddress lands", async () => {
     const deps = await setupDeps({ client: fakeClient({ stats: "error" }) });
     await runTipIteration(deps);
