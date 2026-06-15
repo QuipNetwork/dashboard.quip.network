@@ -22,5 +22,5 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "indexer", "server", "api", "docker", "netlify"]
+  "include": ["src", "indexer", "server", "api", "docker", "netlify", "migrations"]
 }
