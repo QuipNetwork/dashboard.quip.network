@@ -2,6 +2,7 @@
 
 import { createAdapter } from "../api/db";
 
+import { DbChainStateReader } from "./chain-state";
 import { QuipClient } from "./client";
 import { parseConfig } from "./config";
 import { runDescriptorLoop } from "./descriptor-worker";
@@ -121,6 +122,7 @@ async function main(): Promise<number> {
               db,
               state,
               clientFactory: (baseUrl) => new QuipClient({ baseUrl }),
+              chainState: new DbChainStateReader(db),
             },
             signal,
           ),

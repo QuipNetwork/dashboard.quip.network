@@ -5,6 +5,7 @@ import { MiningSubmissionNotFoundError } from "../api/miner-api";
 import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
 
+import type { ChainStateReader } from "./chain-state";
 import type { IndexerConfig } from "./config";
 import type { MinerSource } from "./client";
 import { IndexerState } from "./state";
@@ -33,6 +34,7 @@ export interface TipIterationDeps {
   client: MinerSource;
   db: DatabaseAdapter;
   state: IndexerState;
+  chainState: ChainStateReader;
   now?: () => number;
 }
 
@@ -48,6 +50,7 @@ export interface TipWorkerDeps {
   db: DatabaseAdapter;
   state: IndexerState;
   clientFactory: (baseUrl: string) => MinerSource;
+  chainState: ChainStateReader;
   now?: () => number;
 }
 
@@ -89,7 +92,13 @@ export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Prom
       const baseUrl = resolveSelfMinerRestUrl(deps.config.validatorRpcUrls);
       if (baseUrl) {
         const client = deps.clientFactory(baseUrl);
-        await runTipIteration({ client, db: deps.db, state: deps.state, now: deps.now });
+        await runTipIteration({
+          client,
+          db: deps.db,
+          state: deps.state,
+          chainState: deps.chainState,
+          now: deps.now,
+        });
         if (!(await deps.db.getSelfAddress())) {
           console.warn(
             `[indexer/tip] could not identify this node: local miner REST ${baseUrl}/api/v1 ` +
@@ -156,17 +165,17 @@ export async function runTipIteration(deps: TipIterationDeps): Promise<void> {
   }
 
   // Mining-attempts catch-up. Bound on the current global solution_number
-  // = `LatestQBlockId + 1`, read straight from chain via the substrate
-  // worker's `chain_head.winning_solutions_count`. The
-  // miner's controller no longer exposes a per-solution counter, so the
-  // bound is chain-derived, not from /api/v1/stats. Skip when selfAddress
-  // is unknown or the substrate worker hasn't written the count yet (the
-  // helper returns null), leaving the heartbeat write below intact. Errors
-  // here never poison that heartbeat: catch broadly.
+  // = `LatestQBlockId + 1`, sourced from chain state via the injected
+  // ChainStateReader. The miner's controller no longer exposes a
+  // per-solution counter, so the bound is chain-derived, not from
+  // /api/v1/stats. Skip when selfAddress is unknown or the reader returns
+  // null (the substrate worker hasn't written the count yet), leaving the
+  // heartbeat write below intact. Errors here never poison that heartbeat:
+  // catch broadly.
   const selfAddress = await db.getSelfAddress();
   if (selfAddress) {
     try {
-      const currentSolutionNumber = await currentGlobalSolutionNumber(db);
+      const currentSolutionNumber = await deps.chainState.currentGlobalSolutionNumber();
       if (currentSolutionNumber !== null) {
         await catchUpMiningAttempts(deps, selfAddress, currentSolutionNumber, nowIso);
       }
@@ -195,22 +204,6 @@ async function flushHeartbeat(deps: TipWorkerDeps): Promise<void> {
   const nowIso = new Date((deps.now ?? Date.now)()).toISOString();
   deps.state.observability.lastStatusFetchAt = nowIso;
   await deps.db.setIndexerObservability(deps.state.observability);
-}
-
-/**
- * Current global solution_number = `LatestQBlockId + 1`, read straight from chain via the substrate worker's
- * `chain_head.winning_solutions_count`. +1 is the in-flight problem every
- * miner is currently grinding.
- *
- * Returns null when chain_head hasn't been written yet, or when the chain
- * doesn't expose the count (pre-v0.2 runtime → `winningSolutionsCount` is
- * null) — the caller skips catch-up rather than bounding the walk on a
- * bogus value.
- */
-async function currentGlobalSolutionNumber(db: DatabaseAdapter): Promise<number | null> {
-  const head = await db.getChainHead();
-  if (!head || head.winningSolutionsCount === null) return null;
-  return head.winningSolutionsCount + 1;
 }
 
 /**

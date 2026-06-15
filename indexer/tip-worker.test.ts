@@ -9,6 +9,7 @@ import type {
   MiningSubmissionRecord,
 } from "../src/types/telemetry";
 
+import { DbChainStateReader } from "./chain-state";
 import { type MinerSource, type NodeStatus } from "./client";
 import { IndexerState } from "./state";
 import { newInMemoryAdapter } from "./test-helpers";
@@ -124,6 +125,7 @@ async function setupDeps(overrides: Partial<TipIterationDeps> = {}): Promise<Tip
     client: fakeClient({}),
     db,
     state,
+    chainState: new DbChainStateReader(db),
     now: () => Date.parse("2026-05-19T00:00:00Z"),
     ...overrides,
   };
@@ -206,6 +208,19 @@ describe("tip-worker v0.3", () => {
     const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
     expect(rows.map((r) => r.solutionNumber).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
     expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
+  });
+
+  test("catch-up bound comes from the injected ChainStateReader (no chain_head row)", async () => {
+    const deps = await setupDeps({
+      client: fakeClient({ solutionExists: () => true }),
+      chainState: { currentGlobalSolutionNumber: async () => 4 },
+    });
+
+    await runTipIteration(deps);
+
+    const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
+    expect(rows.map((r) => r.solutionNumber).sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(3);
   });
 
   test("404 gaps are skipped, not stopped — the checkpoint still advances", async () => {
