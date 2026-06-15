@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { SERIES_COLORS } from "../../../lib/colors";
-import { formatNumber, formatSeconds } from "../../../lib/format";
-import { useMinerColors } from "../../../store/miner-colors";
-import type { LeaderboardEntry } from "../../charts/leaderboard/use-leaderboard";
+import { SERIES_COLORS } from "@/lib/colors";
+import { formatNumber, formatSeconds } from "@/lib/format";
+import { useMinerColors } from "@/store/miner-colors";
+import type { LeaderboardEntry } from "@/components/charts/leaderboard/use-leaderboard";
 
 interface NeighborsListProps {
   self: LeaderboardEntry | null;

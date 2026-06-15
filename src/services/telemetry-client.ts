@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 
-import type { BlockRecord, MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
+import type { BlockRecord, MiningAttemptsResponse, TelemetryResponse } from "@/types/telemetry";
 
 export interface TelemetryClient {
   fetchTelemetry(signal?: AbortSignal): Promise<TelemetryResponse>;

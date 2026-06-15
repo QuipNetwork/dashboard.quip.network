@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { winningSolutionsSolved } from "../../lib/chain-solutions";
-import { selectTipBlock, useTelemetryStore } from "../../store/telemetry-store";
+import { winningSolutionsSolved } from "@/lib/chain-solutions";
+import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 
 export function CurrentBlockIndicator() {
   // Select the tip block directly (stable reference across renders) rather

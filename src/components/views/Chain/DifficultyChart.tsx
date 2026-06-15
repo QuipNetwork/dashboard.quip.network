@@ -2,8 +2,8 @@
 
 import { ResponsiveLine } from "@nivo/line";
 
-import { nivoTheme } from "../../../theme/nivo-theme";
-import { useTelemetryStore } from "../../../store/telemetry-store";
+import { nivoTheme } from "@/theme/nivo-theme";
+import { useTelemetryStore } from "@/store/telemetry-store";
 
 /**
  * Time-series of the chain's target energy threshold from

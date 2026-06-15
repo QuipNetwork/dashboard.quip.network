@@ -2,9 +2,9 @@
 
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 
-import { formatDuration, formatNumber } from "../../../lib/format";
-import { ChartCard } from "../../layout/ChartCard";
-import type { MiningSubmissionRecord } from "../../../types/telemetry";
+import { formatDuration, formatNumber } from "@/lib/format";
+import { ChartCard } from "@/components/layout/ChartCard";
+import type { MiningSubmissionRecord } from "@/types/telemetry";
 import { MiningAttemptsModal } from "./MiningAttemptsModal";
 import { tsNsToMs } from "./mining-shared";
 

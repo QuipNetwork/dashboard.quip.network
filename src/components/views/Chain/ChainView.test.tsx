@@ -5,8 +5,8 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { ValidatorAuthorshipRecord } from "../../../types/telemetry";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import type { ValidatorAuthorshipRecord } from "@/types/telemetry";
 
 import { ChainView } from "./ChainView";
 

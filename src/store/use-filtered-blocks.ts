@@ -2,10 +2,10 @@
 
 import { useMemo } from "react";
 
-import { buildMinerCategoryIndex, categoryFor } from "../lib/miner-category";
+import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
 import { useTelemetryStore } from "./telemetry-store";
 import { useUIStore } from "./ui-store";
-import type { BlockRecord } from "../types/telemetry";
+import type { BlockRecord } from "@/types/telemetry";
 
 /**
  * Returns the blocks array filtered by the active miner-category selection.

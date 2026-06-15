@@ -3,8 +3,8 @@
 import { EventBus, type IEventBus } from "@vaaas/rx-react/event-bus";
 import type { StoreApi } from "zustand";
 
-import type { TelemetryState } from "../store/telemetry-store";
-import type { UIState } from "../store/ui-store";
+import type { TelemetryState } from "@/store/telemetry-store";
+import type { UIState } from "@/store/ui-store";
 import { FetchTelemetry, fetchTelemetryHandler } from "./fetch-telemetry";
 import {
   SetAggregationMode,

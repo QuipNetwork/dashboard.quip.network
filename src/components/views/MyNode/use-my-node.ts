@@ -2,18 +2,18 @@
 
 import { useMemo } from "react";
 
-import { selectTipBlock, useTelemetryStore } from "../../../store/telemetry-store";
+import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 import type {
   BlockRecord,
   ChainMinerRecord,
   MinerStats,
   MiningSubmissionRecord,
   ModeBreakdown,
-} from "../../../types/telemetry";
+} from "@/types/telemetry";
 import {
   computeLeaderboard,
   type LeaderboardEntry,
-} from "../../charts/leaderboard/use-leaderboard";
+} from "@/components/charts/leaderboard/use-leaderboard";
 
 export interface CurrentRequirements {
   difficultyEnergy: number;

@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 
-import { shortAddress } from "../../../lib/format-chain";
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { NodeDescriptorRecord } from "../../../types/telemetry";
-import { SearchInput } from "../../common/SearchInput";
+import { shortAddress } from "@/lib/format-chain";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import type { NodeDescriptorRecord } from "@/types/telemetry";
+import { SearchInput } from "@/components/common/SearchInput";
 
 export function filterNodeDescriptors(
   descriptors: readonly NodeDescriptorRecord[],

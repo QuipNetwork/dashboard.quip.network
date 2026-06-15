@@ -1,11 +1,11 @@
 import { useEventBus } from "@vaaas/rx-react/event-bus";
 
-import { SetAggregationMode, SetViewMode, ToggleMinerType } from "../../event-bus/ui-actions";
-import { useTelemetryStore } from "../../store/telemetry-store";
-import { useUIStore, type AggregationMode, type ViewMode } from "../../store/ui-store";
-import { SERIES_COLORS } from "../../lib/colors";
-import { shortAddress } from "../../lib/format-chain";
-import type { MinerCategory } from "../../types/telemetry";
+import { SetAggregationMode, SetViewMode, ToggleMinerType } from "@/event-bus/ui-actions";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore, type AggregationMode, type ViewMode } from "@/store/ui-store";
+import { SERIES_COLORS } from "@/lib/colors";
+import { shortAddress } from "@/lib/format-chain";
+import type { MinerCategory } from "@/types/telemetry";
 import { BabeEpochProgress } from "./BabeEpochProgress";
 import { CurrentBlockIndicator } from "./CurrentBlockIndicator";
 import { SyncIndicator } from "./SyncIndicator";

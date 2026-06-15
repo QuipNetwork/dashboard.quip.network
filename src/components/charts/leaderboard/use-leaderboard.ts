@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo } from "react";
-import { buildMinerCategoryIndex, categoryFor } from "../../../lib/miner-category";
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import { useFilteredBlocks } from "../../../store/use-filtered-blocks";
-import { useUIStore } from "../../../store/ui-store";
+import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useFilteredBlocks } from "@/store/use-filtered-blocks";
+import { useUIStore } from "@/store/ui-store";
 import type {
   BlockRecord,
   ChainMinerRecord,
   MinerCategory,
   NodeDescriptorRecord,
-} from "../../../types/telemetry";
+} from "@/types/telemetry";
 
 export interface LeaderboardEntry {
   rank: number;

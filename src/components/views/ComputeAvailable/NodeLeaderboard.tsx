@@ -3,8 +3,8 @@
 import { ResponsiveBar, type BarDatum } from "@nivo/bar";
 import { useState } from "react";
 
-import { nivoTheme } from "../../../theme/nivo-theme";
-import { SearchInput } from "../../common/SearchInput";
+import { nivoTheme } from "@/theme/nivo-theme";
+import { SearchInput } from "@/components/common/SearchInput";
 import type { PerNodeTflops } from "./use-compute-available";
 
 interface NodeLeaderboardProps {

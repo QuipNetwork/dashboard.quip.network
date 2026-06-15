@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { formatDuration, formatNumber } from "../../../lib/format";
-import { ChartCard } from "../../layout/ChartCard";
-import type {
-  CurrentDispatch,
-  MiningAttempt,
-  MiningSubmissionRecord,
-} from "../../../types/telemetry";
+import { formatDuration, formatNumber } from "@/lib/format";
+import { ChartCard } from "@/components/layout/ChartCard";
+import type { CurrentDispatch, MiningAttempt, MiningSubmissionRecord } from "@/types/telemetry";
 import { meetingTargetCount, numericField, tsNsToMs } from "./mining-shared";
 
 // Iteration trail for the global solution_number the miner is currently

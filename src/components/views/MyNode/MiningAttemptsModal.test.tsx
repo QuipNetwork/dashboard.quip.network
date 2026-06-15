@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { TelemetryClient } from "../../../services/telemetry-client";
-import { StoryServices } from "../../../testing/services";
-import type { MiningAttemptsResponse, MiningSubmissionRecord } from "../../../types/telemetry";
+import type { TelemetryClient } from "@/services/telemetry-client";
+import { StoryServices } from "@/testing/services";
+import type { MiningAttemptsResponse, MiningSubmissionRecord } from "@/types/telemetry";
 import { MiningAttemptsModal } from "./MiningAttemptsModal";
 
 function submission(overrides: Partial<MiningSubmissionRecord> = {}): MiningSubmissionRecord {

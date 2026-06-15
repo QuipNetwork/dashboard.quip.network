@@ -1,5 +1,5 @@
 import type { PointTooltipProps } from "@nivo/line";
-import { getSeriesColor } from "../../../lib/chart-colors";
+import { getSeriesColor } from "@/lib/chart-colors";
 
 interface LineTooltipConfig {
   xLabel: string;

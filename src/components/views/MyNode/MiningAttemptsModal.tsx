@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import { formatNumber } from "../../../lib/format";
-import { shortAddress } from "../../../lib/format-chain";
-import { useTelemetryClient } from "../../../services/telemetry-client";
-import type { MiningAttempt, MiningAttemptsResponse } from "../../../types/telemetry";
+import { formatNumber } from "@/lib/format";
+import { shortAddress } from "@/lib/format-chain";
+import { useTelemetryClient } from "@/services/telemetry-client";
+import type { MiningAttempt, MiningAttemptsResponse } from "@/types/telemetry";
 import { meetingTargetCount } from "./mining-shared";
 
 // Modal for a single mining submission: shows the submission summary in

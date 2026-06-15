@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { NodeDescriptorRecord } from "../../../types/telemetry";
+import type { NodeDescriptorRecord } from "@/types/telemetry";
 import { filterNodeDescriptors } from "./NodeIdentitiesPanel";
 
 function record(accountId: string, nodeName: string): NodeDescriptorRecord {

@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 
-import { formatBalance, shortAddress } from "../../../lib/format-chain";
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import type { ChainMinerRecord, NodeDescriptorRecord } from "../../../types/telemetry";
-import { SearchInput } from "../../common/SearchInput";
+import { formatBalance, shortAddress } from "@/lib/format-chain";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import type { ChainMinerRecord, NodeDescriptorRecord } from "@/types/telemetry";
+import { SearchInput } from "@/components/common/SearchInput";
 
 export function filterChainMiners(
   miners: readonly ChainMinerRecord[],

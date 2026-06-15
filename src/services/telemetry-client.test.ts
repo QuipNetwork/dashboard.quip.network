@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
+import type { MiningAttemptsResponse, TelemetryResponse } from "@/types/telemetry";
 import { HttpTelemetryClient } from "./telemetry-client";
 
 interface Recorded {

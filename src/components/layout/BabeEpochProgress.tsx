@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useTelemetryStore } from "../../store/telemetry-store";
+import { useTelemetryStore } from "@/store/telemetry-store";
 
 /**
  * Substrate BABE epoch progress pill. BABE epochs are the substrate chain's

@@ -2,7 +2,7 @@
 
 import { ResponsiveBar, type BarDatum } from "@nivo/bar";
 
-import { nivoTheme } from "../../../theme/nivo-theme";
+import { nivoTheme } from "@/theme/nivo-theme";
 import type { ModelBreakdown } from "./use-compute-available";
 
 interface HardwareBreakdownProps {

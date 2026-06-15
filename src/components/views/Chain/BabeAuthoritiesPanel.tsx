@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useTelemetryStore } from "../../../store/telemetry-store";
+import { useTelemetryStore } from "@/store/telemetry-store";
 
 /**
  * Compact list of BABE authorities (the account IDs the chain has

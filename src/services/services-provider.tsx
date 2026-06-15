@@ -4,14 +4,14 @@ import { EventBusContext, type IEventBus } from "@vaaas/rx-react/event-bus";
 import { useLayoutEffect, useMemo, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 
-import { buildAppEventBus } from "../event-bus/build-app-event-bus";
+import { buildAppEventBus } from "@/event-bus/build-app-event-bus";
 import { TelemetryClientContext, telemetryClient, type TelemetryClient } from "./telemetry-client";
 import {
   TelemetryStoreContext,
   telemetryStore,
   type TelemetryState,
-} from "../store/telemetry-store";
-import { UIStoreContext, uiStore } from "../store/ui-store";
+} from "@/store/telemetry-store";
+import { UIStoreContext, uiStore } from "@/store/ui-store";
 
 type UIStore = typeof uiStore;
 

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { ChartCard } from "../../layout/ChartCard";
-import { SERIES_COLORS } from "../../../lib/colors";
-import { formatDuration, formatNumber } from "../../../lib/format";
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import { useUIStore } from "../../../store/ui-store";
-import { StatTile } from "../MyNode/StatTile";
-import { ChainMinersTable } from "../Chain/ChainMinersView";
-import { DifficultyChart } from "../Chain/DifficultyChart";
+import { ChartCard } from "@/components/layout/ChartCard";
+import { SERIES_COLORS } from "@/lib/colors";
+import { formatDuration, formatNumber } from "@/lib/format";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
+import { StatTile } from "@/components/views/MyNode/StatTile";
+import { ChainMinersTable } from "@/components/views/Chain/ChainMinersView";
+import { DifficultyChart } from "@/components/views/Chain/DifficultyChart";
 import { HardwareBreakdown } from "./HardwareBreakdown";
 import { NodeIdentitiesPanel } from "./NodeIdentitiesPanel";
 import { NodeLeaderboard } from "./NodeLeaderboard";

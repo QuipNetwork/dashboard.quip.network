@@ -1,9 +1,9 @@
 import { ResponsiveLine } from "@nivo/line";
-import { nivoTheme } from "../../../theme/nivo-theme";
-import { SERIES_GRADIENT } from "../../../lib/colors";
-import { getSeriesColor } from "../../../lib/chart-colors";
-import { createGradientLines } from "../common/GradientLines";
-import { createLineTooltip } from "../common/LineTooltip";
+import { nivoTheme } from "@/theme/nivo-theme";
+import { SERIES_GRADIENT } from "@/lib/colors";
+import { getSeriesColor } from "@/lib/chart-colors";
+import { createGradientLines } from "@/components/charts/common/GradientLines";
+import { createLineTooltip } from "@/components/charts/common/LineTooltip";
 import type { MiningTimeSeries } from "./use-mining-time";
 
 const tooltip = createLineTooltip({

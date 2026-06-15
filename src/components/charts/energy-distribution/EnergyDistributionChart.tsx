@@ -1,8 +1,8 @@
 import { ResponsiveBar } from "@nivo/bar";
-import { nivoTheme } from "../../../theme/nivo-theme";
-import { getSeriesColor } from "../../../lib/chart-colors";
-import { OverlappingBarsLayer } from "../common/OverlappingBarsLayer";
-import type { HistogramData } from "../../../lib/histogram";
+import { nivoTheme } from "@/theme/nivo-theme";
+import { getSeriesColor } from "@/lib/chart-colors";
+import { OverlappingBarsLayer } from "@/components/charts/common/OverlappingBarsLayer";
+import type { HistogramData } from "@/lib/histogram";
 
 export interface EnergyDistributionChartProps {
   data: HistogramData;

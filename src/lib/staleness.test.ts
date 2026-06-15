@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { IndexerObservability } from "../types/telemetry";
+import type { IndexerObservability } from "@/types/telemetry";
 
 import { computeChainHealth, computeSubstrateHealth } from "./staleness";
 

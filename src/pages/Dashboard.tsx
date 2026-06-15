@@ -1,10 +1,10 @@
-import { Header } from "../components/layout/Header";
-import { ChainView } from "../components/views/Chain/ChainView";
-import { ComputeAvailableView } from "../components/views/ComputeAvailable/ComputeAvailableView";
-import { MyNodeView } from "../components/views/MyNode/MyNodeView";
-import { NetworkView } from "../components/views/Network/NetworkView";
-import { useTelemetryStore } from "../store/telemetry-store";
-import { useUIStore } from "../store/ui-store";
+import { Header } from "@/components/layout/Header";
+import { ChainView } from "@/components/views/Chain/ChainView";
+import { ComputeAvailableView } from "@/components/views/ComputeAvailable/ComputeAvailableView";
+import { MyNodeView } from "@/components/views/MyNode/MyNodeView";
+import { NetworkView } from "@/components/views/Network/NetworkView";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
 
 export function Dashboard() {
   const loading = useTelemetryStore((s) => s.loading);

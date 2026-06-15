@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import { createStore, useStore, type StateCreator, type StoreApi } from "zustand";
-import { telemetryClient, type TelemetryClient } from "../services/telemetry-client";
+import { telemetryClient, type TelemetryClient } from "@/services/telemetry-client";
 import type {
   BabeAuthorityRecord,
   BabeEpochState,
@@ -16,7 +16,7 @@ import type {
   NodeDescriptorRecord,
   NodesSnapshot,
   ValidatorAuthorshipRecord,
-} from "../types/telemetry";
+} from "@/types/telemetry";
 
 export interface TelemetryState {
   blocks: BlockRecord[];

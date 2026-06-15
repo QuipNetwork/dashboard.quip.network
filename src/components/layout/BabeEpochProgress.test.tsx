@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import { useTelemetryStore } from "../../store/telemetry-store";
+import { useTelemetryStore } from "@/store/telemetry-store";
 import { BabeEpochProgress } from "./BabeEpochProgress";
 
 let container: HTMLDivElement;

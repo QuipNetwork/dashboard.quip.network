@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-import { formatDuration } from "../../../lib/format";
-import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
-import { useTelemetryClient } from "../../../services/telemetry-client";
-import { computeChainHealth, type ChainHealth } from "../../../lib/staleness";
-import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
-import { FinalityBadge } from "../../blocks/FinalityBadge";
-import { SearchInput } from "../../common/SearchInput";
+import { formatDuration } from "@/lib/format";
+import { formatBalance, formatNonce, shortAddress } from "@/lib/format-chain";
+import { useTelemetryClient } from "@/services/telemetry-client";
+import { computeChainHealth, type ChainHealth } from "@/lib/staleness";
+import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
+import { FinalityBadge } from "@/components/blocks/FinalityBadge";
+import { SearchInput } from "@/components/common/SearchInput";
 
 export interface NumberedBlock {
   block: BlockRecord;

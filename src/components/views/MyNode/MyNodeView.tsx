@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { winningSolutionsSolved } from "../../../lib/chain-solutions";
-import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
-import { formatDuration, formatNumber } from "../../../lib/format";
-import {
-  selectServerNowMs,
-  selectTipBlock,
-  useTelemetryStore,
-} from "../../../store/telemetry-store";
-import { ChartCard } from "../../layout/ChartCard";
+import { winningSolutionsSolved } from "@/lib/chain-solutions";
+import { formatBalance, formatNonce, shortAddress } from "@/lib/format-chain";
+import { formatDuration, formatNumber } from "@/lib/format";
+import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { ChartCard } from "@/components/layout/ChartCard";
 import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import { useMyNode } from "./use-my-node";
 import { StatTile } from "./StatTile";

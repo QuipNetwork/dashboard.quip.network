@@ -7,7 +7,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { Leaderboard } from "./Leaderboard";
 import { filterLeaderboardEntries, type LeaderboardEntry } from "./use-leaderboard";
 
-function entry(overrides: Partial<LeaderboardEntry> & Pick<LeaderboardEntry, "minerId">): LeaderboardEntry {
+function entry(
+  overrides: Partial<LeaderboardEntry> & Pick<LeaderboardEntry, "minerId">,
+): LeaderboardEntry {
   return {
     rank: 1,
     minerCategory: "GPU",

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { TelemetryClient } from "../services/telemetry-client";
+import type { TelemetryClient } from "@/services/telemetry-client";
 import type {
   BabeAuthorityRecord,
   BabeEpochState,
@@ -14,7 +14,7 @@ import type {
   MiningAttemptsResponse,
   TelemetryResponse,
   ValidatorAuthorshipRecord,
-} from "../types/telemetry";
+} from "@/types/telemetry";
 import {
   createTelemetryStore,
   selectServerNowMs,

@@ -4,7 +4,7 @@ import type { Handler } from "@vaaas/rx-react/event-bus";
 import { from, mergeMap, pipe } from "rxjs";
 import type { StoreApi } from "zustand";
 
-import type { TelemetryState } from "../store/telemetry-store";
+import type { TelemetryState } from "@/store/telemetry-store";
 
 export class FetchTelemetry {}
 

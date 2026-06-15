@@ -7,12 +7,12 @@ import {
   computeSubstrateHealth,
   type SubstrateHealthLevel,
   type SyncStage,
-} from "../../lib/staleness";
+} from "@/lib/staleness";
 import {
   selectServerNowMs,
   selectTipBlockTimestampMs,
   useTelemetryStore,
-} from "../../store/telemetry-store";
+} from "@/store/telemetry-store";
 
 const STYLES: Record<
   SyncStage,

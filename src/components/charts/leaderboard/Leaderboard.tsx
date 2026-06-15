@@ -1,9 +1,9 @@
 import { useState } from "react";
 
-import { SearchInput } from "../../common/SearchInput";
-import { SERIES_COLORS } from "../../../lib/colors";
-import { formatSeconds, formatNumber } from "../../../lib/format";
-import { useMinerColors } from "../../../store/miner-colors";
+import { SearchInput } from "@/components/common/SearchInput";
+import { SERIES_COLORS } from "@/lib/colors";
+import { formatSeconds, formatNumber } from "@/lib/format";
+import { useMinerColors } from "@/store/miner-colors";
 import { filterLeaderboardEntries, type LeaderboardEntry } from "./use-leaderboard";
 
 const RANK_STYLES: Record<number, string> = {

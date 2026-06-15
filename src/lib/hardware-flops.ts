@@ -5,7 +5,7 @@
 // The table is intentionally short and hand-maintained — real hardware drifts,
 // but a rough order-of-magnitude is all the "compute available" view needs.
 
-import type { NodeInfo, NodeSystemCpu, NodeSystemGpu } from "../types/telemetry";
+import type { NodeInfo, NodeSystemCpu, NodeSystemGpu } from "@/types/telemetry";
 
 export interface GpuEntry {
   pattern: RegExp;

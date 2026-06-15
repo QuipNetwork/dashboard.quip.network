@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import { SyncIndicator } from "../components/layout/SyncIndicator";
+import { SyncIndicator } from "@/components/layout/SyncIndicator";
 import { createTestServices, StoryServices } from "./services";
 
 let container: HTMLDivElement;

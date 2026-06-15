@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ChainMinerRecord, MinerStats, ModeBreakdown } from "../../../types/telemetry";
-import { formatDuration, formatNumber } from "../../../lib/format";
-import { ChartCard } from "../../layout/ChartCard";
+import type { ChainMinerRecord, MinerStats, ModeBreakdown } from "@/types/telemetry";
+import { formatDuration, formatNumber } from "@/lib/format";
+import { ChartCard } from "@/components/layout/ChartCard";
 import { StatTile } from "./StatTile";
 
 // The miner's /api/v1/stats reports cumulative controller counters. The

@@ -1,8 +1,8 @@
 import { ResponsivePie } from "@nivo/pie";
-import { nivoTheme } from "../../../theme/nivo-theme";
-import { SERIES_GRADIENT } from "../../../lib/colors";
-import { getSeriesColor } from "../../../lib/chart-colors";
-import { createPieGradientProps } from "../common/GradientPie";
+import { nivoTheme } from "@/theme/nivo-theme";
+import { SERIES_GRADIENT } from "@/lib/colors";
+import { getSeriesColor } from "@/lib/chart-colors";
+import { createPieGradientProps } from "@/components/charts/common/GradientPie";
 import type { ActiveNodesEntry } from "./use-active-nodes";
 
 const pieGradient = createPieGradientProps(

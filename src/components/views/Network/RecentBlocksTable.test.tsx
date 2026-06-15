@@ -5,9 +5,9 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { TelemetryClient } from "../../../services/telemetry-client";
-import { StoryServices } from "../../../testing/services";
-import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
+import type { TelemetryClient } from "@/services/telemetry-client";
+import { StoryServices } from "@/testing/services";
+import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
 
 import { filterRecentBlocks, RecentBlocksTable, type NumberedBlock } from "./RecentBlocksTable";
 

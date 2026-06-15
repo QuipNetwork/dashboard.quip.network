@@ -5,9 +5,9 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import { useUIStore } from "../../../store/ui-store";
-import type { NodeInfo, NodesSnapshot } from "../../../types/telemetry";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
+import type { NodeInfo, NodesSnapshot } from "@/types/telemetry";
 
 import { ComputeAvailableView } from "./ComputeAvailableView";
 

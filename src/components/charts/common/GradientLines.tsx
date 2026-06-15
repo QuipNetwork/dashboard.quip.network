@@ -1,5 +1,5 @@
 import type { CustomLayerProps } from "@nivo/line";
-import { getSeriesGradient } from "../../../lib/chart-colors";
+import { getSeriesGradient } from "@/lib/chart-colors";
 
 export interface GradientStop {
   offset: string;

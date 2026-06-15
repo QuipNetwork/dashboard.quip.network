@@ -4,10 +4,10 @@ import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
-import type { BlockRecord, TelemetryResponse } from "../types/telemetry";
-import { ServicesProvider } from "../services/services-provider";
-import { useTelemetryStore } from "../store/telemetry-store";
-import { useUIStore } from "../store/ui-store";
+import type { BlockRecord, TelemetryResponse } from "@/types/telemetry";
+import { ServicesProvider } from "@/services/services-provider";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
 
 function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId">): BlockRecord {
   const n = overrides.substrateBlockNumber ?? "0";
@@ -108,7 +108,7 @@ describe("App smoke test", () => {
       );
     }) as unknown as typeof fetch);
 
-    const App = (await import("../App")).default;
+    const App = (await import("@/App")).default;
 
     await act(async () => {
       root.render(createElement(ServicesProvider, null, createElement(App)));

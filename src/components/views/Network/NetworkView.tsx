@@ -1,31 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { ChartCard } from "../../layout/ChartCard";
-import { BlocksOverTimeChart } from "../../charts/blocks-over-time/BlocksOverTimeChart";
-import { MiningTimeChart } from "../../charts/mining-time/MiningTimeChart";
-import { ComputeUsedChart } from "../../charts/compute-used/ComputeUsedChart";
-import { ActiveNodesChart } from "../../charts/active-nodes/ActiveNodesChart";
-import { EnergyDistributionChart } from "../../charts/energy-distribution/EnergyDistributionChart";
-import { TimeToSolutionChart } from "../../charts/time-to-solution/TimeToSolutionChart";
-import { EnergyCdfChart } from "../../charts/energy-cdf/EnergyCdfChart";
-import { WinRateByDifficultyChart } from "../../charts/win-rate-by-difficulty/WinRateByDifficultyChart";
-import { MiningTimeByDifficultyChart } from "../../charts/mining-time-by-difficulty/MiningTimeByDifficultyChart";
-import { CumulativeBlocksThresholdChart } from "../../charts/cumulative-blocks-threshold/CumulativeBlocksThresholdChart";
-import { Leaderboard } from "../../charts/leaderboard/Leaderboard";
-import { useBlocksOverTime } from "../../charts/blocks-over-time/use-blocks-over-time";
-import { useMiningTime } from "../../charts/mining-time/use-mining-time";
-import { useComputeUsed } from "../../charts/compute-used/use-compute-used";
-import { useActiveNodes } from "../../charts/active-nodes/use-active-nodes";
-import { useEnergyDistribution } from "../../charts/energy-distribution/use-energy-distribution";
-import { useTimeToSolution } from "../../charts/time-to-solution/use-time-to-solution";
-import { useEnergyCdf } from "../../charts/energy-cdf/use-energy-cdf";
-import { useWinRateByDifficulty } from "../../charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
-import { useMiningTimeByDifficulty } from "../../charts/mining-time-by-difficulty/use-mining-time-by-difficulty";
-import { useCumulativeBlocksThreshold } from "../../charts/cumulative-blocks-threshold/use-cumulative-blocks-threshold";
-import { useLeaderboard } from "../../charts/leaderboard/use-leaderboard";
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import { useUIStore } from "../../../store/ui-store";
-import { winningSolutionsSolved } from "../../../lib/chain-solutions";
+import { ChartCard } from "@/components/layout/ChartCard";
+import { BlocksOverTimeChart } from "@/components/charts/blocks-over-time/BlocksOverTimeChart";
+import { MiningTimeChart } from "@/components/charts/mining-time/MiningTimeChart";
+import { ComputeUsedChart } from "@/components/charts/compute-used/ComputeUsedChart";
+import { ActiveNodesChart } from "@/components/charts/active-nodes/ActiveNodesChart";
+import { EnergyDistributionChart } from "@/components/charts/energy-distribution/EnergyDistributionChart";
+import { TimeToSolutionChart } from "@/components/charts/time-to-solution/TimeToSolutionChart";
+import { EnergyCdfChart } from "@/components/charts/energy-cdf/EnergyCdfChart";
+import { WinRateByDifficultyChart } from "@/components/charts/win-rate-by-difficulty/WinRateByDifficultyChart";
+import { MiningTimeByDifficultyChart } from "@/components/charts/mining-time-by-difficulty/MiningTimeByDifficultyChart";
+import { CumulativeBlocksThresholdChart } from "@/components/charts/cumulative-blocks-threshold/CumulativeBlocksThresholdChart";
+import { Leaderboard } from "@/components/charts/leaderboard/Leaderboard";
+import { useBlocksOverTime } from "@/components/charts/blocks-over-time/use-blocks-over-time";
+import { useMiningTime } from "@/components/charts/mining-time/use-mining-time";
+import { useComputeUsed } from "@/components/charts/compute-used/use-compute-used";
+import { useActiveNodes } from "@/components/charts/active-nodes/use-active-nodes";
+import { useEnergyDistribution } from "@/components/charts/energy-distribution/use-energy-distribution";
+import { useTimeToSolution } from "@/components/charts/time-to-solution/use-time-to-solution";
+import { useEnergyCdf } from "@/components/charts/energy-cdf/use-energy-cdf";
+import { useWinRateByDifficulty } from "@/components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
+import { useMiningTimeByDifficulty } from "@/components/charts/mining-time-by-difficulty/use-mining-time-by-difficulty";
+import { useCumulativeBlocksThreshold } from "@/components/charts/cumulative-blocks-threshold/use-cumulative-blocks-threshold";
+import { useLeaderboard } from "@/components/charts/leaderboard/use-leaderboard";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
+import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { RecentBlocksTable } from "./RecentBlocksTable";
 
 export function NetworkView() {

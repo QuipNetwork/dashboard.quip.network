@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { ChainMinerRecord, NodeDescriptorRecord } from "../../../types/telemetry";
+import type { ChainMinerRecord, NodeDescriptorRecord } from "@/types/telemetry";
 import { filterChainMiners } from "./ChainMinersView";
 
 function miner(accountId: string): ChainMinerRecord {

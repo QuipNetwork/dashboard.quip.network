@@ -10,9 +10,9 @@ import type {
   ChainMinerRecord,
   MinerHardwareRecord,
   MiningSubmissionRecord,
-} from "../../../types/telemetry";
-import { useTelemetryStore } from "../../../store/telemetry-store";
-import { useUIStore } from "../../../store/ui-store";
+} from "@/types/telemetry";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
 
 import { useComputeUsed, type ComputeUsedEntry } from "./use-compute-used";
 

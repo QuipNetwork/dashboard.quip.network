@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { BlockRecord } from "../../types/telemetry";
+import type { BlockRecord } from "@/types/telemetry";
 
 import { FinalityBadge } from "./FinalityBadge";
 

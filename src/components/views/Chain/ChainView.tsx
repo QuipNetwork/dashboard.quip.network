@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 
-import { shortAddress } from "../../../lib/format-chain";
-import { selectServerNowMs, useTelemetryStore } from "../../../store/telemetry-store";
-import type { ValidatorAuthorshipRecord } from "../../../types/telemetry";
+import { shortAddress } from "@/lib/format-chain";
+import { selectServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
+import type { ValidatorAuthorshipRecord } from "@/types/telemetry";
 import { BabeAuthoritiesPanel } from "./BabeAuthoritiesPanel";
 
 // Sortable column identifiers. Tied to the visible columns on the table.

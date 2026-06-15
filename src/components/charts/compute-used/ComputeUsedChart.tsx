@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { ResponsivePie } from "@nivo/pie";
-import { nivoTheme } from "../../../theme/nivo-theme";
-import { getSeriesColor, getSeriesGradient } from "../../../lib/chart-colors";
-import { createPieGradientProps } from "../common/GradientPie";
-import { formatSeconds } from "../../../lib/format";
+import { nivoTheme } from "@/theme/nivo-theme";
+import { getSeriesColor, getSeriesGradient } from "@/lib/chart-colors";
+import { createPieGradientProps } from "@/components/charts/common/GradientPie";
+import { formatSeconds } from "@/lib/format";
 import type { ComputeUsedEntry } from "./use-compute-used";
 
 export interface ComputeUsedChartProps {
