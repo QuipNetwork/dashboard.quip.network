@@ -21,7 +21,12 @@ import { Kysely } from "kysely";
 
 import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
 import { SqliteDriverDialect } from "./kysely-sqlite-dialect";
-import { migrateToLatest } from "./migrator";
+import {
+  migrateToLatest,
+  migrationStatus,
+  pendingMigrations,
+  type MigrationStatusRow,
+} from "./migrator";
 import { Database } from "./sqlite-driver";
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
@@ -69,9 +74,20 @@ export class SQLiteAdapter implements DatabaseAdapter {
     this.db = null;
   }
 
+  private kysely(): Kysely<unknown> {
+    return new Kysely<unknown>({ dialect: new SqliteDriverDialect(this.requireDb()) });
+  }
+
   async migrate(): Promise<void> {
-    const kysely = new Kysely<unknown>({ dialect: new SqliteDriverDialect(this.requireDb()) });
-    await migrateToLatest(kysely, "sqlite");
+    await migrateToLatest(this.kysely(), "sqlite");
+  }
+
+  async migrationStatus(): Promise<MigrationStatusRow[]> {
+    return migrationStatus(this.kysely(), "sqlite");
+  }
+
+  async pendingMigrations(): Promise<string[]> {
+    return pendingMigrations(this.kysely(), "sqlite");
   }
 
   // --- Blocks ---

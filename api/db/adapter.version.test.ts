@@ -9,6 +9,8 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     "connect",
     "disconnect",
     "migrate",
+    "migrationStatus",
+    "pendingMigrations",
     // Blocks (substrate-canonical, no epoch coupling)
     "insertBlock",
     "getRecentBlocks",
@@ -49,5 +51,5 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     "getMiningCheckpoint",
     "setMiningCheckpoint",
   ];
-  expect(required.length).toBe(34);
+  expect(required.length).toBe(36);
 });

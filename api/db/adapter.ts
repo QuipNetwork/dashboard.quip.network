@@ -14,6 +14,7 @@ import type {
   ModeBreakdown,
   NodeDescriptorRecord,
 } from "../../src/types/telemetry";
+import type { MigrationStatusRow } from "./migrator";
 
 /**
  * Runtime-validate a raw `indexer_observability` meta payload before casting.
@@ -124,7 +125,12 @@ function parseModeBreakdownMap(raw: unknown): Record<string, ModeBreakdown> {
 export interface DatabaseAdapter {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
+  /** Apply all pending forward migrations to latest. */
   migrate(): Promise<void>;
+  /** Every known migration and whether it has been applied. */
+  migrationStatus(): Promise<MigrationStatusRow[]>;
+  /** Names of migrations that a migrate() would apply, in order (dry run). */
+  pendingMigrations(): Promise<string[]>;
 
   // --- Blocks (substrate-canonical; no epoch coupling) ---
   // The substrate worker is the sole writer. Every column is populated at

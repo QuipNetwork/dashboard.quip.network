@@ -12,7 +12,9 @@ async function buildFetcher(): Promise<Fetcher> {
   const cfg = getConfigFromEnv();
   const db: DatabaseAdapter = await createAdapter(cfg);
   await db.connect();
-  await db.migrate();
+  // No db.migrate() here: the serverless read path never migrates. Schema is
+  // applied out-of-band by the dedicated `bun run migrate` command (run by the
+  // deploy pipeline / docker entrypoint) against the same database.
   // Netlify deployments are chain-only (no embedded miner); the URL list
   // exists to satisfy the createApp contract but is never used because
   // the modal proxy endpoint is gated on db.getSelfAddress() being

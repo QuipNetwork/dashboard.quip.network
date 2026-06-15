@@ -19,7 +19,12 @@ import type {
   NodeDescriptorRecord,
 } from "../../src/types/telemetry";
 import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
-import { migrateToLatest } from "./migrator";
+import {
+  migrateToLatest,
+  migrationStatus,
+  pendingMigrations,
+  type MigrationStatusRow,
+} from "./migrator";
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
 
@@ -55,11 +60,22 @@ export class PostgresAdapter implements DatabaseAdapter {
     this.sql = null;
   }
 
-  async migrate(): Promise<void> {
-    const kysely = new Kysely<unknown>({
+  private kysely(): Kysely<unknown> {
+    return new Kysely<unknown>({
       dialect: new PostgresJSDialect({ postgres: this.requireSql() }),
     });
-    await migrateToLatest(kysely, "postgres");
+  }
+
+  async migrate(): Promise<void> {
+    await migrateToLatest(this.kysely(), "postgres");
+  }
+
+  async migrationStatus(): Promise<MigrationStatusRow[]> {
+    return migrationStatus(this.kysely(), "postgres");
+  }
+
+  async pendingMigrations(): Promise<string[]> {
+    return pendingMigrations(this.kysely(), "postgres");
   }
 
   // --- Blocks ---
