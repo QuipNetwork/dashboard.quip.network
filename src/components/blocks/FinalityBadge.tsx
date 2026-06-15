@@ -23,23 +23,20 @@ export function FinalityBadge({ block }: FinalityBadgeProps) {
   if (block.finalized) {
     return (
       <span
-        className="inline-flex items-center gap-1 border border-[#67E347]/40 bg-[#67E347]/15 px-1.5 py-0.5 font-accent text-[10px] text-[#67E347]"
+        className="inline-flex items-center gap-1 border border-positive/40 bg-positive/10 px-1.5 py-0.5 font-accent text-[10px] text-positive"
         title={`Finalized at substrate block ${block.substrateBlockNumber}`}
       >
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#67E347]" aria-hidden />
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-positive" aria-hidden />
         finalized
       </span>
     );
   }
   return (
     <span
-      className="inline-flex items-center gap-1 border border-[#F5A623]/40 bg-[#F5A623]/15 px-1.5 py-0.5 font-accent text-[10px] text-[#F5A623]"
+      className="inline-flex items-center gap-1 border border-warning/40 bg-warning/10 px-1.5 py-0.5 font-accent text-[10px] text-warning"
       title={`Substrate block ${block.substrateBlockNumber} awaiting Grandpa finalization`}
     >
-      <span
-        className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#F5A623]"
-        aria-hidden
-      />
+      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" aria-hidden />
       pending
     </span>
   );

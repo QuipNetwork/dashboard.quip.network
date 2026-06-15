@@ -12,15 +12,14 @@ export function Dashboard() {
   const viewMode = useUIStore((s) => s.viewMode);
 
   return (
-    <div className="relative min-h-screen bg-surface">
-      <div className="pointer-events-none fixed inset-0 bg-linear-to-b from-brand-gray-2/20 via-brand-gray-0 to-brand-gray-2/15" />
-      <div className="relative">
+    <div className="min-h-screen bg-surface">
+      <div>
         <Header />
         <main className="mx-auto max-w-7xl p-6">
           {loading && (
             <p className="py-20 text-center font-accent text-ink-subtle">Loading telemetry…</p>
           )}
-          {error && <p className="py-20 text-center font-accent text-brand-red-0">{error}</p>}
+          {error && <p className="py-20 text-center font-accent text-coral">{error}</p>}
           {!loading && !error && (
             <>
               {viewMode === "my-node" && <MyNodeView />}
