@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { create } from "zustand";
+import { create, type StateCreator } from "zustand";
+import { HttpTelemetryClient, type TelemetryClient } from "../services/telemetry-client";
 import type {
   BabeAuthorityRecord,
   BabeEpochState,
@@ -13,7 +14,6 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptorRecord,
   NodesSnapshot,
-  TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "../types/telemetry";
 
@@ -56,64 +56,73 @@ export interface TelemetryState {
   fetchTelemetry: () => Promise<void>;
 }
 
-export const useTelemetryStore = create<TelemetryState>((set, get) => ({
-  blocks: [],
-  selfAddress: null,
-  indexer: null,
-  serverTime: null,
-  chainHead: null,
-  babeEpoch: null,
-  babeAuthorities: [],
-  chainMiners: [],
-  recentDifficulty: [],
-  validators: [],
-  nodes: null,
-  nodeDescriptors: [],
-  recentMiningSubmissions: [],
-  selfProblemsAttempted: 0,
-  currentDispatch: null,
-  loading: true,
-  error: null,
-  fetchTelemetry: async () => {
-    // Only flash the loading screen on the very first load. Subsequent
-    // polling refreshes leave the current UI visible and swap data in place.
-    // In steady state both blocks and selfAddress are populated, so this
-    // never re-enters the loading flash after the first successful fetch.
-    const firstLoad = get().blocks.length === 0 && get().selfAddress === null;
-    if (firstLoad && !get().loading) set({ loading: true });
-    try {
-      const res = await fetch("/api/telemetry");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as TelemetryResponse;
-      // Defensive coercion: a rolling deploy (or a stale dev-server that
-      // hasn't been restarted past a schema bump) can return a response
-      // missing newly-added fields. Without these defaults, downstream
-      // hooks crash on `undefined.map` / `undefined.length` instead of
-      // gracefully degrading to "no data yet".
-      set({
-        blocks: data.blocks ?? [],
-        selfAddress: data.selfAddress ?? null,
-        indexer: data.indexer ?? null,
-        serverTime: data.serverTime,
-        chainHead: data.chainHead ?? null,
-        babeEpoch: data.babeEpoch ?? null,
-        babeAuthorities: data.babeAuthorities ?? [],
-        chainMiners: data.chainMiners ?? [],
-        recentDifficulty: data.recentDifficulty ?? [],
-        validators: data.validators ?? [],
-        nodes: data.nodes ?? null,
-        nodeDescriptors: data.nodeDescriptors ?? [],
-        recentMiningSubmissions: data.recentMiningSubmissions ?? [],
-        selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
-        currentDispatch: data.currentDispatch ?? null,
-        loading: false,
-        error: null,
-      });
-    } catch (e) {
-      set({ loading: false, error: e instanceof Error ? e.message : String(e) });
-    }
-  },
-}));
+export interface TelemetryStoreDeps {
+  client: TelemetryClient;
+}
+
+const createTelemetryState =
+  (deps: TelemetryStoreDeps): StateCreator<TelemetryState> =>
+  (set, get) => ({
+    blocks: [],
+    selfAddress: null,
+    indexer: null,
+    serverTime: null,
+    chainHead: null,
+    babeEpoch: null,
+    babeAuthorities: [],
+    chainMiners: [],
+    recentDifficulty: [],
+    validators: [],
+    nodes: null,
+    nodeDescriptors: [],
+    recentMiningSubmissions: [],
+    selfProblemsAttempted: 0,
+    currentDispatch: null,
+    loading: true,
+    error: null,
+    fetchTelemetry: async () => {
+      // Only flash the loading screen on the very first load. Subsequent
+      // polling refreshes leave the current UI visible and swap data in place.
+      // In steady state both blocks and selfAddress are populated, so this
+      // never re-enters the loading flash after the first successful fetch.
+      const firstLoad = get().blocks.length === 0 && get().selfAddress === null;
+      if (firstLoad && !get().loading) set({ loading: true });
+      try {
+        const data = await deps.client.fetchTelemetry();
+        // Defensive coercion: a rolling deploy (or a stale dev-server that
+        // hasn't been restarted past a schema bump) can return a response
+        // missing newly-added fields. Without these defaults, downstream
+        // hooks crash on `undefined.map` / `undefined.length` instead of
+        // gracefully degrading to "no data yet".
+        set({
+          blocks: data.blocks ?? [],
+          selfAddress: data.selfAddress ?? null,
+          indexer: data.indexer ?? null,
+          serverTime: data.serverTime,
+          chainHead: data.chainHead ?? null,
+          babeEpoch: data.babeEpoch ?? null,
+          babeAuthorities: data.babeAuthorities ?? [],
+          chainMiners: data.chainMiners ?? [],
+          recentDifficulty: data.recentDifficulty ?? [],
+          validators: data.validators ?? [],
+          nodes: data.nodes ?? null,
+          nodeDescriptors: data.nodeDescriptors ?? [],
+          recentMiningSubmissions: data.recentMiningSubmissions ?? [],
+          selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
+          currentDispatch: data.currentDispatch ?? null,
+          loading: false,
+          error: null,
+        });
+      } catch (e) {
+        set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+  });
+
+export const createTelemetryStore = (deps: TelemetryStoreDeps) =>
+  create<TelemetryState>(createTelemetryState(deps));
+
+export const useTelemetryStore = createTelemetryStore({ client: new HttpTelemetryClient() });
 
 // --- Selectors ---
 

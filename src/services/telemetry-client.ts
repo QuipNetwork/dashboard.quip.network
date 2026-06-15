@@ -13,12 +13,17 @@ export interface HttpTelemetryClientOptions {
 }
 
 export class HttpTelemetryClient implements TelemetryClient {
-  private readonly fetch: typeof fetch;
+  private readonly fetchImpl?: typeof fetch;
   private readonly baseUrl: string;
 
   constructor(options: HttpTelemetryClientOptions = {}) {
-    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.fetchImpl = options.fetch;
     this.baseUrl = options.baseUrl ?? "";
+  }
+
+  private fetch(input: string, init?: RequestInit): Promise<Response> {
+    const f = this.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    return init ? f(input, init) : f(input);
   }
 
   async fetchTelemetry(signal?: AbortSignal): Promise<TelemetryResponse> {

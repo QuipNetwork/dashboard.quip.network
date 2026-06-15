@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
+import type { TelemetryClient } from "../services/telemetry-client";
 import type {
   BabeAuthorityRecord,
   BabeEpochState,
@@ -10,14 +11,15 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
+  MiningAttemptsResponse,
   TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "../types/telemetry";
 import {
+  createTelemetryStore,
   selectServerNowMs,
   selectTipBlock,
   type TelemetryState,
-  useTelemetryStore,
 } from "./telemetry-store";
 
 // ---- Fixtures ----------------------------------------------------------
@@ -161,77 +163,56 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
   };
 }
 
-// ---- fetch() mocking ---------------------------------------------------
+// ---- fake client injection ---------------------------------------------
 
-type FetchInput = Parameters<typeof fetch>[0];
-type FetchInit = Parameters<typeof fetch>[1];
-
-interface FetchCall {
-  url: string;
-  init: FetchInit;
+interface FakeClient extends TelemetryClient {
+  calls: number;
 }
 
-const originalFetch = globalThis.fetch;
-let fetchCalls: FetchCall[] = [];
-
-function installFetchMock(handler: (url: string) => Response | Promise<Response>): void {
-  fetchCalls = [];
-  globalThis.fetch = (async (input: FetchInput, init?: FetchInit) => {
-    const url =
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    fetchCalls.push({ url, init });
-    return handler(url);
-  }) as typeof fetch;
+function clientReturning(response: TelemetryResponse): FakeClient {
+  const client: FakeClient = {
+    calls: 0,
+    fetchTelemetry: async () => {
+      client.calls += 1;
+      return response;
+    },
+    fetchMiningAttempts: async (): Promise<MiningAttemptsResponse> => {
+      throw new Error("not used");
+    },
+  };
+  return client;
 }
 
-function resetStore(): void {
-  useTelemetryStore.setState({
-    blocks: [],
-    selfAddress: null,
-    indexer: null,
-    serverTime: null,
-    chainHead: null,
-    babeEpoch: null,
-    babeAuthorities: [],
-    chainMiners: [],
-    recentDifficulty: [],
-    validators: [],
-    nodes: null,
-    nodeDescriptors: [],
-    recentMiningSubmissions: [],
-    selfProblemsAttempted: 0,
-    currentDispatch: null,
-    loading: true,
-    error: null,
-  });
+function clientThrowing(error: Error): FakeClient {
+  const client: FakeClient = {
+    calls: 0,
+    fetchTelemetry: async () => {
+      client.calls += 1;
+      throw error;
+    },
+    fetchMiningAttempts: async (): Promise<MiningAttemptsResponse> => {
+      throw new Error("not used");
+    },
+  };
+  return client;
 }
-
-beforeEach(() => {
-  resetStore();
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
-// ---- fetchTelemetry: endpoint contract ---------------------------------
 
 describe("fetchTelemetry", () => {
-  it("issues exactly one request to /api/telemetry (no index endpoint)", async () => {
-    installFetchMock(() => new Response(JSON.stringify(makeResponse()), { status: 200 }));
+  it("delegates to the injected client exactly once", async () => {
+    const client = clientReturning(makeResponse());
+    const store = createTelemetryStore({ client });
 
-    await useTelemetryStore.getState().fetchTelemetry();
+    await store.getState().fetchTelemetry();
 
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0]?.url).toBe("/api/telemetry");
+    expect(client.calls).toBe(1);
   });
 
   it("populates the slim TelemetryResponse shape into state", async () => {
-    installFetchMock(() => new Response(JSON.stringify(makeResponse()), { status: 200 }));
+    const store = createTelemetryStore({ client: clientReturning(makeResponse()) });
 
-    await useTelemetryStore.getState().fetchTelemetry();
+    await store.getState().fetchTelemetry();
 
-    const s = useTelemetryStore.getState();
+    const s = store.getState();
     expect(s.blocks).toHaveLength(1);
     expect(s.selfAddress).toBe("5GPP");
     expect(s.indexer).toEqual(MOCK_INDEXER);
@@ -247,31 +228,29 @@ describe("fetchTelemetry", () => {
   });
 
   it("exposes nodes (NodesSnapshot | null) but not the deleted telemetryIndex field", () => {
-    const s = useTelemetryStore.getState() as unknown as Record<string, unknown>;
+    const store = createTelemetryStore({ client: clientReturning(makeResponse()) });
+    const s = store.getState() as unknown as Record<string, unknown>;
     expect("nodes" in s).toBe(true);
     expect(s.nodes).toBeNull();
-    // PoW-epoch abstraction stayed deleted per the v0.2 resurrection plan.
     expect("telemetryIndex" in s).toBe(false);
   });
 
   it("sets error and clears loading on HTTP failure", async () => {
-    installFetchMock(() => new Response("nope", { status: 503 }));
+    const store = createTelemetryStore({ client: clientThrowing(new Error("HTTP 503")) });
 
-    await useTelemetryStore.getState().fetchTelemetry();
+    await store.getState().fetchTelemetry();
 
-    const s = useTelemetryStore.getState();
+    const s = store.getState();
     expect(s.error).toBe("HTTP 503");
     expect(s.loading).toBe(false);
   });
 
   it("sets error and clears loading on network rejection", async () => {
-    globalThis.fetch = (async () => {
-      throw new Error("boom");
-    }) as unknown as typeof fetch;
+    const store = createTelemetryStore({ client: clientThrowing(new Error("boom")) });
 
-    await useTelemetryStore.getState().fetchTelemetry();
+    await store.getState().fetchTelemetry();
 
-    const s = useTelemetryStore.getState();
+    const s = store.getState();
     expect(s.error).toBe("boom");
     expect(s.loading).toBe(false);
   });

@@ -64,6 +64,7 @@ beforeEach(() => {
     blocks: [],
     selfAddress: null,
     indexer: null,
+    serverTime: null,
     loading: false,
     error: null,
   }));
