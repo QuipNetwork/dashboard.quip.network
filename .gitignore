@@ -4,6 +4,11 @@
 /bun.lock
 /build
 
+# env config
+.env
+.env.*
+!.env.example
+
 # Local Netlify folder
 .netlify
 

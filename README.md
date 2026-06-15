@@ -71,7 +71,7 @@ docker run -d --restart=always \
   -e RUN_SERVER=false \
   -e DB_ADAPTER=postgres \
   -e DATABASE_URL="postgresql://..." \
-  -e QUIP_NODE_URL=https://qpu-1.nodes.quip.network \
+  -e QUIP_VALIDATOR_RPC_URLS=ws://<validator-host>:9944 \
   registry.gitlab.com/<group>/<project>:latest
 ```
 
@@ -85,7 +85,7 @@ with a persistent volume.
 ```sh
 docker run -p 3001:3001 \
   -v quip-data:/data \
-  -e QUIP_NODE_URL=https://qpu-1.nodes.quip.network \
+  -e QUIP_VALIDATOR_RPC_URLS=ws://<validator-host>:9944 \
   registry.gitlab.com/<group>/<project>:latest
 ```
 
@@ -110,7 +110,7 @@ services:
     environment:
       DB_ADAPTER: postgres
       DATABASE_URL: postgresql://quip:quip@db:5432/quip
-      QUIP_NODE_URL: https://qpu-1.nodes.quip.network
+      QUIP_VALIDATOR_RPC_URLS: ws://quip-validator:9944
     ports: ["3001:3001"]
 
 volumes:
@@ -119,20 +119,10 @@ volumes:
 
 ## Configuration reference
 
-| Var                 | Default                            | Component  | Notes                                  |
-| ------------------- | ---------------------------------- | ---------- | -------------------------------------- |
-| `QUIP_NODE_URL`     | `https://qpu-1.nodes.quip.network` | indexer    | base URL, no `/api/v1` suffix          |
-| `QUIP_NODE_TOKEN`   | (unset)                            | indexer    | bearer token if node is protected      |
-| `POLL_INTERVAL_SEC` | `8`                                | indexer    | status-poll cadence                    |
-| `NODES_REFRESH_SEC` | `45`                               | indexer    | nodes-poll cadence                     |
-| `VERBOSE`           | (unset)                            | indexer    | `1` enables debug logging              |
-| `DB_ADAPTER`        | `sqlite`                           | both       | `sqlite` or `postgres`                 |
-| `DATABASE_URL`      | (unset)                            | both       | required when `DB_ADAPTER=postgres`    |
-| `SQLITE_PATH`       | `/data/telemetry.db`               | both       | sqlite-only                            |
-| `PORT`              | `3001`                             | server     | HTTP listen port                       |
-| `STATIC_DIR`        | `/app/dist`                        | server     | built SPA dir served as fallback       |
-| `RUN_INDEXER`       | `true`                             | entrypoint | set `false` on Netlify Postgres host   |
-| `RUN_SERVER`        | `true`                             | entrypoint | set `false` on a separate indexer host |
+Every environment variable — names, defaults, components, and what they do — is
+documented in [`.env.example`](.env.example), the single source of truth. Copy
+it to `.env` (auto-loaded by Bun and `netlify dev`) and uncomment what you need
+to override; each value shown there is the built-in default.
 
 ## Local development
 
