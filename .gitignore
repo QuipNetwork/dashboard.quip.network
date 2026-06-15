@@ -20,3 +20,7 @@
 
 # Stray deno lockfile from tooling experiments (this is a Bun project).
 /deno.lock
+
+# Vendored sibling project kept locally as an architecture reference only.
+# Never tracked, and excluded from `bun test` discovery.
+/reference-material/

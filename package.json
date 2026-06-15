@@ -17,7 +17,7 @@
     "migrate": "bun run server/migrate.ts",
     "start": "bun run docker/entrypoint.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test --path-ignore-patterns '**/reference-material/**'"
   },
   "dependencies": {
     "@nivo/bar": "^0.88.0",
