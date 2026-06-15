@@ -49,7 +49,7 @@ async function runUp(db: DatabaseAdapter): Promise<void> {
 async function main(): Promise<void> {
   const command = parseCommand(process.argv);
   const cfg = getConfigFromEnv();
-  console.log(`[migrate] adapter=${cfg.adapter} command=${command}`);
+  console.log(`[migrate] postgres command=${command}`);
 
   const db = await createAdapter(cfg);
   try {

@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-
 import { Kysely, sql, type RawBuilder } from "kysely";
 import { PostgresJSDialect } from "kysely-postgres-js";
 import postgres, { type Sql } from "postgres";
@@ -19,17 +16,11 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptorRecord,
 } from "../../src/types/telemetry";
-import {
-  parseIndexerObservability,
-  type DatabaseAdapter,
-  type DbConfig,
-} from "./adapter";
-import { SqliteDriverDialect } from "./kysely-sqlite-dialect";
+import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
 import {
   migrateToLatest,
   migrationStatus,
   pendingMigrations,
-  type MigrationDialect,
   type MigrationStatusRow,
 } from "./migrator";
 import {
@@ -43,7 +34,6 @@ import {
   rowToNodeDescriptor,
   rowToValidatorAuthorship,
 } from "./row-mappers";
-import { Database } from "./sqlite-driver";
 import type { DB } from "./schema-types";
 
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
@@ -57,16 +47,11 @@ function miningCheckpointKey(minerId: string): string {
 
 type ChainMinerLite = Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">;
 
-// A single dialect-parameterised adapter over Kysely. Reads are normalised by
-// the shared row mappers; writes and the handful of genuinely dialect-divergent
-// SQL fragments (numeric ordering, conflict guards, JSON casts) branch on the
-// dialect inline.
+// A Postgres adapter over Kysely (postgres-js). Reads are normalised by the
+// shared row mappers; writes pass JS values straight through.
 export class KyselyAdapter implements DatabaseAdapter {
-  private readonly dialect: MigrationDialect;
-  private readonly sqlitePath: string;
   private readonly url: string | undefined;
   private db: Kysely<DB> | null = null;
-  private rawSqlite: Database | null = null;
   private sqlClient: Sql | null = null;
   // Test seam: an externally-built Kysely (e.g. over pglite). When present,
   // connect()/disconnect() use it instead of opening a real connection, and
@@ -74,17 +59,11 @@ export class KyselyAdapter implements DatabaseAdapter {
   private readonly injected: { db: Kysely<DB>; onClose?: () => Promise<void> } | null;
 
   constructor(config: DbConfig, injected?: { db: Kysely<DB>; onClose?: () => Promise<void> }) {
-    this.dialect = config.adapter;
-    this.sqlitePath = config.sqlitePath ?? "./data/telemetry.db";
     this.url = config.databaseUrl ?? process.env.DATABASE_URL;
     this.injected = injected ?? null;
-    if (this.dialect === "postgres" && !this.url && !this.injected) {
-      throw new Error("postgres adapter requires DATABASE_URL or config.databaseUrl");
+    if (!this.url && !this.injected) {
+      throw new Error("KyselyAdapter requires DATABASE_URL or config.databaseUrl");
     }
-  }
-
-  private get pg(): boolean {
-    return this.dialect === "postgres";
   }
 
   async connect(): Promise<void> {
@@ -92,20 +71,14 @@ export class KyselyAdapter implements DatabaseAdapter {
       this.db = this.injected.db;
       return;
     }
-    if (this.pg) {
-      this.sqlClient = postgres(this.url as string, { max: 4, idle_timeout: 30 });
-      await this.sqlClient`SELECT 1`;
-      this.db = new Kysely<DB>({
-        dialect: new PostgresJSDialect({ postgres: this.sqlClient }),
-      });
-      return;
-    }
-    mkdirSync(dirname(this.sqlitePath), { recursive: true });
-    this.rawSqlite = new Database(this.sqlitePath, { create: true });
-    this.rawSqlite.run("PRAGMA journal_mode = WAL");
-    this.rawSqlite.run("PRAGMA foreign_keys = ON");
-    this.rawSqlite.run("PRAGMA busy_timeout = 5000");
-    this.db = new Kysely<DB>({ dialect: new SqliteDriverDialect(this.rawSqlite) });
+    this.sqlClient = postgres(this.url as string, {
+      max: 4,
+      idle_timeout: 30,
+      // Migrations issue DROP TABLE IF EXISTS; silence the resulting NOTICEs.
+      onnotice: () => {},
+    });
+    await this.sqlClient`SELECT 1`;
+    this.db = new Kysely<DB>({ dialect: new PostgresJSDialect({ postgres: this.sqlClient }) });
   }
 
   async disconnect(): Promise<void> {
@@ -118,28 +91,19 @@ export class KyselyAdapter implements DatabaseAdapter {
       await this.sqlClient.end({ timeout: 5 });
       this.sqlClient = null;
     }
-    if (this.rawSqlite) {
-      try {
-        this.rawSqlite.run("PRAGMA wal_checkpoint(TRUNCATE)");
-      } catch (e) {
-        console.warn("[db] wal_checkpoint failed on close:", e);
-      }
-      this.rawSqlite.close();
-      this.rawSqlite = null;
-    }
     this.db = null;
   }
 
   async migrate(): Promise<void> {
-    await migrateToLatest(this.migratorDb(), this.dialect);
+    await migrateToLatest(this.migratorDb());
   }
 
   async migrationStatus(): Promise<MigrationStatusRow[]> {
-    return migrationStatus(this.migratorDb(), this.dialect);
+    return migrationStatus(this.migratorDb());
   }
 
   async pendingMigrations(): Promise<string[]> {
-    return pendingMigrations(this.migratorDb(), this.dialect);
+    return pendingMigrations(this.migratorDb());
   }
 
   // --- Blocks ---
@@ -165,36 +129,40 @@ export class KyselyAdapter implements DatabaseAdapter {
         difficulty_energy: b.difficultyEnergy,
         min_diversity: b.minDiversity,
         min_solutions: b.minSolutions,
-        finalized: this.bool(b.finalized),
+        finalized: b.finalized,
       })
       .onConflict((oc) => oc.column("block_hash").doNothing())
       .execute();
   }
 
   async getRecentBlocks(limit: number, offset: number = 0): Promise<BlockRecord[]> {
-    const base = this.requireDb().selectFrom("blocks").selectAll();
-    const ordered = this.pg
-      ? base.orderBy("substrate_block_number", "desc")
-      : base.orderBy(sql`cast(substrate_block_number as integer)`, "desc");
-    const rows = await ordered.limit(limit).offset(offset).execute();
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .selectAll()
+      .orderBy("substrate_block_number", "desc")
+      .limit(limit)
+      .offset(offset)
+      .execute();
     return rows.map(rowToBlockRecord);
   }
 
   async getBlocksByMiner(minerId: string, limit: number): Promise<BlockRecord[]> {
-    const base = this.requireDb().selectFrom("blocks").selectAll().where("miner_id", "=", minerId);
-    const ordered = this.pg
-      ? base.orderBy("substrate_block_number", "desc")
-      : base.orderBy(sql`cast(substrate_block_number as integer)`, "desc");
-    const rows = await ordered.limit(limit).execute();
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .selectAll()
+      .where("miner_id", "=", minerId)
+      .orderBy("substrate_block_number", "desc")
+      .limit(limit)
+      .execute();
     return rows.map(rowToBlockRecord);
   }
 
   async markBlockFinalized(blockHash: string): Promise<void> {
     await this.requireDb()
       .updateTable("blocks")
-      .set({ finalized: this.bool(true) })
+      .set({ finalized: true })
       .where("block_hash", "=", blockHash)
-      .where("finalized", "=", this.bool(false))
+      .where("finalized", "=", false)
       .execute();
   }
 
@@ -213,7 +181,7 @@ export class KyselyAdapter implements DatabaseAdapter {
   async getIndexerObservability(): Promise<IndexerObservability | null> {
     const raw = await this.getMeta(INDEXER_OBSERVABILITY_KEY);
     if (!raw) return null;
-    return parseIndexerObservability(raw, this.dialect);
+    return parseIndexerObservability(raw);
   }
 
   async setIndexerObservability(obs: IndexerObservability): Promise<void> {
@@ -291,8 +259,8 @@ export class KyselyAdapter implements DatabaseAdapter {
       .execute(async (trx) => {
         await trx
           .updateTable("babe_epochs")
-          .set({ is_current: this.bool(false) })
-          .where("is_current", "=", this.bool(true))
+          .set({ is_current: false })
+          .where("is_current", "=", true)
           .where("epoch_index", "!=", epoch.epochIndex)
           .execute();
         await trx
@@ -304,7 +272,7 @@ export class KyselyAdapter implements DatabaseAdapter {
             slots_per_epoch: epoch.slotsPerEpoch,
             current_slot_in_epoch: epoch.currentSlotInEpoch,
             authority_count: epoch.authorityCount,
-            is_current: this.bool(true),
+            is_current: true,
             updated_at: now,
           })
           .onConflict((oc) =>
@@ -314,7 +282,7 @@ export class KyselyAdapter implements DatabaseAdapter {
               slots_per_epoch: sql`excluded.slots_per_epoch`,
               current_slot_in_epoch: sql`excluded.current_slot_in_epoch`,
               authority_count: sql`excluded.authority_count`,
-              is_current: this.bool(true),
+              is_current: true,
               updated_at: sql`excluded.updated_at`,
             }),
           )
@@ -326,7 +294,7 @@ export class KyselyAdapter implements DatabaseAdapter {
     const row = await this.requireDb()
       .selectFrom("babe_epochs")
       .selectAll()
-      .where("is_current", "=", this.bool(true))
+      .where("is_current", "=", true)
       .limit(1)
       .executeTakeFirst();
     return row ? rowToBabeEpoch(row) : null;
@@ -343,9 +311,9 @@ export class KyselyAdapter implements DatabaseAdapter {
         const incoming = authorities.map((a) => a.accountId);
         let demote = trx
           .updateTable("babe_authorities")
-          .set({ is_active: this.bool(false), updated_at: now })
+          .set({ is_active: false, updated_at: now })
           .where("epoch_index", "=", epochIndex)
-          .where("is_active", "=", this.bool(true));
+          .where("is_active", "=", true);
         if (incoming.length > 0) demote = demote.where("account_id", "not in", incoming);
         await demote.execute();
         for (const a of authorities) {
@@ -355,13 +323,13 @@ export class KyselyAdapter implements DatabaseAdapter {
               account_id: a.accountId,
               epoch_index: epochIndex,
               display_name: a.displayName,
-              is_active: this.bool(true),
+              is_active: true,
               updated_at: now,
             })
             .onConflict((oc) =>
               oc.columns(["account_id", "epoch_index"]).doUpdateSet({
                 display_name: sql`excluded.display_name`,
-                is_active: this.bool(true),
+                is_active: true,
                 updated_at: sql`excluded.updated_at`,
               }),
             )
@@ -378,10 +346,10 @@ export class KyselyAdapter implements DatabaseAdapter {
         eb
           .selectFrom("babe_epochs")
           .select("epoch_index")
-          .where("is_current", "=", this.bool(true))
+          .where("is_current", "=", true)
           .limit(1),
       )
-      .where("is_active", "=", this.bool(true))
+      .where("is_active", "=", true)
       .orderBy("account_id")
       .execute();
     return rows.map((r) => ({ accountId: r.account_id, displayName: r.display_name }));
@@ -429,11 +397,11 @@ export class KyselyAdapter implements DatabaseAdapter {
   }
 
   async getChainMiners(): Promise<ChainMinerLite[]> {
-    const base = this.requireDb().selectFrom("chain_miners").selectAll();
-    const ordered = this.pg
-      ? base.orderBy("rewards_earned", "desc")
-      : base.orderBy(sql`cast(rewards_earned as real)`, "desc");
-    const rows = await ordered.execute();
+    const rows = await this.requireDb()
+      .selectFrom("chain_miners")
+      .selectAll()
+      .orderBy("rewards_earned", "desc")
+      .execute();
     return rows.map(rowToChainMiner);
   }
 
@@ -554,9 +522,7 @@ export class KyselyAdapter implements DatabaseAdapter {
   // --- Node descriptors ---
 
   async upsertNodeDescriptor(record: NodeDescriptorRecord): Promise<void> {
-    const lt = this.pg
-      ? sql<boolean>`(node_descriptors.block_number, node_descriptors.extrinsic_index) < (excluded.block_number, excluded.extrinsic_index)`
-      : sql<boolean>`(cast(node_descriptors.block_number as integer), node_descriptors.extrinsic_index) < (cast(excluded.block_number as integer), excluded.extrinsic_index)`;
+    const lt = sql<boolean>`(node_descriptors.block_number, node_descriptors.extrinsic_index) < (excluded.block_number, excluded.extrinsic_index)`;
     await this.requireDb()
       .insertInto("node_descriptors")
       .values({
@@ -586,9 +552,7 @@ export class KyselyAdapter implements DatabaseAdapter {
   }
 
   async getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]> {
-    const order = this.pg
-      ? sql`coalesce(descriptor->>'nodeName', account_id)`
-      : sql`coalesce(json_extract(descriptor, '$.nodeName'), account_id)`;
+    const order = sql`coalesce(descriptor->>'nodeName', account_id)`;
     const rows = await this.requireDb()
       .selectFrom("node_descriptors")
       .selectAll()
@@ -723,7 +687,6 @@ export class KyselyAdapter implements DatabaseAdapter {
   }
 
   private async setMetaMonotonic(key: string, value: string): Promise<void> {
-    const cast = sql.raw(this.pg ? "numeric" : "integer");
     await this.requireDb()
       .insertInto("meta")
       .values({ key, value })
@@ -731,21 +694,17 @@ export class KyselyAdapter implements DatabaseAdapter {
         oc
           .column("key")
           .doUpdateSet({ value: sql`excluded.value` })
-          .where(sql<boolean>`cast(meta.value as ${cast}) < cast(excluded.value as ${cast})`),
+          .where(sql<boolean>`cast(meta.value as numeric) < cast(excluded.value as numeric)`),
       )
       .execute();
   }
 
-  private bool(v: boolean): boolean | number {
-    return this.pg ? v : v ? 1 : 0;
-  }
-
-  private jsonVal(v: unknown): RawBuilder<unknown> | string {
-    return this.pg ? sql`${JSON.stringify(v)}::jsonb` : JSON.stringify(v);
+  private jsonVal(v: unknown): RawBuilder<unknown> {
+    return sql`${JSON.stringify(v)}::jsonb`;
   }
 
   private distinctOp(): RawBuilder<unknown> {
-    return sql.raw(this.pg ? "is distinct from" : "is not");
+    return sql.raw("is distinct from");
   }
 
   private requireDb(): Kysely<DB> {

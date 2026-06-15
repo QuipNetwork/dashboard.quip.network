@@ -33,10 +33,7 @@ function getFetcher(): Promise<Fetcher> {
       // Log with enough context to diagnose 500s from Netlify's function log.
       console.error(
         "[netlify] buildFetcher failed",
-        {
-          adapter: process.env.DB_ADAPTER ?? "sqlite",
-          hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
-        },
+        { hasDatabaseUrl: Boolean(process.env.DATABASE_URL) },
         err,
       );
       fetcherPromise = null;

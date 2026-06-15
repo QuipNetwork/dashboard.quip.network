@@ -117,10 +117,7 @@ export async function createPgliteHarness(
   const db = new Kysely<DB>({ dialect: new PgliteDialect(pg) });
   const onClose =
     opts.closeAdapterOnDisconnect === false ? async (): Promise<void> => {} : () => pg.close();
-  const adapter = new KyselyAdapter(
-    { adapter: "postgres", databaseUrl: "pglite://memory" },
-    { db, onClose },
-  );
+  const adapter = new KyselyAdapter({ databaseUrl: "pglite://memory" }, { db, onClose });
   await adapter.connect();
   await adapter.migrate();
   return {

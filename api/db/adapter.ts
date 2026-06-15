@@ -27,13 +27,8 @@ import type { MigrationStatusRow } from "./migrator";
  * telemetry endpoint. `minerStats` is best-effort: a malformed sub-object
  * degrades to `null` rather than rejecting the whole record.
  *
- * The `_adapter` parameter is unused in v6 (no adapter-specific logic) but
- * kept for API compatibility with sqlite/postgres callers.
  */
-export function parseIndexerObservability(
-  raw: string,
-  _adapter: "sqlite" | "postgres",
-): IndexerObservability | null {
+export function parseIndexerObservability(raw: string): IndexerObservability | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -377,7 +372,5 @@ export interface DatabaseAdapter {
 }
 
 export interface DbConfig {
-  adapter: "sqlite" | "postgres";
-  databaseUrl?: string;
-  sqlitePath?: string;
+  databaseUrl: string;
 }

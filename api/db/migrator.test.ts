@@ -11,7 +11,7 @@ import type { DB } from "./schema-types";
 
 let kysely: Kysely<DB>;
 let close: () => Promise<void>;
-// The migrator functions are dialect-generic over Kysely<unknown>.
+// The migrator functions take Kysely<unknown>; cast the typed pglite handle.
 let mk: Kysely<unknown>;
 
 beforeEach(async () => {
@@ -24,19 +24,19 @@ afterEach(async () => {
 
 describe("migrator (postgres)", () => {
   it("applies the baseline to a fresh DB and records it in the ledger", async () => {
-    expect(await pendingMigrations(mk, "postgres")).toEqual(["0001_initial"]);
+    expect(await pendingMigrations(mk)).toEqual(["0001_initial"]);
 
-    const { applied } = await migrateToLatest(mk, "postgres");
+    const { applied } = await migrateToLatest(mk);
     expect(applied).toEqual(["0001_initial"]);
 
-    const status = await migrationStatus(mk, "postgres");
+    const status = await migrationStatus(mk);
     expect(status).toEqual([{ name: "0001_initial", applied: true, executedAt: expect.any(Date) }]);
-    expect(await pendingMigrations(mk, "postgres")).toEqual([]);
+    expect(await pendingMigrations(mk)).toEqual([]);
   });
 
   it("is idempotent: a second run applies nothing", async () => {
-    await migrateToLatest(mk, "postgres");
-    const { applied } = await migrateToLatest(mk, "postgres");
+    await migrateToLatest(mk);
+    const { applied } = await migrateToLatest(mk);
     expect(applied).toEqual([]);
   });
 
@@ -44,8 +44,8 @@ describe("migrator (postgres)", () => {
     // Build the full schema, populate every table via the adapter, then drop
     // the ledger to emulate a DB that predates proper migrations (the realistic
     // prod state at cutover). Re-migrating must adopt it without wiping.
-    await migrateToLatest(mk, "postgres");
-    const adapter = new KyselyAdapter({ adapter: "postgres", databaseUrl: "pglite" }, { db: kysely });
+    await migrateToLatest(mk);
+    const adapter = new KyselyAdapter({ databaseUrl: "pglite" }, { db: kysely });
     await adapter.connect();
 
     await adapter.insertBlock({
@@ -124,9 +124,9 @@ describe("migrator (postgres)", () => {
 
     // Drop the ledger → DB now looks "pre-migration" (schema + data, no ledger).
     await sql`DROP TABLE kysely_migration`.execute(kysely);
-    expect(await pendingMigrations(mk, "postgres")).toEqual(["0001_initial"]);
+    expect(await pendingMigrations(mk)).toEqual(["0001_initial"]);
 
-    const { applied } = await migrateToLatest(mk, "postgres");
+    const { applied } = await migrateToLatest(mk);
     expect(applied).toEqual(["0001_initial"]);
 
     // Every seeded row survived adoption.
@@ -137,6 +137,6 @@ describe("migrator (postgres)", () => {
     expect(await adapter.getRecentDifficulty(10)).toHaveLength(1);
     expect(await adapter.getValidatorAuthorship()).toHaveLength(1);
     expect(await adapter.getRecentMiningSubmissions("5GPP", 10)).toHaveLength(1);
-    expect(await pendingMigrations(mk, "postgres")).toEqual([]);
+    expect(await pendingMigrations(mk)).toEqual([]);
   });
 });

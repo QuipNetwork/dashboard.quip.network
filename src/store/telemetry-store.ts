@@ -153,8 +153,8 @@ export const selectServerNowMs = (s: TelemetryState): number =>
 
 /**
  * The tip block, or null when no blocks are loaded. The API ships blocks
- * sorted DESC by substrate_block_number (see api/db/sqlite.ts and
- * api/db/postgres.ts), so the tip is the first element. Returns a reference
+ * sorted DESC by substrate_block_number (see api/db/kysely-adapter.ts), so
+ * the tip is the first element. Returns a reference
  * stable between fetches (same BlockRecord identity in the array), so it's
  * safe to pass directly to `useTelemetryStore(selectTipBlock)`. Don't layer a
  * derived-object selector on top: zustand compares by reference and a fresh

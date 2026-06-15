@@ -75,9 +75,8 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // Run migrate synchronously before children start so schema drift is
-  // resolved deterministically (and so WAL mode is set on the sqlite file
-  // before the server and indexer race to open it).
+  // Run migrate synchronously before children start so the Postgres schema is
+  // applied deterministically before the server and indexer connect.
   console.log("entrypoint: running migrate");
   const migrateProc = Bun.spawn({
     cmd: ["bun", "run", "/app/server/migrate.ts"],
