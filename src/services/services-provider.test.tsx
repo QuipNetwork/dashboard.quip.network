@@ -9,6 +9,7 @@ import {
   telemetryStore,
   useTelemetryStore,
 } from "../store/telemetry-store";
+import { createUIStore, useUIStore } from "../store/ui-store";
 import type { MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
 import { ServicesProvider } from "./services-provider";
 import type { TelemetryClient } from "./telemetry-client";
@@ -25,6 +26,11 @@ const idleClient: TelemetryClient = {
 function SelfAddress() {
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
   return createElement("span", null, selfAddress ?? "none");
+}
+
+function ViewMode() {
+  const viewMode = useUIStore((s) => s.viewMode);
+  return createElement("span", null, viewMode);
 }
 
 let container: HTMLDivElement;
@@ -70,5 +76,20 @@ describe("ServicesProvider", () => {
     });
 
     expect(container.textContent).toBe("5Default");
+  });
+
+  it("injects the UI store independently of the singleton", () => {
+    const injected = createUIStore();
+    injected.setState({ viewMode: "chain" });
+
+    act(() => {
+      root.render(
+        <ServicesProvider uiStore={injected}>
+          <ViewMode />
+        </ServicesProvider>,
+      );
+    });
+
+    expect(container.textContent).toBe("chain");
   });
 });
