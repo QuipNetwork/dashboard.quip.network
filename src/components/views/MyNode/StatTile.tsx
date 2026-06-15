@@ -9,7 +9,7 @@ interface StatTileProps {
   accent?: string;
 }
 
-export function StatTile({ label, value, sublabel, accent = "#67E347" }: StatTileProps) {
+export function StatTile({ label, value, sublabel, accent = "#059669" }: StatTileProps) {
   return (
     <div className="border border-border bg-white p-5">
       <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">{label}</p>

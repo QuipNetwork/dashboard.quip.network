@@ -2,36 +2,36 @@ import type { Theme } from "@nivo/core";
 
 export const nivoTheme: Theme = {
   text: {
-    fill: "#DCDCDC",
+    fill: "#27272a",
     fontSize: 12,
-    fontFamily: "'ABC Favotit Mono', monospace",
+    fontFamily: "'ABC Favorit Mono', monospace",
   },
   axis: {
     domain: {
-      line: { stroke: "#525252", strokeWidth: 1 },
+      line: { stroke: "#d4d4d8", strokeWidth: 1 },
     },
     ticks: {
-      line: { stroke: "#525252", strokeWidth: 1 },
-      text: { fill: "#A9A9A9", fontSize: 11 },
+      line: { stroke: "#d4d4d8", strokeWidth: 1 },
+      text: { fill: "#52525c", fontSize: 11 },
     },
     legend: {
-      text: { fill: "#DCDCDC", fontSize: 12 },
+      text: { fill: "#27272a", fontSize: 12 },
     },
   },
   grid: {
-    line: { stroke: "#282828", strokeWidth: 1 },
+    line: { stroke: "#e4e4e7", strokeWidth: 1 },
   },
   crosshair: {
-    line: { stroke: "#A9A9A9", strokeWidth: 1 },
+    line: { stroke: "#52525c", strokeWidth: 1 },
   },
   tooltip: {
     container: {
-      background: "#282828",
-      color: "#DCDCDC",
+      background: "#ffffff",
+      color: "#27272a",
       fontSize: 12,
-      borderRadius: "6px",
-      border: "1px solid #525252",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+      borderRadius: "0",
+      border: "1px solid #d4d4d8",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
     },
   },
 };

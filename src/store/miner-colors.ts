@@ -14,12 +14,12 @@ function hash(s: string): number {
 
 /**
  * Generate a visually distinct HSL color from a hash.
- * Saturation and lightness are constrained to look good on dark backgrounds.
+ * Saturation and lightness are constrained to read on light backgrounds.
  */
 function colorFromHash(h: number): string {
   const hue = h % 360;
-  const sat = 55 + (h % 30); // 55–84%
-  const lit = 58 + ((h >> 8) % 14); // 58–71%
+  const sat = 55 + (h % 25); // 55–79%
+  const lit = 38 + ((h >> 8) % 12); // 38–49%
   return hslToHex(hue, sat, lit);
 }
 
