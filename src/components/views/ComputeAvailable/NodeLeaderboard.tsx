@@ -81,9 +81,9 @@ export function NodeLeaderboard({ nodes, accent }: NodeLeaderboardProps) {
                 return (
                   <div
                     style={{
-                      background: "#282828",
-                      color: "#DCDCDC",
-                      border: "1px solid #525252",
+                      background: "#ffffff",
+                      color: "#27272a",
+                      border: "1px solid #d4d4d8",
                       borderRadius: 6,
                       padding: "6px 10px",
                       fontSize: 12,

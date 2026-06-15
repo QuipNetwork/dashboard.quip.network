@@ -43,7 +43,7 @@ export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
         borderWidth={1}
         borderColor={{ from: "color", modifiers: [["darker", 0.6]] }}
         arcLinkLabelsColor={{ from: "color" }}
-        arcLinkLabelsTextColor="#DCDCDC"
+        arcLinkLabelsTextColor="#27272a"
         arcLinkLabelsThickness={2}
         arcLabelsTextColor="#1A1A1A"
         activeOuterRadiusOffset={8}

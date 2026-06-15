@@ -15,7 +15,7 @@ interface NodeLocationMapProps {
 // request fails.
 const GEO_URL = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
 
-const NODE_COLOR = "#67E347";
+const NODE_COLOR = "#059669";
 
 export function NodeLocationMap({ nodes, unlocatedCount }: NodeLocationMapProps) {
   const hasAny = nodes.length > 0;
@@ -36,13 +36,13 @@ export function NodeLocationMap({ nodes, unlocatedCount }: NodeLocationMapProps)
                 <Geography
                   key={geo.rsmKey}
                   geography={geo}
-                  fill="#1f1f1f"
-                  stroke="#3a3a3a"
+                  fill="#e4e4e7"
+                  stroke="#d4d4d8"
                   strokeWidth={0.5}
                   style={{
                     default: { outline: "none" },
-                    hover: { fill: "#2a2a2a", outline: "none" },
-                    pressed: { fill: "#2a2a2a", outline: "none" },
+                    hover: { fill: "#dbdbde", outline: "none" },
+                    pressed: { fill: "#dbdbde", outline: "none" },
                   }}
                 />
               ))

@@ -75,7 +75,7 @@ export function Leaderboard({ data }: LeaderboardProps) {
       <SearchInput value={query} onChange={setQuery} placeholder="Search miners…" />
       <div
         className="flex-1 overflow-y-auto"
-        style={{ scrollbarWidth: "thin", scrollbarColor: "#525252 transparent" }}
+        style={{ scrollbarWidth: "thin", scrollbarColor: "#d4d4d8 transparent" }}
       >
         {filtered.length === 0 ? (
           <div className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
@@ -110,14 +110,9 @@ export function Leaderboard({ data }: LeaderboardProps) {
                       <span className="flex items-center gap-2">
                         <span
                           className="inline-block h-2.5 w-2.5 rounded-full"
-                          style={{
-                            backgroundColor: minerColor,
-                            boxShadow: `0 0 6px ${minerColor}66`,
-                          }}
+                          style={{ backgroundColor: minerColor }}
                         />
-                        <span className="font-accent text-sm text-ink-strong group-hover:text-white">
-                          {entry.minerId}
-                        </span>
+                        <span className="font-accent text-sm text-ink-strong">{entry.minerId}</span>
                       </span>
                     </td>
                     <td className="py-2 pr-3">

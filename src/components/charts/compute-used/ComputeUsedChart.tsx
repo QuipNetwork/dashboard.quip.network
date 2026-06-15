@@ -48,7 +48,7 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
         borderWidth={1}
         borderColor={{ from: "color", modifiers: [["darker", 0.6]] }}
         arcLinkLabelsColor={{ from: "color" }}
-        arcLinkLabelsTextColor="#DCDCDC"
+        arcLinkLabelsTextColor="#27272a"
         arcLinkLabelsThickness={2}
         arcLabelsTextColor="#1A1A1A"
         valueFormat={(v) => formatSeconds(v)}

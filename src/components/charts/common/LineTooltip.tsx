@@ -19,14 +19,14 @@ export function createLineTooltip({ xLabel, yLabel, xFormat, yFormat }: LineTool
     return (
       <div
         style={{
-          background: "#282828",
-          border: "1px solid #525252",
+          background: "#ffffff",
+          border: "1px solid #d4d4d8",
           borderRadius: 6,
           padding: "8px 12px",
           boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
           fontFamily: "'ABC Favotit Mono', monospace",
           fontSize: 12,
-          color: "#DCDCDC",
+          color: "#27272a",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
@@ -43,11 +43,11 @@ export function createLineTooltip({ xLabel, yLabel, xFormat, yFormat }: LineTool
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <span>
-            <span style={{ color: "#A9A9A9" }}>{xLabel}: </span>
+            <span style={{ color: "#52525c" }}>{xLabel}: </span>
             {fmt(point.data.x, xFormat)}
           </span>
           <span>
-            <span style={{ color: "#A9A9A9" }}>{yLabel}: </span>
+            <span style={{ color: "#52525c" }}>{yLabel}: </span>
             {fmt(point.data.y, yFormat)}
           </span>
         </div>
