@@ -31,6 +31,8 @@
     "clsx": "^2.1.1",
     "geoip-lite": "^2.0.1",
     "hono": "^4.12.14",
+    "kysely": "^0.29.2",
+    "kysely-postgres-js": "^3.0.0",
     "maxmind": "^5.0.6",
     "postgres": "^3.4.9",
     "react": "^18.3.1",
