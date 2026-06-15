@@ -4,9 +4,11 @@ import { describe, expect, it } from "bun:test";
 
 import type { TelemetryClient } from "../services/telemetry-client";
 import { createTelemetryStore } from "../store/telemetry-store";
+import { createUIStore } from "../store/ui-store";
 import type { MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
 import { buildAppEventBus } from "./build-app-event-bus";
 import { FetchTelemetry } from "./fetch-telemetry";
+import { SetViewMode, ToggleMinerType } from "./ui-actions";
 
 interface FakeClient extends TelemetryClient {
   calls: number;
@@ -32,7 +34,7 @@ describe("buildAppEventBus", () => {
   it("runs the telemetry fetch when a FetchTelemetry event is dispatched", async () => {
     const client = fakeClient();
     const store = createTelemetryStore({ client });
-    const bus = buildAppEventBus({ telemetryStore: store }).start();
+    const bus = buildAppEventBus({ telemetryStore: store, uiStore: createUIStore() }).start();
 
     bus.dispatch(new FetchTelemetry());
     await flush();
@@ -45,11 +47,25 @@ describe("buildAppEventBus", () => {
   it("drops events dispatched before start (hot subject, no replay)", async () => {
     const client = fakeClient();
     const store = createTelemetryStore({ client });
-    const bus = buildAppEventBus({ telemetryStore: store });
+    const bus = buildAppEventBus({ telemetryStore: store, uiStore: createUIStore() });
 
     bus.dispatch(new FetchTelemetry());
     await flush();
 
     expect(client.calls).toBe(0);
+  });
+
+  it("applies UI actions to the ui store", () => {
+    const telemetryStore = createTelemetryStore({ client: fakeClient() });
+    const uiStore = createUIStore();
+    const bus = buildAppEventBus({ telemetryStore, uiStore }).start();
+
+    bus.dispatch(new SetViewMode("chain"));
+    expect(uiStore.getState().viewMode).toBe("chain");
+
+    bus.dispatch(new ToggleMinerType("CPU"));
+    expect(uiStore.getState().selectedTypes).not.toContain("CPU");
+
+    bus.stop();
   });
 });

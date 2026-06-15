@@ -1,3 +1,10 @@
+import { useEventBus } from "@vaaas/rx-react/event-bus";
+
+import {
+  SetAggregationMode,
+  SetViewMode,
+  ToggleMinerType,
+} from "../../event-bus/ui-actions";
 import { useTelemetryStore } from "../../store/telemetry-store";
 import { useUIStore, type AggregationMode, type ViewMode } from "../../store/ui-store";
 import { SERIES_COLORS } from "../../lib/colors";
@@ -22,12 +29,10 @@ const VIEWS: { value: ViewMode; label: string }[] = [
 ];
 
 export function Header() {
+  const bus = useEventBus();
   const viewMode = useUIStore((s) => s.viewMode);
-  const setViewMode = useUIStore((s) => s.setViewMode);
   const aggregationMode = useUIStore((s) => s.aggregationMode);
-  const setAggregationMode = useUIStore((s) => s.setAggregationMode);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
-  const toggleMinerType = useUIStore((s) => s.toggleMinerType);
   const hasChainData = useTelemetryStore(
     (s) => s.chainMiners.length > 0 || s.babeAuthorities.length > 0 || s.chainHead !== null,
   );
@@ -58,7 +63,7 @@ export function Header() {
                 return (
                   <button
                     key={value}
-                    onClick={() => setAggregationMode(value)}
+                    onClick={() => bus.dispatch(new SetAggregationMode(value))}
                     className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
                     style={{
                       backgroundColor: active ? "#4CE0FF20" : "transparent",
@@ -85,7 +90,7 @@ export function Header() {
               return (
                 <button
                   key={value}
-                  onClick={() => setViewMode(value)}
+                  onClick={() => bus.dispatch(new SetViewMode(value))}
                   className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
                   style={{
                     backgroundColor: active ? "#67E34720" : "transparent",
@@ -128,7 +133,7 @@ export function Header() {
             return (
               <button
                 key={type}
-                onClick={() => toggleMinerType(type)}
+                onClick={() => bus.dispatch(new ToggleMinerType(type))}
                 className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 font-accent text-sm transition-all"
                 style={{
                   borderColor: active ? SERIES_COLORS[type] : "#525252",

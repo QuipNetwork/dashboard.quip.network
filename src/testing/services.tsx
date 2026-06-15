@@ -31,7 +31,7 @@ export function createTestServices(overrides: TestServicesOverrides = {}): TestS
   if (overrides.telemetry) telemetryStore.setState(overrides.telemetry);
   const uiStore = createUIStore();
   if (overrides.ui) uiStore.setState(overrides.ui);
-  const eventBus = buildAppEventBus({ telemetryStore });
+  const eventBus = buildAppEventBus({ telemetryStore, uiStore });
   return { telemetryStore, uiStore, eventBus };
 }
 

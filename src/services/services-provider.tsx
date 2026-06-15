@@ -28,8 +28,8 @@ export function ServicesProvider({
   eventBus,
 }: ServicesProviderProps) {
   const bus = useMemo(
-    () => eventBus ?? buildAppEventBus({ telemetryStore: telemetry }),
-    [eventBus, telemetry],
+    () => eventBus ?? buildAppEventBus({ telemetryStore: telemetry, uiStore: ui }),
+    [eventBus, telemetry, ui],
   );
 
   useLayoutEffect(() => {
