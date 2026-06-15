@@ -5,7 +5,7 @@ import type { MinerCategory } from "../types/telemetry";
 export type AggregationMode = "byType" | "byNode";
 export type ViewMode = "my-node" | "network" | "compute" | "chain";
 
-interface UIState {
+export interface UIState {
   viewMode: ViewMode;
   aggregationMode: AggregationMode;
   selectedTypes: MinerCategory[];
