@@ -149,10 +149,10 @@ export function ComputeAvailableView() {
       </div>
 
       {byNode ? (
-        <div className="mb-5 rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-5 backdrop-blur-xl">
+        <div className="mb-5 border border-border bg-white p-5">
           <div className="mb-4">
-            <h2 className="font-heading text-lg text-brand-gray-5">Node Compute Contribution</h2>
-            <p className="font-accent text-xs text-brand-gray-3">
+            <h2 className="font-heading text-lg text-ink-strong">Node Compute Contribution</h2>
+            <p className="font-accent text-xs text-ink-subtle">
               Theoretical FP32 TFLOPS per node — {compute.perNodeTflops.length} nodes, sorted by
               contribution
             </p>

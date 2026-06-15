@@ -63,15 +63,15 @@ export function MiningAttemptsModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg border border-brand-gray-2 bg-brand-bg p-6 shadow-2xl"
+        className="max-h-[90vh] w-full max-w-3xl overflow-auto border border-border bg-brand-bg p-6 shadow-2xl"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-accent text-lg text-brand-gray-5">
+            <h2 className="font-accent text-lg text-ink-strong">
               Submission #{formatNumber(solutionNumber)}
             </h2>
             {data && (
-              <p className="font-accent text-xs text-brand-gray-3">
+              <p className="font-accent text-xs text-ink-subtle">
                 {data.submission.outcome}
                 {data.submission.chainBlockNumber
                   ? ` · landed at block #${data.submission.chainBlockNumber}`
@@ -83,17 +83,17 @@ export function MiningAttemptsModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="cursor-pointer rounded border border-brand-gray-2 px-2 py-0.5 font-accent text-xs text-brand-gray-3 hover:border-brand-gray-3 hover:text-brand-gray-5"
+            className="cursor-pointer rounded border border-border px-2 py-0.5 font-accent text-xs text-ink-subtle hover:border-border-strong hover:text-ink-strong"
           >
             ×
           </button>
         </div>
 
-        {loading && <p className="font-accent text-sm text-brand-gray-3">Fetching from miner…</p>}
+        {loading && <p className="font-accent text-sm text-ink-subtle">Fetching from miner…</p>}
         {error && (
           <div className="rounded border border-brand-red-0/40 bg-brand-red-2/20 p-3">
             <p className="font-accent text-sm text-brand-red-0">{error}</p>
-            <p className="mt-1 font-accent text-xs text-brand-gray-4">
+            <p className="mt-1 font-accent text-xs text-ink-body">
               The dashboard proxies this through the indexer; if the miner is offline or no
               miner-REST URL has been resolved (no operator descriptor on-chain, validator RPC
               unreachable), the modal can't populate.
@@ -153,7 +153,7 @@ function SubmissionDetails({ envelope }: { envelope: MiningAttemptsResponse }) {
       </dl>
 
       {attempts.length === 0 ? (
-        <p className="font-accent text-sm text-brand-gray-3">
+        <p className="font-accent text-sm text-ink-subtle">
           No iteration trail returned. Either the miner didn't record per-iteration data for this
           submission or the controller batched it into a single attempt.
         </p>
@@ -169,7 +169,7 @@ function AttemptsTable({ attempts }: { attempts: MiningAttempt[] }) {
     <div className="overflow-x-auto">
       <table className="w-full font-accent text-xs tabular-nums">
         <thead>
-          <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
+          <tr className="border-b border-border text-left text-ink-subtle">
             <th className="py-2 pr-4">Iter</th>
             <th className="py-2 pr-4">Best Energy</th>
             <th
@@ -185,12 +185,12 @@ function AttemptsTable({ attempts }: { attempts: MiningAttempt[] }) {
           {attempts.map((a) => {
             const numMeetingTarget = meetingTargetCount(a.extra);
             return (
-              <tr key={a.iter} className="border-b border-brand-gray-2/40 last:border-0">
-                <td className="py-1.5 pr-4 text-brand-gray-5">{a.iter}</td>
-                <td className="py-1.5 pr-4 text-brand-gray-6">
+              <tr key={a.iter} className="border-b border-border last:border-0">
+                <td className="py-1.5 pr-4 text-ink-strong">{a.iter}</td>
+                <td className="py-1.5 pr-4 text-ink-strong">
                   {(a.bestEnergyMilli / 1000).toFixed(3)}
                 </td>
-                <td className="py-1.5 pr-4 text-brand-gray-5">
+                <td className="py-1.5 pr-4 text-ink-strong">
                   {numMeetingTarget !== null ? formatNumber(numMeetingTarget) : "—"}
                 </td>
                 <td className="py-1.5 pr-4">
@@ -211,11 +211,9 @@ function ResultBadge({ kind }: { kind: string }) {
     ? "border-brand-green-0/40 text-brand-green-0"
     : lower.includes("reject")
       ? "border-brand-red-0/40 text-brand-red-0"
-      : "border-brand-gray-2 text-brand-gray-4";
+      : "border-border text-ink-body";
   return (
-    <span
-      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
-    >
+    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
       {kind || "—"}
     </span>
   );
@@ -236,11 +234,9 @@ function Row({
 }) {
   return (
     <div className={span === 2 ? "col-span-2" : undefined}>
-      <dt className="font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
-        {label}
-      </dt>
+      <dt className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">{label}</dt>
       <dd
-        className={`font-accent text-sm text-brand-gray-5 ${mono ? "font-mono" : ""}`}
+        className={`font-accent text-sm text-ink-strong ${mono ? "font-mono" : ""}`}
         title={title}
       >
         {value}

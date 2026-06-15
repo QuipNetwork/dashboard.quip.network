@@ -10,11 +10,11 @@ interface ChartCardProps {
 export function ChartCard({ title, subtitle, children, className = "" }: ChartCardProps) {
   return (
     <div
-      className={`rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-5 shadow-[0_0_20px_rgba(103,227,71,0.03)] backdrop-blur-xl transition-colors duration-300 hover:border-brand-gray-3 ${className}`}
+      className={`border border-border bg-white p-5 shadow-[0_0_20px_rgba(103,227,71,0.03)] transition-colors duration-300 hover:border-border-strong ${className}`}
     >
       <div className="mb-4">
-        <h2 className="font-heading text-lg text-brand-gray-5">{title}</h2>
-        {subtitle && <p className="font-accent text-xs text-brand-gray-3">{subtitle}</p>}
+        <h2 className="font-heading text-lg text-ink-strong">{title}</h2>
+        {subtitle && <p className="font-accent text-xs text-ink-subtle">{subtitle}</p>}
       </div>
       <div className="h-72">{children}</div>
     </div>

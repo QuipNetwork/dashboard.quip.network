@@ -50,7 +50,7 @@ export function CurrentAttemptsPanel({
         title={heading}
         subtitle="Live iteration trail. Empty between dispatches or while the miner is dialing in on the next problem."
       >
-        <p className="font-accent text-xs text-brand-gray-3">No attempts yet.</p>
+        <p className="font-accent text-xs text-ink-subtle">No attempts yet.</p>
       </ChartCard>
     );
   }
@@ -80,7 +80,7 @@ export function CurrentAttemptsPanel({
         )}
         {matchingSubmission && <OutcomeBadge outcome={matchingSubmission.outcome} />}
         {matchingSubmission?.chainBlockNumber && (
-          <span className="font-accent text-[10px] text-brand-gray-4">
+          <span className="font-accent text-[10px] text-ink-body">
             chain block #{matchingSubmission.chainBlockNumber}
           </span>
         )}
@@ -89,7 +89,7 @@ export function CurrentAttemptsPanel({
       <div className="max-h-[60vh] overflow-auto">
         <table className="w-full font-accent text-xs tabular-nums">
           <thead className="sticky top-0 bg-brand-bg">
-            <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
+            <tr className="border-b border-border text-left text-ink-subtle">
               <th className="py-2 pr-4">Iter</th>
               <th className="py-2 pr-4">Best Energy</th>
               <th
@@ -116,24 +116,24 @@ export function CurrentAttemptsPanel({
               const miningTimeUs = extractMiningTimeUs(a.extra);
               const ageMs = extractAgeMs(a.extra, nowMs);
               return (
-                <tr key={a.iter} className="border-b border-brand-gray-2/40 last:border-0">
-                  <td className="py-1.5 pr-4 text-brand-gray-5">{a.iter}</td>
-                  <td className="py-1.5 pr-4 text-brand-gray-6">
+                <tr key={a.iter} className="border-b border-border last:border-0">
+                  <td className="py-1.5 pr-4 text-ink-strong">{a.iter}</td>
+                  <td className="py-1.5 pr-4 text-ink-strong">
                     {(a.bestEnergyMilli / 1000).toFixed(3)}
                   </td>
-                  <td className="py-1.5 pr-4 text-brand-gray-5">
+                  <td className="py-1.5 pr-4 text-ink-strong">
                     {diversityMilli !== null ? (diversityMilli / 1000).toFixed(3) : "—"}
                   </td>
-                  <td className="py-1.5 pr-4 text-brand-gray-5">
+                  <td className="py-1.5 pr-4 text-ink-strong">
                     {numMeetingTarget !== null ? formatNumber(numMeetingTarget) : "—"}
                   </td>
                   <td className="py-1.5 pr-4">
                     <ResultBadge kind={a.resultKind} />
                   </td>
-                  <td className="py-1.5 pr-4 text-brand-gray-4">
+                  <td className="py-1.5 pr-4 text-ink-body">
                     {miningTimeUs !== null ? `${(miningTimeUs / 1_000_000).toFixed(1)}s` : "—"}
                   </td>
-                  <td className="py-1.5 text-brand-gray-4">
+                  <td className="py-1.5 text-ink-body">
                     {ageMs !== null && ageMs > 0 ? `${formatDuration(ageMs)} ago` : "—"}
                   </td>
                 </tr>
@@ -152,13 +152,11 @@ function StatusBadge({ status }: { status: CurrentDispatch["status"] | "stale" }
       ? "border-brand-green-0/40 text-brand-green-0"
       : status === "stale"
         ? "border-brand-yellow-0/40 text-brand-yellow-0"
-        : "border-brand-gray-2 text-brand-gray-4";
+        : "border-border text-ink-body";
   const label =
     status === "in-flight" ? "In flight" : status === "stale" ? "Stale" : "Last completed";
   return (
-    <span
-      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
-    >
+    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
       {label}
     </span>
   );
@@ -173,11 +171,9 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
     ? "border-brand-red-0/40 text-brand-red-0"
     : lower.includes("inblock") || lower.includes("submitted")
       ? "border-brand-green-0/40 text-brand-green-0"
-      : "border-brand-gray-2 text-brand-gray-4";
+      : "border-border text-ink-body";
   return (
-    <span
-      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
-    >
+    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
       outcome: {outcome}
     </span>
   );
@@ -191,11 +187,9 @@ function ResultBadge({ kind }: { kind: string }) {
       ? "border-brand-red-0/40 text-brand-red-0"
       : lower.includes("stored")
         ? "border-brand-yellow-0/40 text-brand-yellow-0"
-        : "border-brand-gray-2 text-brand-gray-4";
+        : "border-border text-ink-body";
   return (
-    <span
-      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
-    >
+    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
       {kind || "—"}
     </span>
   );

@@ -77,7 +77,7 @@ export function MinerStatsPanel({
           sublabel={
             <>
               meet on-chain difficulty
-              <span className="mt-0.5 block text-brand-gray-4">
+              <span className="mt-0.5 block text-ink-body">
                 {formatNumber(stats.resultsReceived)} results
                 {stats.duplicateResultDrops > 0
                   ? ` · ${formatNumber(stats.duplicateResultDrops)} dedup'd`
@@ -93,7 +93,7 @@ export function MinerStatsPanel({
           sublabel={selfAvgMiningTimeSec != null ? "across recent self-wins" : undefined}
         />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-brand-gray-2 pt-4 sm:grid-cols-5">
+      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 sm:grid-cols-5">
         <StatTile
           label="Chain Acceptance"
           value={chainAcceptanceLabel}
@@ -110,7 +110,7 @@ export function MinerStatsPanel({
       </div>
       <ModesBreakdownRow modes={modes} />
       {dataAgeMs != null && (
-        <p className="mt-4 text-right font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
+        <p className="mt-4 text-right font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
           fetched {formatDuration(dataAgeMs)} ago
         </p>
       )}
@@ -140,13 +140,13 @@ function ModesBreakdownRow({ modes }: { modes: Record<string, ModeBreakdown> | u
     return a.localeCompare(b);
   });
   return (
-    <div className="mt-4 border-t border-brand-gray-2 pt-4">
-      <div className="mb-2 font-accent text-xs text-brand-gray-3">
+    <div className="mt-4 border-t border-border pt-4">
+      <div className="mb-2 font-accent text-xs text-ink-subtle">
         Backends — per-mode contribution (multi-process container)
       </div>
       <table className="w-full font-accent text-xs tabular-nums">
         <thead>
-          <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
+          <tr className="border-b border-border text-left text-ink-subtle">
             <th className="py-1 pr-4">Mode</th>
             <th className="py-1 pr-4">Workers</th>
             <th className="py-1 pr-4">Heads Observed</th>
@@ -158,16 +158,16 @@ function ModesBreakdownRow({ modes }: { modes: Record<string, ModeBreakdown> | u
         </thead>
         <tbody>
           {entries.map(([mode, m]) => (
-            <tr key={mode} className="border-b border-brand-gray-2/40 last:border-0">
-              <td className="py-1 pr-4 text-brand-gray-6 uppercase">{mode}</td>
-              <td className="py-1 pr-4 text-brand-gray-5">{m.miners.length}</td>
-              <td className="py-1 pr-4 text-brand-gray-5">{formatNumber(m.headsObserved)}</td>
-              <td className="py-1 pr-4 text-brand-gray-5">{formatNumber(m.contextsDispatched)}</td>
-              <td className="py-1 pr-4 text-brand-gray-5">{formatNumber(m.proofsSubmitted)}</td>
-              <td className="py-1 pr-4 text-brand-gray-5">{formatNumber(m.staleDrops)}</td>
+            <tr key={mode} className="border-b border-border last:border-0">
+              <td className="py-1 pr-4 text-ink-strong uppercase">{mode}</td>
+              <td className="py-1 pr-4 text-ink-strong">{m.miners.length}</td>
+              <td className="py-1 pr-4 text-ink-strong">{formatNumber(m.headsObserved)}</td>
+              <td className="py-1 pr-4 text-ink-strong">{formatNumber(m.contextsDispatched)}</td>
+              <td className="py-1 pr-4 text-ink-strong">{formatNumber(m.proofsSubmitted)}</td>
+              <td className="py-1 pr-4 text-ink-strong">{formatNumber(m.staleDrops)}</td>
               <td
                 className={
-                  m.submissionErrors > 0 ? "py-1 text-brand-red-0" : "py-1 text-brand-gray-5"
+                  m.submissionErrors > 0 ? "py-1 text-brand-red-0" : "py-1 text-ink-strong"
                 }
               >
                 {formatNumber(m.submissionErrors)}

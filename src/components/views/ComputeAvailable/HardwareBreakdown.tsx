@@ -38,7 +38,7 @@ function toBarRows(rows: ModelBreakdown[]): BarRow[] {
 export function HardwareBreakdown({ data, accent, emptyLabel }: HardwareBreakdownProps) {
   if (data.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center font-accent text-sm text-brand-gray-3">
+      <div className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
         {emptyLabel}
       </div>
     );

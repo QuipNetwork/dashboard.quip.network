@@ -64,7 +64,7 @@ export function NodeLocationMap({ nodes, unlocatedCount }: NodeLocationMapProps)
       </ComposableMap>
 
       {(unlocatedCount > 0 || !hasAny) && (
-        <p className="absolute right-3 bottom-2 font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
+        <p className="absolute right-3 bottom-2 font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
           {hasAny
             ? `${unlocatedCount} node${unlocatedCount === 1 ? "" : "s"} unlocated`
             : "No located nodes — operators haven't published publicHost, or geo lookup is disabled"}

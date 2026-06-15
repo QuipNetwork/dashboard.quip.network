@@ -30,7 +30,7 @@ export function NodeLeaderboard({ nodes, accent }: NodeLeaderboardProps) {
 
   if (nodes.length === 0) {
     return (
-      <div className="flex h-60 items-center justify-center font-accent text-sm text-brand-gray-3">
+      <div className="flex h-60 items-center justify-center font-accent text-sm text-ink-subtle">
         No node data reported
       </div>
     );
@@ -44,7 +44,7 @@ export function NodeLeaderboard({ nodes, accent }: NodeLeaderboardProps) {
     <div className="flex flex-col gap-2">
       <SearchInput value={query} onChange={setQuery} placeholder="Search nodes…" />
       {filtered.length === 0 ? (
-        <div className="flex h-60 items-center justify-center font-accent text-sm text-brand-gray-3">
+        <div className="flex h-60 items-center justify-center font-accent text-sm text-ink-subtle">
           No nodes match “{query}”
         </div>
       ) : (

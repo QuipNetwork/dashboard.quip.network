@@ -182,8 +182,9 @@
 
 @layer base {
   body {
-    background-color: var(--color-brand-gray-0);
-    color: var(--color-brand-gray-4);
+    background-color: var(--color-surface);
+    color: var(--color-ink-body);
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

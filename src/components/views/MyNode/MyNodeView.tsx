@@ -44,9 +44,9 @@ export function MyNodeView() {
 
   if (!stats.selfAddress) {
     return (
-      <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-12 text-center backdrop-blur-xl">
-        <p className="font-heading text-2xl text-brand-gray-5">Connecting to miner…</p>
-        <p className="mt-2 font-accent text-sm text-brand-gray-3">
+      <div className="border border-border bg-white p-12 text-center">
+        <p className="font-heading text-2xl text-ink-strong">Connecting to miner…</p>
+        <p className="mt-2 font-accent text-sm text-ink-subtle">
           The indexer hasn't discovered the local validator's signer yet, or the operator's node
           descriptor hasn't landed on-chain. Confirm the configured QUIP_VALIDATOR_RPC_URLS point at
           a validator that holds session keys for your account.
@@ -94,7 +94,7 @@ export function MyNodeView() {
   // "Not enforced" reads better than literal "0" when the chain difficulty
   // requirements aren't gated on a given dimension (most quip configs leave
   // diversity / solutions / quality at 0 today).
-  const notEnforced = <span className="text-brand-gray-3 italic">not enforced</span>;
+  const notEnforced = <span className="text-ink-subtle italic">not enforced</span>;
 
   // Decay step count and the trail of recent prior energies. Decays are
   // derived from (finalized - lastProofBlock) / EpochLength so the value
@@ -161,16 +161,16 @@ export function MyNodeView() {
 
   return (
     <>
-      <div className="mb-5 flex flex-col gap-1 rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-5 backdrop-blur-xl sm:flex-row sm:items-baseline sm:justify-between">
+      <div className="mb-5 flex flex-col gap-1 border border-border bg-white p-5 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
-          <p className="font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
+          <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
             Connected Node
           </p>
-          <h2 className="font-heading text-2xl text-brand-gray-6">{shortAddress(selfAddress)}</h2>
-          <p className="mt-1 font-accent text-xs text-brand-gray-4">{selfAddress}</p>
+          <h2 className="font-heading text-2xl text-ink-strong">{shortAddress(selfAddress)}</h2>
+          <p className="mt-1 font-accent text-xs text-ink-body">{selfAddress}</p>
         </div>
         {chainMinerEntry && (
-          <span className="inline-block rounded-md border border-brand-gray-2 px-2 py-1 font-accent text-xs text-brand-gray-4">
+          <span className="inline-block border border-border px-2 py-1 font-accent text-xs text-ink-body">
             registered · deposit {formatBalance(chainMinerEntry.deposit)}
           </span>
         )}

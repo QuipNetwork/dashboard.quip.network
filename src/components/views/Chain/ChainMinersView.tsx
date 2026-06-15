@@ -49,23 +49,23 @@ export function ChainMinersTable() {
   const filtered = filterChainMiners(chainMiners, descriptorsByAccount, query);
 
   return (
-    <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 backdrop-blur-xl">
-      <header className="border-b border-brand-gray-2 px-4 py-3">
-        <h2 className="font-heading text-lg text-brand-gray-5">
+    <div className="border border-border bg-white">
+      <header className="border-b border-border px-4 py-3">
+        <h2 className="font-heading text-lg text-ink-strong">
           On-chain miners ({chainMiners.length})
         </h2>
-        <p className="mt-1 font-accent text-xs text-brand-gray-3">
+        <p className="mt-1 font-accent text-xs text-ink-subtle">
           From <code>quantum_pow.Miners</code> storage. Sorted by lifetime rewards. Identity columns
           (rig name, version) joined from <code>MinerRegistry.NodeDescriptors</code>.
         </p>
       </header>
       {chainMiners.length === 0 ? (
-        <p className="px-4 py-6 text-center font-accent text-sm text-brand-gray-3">
+        <p className="px-4 py-6 text-center font-accent text-sm text-ink-subtle">
           No miners registered on chain yet.
         </p>
       ) : (
         <>
-          <div className="border-b border-brand-gray-2 px-4 py-3">
+          <div className="border-b border-border px-4 py-3">
             <SearchInput
               value={query}
               onChange={setQuery}
@@ -73,14 +73,14 @@ export function ChainMinersTable() {
             />
           </div>
           {filtered.length === 0 ? (
-            <p className="px-4 py-6 text-center font-accent text-sm text-brand-gray-3">
+            <p className="px-4 py-6 text-center font-accent text-sm text-ink-subtle">
               No miners match “{query}”
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full font-accent text-sm">
-                <thead className="text-left text-xs uppercase tracking-wider text-brand-gray-3">
-                  <tr className="border-b border-brand-gray-2">
+                <thead className="text-left text-xs uppercase tracking-wider text-ink-subtle">
+                  <tr className="border-b border-border">
                     <th className="px-4 py-2">Account</th>
                     <th className="px-4 py-2">Rig Name</th>
                     <th className="px-4 py-2">Version</th>
@@ -96,15 +96,15 @@ export function ChainMinersTable() {
                     return (
                       <tr
                         key={m.accountId}
-                        className="border-b border-brand-gray-1 last:border-b-0 hover:bg-brand-gray-2/30"
+                        className="border-b border-border last:border-b-0 hover:bg-surface-2"
                       >
                         <td className="px-4 py-2 font-mono text-xs" title={m.accountId}>
                           {shortAddress(m.accountId)}
                         </td>
-                        <td className="px-4 py-2 text-brand-gray-5">
-                          {d?.descriptor.nodeName ?? <span className="text-brand-gray-3">—</span>}
+                        <td className="px-4 py-2 text-ink-strong">
+                          {d?.descriptor.nodeName ?? <span className="text-ink-subtle">—</span>}
                         </td>
-                        <td className="px-4 py-2 text-brand-gray-3">
+                        <td className="px-4 py-2 text-ink-subtle">
                           {d?.descriptor.runtime?.quipVersion ?? "—"}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums">

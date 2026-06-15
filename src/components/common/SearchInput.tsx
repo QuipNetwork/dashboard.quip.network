@@ -16,14 +16,14 @@ export function SearchInput({ value, onChange, placeholder, ariaLabel }: SearchI
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={ariaLabel ?? placeholder ?? "Search"}
-        className="w-full rounded-md border border-brand-gray-2 bg-transparent px-3 py-1.5 font-accent text-sm text-brand-gray-5 placeholder:text-brand-gray-3 focus:border-brand-gray-3 focus:outline-none"
+        className="w-full border border-border bg-transparent px-3 py-1.5 font-accent text-sm text-ink-strong placeholder:text-ink-subtle focus:border-border-strong focus:outline-none"
       />
       {value && (
         <button
           type="button"
           onClick={() => onChange("")}
           aria-label="Clear search"
-          className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer font-accent text-xs text-brand-gray-3 hover:text-brand-gray-5"
+          className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer font-accent text-xs text-ink-subtle hover:text-ink-strong"
         >
           ×
         </button>

@@ -18,16 +18,16 @@ export function BabeAuthoritiesPanel() {
   const authorities = useTelemetryStore((s) => s.babeAuthorities);
   if (authorities.length === 0) return null;
   return (
-    <details className="mt-6 rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 px-4 py-3 backdrop-blur-xl">
-      <summary className="cursor-pointer font-accent text-sm text-brand-gray-4 select-none">
+    <details className="mt-6 border border-border bg-white px-4 py-3">
+      <summary className="cursor-pointer font-accent text-sm text-ink-body select-none">
         BABE Authorities ({authorities.length})
       </summary>
-      <ul className="mt-3 space-y-1 font-mono text-xs text-brand-gray-5">
+      <ul className="mt-3 space-y-1 font-mono text-xs text-ink-strong">
         {authorities.map((a) => (
           <li key={a.accountId}>
             {a.accountId}
             {a.displayName && (
-              <span className="ml-2 font-accent text-brand-gray-3">— {a.displayName}</span>
+              <span className="ml-2 font-accent text-ink-subtle">— {a.displayName}</span>
             )}
           </li>
         ))}

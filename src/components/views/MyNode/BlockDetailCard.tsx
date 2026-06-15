@@ -20,12 +20,12 @@ interface BlockDetailCardProps {
 // "Current Requirements" tiles.
 export function BlockDetailCard({ label, rows, accent = "#67E347", footer }: BlockDetailCardProps) {
   return (
-    <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-5 backdrop-blur-xl transition-colors hover:border-brand-gray-3">
-      <p className="font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">{label}</p>
+    <div className="border border-border bg-white p-5 transition-colors hover:border-border-strong">
+      <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">{label}</p>
       <dl className="mt-3 space-y-1.5">
         {rows.map((r) => (
           <div key={r.label} className="flex items-baseline justify-between gap-3">
-            <dt className="font-accent text-xs text-brand-gray-3">{r.label}</dt>
+            <dt className="font-accent text-xs text-ink-subtle">{r.label}</dt>
             <dd
               className="font-accent text-sm tabular-nums"
               style={{ color: accent, textShadow: `0 0 8px ${accent}22` }}
@@ -35,7 +35,7 @@ export function BlockDetailCard({ label, rows, accent = "#67E347", footer }: Blo
           </div>
         ))}
       </dl>
-      {footer && <p className="mt-3 font-accent text-xs text-brand-gray-3">{footer}</p>}
+      {footer && <p className="mt-3 font-accent text-xs text-ink-subtle">{footer}</p>}
     </div>
   );
 }

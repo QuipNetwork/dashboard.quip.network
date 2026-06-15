@@ -34,10 +34,10 @@ export function DifficultyChart() {
   ];
 
   return (
-    <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 p-4 backdrop-blur-xl">
+    <div className="border border-border bg-white p-4">
       <header className="mb-2">
-        <h3 className="font-heading text-base text-brand-gray-5">Difficulty over time</h3>
-        <p className="font-accent text-xs text-brand-gray-3">
+        <h3 className="font-heading text-base text-ink-strong">Difficulty over time</h3>
+        <p className="font-accent text-xs text-ink-subtle">
           Target energy ceiling (proofs must satisfy energy ≤ threshold). Last {recent.length}{" "}
           snapshots from <code>quantum_pow.Difficulty</code>.
         </p>

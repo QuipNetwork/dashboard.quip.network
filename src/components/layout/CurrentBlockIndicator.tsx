@@ -34,17 +34,17 @@ export function CurrentBlockIndicator() {
   const decaysApplied =
     blocksSinceWin != null ? Math.floor(blocksSinceWin / QUANTUM_POW_EPOCH_LENGTH) : null;
   return (
-    <div className="mt-2 text-center font-accent text-xs text-brand-gray-3">
+    <div className="mt-2 text-center font-accent text-xs text-ink-subtle">
       <p>
-        Mining Problem <span className="text-brand-gray-5">#{nextProblem}</span>
+        Mining Problem <span className="text-ink-strong">#{nextProblem}</span>
       </p>
-      <p className="mt-0.5 text-brand-gray-3">
-        Last PoW Block: <span className="text-brand-gray-4">#{tipNum}</span>
+      <p className="mt-0.5 text-ink-subtle">
+        Last PoW Block: <span className="text-ink-body">#{tipNum}</span>
         {blocksSinceWin != null && (
-          <span className="text-brand-gray-3"> · {blocksSinceWin} blocks since</span>
+          <span className="text-ink-subtle"> · {blocksSinceWin} blocks since</span>
         )}
         {decaysApplied != null && decaysApplied > 0 && (
-          <span className="text-brand-gray-3">
+          <span className="text-ink-subtle">
             {" "}
             · {decaysApplied} {decaysApplied === 1 ? "decay" : "decays"}
           </span>

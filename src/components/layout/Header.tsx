@@ -44,7 +44,7 @@ export function Header() {
   const views = VIEWS.filter((v) => v.value !== "chain" || hasChainData);
 
   return (
-    <header className="border-b border-brand-gray-1 bg-gradient-to-r from-brand-gray-0 via-brand-gray-1 to-brand-gray-0 px-6 py-5">
+    <header className="border-b border-border bg-gradient-to-r from-brand-gray-0 via-brand-gray-1 to-brand-gray-0 px-6 py-5">
       <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
         {/* Left: sync indicator (always) + aggregation toggle (Network + Compute only). */}
         <div className="flex flex-col items-center gap-2 justify-self-center sm:items-start sm:justify-self-start">
@@ -53,7 +53,7 @@ export function Header() {
               free to include unconditionally. */}
           <BabeEpochProgress />
           {showAggregation && (
-            <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
+            <div className="flex overflow-hidden border border-border">
               {MODES.map(({ value, label }) => {
                 const active = aggregationMode === value;
                 return (
@@ -80,7 +80,7 @@ export function Header() {
             without it, the p below stretches the column and drags the
             pill width with it. */}
         <div className="flex flex-col items-center justify-self-center">
-          <div className="flex overflow-hidden rounded-lg border border-brand-gray-2">
+          <div className="flex overflow-hidden border border-border">
             {views.map(({ value, label }) => {
               const active = viewMode === value;
               return (
@@ -111,10 +111,10 @@ export function Header() {
             className="flex flex-col items-center justify-self-center sm:items-end sm:justify-self-end"
             title={selfAddress}
           >
-            <p className="font-accent text-[10px] uppercase tracking-wider text-brand-gray-3">
+            <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
               Connected Miner
             </p>
-            <p className="font-mono text-xs text-brand-gray-5">{shortAddress(selfAddress)}</p>
+            <p className="font-mono text-xs text-ink-strong">{shortAddress(selfAddress)}</p>
           </div>
         ) : (
           <div />
@@ -123,14 +123,14 @@ export function Header() {
 
       {/* Secondary row: per-type filters (Network + By Type only) */}
       {showTypeFilters && (
-        <div className="mt-3 flex flex-wrap justify-center gap-2 border-t border-brand-gray-1 pt-3 sm:justify-start">
+        <div className="mt-3 flex flex-wrap justify-center gap-2 border-t border-border pt-3 sm:justify-start">
           {TYPES.map((type) => {
             const active = selectedTypes.includes(type);
             return (
               <button
                 key={type}
                 onClick={() => bus.dispatch(new ToggleMinerType(type))}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 font-accent text-sm transition-all"
+                className="flex cursor-pointer items-center gap-2 border px-3 py-1.5 font-accent text-sm transition-all"
                 style={{
                   borderColor: active ? SERIES_COLORS[type] : "#525252",
                   backgroundColor: active ? `${SERIES_COLORS[type]}15` : "transparent",

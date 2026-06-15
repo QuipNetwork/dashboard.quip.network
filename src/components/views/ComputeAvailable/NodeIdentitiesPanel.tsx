@@ -38,21 +38,21 @@ export function NodeIdentitiesPanel() {
   const filtered = filterNodeDescriptors(descriptors, query);
 
   return (
-    <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 backdrop-blur-xl">
-      <header className="border-b border-brand-gray-2 px-4 py-3">
-        <h2 className="font-heading text-lg text-brand-gray-5">
+    <div className="border border-border bg-white">
+      <header className="border-b border-border px-4 py-3">
+        <h2 className="font-heading text-lg text-ink-strong">
           Node Identities ({descriptors.length})
         </h2>
-        <p className="mt-1 font-accent text-xs text-brand-gray-3">
+        <p className="mt-1 font-accent text-xs text-ink-subtle">
           Self-asserted operator inventory from <code>MinerRegistry.NodeDescriptors</code>. Identity
           is signed by the AccountId; hardware claims are operator-controlled, not chain-verified.
         </p>
       </header>
-      <div className="border-b border-brand-gray-2 px-4 py-3">
+      <div className="border-b border-border px-4 py-3">
         <SearchInput value={query} onChange={setQuery} placeholder="Search nodes…" />
       </div>
       {filtered.length === 0 ? (
-        <p className="px-4 py-6 text-center font-accent text-sm text-brand-gray-3">
+        <p className="px-4 py-6 text-center font-accent text-sm text-ink-subtle">
           No nodes match “{query}”
         </p>
       ) : (
@@ -89,8 +89,8 @@ function NodeRow({ record }: { record: NodeDescriptorRecord }) {
   return (
     <div className="grid grid-cols-1 gap-3 px-4 py-3 md:grid-cols-[1fr_2fr]">
       <div>
-        <div className="font-heading text-base text-brand-gray-5">{d.nodeName}</div>
-        <div className="mt-1 font-mono text-xs text-brand-gray-3" title={record.accountId}>
+        <div className="font-heading text-base text-ink-strong">{d.nodeName}</div>
+        <div className="mt-1 font-mono text-xs text-ink-subtle" title={record.accountId}>
           {shortAddress(record.accountId)}
         </div>
         <div className="mt-2 flex flex-wrap gap-1 font-accent text-[10px] uppercase tracking-wider">
@@ -102,32 +102,32 @@ function NodeRow({ record }: { record: NodeDescriptorRecord }) {
       <div className="space-y-2 font-accent text-xs">
         {cpuLine && (
           <div>
-            <span className="text-brand-gray-3">CPU:</span>{" "}
-            <span className="text-brand-gray-5">{cpuLine}</span>
+            <span className="text-ink-subtle">CPU:</span>{" "}
+            <span className="text-ink-strong">{cpuLine}</span>
           </div>
         )}
         {gpus.length > 0 && (
           <div>
-            <span className="text-brand-gray-3">
+            <span className="text-ink-subtle">
               GPU{gpus.length > 1 ? `s (${gpus.length})` : ""}:
             </span>{" "}
-            <span className="text-brand-gray-5">
+            <span className="text-ink-strong">
               {gpus.map((g) => g.name ?? "unknown").join(", ")}
             </span>
           </div>
         )}
         {minerEntries.length > 0 && (
           <div>
-            <span className="text-brand-gray-3">Miners:</span>{" "}
-            <span className="text-brand-gray-5">
+            <span className="text-ink-subtle">Miners:</span>{" "}
+            <span className="text-ink-strong">
               {minerEntries.map((m) => `${m.kind}/${m.minerId}`).join(" · ")}
             </span>
           </div>
         )}
         {d.publicHost && (
           <div>
-            <span className="text-brand-gray-3">Reachable:</span>{" "}
-            <span className="text-brand-gray-5">
+            <span className="text-ink-subtle">Reachable:</span>{" "}
+            <span className="text-ink-strong">
               {d.publicHost}
               {d.publicPort ? `:${d.publicPort}` : ""}
             </span>
@@ -141,9 +141,9 @@ function NodeRow({ record }: { record: NodeDescriptorRecord }) {
 function Badge({ label, tone }: { label: string; tone: "info" | "muted" | "success" }) {
   const cls =
     tone === "info"
-      ? "bg-brand-gray-2 text-brand-gray-5"
+      ? "bg-surface-2 text-ink-strong"
       : tone === "success"
         ? "bg-brand-green-0/20 text-brand-green-0"
-        : "bg-brand-gray-1 text-brand-gray-3";
+        : "bg-surface-1 text-ink-subtle";
   return <span className={`rounded px-2 py-0.5 ${cls}`}>{label}</span>;
 }

@@ -47,7 +47,7 @@ export function RecentMiningPanel({
         <div className="overflow-x-auto">
           <table className="w-full font-accent text-xs tabular-nums">
             <thead>
-              <tr className="border-b border-brand-gray-2 text-left text-brand-gray-3">
+              <tr className="border-b border-border text-left text-ink-subtle">
                 <th
                   className="py-2 pr-4"
                   title="Global chain solution_number (quip-protocol MR !105) — the winning-solution ordinal the miner works, durable across restarts. Distinct from the substrate block height where a win landed (the 'Block' column)."
@@ -106,24 +106,24 @@ export function RecentMiningPanel({
                         })}
                     className={
                       isChainOnly
-                        ? "border-b border-brand-gray-2/40 last:border-0"
-                        : "cursor-pointer border-b border-brand-gray-2/40 last:border-0 hover:bg-brand-gray-1/40"
+                        ? "border-b border-border last:border-0"
+                        : "cursor-pointer border-b border-border last:border-0 hover:bg-white"
                     }
                   >
-                    <td className="py-1.5 pr-4 text-brand-gray-5">{solDisplay(s)}</td>
-                    <td className="py-1.5 pr-4 text-brand-gray-5">
-                      {s.minerType ? s.minerType : <span className="text-brand-gray-3">—</span>}
+                    <td className="py-1.5 pr-4 text-ink-strong">{solDisplay(s)}</td>
+                    <td className="py-1.5 pr-4 text-ink-strong">
+                      {s.minerType ? s.minerType : <span className="text-ink-subtle">—</span>}
                     </td>
-                    <td className="py-1.5 pr-4 text-brand-gray-6">
+                    <td className="py-1.5 pr-4 text-ink-strong">
                       {milliToFixed(s.bestEnergyMilli, 3)}
                     </td>
-                    <td className="py-1.5 pr-4 text-brand-gray-5">
+                    <td className="py-1.5 pr-4 text-ink-strong">
                       {milliToFixed(s.diversityMilli, 3)}
                     </td>
-                    <td className="py-1.5 pr-4 text-brand-gray-5">{formatNumber(s.numValid)}</td>
-                    <td className="py-1.5 pr-4 text-brand-gray-5">
+                    <td className="py-1.5 pr-4 text-ink-strong">{formatNumber(s.numValid)}</td>
+                    <td className="py-1.5 pr-4 text-ink-strong">
                       {isChainOnly ? (
-                        <span className="text-brand-gray-3">—</span>
+                        <span className="text-ink-subtle">—</span>
                       ) : (
                         formatNumber(s.attemptCount)
                       )}
@@ -131,10 +131,10 @@ export function RecentMiningPanel({
                     <td className="py-1.5 pr-4">
                       <OutcomeBadge outcome={s.outcome} />
                     </td>
-                    <td className="py-1.5 pr-4 text-brand-gray-4">
+                    <td className="py-1.5 pr-4 text-ink-body">
                       {s.chainBlockNumber ? `#${s.chainBlockNumber}` : "—"}
                     </td>
-                    <td className="py-1.5 text-brand-gray-4">
+                    <td className="py-1.5 text-ink-body">
                       {ageMs !== null && ageMs > 0 ? `${formatDuration(ageMs)} ago` : "—"}
                     </td>
                   </tr>
@@ -164,11 +164,9 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
     ? "border-brand-green-0/40 text-brand-green-0"
     : lower.includes("reject")
       ? "border-brand-red-0/40 text-brand-red-0"
-      : "border-brand-gray-2 text-brand-gray-4";
+      : "border-border text-ink-body";
   return (
-    <span
-      className={`inline-block rounded-md border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}
-    >
+    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
       {outcome}
     </span>
   );
@@ -185,7 +183,7 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
  */
 function solDisplay(s: MiningSubmissionRecord): ReactNode {
   if (s.solutionNumber > 0) return `#${formatNumber(s.solutionNumber)}`;
-  return <span className="text-brand-gray-3">—</span>;
+  return <span className="text-ink-subtle">—</span>;
 }
 
 /**

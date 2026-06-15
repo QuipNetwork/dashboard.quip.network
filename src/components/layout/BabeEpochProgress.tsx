@@ -21,11 +21,11 @@ export function BabeEpochProgress() {
 
   return (
     <div
-      className="flex items-center gap-2 font-accent text-[11px] text-brand-gray-3"
+      className="flex items-center gap-2 font-accent text-[11px] text-ink-subtle"
       title={`Substrate BABE epoch — slot ${babeEpoch.currentSlotInEpoch} of ${babeEpoch.slotsPerEpoch}.`}
     >
       <span>BABE #{babeEpoch.epochIndex}</span>
-      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-brand-gray-1">
+      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-1">
         <div
           className="h-full rounded-full transition-[width] duration-500"
           style={{ width: `${pct}%`, backgroundColor: "#4CE0FF" }}

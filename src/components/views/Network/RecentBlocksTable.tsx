@@ -82,7 +82,7 @@ export function RecentBlocksTable({
     return (
       <>
         <HealthBanner health={health} />
-        <p className="flex h-full items-center justify-center font-accent text-sm text-brand-gray-3">
+        <p className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
           No solutions yet
         </p>
       </>
@@ -136,13 +136,13 @@ export function RecentBlocksTable({
       />
       <div className="flex-1 overflow-auto">
         {visible.length === 0 ? (
-          <p className="flex h-full items-center justify-center font-accent text-sm text-brand-gray-3">
+          <p className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
             No solutions match “{query}”
           </p>
         ) : (
           <table className="w-full font-accent text-sm">
             <thead>
-              <tr className="border-b border-brand-gray-2 text-left text-[10px] uppercase tracking-wider text-brand-gray-3">
+              <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-ink-subtle">
                 <th className="pb-2 pr-4">Block</th>
                 <th className="pb-2 pr-4">Solution#</th>
                 <th className="pb-2 pr-4">Winner</th>
@@ -158,31 +158,31 @@ export function RecentBlocksTable({
                 <tr
                   key={b.blockHash}
                   onClick={() => setSelectedBlock({ block: b, solutionNumber })}
-                  className="cursor-pointer border-b border-brand-gray-1 transition-colors last:border-b-0 hover:bg-brand-gray-1/30"
+                  className="cursor-pointer border-b border-border transition-colors last:border-b-0 hover:bg-surface-1"
                 >
-                  <td className="py-2 pr-4 font-mono text-brand-gray-5">
+                  <td className="py-2 pr-4 font-mono text-ink-strong">
                     <span className="inline-flex items-center gap-1.5">
                       #{b.substrateBlockNumber}
                       <FinalityBadge block={b} />
                     </span>
                   </td>
-                  <td className="py-2 pr-4 font-mono text-brand-gray-4">#{solutionNumber}</td>
-                  <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
+                  <td className="py-2 pr-4 font-mono text-ink-body">#{solutionNumber}</td>
+                  <td className="py-2 pr-4 text-ink-body" title={b.minerId}>
                     {shortAddress(b.minerId, 22, 4)}
                   </td>
-                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
+                  <td className="py-2 pr-4 text-right tabular-nums text-ink-strong">
                     {b.energy.toFixed(1)}
                   </td>
-                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
+                  <td className="py-2 pr-4 text-right tabular-nums text-ink-body">
                     {b.difficultyEnergy.toFixed(1)}
                   </td>
-                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-4">
+                  <td className="py-2 pr-4 text-right tabular-nums text-ink-body">
                     {formatDuration(b.miningTime * 1000)}
                   </td>
-                  <td className="py-2 pr-4 text-right tabular-nums text-brand-gray-5">
+                  <td className="py-2 pr-4 text-right tabular-nums text-ink-strong">
                     {formatBalance(b.reward)}
                   </td>
-                  <td className="py-2 text-right tabular-nums text-brand-gray-3">
+                  <td className="py-2 text-right tabular-nums text-ink-subtle">
                     {formatDuration(now - b.timestamp * 1000)} ago
                   </td>
                 </tr>
@@ -197,7 +197,7 @@ export function RecentBlocksTable({
               data-testid="load-more"
               disabled={loadingOlder}
               onClick={loadMore}
-              className="cursor-pointer rounded-md border border-brand-gray-2 px-3 py-1.5 font-accent text-xs uppercase tracking-wider text-brand-gray-3 transition-all hover:border-brand-gray-3 hover:text-brand-gray-5 disabled:cursor-default disabled:opacity-50"
+              className="cursor-pointer border border-border px-3 py-1.5 font-accent text-xs uppercase tracking-wider text-ink-subtle transition-all hover:border-border-strong hover:text-ink-strong disabled:cursor-default disabled:opacity-50"
             >
               {loadingOlder
                 ? "Loading…"
@@ -274,12 +274,12 @@ function SolutionDetailsModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-lg border border-brand-gray-2 bg-brand-bg p-6 shadow-2xl"
+        className="max-h-[90vh] w-full max-w-xl overflow-auto border border-border bg-brand-bg p-6 shadow-2xl"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-accent text-lg text-brand-gray-5">Solution #{solutionNumber}</h2>
-            <p className="font-accent text-xs text-brand-gray-3">
+            <h2 className="font-accent text-lg text-ink-strong">Solution #{solutionNumber}</h2>
+            <p className="font-accent text-xs text-ink-subtle">
               Block #{block.substrateBlockNumber}{" "}
               {block.finalized ? "· finalized" : "· best (unfinalized)"}
             </p>
@@ -288,7 +288,7 @@ function SolutionDetailsModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="cursor-pointer rounded border border-brand-gray-2 px-2 py-0.5 font-accent text-xs text-brand-gray-3 hover:border-brand-gray-3 hover:text-brand-gray-5"
+            className="cursor-pointer rounded border border-border px-2 py-0.5 font-accent text-xs text-ink-subtle hover:border-border-strong hover:text-ink-strong"
           >
             ×
           </button>
@@ -355,10 +355,10 @@ function Row({
 }) {
   return (
     <div className={span === 2 ? "col-span-2" : ""}>
-      <dt className="text-[10px] uppercase tracking-wider text-brand-gray-3">{label}</dt>
+      <dt className="text-[10px] uppercase tracking-wider text-ink-subtle">{label}</dt>
       <dd
         title={title}
-        className={`tabular-nums text-brand-gray-5 ${mono ? "break-all font-mono text-xs" : ""}`}
+        className={`tabular-nums text-ink-strong ${mono ? "break-all font-mono text-xs" : ""}`}
       >
         {value}
       </dd>
