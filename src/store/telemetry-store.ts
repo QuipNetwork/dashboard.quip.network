@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { create, type StateCreator } from "zustand";
+import { createContext, useContext } from "react";
+import { createStore, useStore, type StateCreator, type StoreApi } from "zustand";
 import { HttpTelemetryClient, type TelemetryClient } from "../services/telemetry-client";
 import type {
   BabeAuthorityRecord,
@@ -119,10 +120,23 @@ const createTelemetryState =
     },
   });
 
-export const createTelemetryStore = (deps: TelemetryStoreDeps) =>
-  create<TelemetryState>(createTelemetryState(deps));
+export const createTelemetryStore = (deps: TelemetryStoreDeps): StoreApi<TelemetryState> =>
+  createStore<TelemetryState>(createTelemetryState(deps));
 
-export const useTelemetryStore = createTelemetryStore({ client: new HttpTelemetryClient() });
+export const telemetryStore = createTelemetryStore({ client: new HttpTelemetryClient() });
+
+export const TelemetryStoreContext = createContext<StoreApi<TelemetryState>>(telemetryStore);
+
+const identity = <T,>(state: T): T => state;
+
+function useTelemetryStoreBase<T = TelemetryState>(
+  selector: (state: TelemetryState) => T = identity as (state: TelemetryState) => T,
+): T {
+  return useStore(useContext(TelemetryStoreContext), selector);
+}
+
+export const useTelemetryStore: typeof useTelemetryStoreBase & StoreApi<TelemetryState> =
+  Object.assign(useTelemetryStoreBase, telemetryStore);
 
 // --- Selectors ---
 
