@@ -24,6 +24,7 @@ function fakeClient(response: Partial<TelemetryResponse> = {}): FakeClient {
     fetchMiningAttempts: async (): Promise<MiningAttemptsResponse> => {
       throw new Error("not used");
     },
+    fetchBlocks: async () => [],
   };
   return client;
 }

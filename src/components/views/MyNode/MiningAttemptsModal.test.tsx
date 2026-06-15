@@ -37,6 +37,7 @@ function clientWith(responder: () => Promise<MiningAttemptsResponse>): Telemetry
   return {
     fetchTelemetry: () => new Promise<never>(() => {}),
     fetchMiningAttempts: () => responder(),
+    fetchBlocks: () => new Promise<never>(() => {}),
   };
 }
 

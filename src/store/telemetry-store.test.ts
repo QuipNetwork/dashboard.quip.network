@@ -179,6 +179,7 @@ function clientReturning(response: TelemetryResponse): FakeClient {
     fetchMiningAttempts: async (): Promise<MiningAttemptsResponse> => {
       throw new Error("not used");
     },
+    fetchBlocks: async () => [],
   };
   return client;
 }
@@ -193,6 +194,7 @@ function clientThrowing(error: Error): FakeClient {
     fetchMiningAttempts: async (): Promise<MiningAttemptsResponse> => {
       throw new Error("not used");
     },
+    fetchBlocks: async () => [],
   };
   return client;
 }

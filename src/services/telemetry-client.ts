@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 
-import type { MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
+import type { BlockRecord, MiningAttemptsResponse, TelemetryResponse } from "../types/telemetry";
 
 export interface TelemetryClient {
   fetchTelemetry(signal?: AbortSignal): Promise<TelemetryResponse>;
@@ -10,6 +10,7 @@ export interface TelemetryClient {
     solutionNumber: number,
     signal?: AbortSignal,
   ): Promise<MiningAttemptsResponse>;
+  fetchBlocks(limit: number, offset: number, signal?: AbortSignal): Promise<BlockRecord[]>;
 }
 
 export interface HttpTelemetryClientOptions {
@@ -51,6 +52,16 @@ export class HttpTelemetryClient implements TelemetryClient {
       throw new Error(body?.error ?? `HTTP ${res.status}`);
     }
     return (await res.json()) as MiningAttemptsResponse;
+  }
+
+  async fetchBlocks(limit: number, offset: number, signal?: AbortSignal): Promise<BlockRecord[]> {
+    const res = await this.fetch(
+      `${this.baseUrl}/api/blocks?limit=${limit}&offset=${offset}`,
+      signal ? { signal } : undefined,
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as { blocks: BlockRecord[] };
+    return body.blocks;
   }
 }
 

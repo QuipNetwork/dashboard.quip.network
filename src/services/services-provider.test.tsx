@@ -17,6 +17,7 @@ const idleClient: TelemetryClient = {
   fetchMiningAttempts: async (): Promise<MiningAttemptsResponse> => {
     throw new Error("not used");
   },
+  fetchBlocks: async () => [],
 };
 
 function SelfAddress() {

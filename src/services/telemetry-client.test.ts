@@ -104,3 +104,22 @@ describe("HttpTelemetryClient.fetchMiningAttempts", () => {
     await expect(client.fetchMiningAttempts(7)).rejects.toThrow("HTTP 500");
   });
 });
+
+describe("HttpTelemetryClient.fetchBlocks", () => {
+  it("requests /api/blocks with limit and offset and unwraps the page", async () => {
+    const { fetch, calls } = fakeFetch(() => json({ blocks: [{ blockHash: "0xa" }] }));
+    const client = new HttpTelemetryClient({ fetch });
+
+    const out = await client.fetchBlocks(50, 100);
+
+    expect(calls[0]?.url).toBe("/api/blocks?limit=50&offset=100");
+    expect(out).toHaveLength(1);
+  });
+
+  it("throws `HTTP <status>` on a non-2xx response", async () => {
+    const { fetch } = fakeFetch(() => new Response("nope", { status: 500 }));
+    const client = new HttpTelemetryClient({ fetch });
+
+    await expect(client.fetchBlocks(10, 0)).rejects.toThrow("HTTP 500");
+  });
+});

@@ -53,6 +53,30 @@ afterEach(async () => {
 });
 
 describe("server app", () => {
+  test("GET /api/blocks paginates by limit/offset, newest first", async () => {
+    await db.insertBlock(makeBlock({ blockHash: "0xa", substrateBlockNumber: "100" }));
+    await db.insertBlock(makeBlock({ blockHash: "0xb", substrateBlockNumber: "101" }));
+    await db.insertBlock(makeBlock({ blockHash: "0xc", substrateBlockNumber: "102" }));
+
+    const page1 = await app.fetch(new Request("http://test/api/blocks?limit=2&offset=0"));
+    expect(page1.status).toBe(200);
+    const body1 = (await page1.json()) as { blocks: BlockRecord[] };
+    expect(body1.blocks.map((b) => b.substrateBlockNumber)).toEqual(["102", "101"]);
+
+    const page2 = await app.fetch(new Request("http://test/api/blocks?limit=2&offset=2"));
+    const body2 = (await page2.json()) as { blocks: BlockRecord[] };
+    expect(body2.blocks.map((b) => b.substrateBlockNumber)).toEqual(["100"]);
+  });
+
+  test("GET /api/blocks clamps a non-positive limit and offset to sane defaults", async () => {
+    await db.insertBlock(makeBlock());
+
+    const res = await app.fetch(new Request("http://test/api/blocks?limit=0&offset=-5"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { blocks: BlockRecord[] };
+    expect(body.blocks).toHaveLength(1);
+  });
+
   test("GET /api/telemetry returns the v6 payload shape", async () => {
     await db.insertBlock(makeBlock());
 

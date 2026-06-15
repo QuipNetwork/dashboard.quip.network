@@ -13,6 +13,7 @@ import { createUIStore, type UIState } from "../store/ui-store";
 const idleClient: TelemetryClient = {
   fetchTelemetry: () => new Promise<never>(() => {}),
   fetchMiningAttempts: () => new Promise<never>(() => {}),
+  fetchBlocks: () => new Promise<never>(() => {}),
 };
 
 export interface TestServicesOverrides {
