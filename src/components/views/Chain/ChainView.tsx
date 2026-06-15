@@ -1,131 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import clsx from "clsx";
-import { useMemo, useState } from "react";
-
-import { shortAddress } from "@/lib/format-chain";
 import { selectServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
-import type { ValidatorAuthorshipRecord } from "@/types/telemetry";
 import { BabeAuthoritiesPanel } from "./BabeAuthoritiesPanel";
-
-// Sortable column identifiers. Tied to the visible columns on the table.
-type SortColumn =
-  | "account"
-  | "blocksAuthored"
-  | "blocksAuthoredWithPow"
-  | "online"
-  | "lastAuthored";
-type SortDirection = "asc" | "desc";
-
-interface SortState {
-  column: SortColumn;
-  direction: SortDirection;
-}
-
-// Format `lastAuthoredAt` as "Xs ago · #block". `null` (validator has not
-// authored anything the indexer has seen) renders as an em dash.
-function formatLastAuthored(
-  v: ValidatorAuthorshipRecord,
-  serverNowMs: number,
-): { text: string; dim: boolean } {
-  if (v.lastAuthoredAt === null || v.lastAuthoredBlock === null) {
-    return { text: "—", dim: true };
-  }
-  const ageSec = Math.max(0, Math.floor((serverNowMs - Date.parse(v.lastAuthoredAt)) / 1000));
-  const ageLabel = ageSec < 60 ? `${ageSec}s ago` : `${Math.floor(ageSec / 60)}m ago`;
-  return { text: `${ageLabel} · #${v.lastAuthoredBlock}`, dim: false };
-}
-
-// Sort comparator. Returns a copy because state.validators is shared with
-// other components in the store; mutating in place would defeat zustand
-// reference equality.
-function sortValidators(
-  rows: ValidatorAuthorshipRecord[],
-  sort: SortState,
-): ValidatorAuthorshipRecord[] {
-  const dir = sort.direction === "asc" ? 1 : -1;
-  const copy = [...rows];
-  copy.sort((a, b) => {
-    switch (sort.column) {
-      case "account":
-        return dir * a.accountId.localeCompare(b.accountId);
-      case "blocksAuthored":
-        return dir * (a.blocksAuthored - b.blocksAuthored);
-      case "blocksAuthoredWithPow":
-        return dir * (a.blocksAuthoredWithPow - b.blocksAuthoredWithPow);
-      case "online":
-        // Online (true) outranks offline (false) on ASC; flip for DESC.
-        return dir * (Number(a.online) - Number(b.online));
-      case "lastAuthored": {
-        // Nulls sort last regardless of direction so unoccupied rows don't
-        // float to the top when toggling DESC. Compare epoch ms otherwise.
-        const aMs = a.lastAuthoredAt ? Date.parse(a.lastAuthoredAt) : -Infinity;
-        const bMs = b.lastAuthoredAt ? Date.parse(b.lastAuthoredAt) : -Infinity;
-        return dir * (aMs - bMs);
-      }
-    }
-  });
-  return copy;
-}
-
-interface HeaderCellProps {
-  label: string;
-  column: SortColumn;
-  sort: SortState;
-  onClick: (column: SortColumn) => void;
-  align?: "left" | "right";
-}
-
-function HeaderCell({ label, column, sort, onClick, align = "left" }: HeaderCellProps) {
-  const active = sort.column === column;
-  const indicator = active ? (sort.direction === "asc" ? " ▲" : " ▼") : "";
-  return (
-    <th
-      className={clsx(
-        "cursor-pointer px-4 py-2 select-none hover:text-ink-strong",
-        align === "right" && "text-right",
-        active && "text-ink-strong",
-      )}
-      onClick={() => onClick(column)}
-    >
-      {label}
-      {indicator}
-    </th>
-  );
-}
+import { ValidatorsTable } from "./ValidatorsTable";
 
 /**
- * Active Validators view — replaces the legacy `ChainMinersView` on the
- * Chain tab. Renders the current BABE authority set (sourced from
- * `session.validators` and observed by the substrate worker) joined with
- * per-validator authorship counters (sourced from `validator_authorship`).
- *
- * The table is sortable on every column. Defaults to DESC by Blocks
- * Authored — the most active validators surface first.
- *
- * Empty state: when no BABE authorities are loaded, hint at the missing
- * substrate RPC URL. This matches the chain-less-mode pattern the rest
- * of the dashboard uses.
+ * Active Validators view — the current BABE authority set joined with
+ * per-validator authorship counters. Empty state hints at the missing
+ * substrate RPC URL, matching the chain-less-mode pattern used elsewhere.
  */
 export function ChainView() {
   const validators = useTelemetryStore((s) => s.validators);
   const serverNowMs = useTelemetryStore(selectServerNowMs);
-  const [sort, setSort] = useState<SortState>({
-    column: "blocksAuthored",
-    direction: "desc",
-  });
-
-  const sorted = useMemo(() => sortValidators(validators, sort), [validators, sort]);
-
-  const onSort = (column: SortColumn) => {
-    setSort((prev) =>
-      prev.column === column
-        ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
-        : // First click on a new column: default to DESC so highest-value
-          // rows land at the top regardless of the previous column.
-          { column, direction: "desc" },
-    );
-  };
 
   if (validators.length === 0) {
     return (
@@ -144,80 +30,7 @@ export function ChainView() {
 
   return (
     <>
-      <div className="border border-border bg-white">
-        <header className="border-b border-border px-4 py-3">
-          <h2 className="font-heading text-lg text-ink-strong">
-            Active Validators ({validators.length})
-          </h2>
-          <p className="mt-1 font-accent text-xs text-ink-subtle">
-            BABE validator set from <code>session.validators</code>. Counters increment per
-            finalized head; the PoW column counts heads that also won a{" "}
-            <code>quantumPow.BlockWinner</code>.
-          </p>
-        </header>
-        <div className="overflow-x-auto">
-          <table className="w-full font-accent text-sm">
-            <thead className="text-left text-xs uppercase tracking-wider text-ink-subtle">
-              <tr className="border-b border-border">
-                <HeaderCell label="Account" column="account" sort={sort} onClick={onSort} />
-                <HeaderCell
-                  label="Blocks Authored"
-                  column="blocksAuthored"
-                  sort={sort}
-                  onClick={onSort}
-                  align="right"
-                />
-                <HeaderCell
-                  label="With PoW"
-                  column="blocksAuthoredWithPow"
-                  sort={sort}
-                  onClick={onSort}
-                  align="right"
-                />
-                <HeaderCell label="Online" column="online" sort={sort} onClick={onSort} />
-                <HeaderCell
-                  label="Last Authored"
-                  column="lastAuthored"
-                  sort={sort}
-                  onClick={onSort}
-                />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((v) => {
-                const last = formatLastAuthored(v, serverNowMs);
-                return (
-                  <tr
-                    key={v.accountId}
-                    className="border-b border-border last:border-b-0 hover:bg-surface-2"
-                  >
-                    <td className="px-4 py-2 font-mono text-xs" title={v.accountId}>
-                      {shortAddress(v.accountId)}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums">{v.blocksAuthored}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{v.blocksAuthoredWithPow}</td>
-                    <td className="px-4 py-2">
-                      {v.online ? (
-                        <span className="text-positive">● online</span>
-                      ) : (
-                        <span className="text-ink-subtle">○ offline</span>
-                      )}
-                    </td>
-                    <td
-                      className={clsx(
-                        "px-4 py-2",
-                        last.dim ? "text-ink-subtle" : "text-ink-strong",
-                      )}
-                    >
-                      {last.text}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <ValidatorsTable validators={validators} serverNowMs={serverNowMs} />
       <BabeAuthoritiesPanel />
     </>
   );
