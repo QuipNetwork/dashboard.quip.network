@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import type { BlockRecord, TelemetryResponse } from "../types/telemetry";
+import { ServicesProvider } from "../services/services-provider";
 import { useTelemetryStore } from "../store/telemetry-store";
 import { useUIStore } from "../store/ui-store";
 
@@ -110,7 +111,7 @@ describe("App smoke test", () => {
     const App = (await import("../App")).default;
 
     await act(async () => {
-      root.render(createElement(App));
+      root.render(createElement(ServicesProvider, null, createElement(App)));
     });
     // Flush the fetchTelemetry microtask so the loading flag flips and the
     // network view actually mounts.

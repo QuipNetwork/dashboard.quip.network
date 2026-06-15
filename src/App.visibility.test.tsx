@@ -19,6 +19,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+import { ServicesProvider } from "./services/services-provider";
 import { useTelemetryStore } from "./store/telemetry-store";
 
 let container: HTMLDivElement;
@@ -87,7 +88,7 @@ describe("App visibility fetch behavior (audit #1)", () => {
 
     const App = (await import("./App")).default;
     await act(async () => {
-      root.render(createElement(App));
+      root.render(createElement(ServicesProvider, null, createElement(App)));
     });
     expect(fetchCount).toBeGreaterThanOrEqual(1);
   });
@@ -102,7 +103,7 @@ describe("App visibility fetch behavior (audit #1)", () => {
 
     const App = (await import("./App")).default;
     await act(async () => {
-      root.render(createElement(App));
+      root.render(createElement(ServicesProvider, null, createElement(App)));
     });
     const onMount = fetchCount;
 

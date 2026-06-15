@@ -1,19 +1,20 @@
+import { useEventBus } from "@vaaas/rx-react/event-bus";
 import { useEffect } from "react";
+import { FetchTelemetry } from "./event-bus/fetch-telemetry";
 import { Dashboard } from "./pages/Dashboard";
-import { useTelemetryStore } from "./store/telemetry-store";
 
 // Dashboard auto-refresh cadence. Indexer polls upstream every 8s; 15s keeps
 // us comfortably ahead without doubling network load.
 const POLL_MS = 15_000;
 
 export default function App() {
-  const fetchTelemetry = useTelemetryStore((s) => s.fetchTelemetry);
+  const bus = useEventBus();
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
 
     const tick = () => {
-      if (document.visibilityState === "visible") fetchTelemetry();
+      if (document.visibilityState === "visible") bus.dispatch(new FetchTelemetry());
     };
     const start = () => {
       if (timer !== null) return;
@@ -38,7 +39,7 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisibility);
       stop();
     };
-  }, [fetchTelemetry]);
+  }, [bus]);
 
   return <Dashboard />;
 }

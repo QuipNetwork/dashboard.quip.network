@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ReactNode } from "react";
+import { EventBusContext, type IEventBus } from "@vaaas/rx-react/event-bus";
+import { useLayoutEffect, useMemo, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 
+import { buildAppEventBus } from "../event-bus/build-app-event-bus";
 import {
   TelemetryStoreContext,
   telemetryStore,
@@ -16,16 +18,32 @@ export interface ServicesProviderProps {
   children: ReactNode;
   telemetryStore?: StoreApi<TelemetryState>;
   uiStore?: UIStore;
+  eventBus?: IEventBus;
 }
 
 export function ServicesProvider({
   children,
   telemetryStore: telemetry = telemetryStore,
   uiStore: ui = uiStore,
+  eventBus,
 }: ServicesProviderProps) {
+  const bus = useMemo(
+    () => eventBus ?? buildAppEventBus({ telemetryStore: telemetry }),
+    [eventBus, telemetry],
+  );
+
+  useLayoutEffect(() => {
+    bus.start();
+    return () => {
+      bus.stop();
+    };
+  }, [bus]);
+
   return (
     <TelemetryStoreContext.Provider value={telemetry}>
-      <UIStoreContext.Provider value={ui}>{children}</UIStoreContext.Provider>
+      <UIStoreContext.Provider value={ui}>
+        <EventBusContext.Provider value={bus}>{children}</EventBusContext.Provider>
+      </UIStoreContext.Provider>
     </TelemetryStoreContext.Provider>
   );
 }
