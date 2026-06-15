@@ -25,24 +25,24 @@ const STYLES: Record<
   }
 > = {
   connecting: {
-    bg: "bg-[#A9A9A9]/10",
-    border: "border-[#A9A9A9]/40",
-    text: "text-[#A9A9A9]",
-    dotColor: "#A9A9A9",
+    bg: "bg-ink-muted/10",
+    border: "border-ink-muted/40",
+    text: "text-ink-subtle",
+    dotColor: "#71717b",
     dotAnim: "spin",
   },
   caught_up: {
-    bg: "bg-[#67E347]/10",
-    border: "border-[#67E347]/40",
-    text: "text-[#67E347]",
-    dotColor: "#67E347",
+    bg: "bg-positive/10",
+    border: "border-positive/40",
+    text: "text-positive",
+    dotColor: "#059669",
     dotAnim: "static",
   },
   stalled: {
-    bg: "bg-[#E34735]/10",
-    border: "border-[#E34735]/60",
-    text: "text-[#E34735]",
-    dotColor: "#E34735",
+    bg: "bg-coral/10",
+    border: "border-coral/50",
+    text: "text-coral",
+    dotColor: "#ff6467",
     dotAnim: "static",
   },
 };
@@ -65,14 +65,14 @@ const SUBSTRATE_DOT_STYLES: Record<
   Exclude<SubstrateHealthLevel, "disabled">,
   { dotColor: string; dotAnim: "pulse" | "static"; title: string }
 > = {
-  ok: { dotColor: "#67E347", dotAnim: "static", title: "Substrate validator connected" },
+  ok: { dotColor: "#059669", dotAnim: "static", title: "Substrate validator connected" },
   stale: {
-    dotColor: "#F5A623",
+    dotColor: "#d97706",
     dotAnim: "pulse",
     title: "Substrate events have slowed",
   },
   offline: {
-    dotColor: "#E34735",
+    dotColor: "#ff6467",
     dotAnim: "static",
     title: "Substrate validator unreachable",
   },
@@ -114,7 +114,7 @@ export function SyncIndicator() {
 
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-[5px] font-accent text-[11px] ${style.bg} ${style.border} ${style.text}`}
+      className={`inline-flex items-center gap-2 border px-3 py-[5px] font-accent text-[11px] ${style.bg} ${style.border} ${style.text}`}
       role="status"
       aria-live="polite"
     >

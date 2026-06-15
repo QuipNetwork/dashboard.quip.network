@@ -44,7 +44,7 @@ export function Header() {
   const views = VIEWS.filter((v) => v.value !== "chain" || hasChainData);
 
   return (
-    <header className="border-b border-border bg-gradient-to-r from-brand-gray-0 via-brand-gray-1 to-brand-gray-0 px-6 py-5">
+    <header className="border-b border-border bg-surface px-6 py-5">
       <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
         {/* Left: sync indicator (always) + aggregation toggle (Network + Compute only). */}
         <div className="flex flex-col items-center gap-2 justify-self-center sm:items-start sm:justify-self-start">
@@ -60,11 +60,11 @@ export function Header() {
                   <button
                     key={value}
                     onClick={() => bus.dispatch(new SetAggregationMode(value))}
-                    className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
-                    style={{
-                      backgroundColor: active ? "#4CE0FF20" : "transparent",
-                      color: active ? "#4CE0FF" : "#A9A9A9",
-                    }}
+                    className={`cursor-pointer px-3 py-1.5 font-accent text-sm transition-colors ${
+                      active
+                        ? "bg-surface-dark text-ink-on-dark"
+                        : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong"
+                    }`}
                   >
                     {label}
                   </button>
@@ -87,11 +87,11 @@ export function Header() {
                 <button
                   key={value}
                   onClick={() => bus.dispatch(new SetViewMode(value))}
-                  className="cursor-pointer px-3 py-1.5 font-accent text-sm transition-all"
-                  style={{
-                    backgroundColor: active ? "#67E34720" : "transparent",
-                    color: active ? "#67E347" : "#A9A9A9",
-                  }}
+                  className={`cursor-pointer px-3 py-1.5 font-accent text-sm transition-colors ${
+                    active
+                      ? "bg-surface-dark text-ink-on-dark"
+                      : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong"
+                  }`}
                 >
                   {label}
                 </button>
@@ -130,18 +130,22 @@ export function Header() {
               <button
                 key={type}
                 onClick={() => bus.dispatch(new ToggleMinerType(type))}
-                className="flex cursor-pointer items-center gap-2 border px-3 py-1.5 font-accent text-sm transition-all"
-                style={{
-                  borderColor: active ? SERIES_COLORS[type] : "#525252",
-                  backgroundColor: active ? `${SERIES_COLORS[type]}15` : "transparent",
-                  color: active ? SERIES_COLORS[type] : "#A9A9A9",
-                }}
+                className={`flex cursor-pointer items-center gap-2 border px-3 py-1.5 font-accent text-sm transition-colors ${
+                  active ? "" : "border-border text-ink-subtle hover:text-ink-strong"
+                }`}
+                style={
+                  active
+                    ? {
+                        borderColor: SERIES_COLORS[type],
+                        backgroundColor: `${SERIES_COLORS[type]}15`,
+                        color: SERIES_COLORS[type],
+                      }
+                    : undefined
+                }
               >
                 <span
                   className="inline-block h-2.5 w-2.5 rounded-full"
-                  style={{
-                    backgroundColor: active ? SERIES_COLORS[type] : "#525252",
-                  }}
+                  style={{ backgroundColor: active ? SERIES_COLORS[type] : "#d4d4d8" }}
                 />
                 {type}
               </button>
