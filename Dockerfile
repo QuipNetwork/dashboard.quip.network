@@ -9,6 +9,16 @@ RUN bun run build
 
 FROM oven/bun:1 AS runtime
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates xz-utils \
+    && NODE_VER="$(curl -fsSL https://nodejs.org/dist/index.json \
+         | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{process.stdout.write(JSON.parse(d).find(x=>x.version.startsWith("v24."))?.version??"")})')" \
+    && test -n "$NODE_VER" \
+    && curl -fsSL "https://nodejs.org/dist/${NODE_VER}/node-${NODE_VER}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz \
+    && apt-get purge -y curl xz-utils && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
+    && node -v
 COPY package.json ./
 RUN bun install --production
 COPY --from=frontend /app/dist ./dist

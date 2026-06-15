@@ -4,9 +4,14 @@ set -euo pipefail
 IMAGE_NAME="quip-dashboard"
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Build image if it doesn't exist or Containerfile changed
-if ! podman image exists "$IMAGE_NAME" || \
-   [ "$PROJECT_DIR/Containerfile" -nt "$(podman image inspect "$IMAGE_NAME" --format '{{.Created}}' 2>/dev/null || echo 0)" ]; then
+needs_build() {
+  podman image exists "$IMAGE_NAME" || return 0
+  local created_epoch dockerfile_epoch
+  created_epoch="$(podman image inspect "$IMAGE_NAME" --format '{{.Created.Unix}}' 2>/dev/null || echo 0)"
+  dockerfile_epoch="$(stat -c %Y "$PROJECT_DIR/Dockerfile" 2>/dev/null || echo 0)"
+  [ "$dockerfile_epoch" -gt "$created_epoch" ]
+}
+if needs_build; then
   podman build -t "$IMAGE_NAME" "$PROJECT_DIR"
 fi
 
@@ -15,40 +20,40 @@ shift 2>/dev/null || true
 
 case "$CMD" in
   dev)
-    exec podman run --rm -it \
+    exec podman run --userns=keep-id --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \
       node node_modules/.bin/netlify dev --port 8888 --offline "$@"
     ;;
   build)
-    exec podman run --rm \
+    exec podman run --userns=keep-id --rm \
       -v "$PROJECT_DIR:/app:Z" \
       "$IMAGE_NAME" \
       bun run build "$@"
     ;;
   ladle)
-    exec podman run --rm -it \
+    exec podman run --userns=keep-id --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       --network host \
       "$IMAGE_NAME" \
       bun run ladle -- --host 0.0.0.0 "$@"
     ;;
   sh)
-    exec podman run --rm -it \
+    exec podman run --userns=keep-id --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \
       bash "$@"
     ;;
   bun)
-    exec podman run --rm -it \
+    exec podman run --userns=keep-id --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       "$IMAGE_NAME" \
       bun "$@"
     ;;
   *)
-    exec podman run --rm -it \
+    exec podman run --userns=keep-id --rm -it \
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \

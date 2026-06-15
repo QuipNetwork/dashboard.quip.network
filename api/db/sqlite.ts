@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -25,6 +24,7 @@ import {
   type DatabaseAdapter,
   type DbConfig,
 } from "./adapter";
+import { Database } from "./sqlite-driver";
 
 // v5→v6 legacy tables that pre-existed the OWNED_TABLES drift sweep. Listed
 // explicitly so a fresh v0.3 migrate against a v0.2 DB drops them before the

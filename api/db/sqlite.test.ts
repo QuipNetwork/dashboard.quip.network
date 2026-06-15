@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SCHEMA_VERSION } from "./adapter";
+import { Database } from "./sqlite-driver";
 import { SQLiteAdapter } from "./sqlite";
 import type { BlockRecord } from "../../src/types/telemetry";
 
