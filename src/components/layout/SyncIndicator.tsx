@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import clsx from "clsx";
 import { useMemo } from "react";
 
 import {
@@ -114,19 +115,24 @@ export function SyncIndicator() {
 
   return (
     <span
-      className={`inline-flex items-center gap-2 border px-3 py-[5px] font-accent text-[11px] ${style.bg} ${style.border} ${style.text}`}
+      className={clsx(
+        "inline-flex items-center gap-2 border px-3 py-[5px] font-accent text-[11px]",
+        style.bg,
+        style.border,
+        style.text,
+      )}
       role="status"
       aria-live="polite"
     >
       {style.dotAnim === "spin" ? (
         <span
-          className={`inline-block h-[10px] w-[10px] rounded-full border-2 ${dotClass}`}
+          className={clsx("inline-block h-[10px] w-[10px] rounded-full border-2", dotClass)}
           style={{ borderColor: style.dotColor, borderTopColor: "transparent" }}
           aria-hidden
         />
       ) : (
         <span
-          className={`inline-block h-[7px] w-[7px] rounded-full ${dotClass}`}
+          className={clsx("inline-block h-[7px] w-[7px] rounded-full", dotClass)}
           style={{ backgroundColor: style.dotColor }}
           aria-hidden
         />
@@ -134,9 +140,10 @@ export function SyncIndicator() {
       {text}
       {substrateStyle && (
         <span
-          className={`inline-block h-[7px] w-[7px] rounded-full ${
-            substrateStyle.dotAnim === "pulse" ? "animate-pulse" : ""
-          }`}
+          className={clsx(
+            "inline-block h-[7px] w-[7px] rounded-full",
+            substrateStyle.dotAnim === "pulse" && "animate-pulse",
+          )}
           style={{ backgroundColor: substrateStyle.dotColor }}
           title={substrateStyle.title + (substrate.reason ? ` · ${substrate.reason}` : "")}
           aria-label={substrateStyle.title}

@@ -2,7 +2,7 @@
 
 import type { InputHTMLAttributes, ReactNode } from "react";
 
-import { cx } from "@/lib/cx";
+import clsx from "clsx";
 
 export type TextInputType = "text" | "email" | "number" | "url" | "tel" | "search" | "password";
 
@@ -40,7 +40,7 @@ export function TextInput({
   className = "",
   ...rest
 }: TextInputProps) {
-  const inputCls = cx(
+  const inputCls = clsx(
     baseStyles,
     sizeStyles[size],
     mono ? "font-mono" : "font-sans",

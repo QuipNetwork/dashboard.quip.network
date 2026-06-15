@@ -2,7 +2,7 @@
 
 import type { HTMLAttributes, ReactNode } from "react";
 
-import { cx } from "@/lib/cx";
+import clsx from "clsx";
 
 export type CardPadding = "sm" | "md" | "lg" | "xl";
 
@@ -21,7 +21,7 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
 export function Card({ padding = "lg", className = "", children, ...rest }: CardProps) {
   return (
     <div
-      className={cx("border border-border bg-white", paddingStyles[padding], className)}
+      className={clsx("border border-border bg-white", paddingStyles[padding], className)}
       {...rest}
     >
       {children}

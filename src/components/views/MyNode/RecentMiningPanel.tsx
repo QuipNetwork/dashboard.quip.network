@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import clsx from "clsx";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { formatDuration, formatNumber } from "@/lib/format";
@@ -166,7 +167,7 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
       ? "border-coral/40 text-coral"
       : "border-border text-ink-body";
   return (
-    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
       {outcome}
     </span>
   );

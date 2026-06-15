@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import clsx from "clsx";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/ui/Modal";
@@ -187,7 +188,7 @@ function ResultBadge({ kind }: { kind: string }) {
       ? "border-coral/40 text-coral"
       : "border-border text-ink-body";
   return (
-    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
       {kind || "—"}
     </span>
   );
@@ -210,7 +211,7 @@ function Row({
     <div className={span === 2 ? "col-span-2" : undefined}>
       <dt className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">{label}</dt>
       <dd
-        className={`font-accent text-sm text-ink-strong ${mono ? "font-mono" : ""}`}
+        className={clsx("font-accent text-sm text-ink-strong", mono && "font-mono")}
         title={title}
       >
         {value}

@@ -1,4 +1,5 @@
 import { useEventBus } from "@vaaas/rx-react/event-bus";
+import clsx from "clsx";
 
 import { SetAggregationMode, SetViewMode, ToggleMinerType } from "@/event-bus/ui-actions";
 import { useTelemetryStore } from "@/store/telemetry-store";
@@ -60,11 +61,12 @@ export function Header() {
                   <button
                     key={value}
                     onClick={() => bus.dispatch(new SetAggregationMode(value))}
-                    className={`cursor-pointer px-3 py-1.5 font-accent text-sm transition-colors ${
+                    className={clsx(
+                      "cursor-pointer px-3 py-1.5 font-accent text-sm transition-colors",
                       active
                         ? "bg-surface-dark text-ink-on-dark"
-                        : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong"
-                    }`}
+                        : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong",
+                    )}
                   >
                     {label}
                   </button>
@@ -87,11 +89,12 @@ export function Header() {
                 <button
                   key={value}
                   onClick={() => bus.dispatch(new SetViewMode(value))}
-                  className={`cursor-pointer px-3 py-1.5 font-accent text-sm transition-colors ${
+                  className={clsx(
+                    "cursor-pointer px-3 py-1.5 font-accent text-sm transition-colors",
                     active
                       ? "bg-surface-dark text-ink-on-dark"
-                      : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong"
-                  }`}
+                      : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong",
+                  )}
                 >
                   {label}
                 </button>
@@ -130,9 +133,10 @@ export function Header() {
               <button
                 key={type}
                 onClick={() => bus.dispatch(new ToggleMinerType(type))}
-                className={`flex cursor-pointer items-center gap-2 border px-3 py-1.5 font-accent text-sm transition-colors ${
-                  active ? "" : "border-border text-ink-subtle hover:text-ink-strong"
-                }`}
+                className={clsx(
+                  "flex cursor-pointer items-center gap-2 border px-3 py-1.5 font-accent text-sm transition-colors",
+                  !active && "border-border text-ink-subtle hover:text-ink-strong",
+                )}
                 style={
                   active
                     ? {

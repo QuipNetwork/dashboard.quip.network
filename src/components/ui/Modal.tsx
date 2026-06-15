@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { cx } from "@/lib/cx";
+import clsx from "clsx";
 import { IconButton } from "./IconButton";
 
 export type ModalSize = "sm" | "md" | "lg" | "xl" | "4xl";
@@ -115,7 +115,7 @@ export function Modal({
       <div
         onClick={onBackdropClick}
         style={{ zIndex }}
-        className={cx(
+        className={clsx(
           "fixed inset-0 flex items-end justify-center bg-black/50 font-sans sm:items-center sm:p-4",
           backdropClassName,
         )}
@@ -128,7 +128,7 @@ export function Modal({
           aria-label={ariaLabel}
           tabIndex={-1}
           onBlur={onDialogBlur}
-          className={cx(
+          className={clsx(
             "flex max-h-[90vh] w-full flex-col border-t border-border bg-white p-6 focus:outline-none sm:border",
             sizeStyles[size],
             className,
@@ -149,7 +149,7 @@ interface ModalSlotProps {
 function ModalHeader({ children, className = "" }: ModalSlotProps) {
   const { titleId } = useModalContext("Modal.Header");
   return (
-    <div className={cx("mb-4 flex items-start justify-between gap-4", className)}>
+    <div className={clsx("mb-4 flex items-start justify-between gap-4", className)}>
       <h2 id={titleId} className="font-display text-h4 font-medium text-ink-strong">
         {children}
       </h2>
@@ -165,7 +165,7 @@ function ModalCloseButton({ className = "" }: { className?: string }) {
       tone="quiet"
       label="Close"
       onClick={onClose}
-      className={cx("-mr-1 -mt-1", className)}
+      className={clsx("-mr-1 -mt-1", className)}
     >
       <span aria-hidden className="text-lg leading-none">
         ×
@@ -175,11 +175,11 @@ function ModalCloseButton({ className = "" }: { className?: string }) {
 }
 
 function ModalBody({ children, className = "" }: ModalSlotProps) {
-  return <div className={cx("-mx-6 flex-1 overflow-y-auto px-6", className)}>{children}</div>;
+  return <div className={clsx("-mx-6 flex-1 overflow-y-auto px-6", className)}>{children}</div>;
 }
 
 function ModalFooter({ children, className = "" }: ModalSlotProps) {
-  return <div className={cx("mt-6 flex justify-end gap-3", className)}>{children}</div>;
+  return <div className={clsx("mt-6 flex justify-end gap-3", className)}>{children}</div>;
 }
 
 Modal.Header = ModalHeader;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import clsx from "clsx";
 import { useState } from "react";
 
 import { shortAddress } from "@/lib/format-chain";
@@ -145,5 +146,5 @@ function Badge({ label, tone }: { label: string; tone: "info" | "muted" | "succe
       : tone === "success"
         ? "bg-positive/20 text-positive"
         : "bg-surface-1 text-ink-subtle";
-  return <span className={`rounded px-2 py-0.5 ${cls}`}>{label}</span>;
+  return <span className={clsx("px-2 py-0.5", cls)}>{label}</span>;
 }

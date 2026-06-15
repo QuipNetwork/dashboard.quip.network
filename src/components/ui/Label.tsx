@@ -2,7 +2,7 @@
 
 import type { LabelHTMLAttributes, ReactNode } from "react";
 
-import { cx } from "@/lib/cx";
+import clsx from "clsx";
 
 export type EyebrowSize = "xs" | "sm" | "md";
 
@@ -21,7 +21,7 @@ interface EyebrowProps {
 }
 
 export function Eyebrow({ size = "sm", className = "", children }: EyebrowProps) {
-  return <span className={cx(eyebrowBase, eyebrowSizes[size], className)}>{children}</span>;
+  return <span className={clsx(eyebrowBase, eyebrowSizes[size], className)}>{children}</span>;
 }
 
 interface FormLabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
@@ -31,7 +31,7 @@ interface FormLabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
 
 export function FormLabel({ size = "sm", className = "", children, ...rest }: FormLabelProps) {
   return (
-    <label className={cx("block", eyebrowBase, eyebrowSizes[size], className)} {...rest}>
+    <label className={clsx("block", eyebrowBase, eyebrowSizes[size], className)} {...rest}>
       {children}
     </label>
   );

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import clsx from "clsx";
 import { useMemo, useState } from "react";
 
 import { shortAddress } from "@/lib/format-chain";
@@ -80,9 +81,11 @@ function HeaderCell({ label, column, sort, onClick, align = "left" }: HeaderCell
   const indicator = active ? (sort.direction === "asc" ? " ▲" : " ▼") : "";
   return (
     <th
-      className={`cursor-pointer px-4 py-2 select-none hover:text-ink-strong ${
-        align === "right" ? "text-right" : ""
-      } ${active ? "text-ink-strong" : ""}`}
+      className={clsx(
+        "cursor-pointer px-4 py-2 select-none hover:text-ink-strong",
+        align === "right" && "text-right",
+        active && "text-ink-strong",
+      )}
       onClick={() => onClick(column)}
     >
       {label}
@@ -200,7 +203,12 @@ export function ChainView() {
                         <span className="text-ink-subtle">○ offline</span>
                       )}
                     </td>
-                    <td className={`px-4 py-2 ${last.dim ? "text-ink-subtle" : "text-ink-strong"}`}>
+                    <td
+                      className={clsx(
+                        "px-4 py-2",
+                        last.dim ? "text-ink-subtle" : "text-ink-strong",
+                      )}
+                    >
                       {last.text}
                     </td>
                   </tr>

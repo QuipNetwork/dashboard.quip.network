@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import clsx from "clsx";
 import { useEffect, useState } from "react";
 
 import { formatDuration } from "@/lib/format";
@@ -329,7 +330,7 @@ function Row({
       <dt className="text-[10px] uppercase tracking-wider text-ink-subtle">{label}</dt>
       <dd
         title={title}
-        className={`tabular-nums text-ink-strong ${mono ? "break-all font-mono text-xs" : ""}`}
+        className={clsx("tabular-nums text-ink-strong", mono && "break-all font-mono text-xs")}
       >
         {value}
       </dd>

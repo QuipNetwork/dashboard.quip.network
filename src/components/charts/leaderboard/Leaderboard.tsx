@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import clsx from "clsx";
 import { SearchInput } from "@/components/common/SearchInput";
 import { SERIES_COLORS } from "@/lib/colors";
 import { formatSeconds, formatNumber } from "@/lib/format";
@@ -16,7 +17,10 @@ function RankBadge({ rank }: { rank: number }) {
   if (rank <= 3) {
     return (
       <span
-        className={`inline-flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br font-heading text-xs font-bold ${RANK_STYLES[rank]}`}
+        className={clsx(
+          "inline-flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br font-heading text-xs font-bold",
+          RANK_STYLES[rank],
+        )}
       >
         {rank}
       </span>

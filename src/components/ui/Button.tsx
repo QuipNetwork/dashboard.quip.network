@@ -2,7 +2,7 @@
 
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "react";
 
-import { cx } from "@/lib/cx";
+import clsx from "clsx";
 
 export type ButtonVariant = "primary" | "secondary" | "quiet" | "positive" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -54,7 +54,7 @@ export function Button(props: ButtonProps) {
     children,
     ...rest
   } = props;
-  const cls = cx(
+  const cls = clsx(
     baseStyles,
     variantStyles[variant],
     sizeStyles[size],

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import clsx from "clsx";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { ChartCard } from "@/components/layout/ChartCard";
 import type { CurrentDispatch, MiningAttempt, MiningSubmissionRecord } from "@/types/telemetry";
@@ -156,7 +157,7 @@ function StatusBadge({ status }: { status: CurrentDispatch["status"] | "stale" }
   const label =
     status === "in-flight" ? "In flight" : status === "stale" ? "Stale" : "Last completed";
   return (
-    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
       {label}
     </span>
   );
@@ -173,7 +174,7 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
       ? "border-positive/40 text-positive"
       : "border-border text-ink-body";
   return (
-    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
       outcome: {outcome}
     </span>
   );
@@ -189,7 +190,7 @@ function ResultBadge({ kind }: { kind: string }) {
         ? "border-warning/40 text-warning"
         : "border-border text-ink-body";
   return (
-    <span className={`inline-block border px-1.5 py-0.5 font-accent text-[10px] ${tone}`}>
+    <span className={clsx("inline-block border px-1.5 py-0.5 font-accent text-[10px]", tone)}>
       {kind || "—"}
     </span>
   );

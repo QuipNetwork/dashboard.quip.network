@@ -2,7 +2,7 @@
 
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
-import { cx } from "@/lib/cx";
+import clsx from "clsx";
 
 export type IconButtonTone =
   | "primary"
@@ -64,10 +64,10 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       type="button"
       aria-label={label}
       title={label}
-      className={cx(baseStyles, toneStyles[tone], sizeStyles[size], className)}
+      className={clsx(baseStyles, toneStyles[tone], sizeStyles[size], className)}
       {...rest}
     >
-      <span className={cx("flex items-center justify-center", iconBoxStyles[size])}>
+      <span className={clsx("flex items-center justify-center", iconBoxStyles[size])}>
         {children}
       </span>
     </button>
