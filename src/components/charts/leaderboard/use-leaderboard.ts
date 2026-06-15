@@ -88,6 +88,17 @@ export function computeLeaderboard(
     }));
 }
 
+export function filterLeaderboardEntries(
+  entries: readonly LeaderboardEntry[],
+  query: string,
+): LeaderboardEntry[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...entries];
+  return entries.filter(
+    (e) => e.minerId.toLowerCase().includes(q) || e.minerCategory.toLowerCase().includes(q),
+  );
+}
+
 export function useLeaderboard(): LeaderboardEntry[] {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
