@@ -15,8 +15,8 @@
 import type { DatabaseAdapter } from "../api/db/adapter";
 
 import type { IndexerConfig } from "./config";
+import type { ChainSource } from "./sources";
 import type { IndexerState } from "./state";
-import type { SubstrateClient } from "./substrate-client";
 
 /**
  * Per-iteration dependencies for {@link runDescriptorIteration}. The loop
@@ -24,7 +24,7 @@ import type { SubstrateClient } from "./substrate-client";
  * tests can call `runDescriptorIteration` directly with a fake client.
  */
 export interface DescriptorIterationDeps {
-  client: SubstrateClient;
+  client: ChainSource;
   db: DatabaseAdapter;
   now?: () => number;
 }
@@ -39,7 +39,7 @@ export interface DescriptorWorkerDeps {
   config: IndexerConfig;
   db: DatabaseAdapter;
   urls: string[];
-  clientFactory: (url: string) => SubstrateClient;
+  clientFactory: (url: string) => ChainSource;
   // Shared with substrate-worker — we read `observability.finalizedBlockHeight`
   // as the upper bound of work to do. Substrate-worker is the sole writer of
   // that field; we never mutate it.

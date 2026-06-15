@@ -17,10 +17,10 @@ import type { BlockRecord } from "../src/types/telemetry";
 
 import type { IndexerConfig } from "./config";
 import type { IndexerState } from "./state";
+import type { ChainSource } from "./sources";
 import type {
   BlockEvents,
   DifficultyInfo,
-  SubstrateClient,
   SubstrateHead,
   TopologyInfo,
   UnsubFn,
@@ -35,7 +35,7 @@ export interface SubstrateWorkerDeps {
   // Builds a fresh SubstrateClient per connect attempt. Production
   // wraps `new PolkadotSubstrateClient(url, timeoutMs)`; tests return
   // a pre-canned FakeSubstrateClient ignoring `url`.
-  clientFactory: (url: string) => SubstrateClient;
+  clientFactory: (url: string) => ChainSource;
   db: DatabaseAdapter;
   state: IndexerState;
   // Test hook — defaults to Date.now(). Used for deterministic
@@ -48,7 +48,7 @@ export interface SubstrateWorkerDeps {
 
 interface ConnectedDeps {
   config: IndexerConfig;
-  client: SubstrateClient;
+  client: ChainSource;
   db: DatabaseAdapter;
   state: IndexerState;
   now?: () => number;
