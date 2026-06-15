@@ -68,12 +68,17 @@ export class KyselyAdapter implements DatabaseAdapter {
   private db: Kysely<DB> | null = null;
   private rawSqlite: Database | null = null;
   private sqlClient: Sql | null = null;
+  // Test seam: an externally-built Kysely (e.g. over pglite). When present,
+  // connect()/disconnect() use it instead of opening a real connection, and
+  // the caller owns its lifecycle via onClose.
+  private readonly injected: { db: Kysely<DB>; onClose?: () => Promise<void> } | null;
 
-  constructor(config: DbConfig) {
+  constructor(config: DbConfig, injected?: { db: Kysely<DB>; onClose?: () => Promise<void> }) {
     this.dialect = config.adapter;
     this.sqlitePath = config.sqlitePath ?? "./data/telemetry.db";
     this.url = config.databaseUrl ?? process.env.DATABASE_URL;
-    if (this.dialect === "postgres" && !this.url) {
+    this.injected = injected ?? null;
+    if (this.dialect === "postgres" && !this.url && !this.injected) {
       throw new Error("postgres adapter requires DATABASE_URL or config.databaseUrl");
     }
   }
@@ -83,6 +88,10 @@ export class KyselyAdapter implements DatabaseAdapter {
   }
 
   async connect(): Promise<void> {
+    if (this.injected) {
+      this.db = this.injected.db;
+      return;
+    }
     if (this.pg) {
       this.sqlClient = postgres(this.url as string, { max: 4, idle_timeout: 30 });
       await this.sqlClient`SELECT 1`;
@@ -100,6 +109,11 @@ export class KyselyAdapter implements DatabaseAdapter {
   }
 
   async disconnect(): Promise<void> {
+    if (this.injected) {
+      await this.injected.onClose?.();
+      this.db = null;
+      return;
+    }
     if (this.sqlClient) {
       await this.sqlClient.end({ timeout: 5 });
       this.sqlClient = null;

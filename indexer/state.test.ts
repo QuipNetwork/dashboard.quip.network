@@ -2,22 +2,21 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { KyselyAdapter } from "../api/db/kysely-adapter";
+import type { DatabaseAdapter } from "../api/db/adapter";
 import type { IndexerObservability } from "../src/types/telemetry";
 
 import { IndexerState } from "./state";
+import { newInMemoryAdapter } from "./test-helpers";
 
 describe("IndexerState observability persistence", () => {
-  let adapter: KyselyAdapter | null = null;
+  let adapter: DatabaseAdapter | null = null;
   afterEach(async () => {
     if (adapter) await adapter.disconnect();
     adapter = null;
   });
 
   it("loads default observability on empty DB", async () => {
-    adapter = new KyselyAdapter({ adapter: "sqlite", sqlitePath: ":memory:" });
-    await adapter.connect();
-    await adapter.migrate();
+    adapter = await newInMemoryAdapter();
     const state = new IndexerState(adapter);
     await state.load();
     expect(state.observability.chainHeadFromNode).toBeNull();
@@ -29,9 +28,7 @@ describe("IndexerState observability persistence", () => {
     // chainConnected is a live WSS state — seeding it from the DB after a
     // restart would lie to the SyncIndicator until the substrate worker's
     // first reconnect event fires.
-    adapter = new KyselyAdapter({ adapter: "sqlite", sqlitePath: ":memory:" });
-    await adapter.connect();
-    await adapter.migrate();
+    adapter = await newInMemoryAdapter();
     const seed: IndexerObservability = {
       chainHeadFromNode: "4939",
       lastStatusFetchAt: "2026-05-19T00:00:00.000Z",

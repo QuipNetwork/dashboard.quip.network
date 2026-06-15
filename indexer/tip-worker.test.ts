@@ -37,7 +37,7 @@ function submissionFor(solutionNumber: number): MiningSubmissionRecord {
     bestEnergyMilli: -14870000,
     numValid: 1,
     qpuAccessTimeUs: 0,
-    observedAt: "",
+    observedAt: "2026-05-19T00:00:00.000Z",
   };
 }
 

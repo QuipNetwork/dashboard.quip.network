@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 
-import postgres from "postgres";
-
-import { KyselyAdapter } from "./kysely-adapter";
+import type { KyselyAdapter } from "./kysely-adapter";
+import { createPgliteHarness, type PgliteHarness } from "./pglite-support";
 import type {
   BlockRecord,
   ChainHead,
@@ -16,20 +12,6 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptorRecord,
 } from "../../src/types/telemetry";
-
-const TABLES = [
-  "blocks",
-  "miner_hardware",
-  "chain_head",
-  "babe_epochs",
-  "babe_authorities",
-  "chain_miners",
-  "difficulty_history",
-  "validator_authorship",
-  "node_descriptors",
-  "mining_submissions",
-  "meta",
-];
 
 const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   blockHash: "0xpow1",
@@ -117,22 +99,20 @@ const sampleSubmission = (
   ...overrides,
 });
 
-interface Harness {
-  db: KyselyAdapter;
-  teardown: () => Promise<void>;
-}
-
-function runSuite(label: string, makeHarness: () => Promise<Harness>): void {
+function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
   describe(`KyselyAdapter (${label})`, () => {
+    let harness: PgliteHarness;
     let db: KyselyAdapter;
-    let teardown: () => Promise<void>;
 
-    beforeEach(async () => {
-      ({ db, teardown } = await makeHarness());
+    beforeAll(async () => {
+      harness = await make();
+      db = harness.adapter;
     });
-    afterEach(async () => {
-      await db.disconnect();
-      await teardown();
+    afterAll(async () => {
+      await harness.close();
+    });
+    beforeEach(async () => {
+      await harness.reset();
     });
 
     describe("blocks", () => {
@@ -363,23 +343,4 @@ function runSuite(label: string, makeHarness: () => Promise<Harness>): void {
   });
 }
 
-runSuite("sqlite", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "kysely-adapter-"));
-  const db = new KyselyAdapter({ adapter: "sqlite", sqlitePath: join(dir, "t.db") });
-  await db.connect();
-  await db.migrate();
-  return { db, teardown: async () => rmSync(dir, { recursive: true, force: true }) };
-});
-
-const PG_URL = process.env.TEST_POSTGRES_URL;
-if (PG_URL) {
-  runSuite("postgres", async () => {
-    const db = new KyselyAdapter({ adapter: "postgres", databaseUrl: PG_URL });
-    await db.connect();
-    await db.migrate();
-    const c = postgres(PG_URL);
-    await c.unsafe(`TRUNCATE ${TABLES.join(", ")}`);
-    await c.end();
-    return { db, teardown: async () => {} };
-  });
-}
+runSuite("pglite", createPgliteHarness);

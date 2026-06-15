@@ -1,32 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-import { KyselyAdapter } from "../api/db/kysely-adapter";
+import type { DatabaseAdapter } from "../api/db/adapter";
 
 import { FakeSubstrateClient } from "./substrate-client";
 import { IndexerState } from "./state";
 import { runSubstrateLoop } from "./substrate-worker";
-import { makeConfig } from "./test-helpers";
+import { makeConfig, newInMemoryAdapter } from "./test-helpers";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-let dir: string;
-let db: KyselyAdapter;
+let db: DatabaseAdapter;
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), "quip-substrate-"));
-  db = new KyselyAdapter({ adapter: "sqlite", sqlitePath: join(dir, "telemetry.db") });
-  await db.connect();
-  await db.migrate();
+  db = await newInMemoryAdapter();
 });
 
 afterEach(async () => {
   await db.disconnect();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 describe("substrate worker", () => {

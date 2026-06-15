@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import { KyselyAdapter } from "../api/db/kysely-adapter";
+import { newInMemoryAdapter } from "../indexer/test-helpers";
 import type { BlockRecord, TelemetryResponse } from "../src/types/telemetry";
 import { createApp } from "./app";
 
@@ -34,22 +31,16 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
   };
 }
 
-let tmpDir: string;
 let db: DatabaseAdapter;
 let app: ReturnType<typeof createApp>;
 
 beforeEach(async () => {
-  tmpDir = mkdtempSync(join(tmpdir(), "quip-server-test-"));
-  db = new KyselyAdapter({ adapter: "sqlite", sqlitePath: join(tmpDir, "t.db") });
-  await db.connect();
-  await db.migrate();
-
+  db = await newInMemoryAdapter();
   app = createApp({ db, validatorRpcUrls: ["ws://test-validator:9944"], enableStatic: false });
 });
 
 afterEach(async () => {
   await db.disconnect();
-  rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("server app", () => {
