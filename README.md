@@ -16,7 +16,7 @@ QPU miners.
                                                            │ writes
                                                            ▼
                                ┌──────────────────────────────────────┐
-                               │  datastore (sqlite | postgres)       │
+                               │  datastore (postgres)                │
                                └──────┬────────────────────┬──────────┘
                                       │ reads              │ reads
                                       ▼                    ▼
@@ -52,10 +52,9 @@ runs on a separate always-on host (VM, fly.io, Railway, etc.).
    string, "URI" format).
 2. **Migrate schema.** From a machine with `DATABASE_URL` set:
    ```sh
-   DB_ADAPTER=postgres DATABASE_URL="postgresql://..." bun run migrate
+   DATABASE_URL="postgresql://..." bun run migrate
    ```
 3. **Netlify env vars.** In the Netlify dashboard set:
-   - `DB_ADAPTER` = `postgres`
    - `DATABASE_URL` = the Supabase Postgres URI
 4. **Deploy.** `git push` to your Netlify-connected branch. Build command is
    `bun run build`; the Netlify function at
@@ -69,7 +68,6 @@ Run the packaged docker image with the server disabled:
 ```sh
 docker run -d --restart=always \
   -e RUN_SERVER=false \
-  -e DB_ADAPTER=postgres \
   -e DATABASE_URL="postgresql://..." \
   -e QUIP_VALIDATOR_RPC_URLS=ws://<validator-host>:9944 \
   registry.gitlab.com/<group>/<project>:latest
@@ -77,21 +75,10 @@ docker run -d --restart=always \
 
 ### 2. Self-hosted docker (local / contributor / homelab)
 
-One image runs the indexer, the Hono API, and the SPA. Defaults to SQLite
-with a persistent volume.
+One image runs the indexer, the Hono API, and the SPA. It connects to a
+Postgres instance (the dashboard runs only on Postgres).
 
-**Quickstart (SQLite)**
-
-```sh
-docker run -p 3001:3001 \
-  -v quip-data:/data \
-  -e QUIP_VALIDATOR_RPC_URLS=ws://<validator-host>:9944 \
-  registry.gitlab.com/<group>/<project>:latest
-```
-
-Then open <http://localhost:3001>.
-
-**Postgres mode (docker-compose)**
+**Quickstart (docker-compose)**
 
 ```yaml
 services:
@@ -108,7 +95,6 @@ services:
     image: registry.gitlab.com/<group>/<project>:latest
     depends_on: [db]
     environment:
-      DB_ADAPTER: postgres
       DATABASE_URL: postgresql://quip:quip@db:5432/quip
       QUIP_VALIDATOR_RPC_URLS: ws://quip-validator:9944
     ports: ["3001:3001"]
@@ -116,6 +102,9 @@ services:
 volumes:
   pgdata:
 ```
+
+Then open <http://localhost:3001>. The entrypoint runs `migrate` before starting
+the server + indexer.
 
 ## Configuration reference
 
@@ -128,12 +117,13 @@ to override; each value shown there is the built-in default.
 
 ```sh
 bun install
+docker compose up -d postgres      # local Postgres matching .env.example DATABASE_URL
 
 # option A: netlify dev — SPA + netlify function
 bun run dev
 
 # option B: run server + indexer separately (matches docker shape)
-bun run migrate                    # create tables (sqlite by default)
+bun run migrate                    # create tables (needs DATABASE_URL)
 bun run dev:server                 # :3001
 bun run dev:indexer                # polls the default node
 bun run dev                        # vite at :5173, proxy /api to :3001 if needed
@@ -145,7 +135,7 @@ bun run dev                        # vite at :5173, proxy /api to :3001 if neede
 src/                     React SPA
 server/                  Hono backend (GET /api/telemetry, /health, SPA fallback)
 indexer/                 Long-running poller
-api/db/                  DatabaseAdapter (sqlite, postgres)
+api/db/                  DatabaseAdapter (Postgres via Kysely) + migrations
 netlify/functions/       Netlify wrapper over the Hono app
 docker/entrypoint.ts     Supervisor that spawns indexer + server
 Dockerfile               Multi-stage multi-arch build

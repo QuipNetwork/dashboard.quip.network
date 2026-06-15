@@ -1,0 +1,29 @@
+# Local Postgres for the dashboard (dev + self-host). The dashboard runs only
+# on Postgres; this brings up an instance matching DATABASE_URL in .env.example:
+#
+#   docker compose up -d postgres
+#   bun run migrate            # apply the schema
+#   bun run dev                # or dev:server / dev:indexer
+#
+# Data persists in the named volume `quip-pgdata`. `docker compose down -v`
+# wipes it (the dashboard DB is rebuildable by re-indexing the chain).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quip
+      POSTGRES_PASSWORD: quip
+      POSTGRES_DB: quip
+    ports:
+      - "5432:5432"
+    volumes:
+      - quip-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quip -d quip"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  quip-pgdata:

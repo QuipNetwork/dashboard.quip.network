@@ -1,7 +1,7 @@
 # Indexer
 
 Long-running worker that polls a Quip node's telemetry REST API and persists
-blocks and node snapshots into the configured database (SQLite or Postgres).
+blocks and node snapshots into Postgres.
 
 ## Running
 
@@ -30,11 +30,9 @@ bun indexer/main.ts \
 
 Database configuration is read from env via `api/db`:
 
-| Env            | Default               |
-| -------------- | --------------------- |
-| `DB_ADAPTER`   | `sqlite`              |
-| `DATABASE_URL` | (Postgres only)       |
-| `SQLITE_PATH`  | `./data/telemetry.db` |
+| Env            | Default |
+| -------------- | ------- |
+| `DATABASE_URL` | —       | Required — Postgres connection string |
 
 ## How it works
 
@@ -80,8 +78,8 @@ self-identity, miner stats, and observability heartbeat.
 bun test indexer/
 ```
 
-Tests stub `fetch` and use an in-memory fake `DatabaseAdapter`; they do not
-touch SQLite.
+Tests stub `fetch` and use a real adapter over an in-process Postgres (pglite),
+so they run self-contained with no external database.
 
 | File                               | Covers                                                                                                              |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |

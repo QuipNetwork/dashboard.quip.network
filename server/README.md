@@ -16,26 +16,21 @@ and is wrapped by `netlify/functions/telemetry.ts` on Netlify.
 ## Running
 
 ```sh
-# defaults: PORT=3001, DB_ADAPTER=sqlite, SQLITE_PATH=./data/telemetry.db
-bun run server/main.ts
-
-# postgres
-DB_ADAPTER=postgres DATABASE_URL=postgres://user:pass@host:5432/db bun run server/main.ts
+# requires DATABASE_URL (Postgres); default PORT=3001
+DATABASE_URL=postgres://user:pass@host:5432/db bun run server/main.ts
 
 # run migrations only
-bun run server/migrate.ts
+DATABASE_URL=postgres://user:pass@host:5432/db bun run server/migrate.ts
 ```
 
 ## Env vars
 
-| Name            | Default               | Purpose                                |
-| --------------- | --------------------- | -------------------------------------- |
-| `PORT`          | `3001`                | Listen port                            |
-| `STATIC_DIR`    | `./dist`              | SPA asset directory                    |
-| `DB_ADAPTER`    | `sqlite`              | `sqlite` or `postgres`                 |
-| `DATABASE_URL`  | —                     | Required for `postgres`                |
-| `SQLITE_PATH`   | `./data/telemetry.db` | Path for `sqlite`                      |
-| `GEOIP_DB_PATH` | —                     | Path to GeoLite2-City.mmdb (see below) |
+| Name            | Default  | Purpose                                |
+| --------------- | -------- | -------------------------------------- |
+| `PORT`          | `3001`   | Listen port                            |
+| `STATIC_DIR`    | `./dist` | SPA asset directory                    |
+| `DATABASE_URL`  | —        | Required — Postgres connection string  |
+| `GEOIP_DB_PATH` | —        | Path to GeoLite2-City.mmdb (see below) |
 
 ### Geo-IP
 

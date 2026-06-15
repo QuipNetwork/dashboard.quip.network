@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Kysely table types for the dashboard schema. Column value types are written
-// permissively where the two backends genuinely return different JS shapes
-// (BIGINT → string on postgres-js but number on sqlite; TIMESTAMPTZ → Date on
-// postgres-js but string on sqlite; JSONB → object on postgres-js but TEXT
-// string on sqlite). The shared row mappers normalise these to the domain types.
+// permissively: Postgres returns some types as strings (BIGINT/NUMERIC) or Date
+// (TIMESTAMPTZ), and the two drivers we run — postgres-js (prod) and pglite
+// (tests) — can differ in the exact JS shape. The shared row mappers normalise
+// everything to the domain types.
 
 type Bool = number | boolean;
 type Iso = string | Date;

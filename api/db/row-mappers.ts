@@ -15,17 +15,17 @@ import type {
 type Row = Record<string, unknown>;
 type ChainMinerLite = Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">;
 
-// TIMESTAMPTZ comes back as Date from postgres-js but TEXT string from sqlite.
+// TIMESTAMPTZ comes back as a Date; tolerate an ISO string from other drivers.
 function iso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
-// JSONB comes back parsed from postgres-js but TEXT string from sqlite.
+// JSONB comes back parsed; tolerate a JSON string from other drivers.
 function json<T>(v: unknown): T {
   return (typeof v === "string" ? JSON.parse(v) : v) as T;
 }
 
-// BIGINT/NUMERIC come back as strings from postgres-js, numbers from sqlite.
+// BIGINT/NUMERIC come back as strings; coerce where the domain wants a number.
 function num(v: unknown): number {
   return Number(v);
 }
