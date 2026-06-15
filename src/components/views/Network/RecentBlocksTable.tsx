@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { formatDuration } from "../../../lib/format";
 import { formatBalance, formatNonce, shortAddress } from "../../../lib/format-chain";
+import { useTelemetryClient } from "../../../services/telemetry-client";
 import { computeChainHealth, type ChainHealth } from "../../../lib/staleness";
 import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
 import { FinalityBadge } from "../../blocks/FinalityBadge";
@@ -42,6 +43,7 @@ interface RecentBlocksTableProps {
 // server-side `getRecentBlocks(limit, offset)` endpoint is plumbed and ready
 // for a future "infinite scroll" upgrade.
 const PAGE_SIZE = 100;
+const LIVE_WINDOW = 500;
 
 // Renders the most recent solutions (one per chain block) with click-to-open
 // detail modal. `blocks` is expected in descending order (tip first) —
@@ -51,12 +53,23 @@ export function RecentBlocksTable({
   indexer = null,
   totalProofsWon,
 }: RecentBlocksTableProps) {
+  const client = useTelemetryClient();
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [query, setQuery] = useState<string>("");
+  const [older, setOlder] = useState<BlockRecord[]>([]);
+  const [loadingOlder, setLoadingOlder] = useState<boolean>(false);
+  const [serverExhausted, setServerExhausted] = useState<boolean>(false);
   const [selectedBlock, setSelectedBlock] = useState<{
     block: BlockRecord;
     solutionNumber: number;
   } | null>(null);
+
+  const tipHash = blocks[0]?.blockHash;
+  useEffect(() => {
+    setOlder([]);
+    setServerExhausted(false);
+  }, [tipHash]);
+
   const now = Date.now();
   const tip = blocks.length > 0 ? (blocks[0] ?? null) : null;
   const health = computeChainHealth({
@@ -80,14 +93,38 @@ export function RecentBlocksTable({
   // winning solution. Solution numbering walks down from totalProofsWon —
   // computed from the full-list index so search doesn't perturb it.
   const tipSolutionNumber = totalProofsWon ?? blocks.length;
-  const numbered: NumberedBlock[] = blocks.map((block, i) => ({
+  const loaded = [...blocks, ...older];
+  const numbered: NumberedBlock[] = loaded.map((block, i) => ({
     block,
     solutionNumber: tipSolutionNumber - i,
   }));
   const matched = filterRecentBlocks(numbered, query);
   const visible = matched.slice(0, pageSize);
-  const canLoadMore = pageSize < matched.length;
+  const hasMoreInMemory = pageSize < matched.length;
+  const canFetchOlder = !query && !serverExhausted && blocks.length >= LIVE_WINDOW;
+  const canLoadMore = hasMoreInMemory || canFetchOlder;
   const remaining = matched.length - pageSize;
+
+  async function loadMore() {
+    if (hasMoreInMemory) {
+      setPageSize((s) => s + PAGE_SIZE);
+      return;
+    }
+    if (!canFetchOlder || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const page = await client.fetchBlocks(PAGE_SIZE, blocks.length + older.length);
+      if (page.length < PAGE_SIZE) setServerExhausted(true);
+      if (page.length > 0) {
+        setOlder((prev) => [...prev, ...page]);
+        setPageSize((s) => s + PAGE_SIZE);
+      }
+    } catch {
+      setServerExhausted(false);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
 
   return (
     <div className="flex h-full flex-col gap-2">
@@ -158,10 +195,15 @@ export function RecentBlocksTable({
             <button
               type="button"
               data-testid="load-more"
-              onClick={() => setPageSize((s) => Math.min(s + PAGE_SIZE, matched.length))}
-              className="cursor-pointer rounded-md border border-brand-gray-2 px-3 py-1.5 font-accent text-xs uppercase tracking-wider text-brand-gray-3 transition-all hover:border-brand-gray-3 hover:text-brand-gray-5"
+              disabled={loadingOlder}
+              onClick={loadMore}
+              className="cursor-pointer rounded-md border border-brand-gray-2 px-3 py-1.5 font-accent text-xs uppercase tracking-wider text-brand-gray-3 transition-all hover:border-brand-gray-3 hover:text-brand-gray-5 disabled:cursor-default disabled:opacity-50"
             >
-              Load more ({remaining} remaining)
+              {loadingOlder
+                ? "Loading…"
+                : hasMoreInMemory
+                  ? `Load more (${remaining} remaining)`
+                  : "Load older solutions"}
             </button>
           </div>
         )}

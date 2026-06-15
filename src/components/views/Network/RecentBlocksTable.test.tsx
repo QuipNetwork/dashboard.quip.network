@@ -5,6 +5,8 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+import type { TelemetryClient } from "../../../services/telemetry-client";
+import { StoryServices } from "../../../testing/services";
 import type { BlockRecord, IndexerObservability } from "../../../types/telemetry";
 
 import { filterRecentBlocks, RecentBlocksTable, type NumberedBlock } from "./RecentBlocksTable";
@@ -255,3 +257,61 @@ describe("RecentBlocksTable search", () => {
     expect(container.textContent).toContain("No solutions match");
   });
 });
+
+describe("RecentBlocksTable server pagination", () => {
+  function makeWindow(n: number): BlockRecord[] {
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Newest first: substrate block numbers 1000..(1000-n+1).
+    return Array.from({ length: n }, (_, idx) => makeBlock(1000 - idx, nowSec - idx * 6));
+  }
+
+  function clientReturningOlder(page: BlockRecord[]): {
+    client: TelemetryClient;
+    calls: () => number;
+  } {
+    let n = 0;
+    const client: TelemetryClient = {
+      fetchTelemetry: () => new Promise<never>(() => {}),
+      fetchMiningAttempts: () => new Promise<never>(() => {}),
+      fetchBlocks: async () => {
+        n += 1;
+        return n === 1 ? page : [];
+      },
+    };
+    return { client, calls: () => n };
+  }
+
+  test("fetches older solutions from the server once the live window is exhausted", async () => {
+    const olderBlock = makeBlock(500, Math.floor(Date.now() / 1000) - 10_000);
+    const { client, calls } = clientReturningOlder([olderBlock]);
+
+    await act(async () => {
+      root.render(
+        <StoryServices client={client}>
+          <RecentBlocksTable blocks={makeWindow(LIVE_WINDOW_FOR_TEST)} indexer={obs()} />
+        </StoryServices>,
+      );
+    });
+
+    // Reveal the full in-memory window: 100 -> 500 (four clicks), all client-side.
+    for (let i = 0; i < 4; i++) {
+      act(() => {
+        container.querySelector<HTMLButtonElement>("button[data-testid='load-more']")?.click();
+      });
+    }
+    expect(calls()).toBe(0);
+    expect(container.textContent).toContain("Load older solutions");
+    expect(container.textContent).not.toContain("miner-500");
+
+    // Next click escalates to the server and appends the older page.
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button[data-testid='load-more']")?.click();
+      await Promise.resolve();
+    });
+
+    expect(calls()).toBe(1);
+    expect(container.textContent).toContain("miner-500");
+  });
+});
+
+const LIVE_WINDOW_FOR_TEST = 500;
