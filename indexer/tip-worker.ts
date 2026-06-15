@@ -6,7 +6,7 @@ import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
 
 import type { IndexerConfig } from "./config";
-import { QuipClient } from "./client";
+import type { MinerSource } from "./client";
 import { IndexerState } from "./state";
 
 // Cap on per-poll submission fetches. The global solution_number space is
@@ -30,7 +30,7 @@ const MINING_ATTEMPTS_BACKFILL_WINDOW = 200;
  * tests can call `runTipIteration` directly with a fake client.
  */
 export interface TipIterationDeps {
-  client: QuipClient;
+  client: MinerSource;
   db: DatabaseAdapter;
   state: IndexerState;
   now?: () => number;
@@ -47,7 +47,7 @@ export interface TipWorkerDeps {
   config: IndexerConfig;
   db: DatabaseAdapter;
   state: IndexerState;
-  clientFactory: (baseUrl: string) => QuipClient;
+  clientFactory: (baseUrl: string) => MinerSource;
   now?: () => number;
 }
 

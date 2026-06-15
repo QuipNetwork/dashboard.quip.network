@@ -44,6 +44,12 @@ export class RateLimitError extends Error {
   }
 }
 
+export interface MinerSource {
+  getStatus(): Promise<NodeStatus>;
+  getStats(): Promise<MinerStats>;
+  getMiningAttempts(solutionNumber: number): Promise<MiningAttemptsResponse>;
+}
+
 interface ApiEnvelope<T> {
   success?: boolean;
   data?: T;
@@ -58,7 +64,7 @@ export interface QuipClientOptions {
   fetchImpl?: FetchLike;
 }
 
-export class QuipClient {
+export class QuipClient implements MinerSource {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
 

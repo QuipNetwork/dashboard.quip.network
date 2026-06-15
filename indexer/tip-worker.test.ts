@@ -9,7 +9,7 @@ import type {
   MiningSubmissionRecord,
 } from "../src/types/telemetry";
 
-import { type NodeStatus, QuipClient } from "./client";
+import { type MinerSource, type NodeStatus } from "./client";
 import { IndexerState } from "./state";
 import { newInMemoryAdapter } from "./test-helpers";
 import { runTipIteration, type TipIterationDeps } from "./tip-worker";
@@ -47,7 +47,7 @@ function fakeClient(opts: {
   // outside this predicate 404 (a sparse gap from this miner's view).
   // Defaults to "none" so tests that don't exercise catch-up stay inert.
   solutionExists?: (n: number) => boolean;
-}): QuipClient {
+}): MinerSource {
   const fullStatus = (overrides?: Partial<NodeStatus>): NodeStatus => ({
     ss58Address: "5GPP",
     accountIdHex: "0x",
@@ -91,7 +91,7 @@ function fakeClient(opts: {
       solutionExists(n)
         ? Promise.resolve({ submission: submissionFor(n), attempts: [] })
         : Promise.reject(new MiningSubmissionNotFoundError(n)),
-  } as unknown as QuipClient;
+  };
 }
 
 // Seed chain_head.winning_solutions_count (LatestQBlockId compatibility field) so
