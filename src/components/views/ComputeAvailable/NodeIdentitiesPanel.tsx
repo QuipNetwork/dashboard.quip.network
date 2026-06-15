@@ -1,8 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { useState } from "react";
+
 import { shortAddress } from "../../../lib/format-chain";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import type { NodeDescriptorRecord } from "../../../types/telemetry";
+import { SearchInput } from "../../common/SearchInput";
+
+export function filterNodeDescriptors(
+  descriptors: readonly NodeDescriptorRecord[],
+  query: string,
+): NodeDescriptorRecord[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...descriptors];
+  return descriptors.filter(
+    (d) =>
+      d.accountId.toLowerCase().includes(q) ||
+      (d.descriptor.nodeName?.toLowerCase().includes(q) ?? false),
+  );
+}
 
 /**
  * Per-account chain-signed identity panel. One row per operator, sourced
@@ -16,7 +32,10 @@ import type { NodeDescriptorRecord } from "../../../types/telemetry";
  */
 export function NodeIdentitiesPanel() {
   const descriptors = useTelemetryStore((s) => s.nodeDescriptors);
+  const [query, setQuery] = useState("");
   if (descriptors.length === 0) return null;
+
+  const filtered = filterNodeDescriptors(descriptors, query);
 
   return (
     <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 backdrop-blur-xl">
@@ -29,11 +48,20 @@ export function NodeIdentitiesPanel() {
           is signed by the AccountId; hardware claims are operator-controlled, not chain-verified.
         </p>
       </header>
-      <div className="divide-y divide-brand-gray-2">
-        {descriptors.map((d) => (
-          <NodeRow key={d.accountId} record={d} />
-        ))}
+      <div className="border-b border-brand-gray-2 px-4 py-3">
+        <SearchInput value={query} onChange={setQuery} placeholder="Search nodes…" />
       </div>
+      {filtered.length === 0 ? (
+        <p className="px-4 py-6 text-center font-accent text-sm text-brand-gray-3">
+          No nodes match “{query}”
+        </p>
+      ) : (
+        <div className="divide-y divide-brand-gray-2">
+          {filtered.map((d) => (
+            <NodeRow key={d.accountId} record={d} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { formatBalance, shortAddress } from "../../../lib/format-chain";
 import { useTelemetryStore } from "../../../store/telemetry-store";
+import type { ChainMinerRecord, NodeDescriptorRecord } from "../../../types/telemetry";
+import { SearchInput } from "../../common/SearchInput";
+
+export function filterChainMiners(
+  miners: readonly ChainMinerRecord[],
+  descriptorsByAccount: ReadonlyMap<string, NodeDescriptorRecord>,
+  query: string,
+): ChainMinerRecord[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...miners];
+  return miners.filter((m) => {
+    const d = descriptorsByAccount.get(m.accountId);
+    return (
+      m.accountId.toLowerCase().includes(q) ||
+      (d?.descriptor.nodeName?.toLowerCase().includes(q) ?? false) ||
+      (d?.descriptor.runtime?.quipVersion?.toLowerCase().includes(q) ?? false)
+    );
+  });
+}
 
 /**
  * On-chain miner table from `quantum_pow.Miners` storage. The cleanest
@@ -19,12 +38,15 @@ import { useTelemetryStore } from "../../../store/telemetry-store";
 export function ChainMinersTable() {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
+  const [query, setQuery] = useState("");
 
   // Index descriptors by accountId so the per-row join is O(1). useMemo
   // keeps the map stable across renders that don't change descriptors.
   const descriptorsByAccount = useMemo(() => {
     return new Map(nodeDescriptors.map((d) => [d.accountId, d]));
   }, [nodeDescriptors]);
+
+  const filtered = filterChainMiners(chainMiners, descriptorsByAccount, query);
 
   return (
     <div className="rounded-xl border border-brand-gray-2 bg-brand-gray-1/40 backdrop-blur-xl">
@@ -42,50 +64,65 @@ export function ChainMinersTable() {
           No miners registered on chain yet.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full font-accent text-sm">
-            <thead className="text-left text-xs uppercase tracking-wider text-brand-gray-3">
-              <tr className="border-b border-brand-gray-2">
-                <th className="px-4 py-2">Account</th>
-                <th className="px-4 py-2">Rig Name</th>
-                <th className="px-4 py-2">Version</th>
-                <th className="px-4 py-2 text-right">Deposit</th>
-                <th className="px-4 py-2 text-right">Proofs Submitted</th>
-                <th className="px-4 py-2 text-right">Proofs Won</th>
-                <th className="px-4 py-2 text-right">Rewards</th>
-              </tr>
-            </thead>
-            <tbody>
-              {chainMiners.map((m) => {
-                const d = descriptorsByAccount.get(m.accountId);
-                return (
-                  <tr
-                    key={m.accountId}
-                    className="border-b border-brand-gray-1 last:border-b-0 hover:bg-brand-gray-2/30"
-                  >
-                    <td className="px-4 py-2 font-mono text-xs" title={m.accountId}>
-                      {shortAddress(m.accountId)}
-                    </td>
-                    <td className="px-4 py-2 text-brand-gray-5">
-                      {d?.descriptor.nodeName ?? <span className="text-brand-gray-3">—</span>}
-                    </td>
-                    <td className="px-4 py-2 text-brand-gray-3">
-                      {d?.descriptor.runtime?.quipVersion ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums">
-                      {formatBalance(m.deposit)}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums">{m.proofsSubmitted}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{m.proofsWon}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">
-                      {formatBalance(m.rewardsEarned)}
-                    </td>
+        <>
+          <div className="border-b border-brand-gray-2 px-4 py-3">
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search by account, rig name, or version…"
+            />
+          </div>
+          {filtered.length === 0 ? (
+            <p className="px-4 py-6 text-center font-accent text-sm text-brand-gray-3">
+              No miners match “{query}”
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full font-accent text-sm">
+                <thead className="text-left text-xs uppercase tracking-wider text-brand-gray-3">
+                  <tr className="border-b border-brand-gray-2">
+                    <th className="px-4 py-2">Account</th>
+                    <th className="px-4 py-2">Rig Name</th>
+                    <th className="px-4 py-2">Version</th>
+                    <th className="px-4 py-2 text-right">Deposit</th>
+                    <th className="px-4 py-2 text-right">Proofs Submitted</th>
+                    <th className="px-4 py-2 text-right">Proofs Won</th>
+                    <th className="px-4 py-2 text-right">Rewards</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {filtered.map((m) => {
+                    const d = descriptorsByAccount.get(m.accountId);
+                    return (
+                      <tr
+                        key={m.accountId}
+                        className="border-b border-brand-gray-1 last:border-b-0 hover:bg-brand-gray-2/30"
+                      >
+                        <td className="px-4 py-2 font-mono text-xs" title={m.accountId}>
+                          {shortAddress(m.accountId)}
+                        </td>
+                        <td className="px-4 py-2 text-brand-gray-5">
+                          {d?.descriptor.nodeName ?? <span className="text-brand-gray-3">—</span>}
+                        </td>
+                        <td className="px-4 py-2 text-brand-gray-3">
+                          {d?.descriptor.runtime?.quipVersion ?? "—"}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {formatBalance(m.deposit)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">{m.proofsSubmitted}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{m.proofsWon}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {formatBalance(m.rewardsEarned)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
