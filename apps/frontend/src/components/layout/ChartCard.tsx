@@ -7,16 +7,23 @@ interface ChartCardProps {
   subtitle?: string;
   children: ReactNode;
   className?: string;
+  bodyClassName?: string;
 }
 
-export function ChartCard({ title, subtitle, children, className = "" }: ChartCardProps) {
+export function ChartCard({
+  title,
+  subtitle,
+  children,
+  className = "",
+  bodyClassName = "h-72",
+}: ChartCardProps) {
   return (
     <Card padding="md" className={className}>
       <div className="mb-4">
         <h2 className="font-heading text-lg text-ink-strong">{title}</h2>
         {subtitle && <p className="font-accent text-xs text-ink-subtle">{subtitle}</p>}
       </div>
-      <div className="h-72">{children}</div>
+      <div className={bodyClassName}>{children}</div>
     </Card>
   );
 }

@@ -68,6 +68,7 @@ export function MinerStatsPanel({
     <ChartCard
       title="Mining Performance"
       subtitle="Local controller counters from /api/v1/stats. Chain accepts at most 8 proofs per block (MaxProofsPerBlock); excess submissions return txpool code 1016. Only the lowest-energy proof per block becomes a chain-side Problem Won."
+      bodyClassName="h-auto"
     >
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
         <StatTile label="Problems Attempted" value={formatNumber(problemsAttempted)} />

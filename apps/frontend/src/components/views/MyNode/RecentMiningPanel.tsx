@@ -44,6 +44,7 @@ export function RecentMiningPanel({
       <ChartCard
         title="Recent Performance"
         subtitle={`Last ${shown.length} submissions by this miner. Click a row to see the per-iteration trajectory.`}
+        bodyClassName="h-auto"
       >
         <div className="overflow-x-auto">
           <table className="w-full font-accent text-xs tabular-nums">

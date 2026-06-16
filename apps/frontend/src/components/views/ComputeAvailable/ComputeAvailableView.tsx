@@ -184,10 +184,9 @@ export function ComputeAvailableView() {
       <ChartCard
         title="Node Locations"
         subtitle={`${compute.locatedNodes.length} of ${compute.totalNodes} nodes geo-located via publicHost`}
+        bodyClassName="h-[440px]"
       >
-        <div className="h-[440px] w-full">
-          <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
-        </div>
+        <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
       </ChartCard>
 
       <div className="mb-5">

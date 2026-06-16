@@ -54,6 +54,7 @@ export function CurrentAttemptsPanel({
       <ChartCard
         title={heading}
         subtitle="Live iteration trail. Empty between dispatches or while the miner is dialing in on the next problem."
+        bodyClassName="h-auto"
       >
         <p className="font-accent text-xs text-ink-subtle">No attempts yet.</p>
       </ChartCard>
@@ -74,6 +75,7 @@ export function CurrentAttemptsPanel({
     <ChartCard
       title={heading}
       subtitle={`Solution #${formatNumber(dispatch.solutionNumber)} · ${sorted.length} iteration${sorted.length === 1 ? "" : "s"}`}
+      bodyClassName="h-auto"
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <StatusBadge status={stale ? "stale" : dispatch.status} />
