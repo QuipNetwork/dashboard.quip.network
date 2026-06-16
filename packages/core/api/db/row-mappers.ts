@@ -60,7 +60,8 @@ export function rowToChainHead(r: Row): ChainHead {
     finalizedBlockNumber: String(r.finalized_block_number),
     finalizedBlockHash: String(r.finalized_block_hash),
     finalityLag: num(r.finality_lag),
-    winningSolutionsCount: r.winning_solutions_count == null ? null : num(r.winning_solutions_count),
+    winningSolutionsCount:
+      r.winning_solutions_count == null ? null : num(r.winning_solutions_count),
     runtime: {
       specName: String(r.spec_name),
       specVersion: num(r.spec_version),

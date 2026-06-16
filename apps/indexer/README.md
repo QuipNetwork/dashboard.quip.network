@@ -31,7 +31,7 @@ bun indexer/main.ts \
 Database configuration is read from env via `api/db`:
 
 | Env            | Default |
-| -------------- | ------- |
+| -------------- | ------- | ------------------------------------- |
 | `DATABASE_URL` | —       | Required — Postgres connection string |
 
 ## How it works

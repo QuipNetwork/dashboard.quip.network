@@ -930,4 +930,3 @@ function decodeDifficulty(codec: unknown): DifficultyInfo {
     minSolutions: Number(json.minSolutions ?? json.min_solutions ?? 0),
   };
 }
-

@@ -343,11 +343,7 @@ export class KyselyAdapter implements DatabaseAdapter {
       .selectFrom("babe_authorities")
       .select(["account_id", "display_name"])
       .where("epoch_index", "=", (eb) =>
-        eb
-          .selectFrom("babe_epochs")
-          .select("epoch_index")
-          .where("is_current", "=", true)
-          .limit(1),
+        eb.selectFrom("babe_epochs").select("epoch_index").where("is_current", "=", true).limit(1),
       )
       .where("is_active", "=", true)
       .orderBy("account_id")

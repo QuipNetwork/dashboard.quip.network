@@ -22,7 +22,10 @@ export interface PollIdempotencyCache {
  * matches the last observed values — saves a transaction per uneventful
  * tick. Capability-checked (Fake / chains without BABE return null).
  */
-export async function pollBabeEpoch(deps: ConnectedDeps, cache: PollIdempotencyCache): Promise<void> {
+export async function pollBabeEpoch(
+  deps: ConnectedDeps,
+  cache: PollIdempotencyCache,
+): Promise<void> {
   const info = await deps.client.getBabeEpoch();
   if (!info) return;
   const hash = `${info.epochIndex}:${info.currentSlot}`;
@@ -63,7 +66,10 @@ export async function pollBabeEpoch(deps: ConnectedDeps, cache: PollIdempotencyC
  * (finalizedBlockHeight=null), we skip — there's no meaningful block to
  * anchor the snapshot to.
  */
-export async function pollDifficulty(deps: ConnectedDeps, cache: PollIdempotencyCache): Promise<void> {
+export async function pollDifficulty(
+  deps: ConnectedDeps,
+  cache: PollIdempotencyCache,
+): Promise<void> {
   const info = await deps.client.getDifficulty();
   if (!info) return;
   const observedAtBlock = deps.state.observability.finalizedBlockHeight;
@@ -96,7 +102,10 @@ export async function pollDifficulty(deps: ConnectedDeps, cache: PollIdempotency
  * authorities write is deferred to the next tick. Miners write
  * unconditionally — they're keyed by account ID, not by era.
  */
-export async function pollChainState(deps: ConnectedDeps, cache: PollIdempotencyCache): Promise<void> {
+export async function pollChainState(
+  deps: ConnectedDeps,
+  cache: PollIdempotencyCache,
+): Promise<void> {
   const [miners, authorities, epoch] = await Promise.all([
     deps.client.getChainMiners(),
     deps.client.getBabeAuthorities(),

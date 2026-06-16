@@ -5,17 +5,17 @@ import type { Hono } from "hono";
 import { parseMiningAttemptsApiResponse } from "@quip/core/miner-api";
 import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 
-  // Modal proxy: fetches `/api/v1/mining/attempts?solution_number=N` from
-  // the local operator's miner-REST endpoint (resolved per-request via the
-  // on-chain descriptor or RPC-URL fallback) and re-shapes to camelCase.
-  // Kept here rather than calling the miner directly from the SPA because
-  // the miner's REST endpoint may not be reachable from the operator's
-  // browser (private network, no CORS).
-  //
-  // Returns 404 when the miner returns 404; 502 on any other upstream
-  // failure so the SPA can distinguish "no such submission" from
-  // "miner unreachable". Returns 503 when no miner-REST URL can be
-  // resolved yet (no selfAddress / no descriptor).
+// Modal proxy: fetches `/api/v1/mining/attempts?solution_number=N` from
+// the local operator's miner-REST endpoint (resolved per-request via the
+// on-chain descriptor or RPC-URL fallback) and re-shapes to camelCase.
+// Kept here rather than calling the miner directly from the SPA because
+// the miner's REST endpoint may not be reachable from the operator's
+// browser (private network, no CORS).
+//
+// Returns 404 when the miner returns 404; 502 on any other upstream
+// failure so the SPA can distinguish "no such submission" from
+// "miner unreachable". Returns 503 when no miner-REST URL can be
+// resolved yet (no selfAddress / no descriptor).
 export function registerMiningAttemptsRoute(app: Hono, validatorRpcUrls: string[]): void {
   app.get("/api/mining/attempts/:solutionNumber", async (c) => {
     const raw = c.req.param("solutionNumber");

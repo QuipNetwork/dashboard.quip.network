@@ -23,15 +23,17 @@ function makeMigrator(db: Kysely<unknown>): Migrator {
 export async function migrateToLatest(db: Kysely<unknown>): Promise<{ applied: string[] }> {
   const { error, results } = await makeMigrator(db).migrateToLatest();
   if (error) throw error instanceof Error ? error : new Error(String(error));
-  const applied = (results ?? [])
-    .filter((r) => r.status === "Success")
-    .map((r) => r.migrationName);
+  const applied = (results ?? []).filter((r) => r.status === "Success").map((r) => r.migrationName);
   return { applied };
 }
 
 export async function migrationStatus(db: Kysely<unknown>): Promise<MigrationStatusRow[]> {
   const all = await makeMigrator(db).getMigrations();
-  return all.map((m) => ({ name: m.name, applied: m.executedAt != null, executedAt: m.executedAt }));
+  return all.map((m) => ({
+    name: m.name,
+    applied: m.executedAt != null,
+    executedAt: m.executedAt,
+  }));
 }
 
 export async function pendingMigrations(db: Kysely<unknown>): Promise<string[]> {

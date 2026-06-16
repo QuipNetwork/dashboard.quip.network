@@ -2,7 +2,11 @@
 
 import { formatDuration, formatNumber } from "@/lib/format";
 import { ChartCard } from "@/components/layout/ChartCard";
-import type { CurrentDispatch, MiningAttempt, MiningSubmissionRecord } from "@quip/shared/telemetry";
+import type {
+  CurrentDispatch,
+  MiningAttempt,
+  MiningSubmissionRecord,
+} from "@quip/shared/telemetry";
 import { OutcomeBadge, ResultBadge, StatusBadge } from "./mining-badges";
 import { meetingTargetCount, numericField, tsNsToMs } from "./mining-shared";
 

@@ -132,7 +132,9 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
 
       it("paginates newest-first by numeric block number", async () => {
         for (const n of [2, 10, 1]) {
-          await db.insertBlock(sampleBlock({ blockHash: `0x${n}`, substrateBlockNumber: String(n) }));
+          await db.insertBlock(
+            sampleBlock({ blockHash: `0x${n}`, substrateBlockNumber: String(n) }),
+          );
         }
         const page = await db.getRecentBlocks(2, 0);
         expect(page.map((b) => b.substrateBlockNumber)).toEqual(["10", "2"]);
@@ -226,8 +228,20 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
     describe("chain miners", () => {
       it("orders by rewards desc and upserts", async () => {
         await db.upsertChainMiners([
-          { accountId: "5A", deposit: "1", proofsSubmitted: "1", proofsWon: "0", rewardsEarned: "100" },
-          { accountId: "5B", deposit: "1", proofsSubmitted: "1", proofsWon: "0", rewardsEarned: "900" },
+          {
+            accountId: "5A",
+            deposit: "1",
+            proofsSubmitted: "1",
+            proofsWon: "0",
+            rewardsEarned: "100",
+          },
+          {
+            accountId: "5B",
+            deposit: "1",
+            proofsSubmitted: "1",
+            proofsWon: "0",
+            rewardsEarned: "900",
+          },
         ]);
         const miners = await db.getChainMiners();
         expect(miners.map((m) => m.accountId)).toEqual(["5B", "5A"]);

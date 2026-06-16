@@ -2,7 +2,11 @@
 
 import { createContext, useContext } from "react";
 
-import type { BlockRecord, MiningAttemptsResponse, TelemetryResponse } from "@quip/shared/telemetry";
+import type {
+  BlockRecord,
+  MiningAttemptsResponse,
+  TelemetryResponse,
+} from "@quip/shared/telemetry";
 
 export interface TelemetryClient {
   fetchTelemetry(signal?: AbortSignal): Promise<TelemetryResponse>;
