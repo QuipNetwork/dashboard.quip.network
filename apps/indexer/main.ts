@@ -8,7 +8,7 @@ import { parseConfig } from "./config";
 import { runDescriptorLoop } from "./descriptor-worker";
 import { IndexerState } from "./state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
-import { runSubstrateLoop } from "./substrate-worker";
+import { SubstrateWorker } from "./substrate";
 import { runTipLoop } from "./tip-worker";
 
 export interface WorkerRunner {
@@ -127,16 +127,13 @@ async function main(): Promise<number> {
             signal,
           ),
         runSubstrate: (signal) =>
-          runSubstrateLoop(
-            {
-              config,
-              db,
-              state,
-              urls: config.validatorRpcUrls,
-              clientFactory,
-            },
-            signal,
-          ),
+          new SubstrateWorker({
+            config,
+            db,
+            state,
+            urls: config.validatorRpcUrls,
+            clientFactory,
+          }).run(signal),
         runDescriptor: (signal) =>
           runDescriptorLoop(
             {

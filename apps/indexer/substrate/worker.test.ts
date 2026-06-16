@@ -4,10 +4,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
-import { FakeSubstrateClient } from "./substrate-client";
-import { IndexerState } from "./state";
-import { runSubstrateLoop } from "./substrate-worker";
-import { makeConfig, newInMemoryAdapter } from "./test-helpers";
+import { FakeSubstrateClient } from "../substrate-client";
+import { IndexerState } from "../state";
+import { SubstrateWorker, type SubstrateWorkerDeps } from "./worker";
+import { makeConfig, newInMemoryAdapter } from "../test-helpers";
+
+// Construct + run the worker. Keeps the behaviour-focused tests below reading
+// as one call; each exercises the real SubstrateWorker class.
+const runSubstrateLoop = (deps: SubstrateWorkerDeps, signal: AbortSignal): Promise<void> =>
+  new SubstrateWorker(deps).run(signal);
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -339,6 +344,10 @@ describe("substrate worker", () => {
     const head = await db.getChainHead();
     expect(head?.finalizedBlockNumber).toBe("100");
     expect(head?.finalizedBlockHash).toBe("0xab");
+    // Only a finalized head was seen, so best is filled from it (lag 0).
+    expect(head?.bestBlockNumber).toBe("100");
+    expect(head?.bestBlockHash).toBe("0xab");
+    expect(head?.finalityLag).toBe(0);
     expect(head?.winningSolutionsCount).toBe(2);
     expect(state.observability.lastSubstrateEventAt).toBe("2026-05-15T00:00:00.000Z");
     expect(state.observability.finalizedBlockHeight).toBe("100");
@@ -785,6 +794,527 @@ describe("substrate worker", () => {
 
     expect(await db.getValidatorAuthorship()).toHaveLength(0);
   });
+
+  // --- Stream-operator invariants (rxjs-migration safety net) ---
+  // These pin the behaviours that the current hand-rolled implementation
+  // expresses imperatively (reconnect loop, setTimeout debounce, dedup Set,
+  // best/finalized merge, unsubscribe-on-abort). They must hold identically
+  // after the worker is reshaped into an rxjs pipeline.
+
+  test("reconnect rotates through the URL list and recovers on a healthy endpoint", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+
+    const seenUrls: string[] = [];
+    let attempts = 0;
+    const working = new FakeSubstrateClient();
+    const clientFactory = (url: string) => {
+      seenUrls.push(url);
+      attempts += 1;
+      // First two endpoints refuse the connection; the third succeeds. The
+      // outer loop must round-robin a → b → c and reset on success.
+      if (attempts <= 2) {
+        const failing = new FakeSubstrateClient();
+        failing.connect = async () => {
+          throw new Error("connect refused");
+        };
+        return failing;
+      }
+      return working;
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+          // Tiny cap so the exponential backoff between retries is a few ms.
+          substrateReconnectMaxBackoffMs: 5,
+        }),
+        urls: ["ws://a", "ws://b", "ws://c"],
+        clientFactory,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(150);
+    expect(seenUrls.slice(0, 3)).toEqual(["ws://a", "ws://b", "ws://c"]);
+    expect(working.isConnected()).toBe(true);
+    expect(state.observability.chainConnected).toBe(true);
+    ac.abort();
+    await loop;
+  });
+
+  test("chain_head writes coalesce a flurry of heads into a single debounced write", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+
+    let chainHeadWrites = 0;
+    const realUpsert = db.upsertChainHead.bind(db);
+    db.upsertChainHead = async (head) => {
+      chainHeadWrites += 1;
+      return realUpsert(head);
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 50,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    // Three new heads inside one debounce window → the timer is reset twice
+    // and only the last (height 102) is written.
+    client.emitNew({ number: "100", hash: "0x64", parentHash: "0x63", extrinsicsRoot: "0x", stateRoot: "0x" });
+    client.emitNew({ number: "101", hash: "0x65", parentHash: "0x64", extrinsicsRoot: "0x", stateRoot: "0x" });
+    client.emitNew({ number: "102", hash: "0x66", parentHash: "0x65", extrinsicsRoot: "0x", stateRoot: "0x" });
+    await wait(120);
+    ac.abort();
+    await loop;
+
+    expect(chainHeadWrites).toBe(1);
+    const head = await db.getChainHead();
+    expect(head?.bestBlockNumber).toBe("102");
+    // Only new heads were seen, so finalized is filled from the latest (lag 0).
+    expect(head?.finalizedBlockNumber).toBe("102");
+    expect(head?.finalityLag).toBe(0);
+  });
+
+  test("chain_head finality lag is best minus finalized when both heads are known", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        // Small window so both heads collapse into one flush carrying both.
+        chainHeadDebounceMs: 30,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    client.emitFinalized({ number: "100", hash: "0xf", parentHash: "0xe", extrinsicsRoot: "0x", stateRoot: "0x" });
+    client.emitNew({ number: "110", hash: "0xb", parentHash: "0xa", extrinsicsRoot: "0x", stateRoot: "0x" });
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    const head = await db.getChainHead();
+    expect(head?.bestBlockNumber).toBe("110");
+    expect(head?.finalizedBlockNumber).toBe("100");
+    expect(head?.finalityLag).toBe(10);
+  });
+
+  test("a replayed finalized head is not double-counted in validator authorship", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 0 };
+    client.winningSolutionsByBlock.set("10", {
+      miner: "5M",
+      energyMilli: -100,
+      reward: "0",
+      submittedAt: "10",
+      nonce: "1",
+      difficulty: { maxEnergyMilli: -100, minDiversityMilli: 1, minSolutions: 1 },
+    });
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    const block = {
+      blockNumber: 10,
+      blockHash: "0xdup",
+      parentHash: "0x0",
+      author: "5Auth1",
+      timestamp: 1_700_000_000,
+      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "10" },
+      proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
+      nonce: "1",
+    };
+    // Same finalized head delivered twice, temporally separated — the real
+    // replay shape (a reconnect re-subscribes, or the fire-and-forget
+    // backfill re-routes a block the live sub already wrote). The dedup Set
+    // collapses the second delivery once the first has been recorded.
+    client.emitBlock(block);
+    await wait(50);
+    client.emitBlock(block);
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    const rows = await db.getValidatorAuthorship();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.blocksAuthored).toBe(1);
+    // insertBlock is INSERT-OR-IGNORE, so the duplicate is also a no-op there.
+    expect(await db.getRecentBlocks(10, 0)).toHaveLength(1);
+  });
+
+  test("after abort the worker unsubscribes — late events produce no writes", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 0 };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    ac.abort();
+    await loop;
+
+    // Subscriptions were torn down in the finally block, so an event that
+    // arrives after shutdown reaches no callback and writes nothing.
+    client.emitBlock({
+      blockNumber: 999,
+      blockHash: "0xlate",
+      parentHash: "0xprev",
+      author: "5Late",
+      timestamp: 1_700_009_990,
+      winner: null,
+      proofs: [],
+      nonce: null,
+    });
+    await wait(50);
+    expect(await db.getValidatorAuthorship()).toHaveLength(0);
+    expect(await db.getRecentBlocks(10, 0)).toHaveLength(0);
+  });
+
+  test("backfills a historical winning block missing from the local store", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 7, edgeCount: 9 };
+    // Chain reports block #200 as a winning solution and can serve its events,
+    // but our local store is empty — the backfill should fetch and insert it.
+    client.winningSolutionsByBlock.set("200", {
+      miner: "5H",
+      energyMilli: -300,
+      reward: "5",
+      submittedAt: "200",
+      nonce: "9",
+      difficulty: { maxEnergyMilli: -300, minDiversityMilli: 10, minSolutions: 1 },
+    });
+    client.historicalBlocks.set("200", {
+      blockNumber: 200,
+      blockHash: "0xc8",
+      parentHash: "0xc7",
+      author: "5HAuth",
+      timestamp: 1_700_000_200,
+      winner: { miner: "5H", reward: "5", energyMilli: -300, submittedAt: "200" },
+      proofs: [{ miner: "5H", energyMilli: -300, diversityMilli: 30, validSolutionCount: 1 }],
+      nonce: "9",
+    });
+    client.lastProofBlockByHash.set("0xc7", 198);
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({ substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(150);
+    ac.abort();
+    await loop;
+
+    const blocks = await db.getRecentBlocks(10, 0);
+    const b = blocks.find((r) => r.substrateBlockNumber === "200");
+    expect(b).toBeDefined();
+    expect(b?.minerId).toBe("5H");
+    expect(b?.energy).toBeCloseTo(-0.3, 5);
+    expect(b?.miningTime).toBe(12); // (200 - 198) × 6s
+    expect(b?.nonce).toBe("9");
+    expect(b?.numNodes).toBe(7);
+  });
+
+  test("a dropped connection reconnects to the SAME endpoint (no churn) and resumes", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const seenUrls: string[] = [];
+    const clients: FakeSubstrateClient[] = [];
+    const clientFactory = (url: string) => {
+      seenUrls.push(url);
+      const c = new FakeSubstrateClient();
+      c.topology = { nodeCount: 1, edgeCount: 0 };
+      clients.push(c);
+      return c;
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+          substrateReconnectMaxBackoffMs: 5, // ~5ms backoff so the reconnect is fast
+        }),
+        urls: ["ws://a", "ws://b"], // multiple URLs so churn would be observable
+        clientFactory,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    expect(seenUrls).toEqual(["ws://a"]);
+    expect(state.observability.chainConnected).toBe(true);
+
+    // Drop the live connection mid-stream.
+    await clients[0]!.disconnect();
+    await wait(60); // error → backoff(~5ms) → reconnect
+
+    // Reconnected to the SAME endpoint (did NOT rotate to ws://b) and is healthy.
+    expect(seenUrls[1]).toBe("ws://a");
+    expect(state.observability.chainConnected).toBe(true);
+
+    // The fresh connection's pipeline works: a block on the new client inserts.
+    clients[1]!.emitBlock({
+      blockNumber: 7,
+      blockHash: "0x7",
+      parentHash: "0x6",
+      author: "5Auth",
+      timestamp: 1_700_000_007,
+      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "7" },
+      proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
+      nonce: "7",
+    });
+    await wait(80);
+    ac.abort();
+    await loop;
+
+    const blocks = await db.getRecentBlocks(10, 0);
+    expect(blocks.some((b) => b.substrateBlockNumber === "7")).toBe(true);
+  });
+
+  test("abort during reconnect backoff exits promptly (no shutdown hang)", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const clientFactory = () => {
+      const c = new FakeSubstrateClient();
+      c.connect = async () => {
+        throw new Error("endpoint down");
+      };
+      return c;
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+          substrateReconnectMaxBackoffMs: 60000, // long backoff → worker parks in the timer
+        }),
+        urls: ["ws://x"],
+        clientFactory,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50); // connect failed; now parked in a ~2s backoff
+    const abortedAt = Date.now();
+    ac.abort();
+    await loop;
+    // Must unwind from the backoff timer immediately, not wait it out.
+    expect(Date.now() - abortedAt).toBeLessThan(500);
+  });
+
+  test("difficulty carries forward to a winning block with no winning-solution snapshot", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 0 };
+    // Block 10 carries its own difficulty; block 11 has none → must inherit it.
+    client.winningSolutionsByBlock.set("10", {
+      miner: "5M",
+      energyMilli: -100,
+      reward: "0",
+      submittedAt: "10",
+      nonce: "1",
+      difficulty: { maxEnergyMilli: -5000, minDiversityMilli: 300, minSolutions: 7 },
+    });
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({ substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    client.emitBlock({
+      blockNumber: 10,
+      blockHash: "0x10",
+      parentHash: "0x9",
+      author: "5A",
+      timestamp: 1_700_000_010,
+      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "10" },
+      proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
+      nonce: "1",
+    });
+    await wait(40);
+    client.emitBlock({
+      blockNumber: 11,
+      blockHash: "0x11",
+      parentHash: "0x10",
+      author: "5A",
+      timestamp: 1_700_000_011,
+      winner: { miner: "5M", reward: "0", energyMilli: -200, submittedAt: "11" },
+      proofs: [{ miner: "5M", energyMilli: -200, diversityMilli: 2, validSolutionCount: 1 }],
+      nonce: "2",
+    });
+    await wait(80);
+    ac.abort();
+    await loop;
+
+    const blocks = await db.getRecentBlocks(10, 0);
+    const b11 = blocks.find((b) => b.substrateBlockNumber === "11");
+    expect(b11).toBeDefined();
+    // No own snapshot → difficulty inherited from block 10 via the scan.
+    expect(b11?.difficultyEnergy).toBeCloseTo(-5, 5);
+    expect(b11?.minDiversity).toBeCloseTo(0.3, 5);
+    expect(b11?.minSolutions).toBe(7);
+  });
+
+  test("a backfill error does not kill the live connection", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 0 };
+    // Backfill catalogue read throws — must be contained, not tear down live.
+    client.getWinningBlockNumbers = async () => {
+      throw new Error("rpc down");
+    };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({ substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    client.emitBlock({
+      blockNumber: 5,
+      blockHash: "0x5",
+      parentHash: "0x4",
+      author: "5A",
+      timestamp: 1_700_000_005,
+      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "5" },
+      proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
+      nonce: "5",
+    });
+    await wait(80);
+    ac.abort();
+    await loop;
+
+    const blocks = await db.getRecentBlocks(10, 0);
+    expect(blocks.some((b) => b.substrateBlockNumber === "5")).toBe(true);
+  });
+
+  test("difficulty poll dedups unchanged snapshots into a single history row", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.difficulty = { maxEnergyMilli: 12500, minDiversityMilli: 500, minSolutions: 3 };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1, // 1s timer — multiple ticks within the test
+        }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(50);
+    client.emitFinalized({
+      number: "100",
+      hash: "0xf",
+      parentHash: "0xe",
+      extrinsicsRoot: "0x",
+      stateRoot: "0x",
+    });
+    // Ticks at ~0 (skipped: no finalized yet), ~1000 (write), ~2000 (unchanged).
+    await wait(2300);
+    ac.abort();
+    await loop;
+
+    const recent = await db.getRecentDifficulty(10);
+    expect(recent).toHaveLength(1); // the cache must dedup the unchanged 2000ms tick
+  }, 5000);
 
   test("chain state poll is idempotent — no second write on unchanged miners", async () => {
     const state = new IndexerState(db);
