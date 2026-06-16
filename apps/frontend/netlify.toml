@@ -1,3 +1,7 @@
+# Netlify is pointed at this file via the site's Package directory = apps/frontend
+# (Base directory = repo root). Relative paths below resolve from apps/frontend,
+# which is why `publish = "dist"` lands on apps/frontend/dist and the function
+# directory is reached with a `../` hop into @quip/server.
 [build]
   command = "bun run build"
   publish = "dist"
@@ -7,7 +11,7 @@
   targetPort = 5173
 
 [functions]
-  directory = "apps/server/netlify"
+  directory = "../server/netlify"
   node_bundler = "esbuild"
 
 [[redirects]]
