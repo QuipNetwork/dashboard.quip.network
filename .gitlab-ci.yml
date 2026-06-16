@@ -26,8 +26,8 @@ test:
   image: oven/bun:1
   tags: [linux, amd64]
   script:
-    - bun install --frozen-lockfile
-    - bunx tsc --noEmit
+    - bun install
+    - bun run typecheck
     - bun run format:check
     - bun test
   rules:
@@ -75,7 +75,7 @@ build-image-amd64:
   script:
     - /kaniko/executor
       --context $CI_PROJECT_DIR
-      --dockerfile Dockerfile
+      --dockerfile deploy/Dockerfile
       --destination $IMAGE:$CI_COMMIT_SHA-$ARCH
       --ignore-path=/lib
 
