@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["@types/bun"]
   },
-  "include": ["docker"]
+  "include": ["deploy"]
 }

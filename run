@@ -8,11 +8,11 @@ needs_build() {
   podman image exists "$IMAGE_NAME" || return 0
   local created_epoch dockerfile_epoch
   created_epoch="$(podman image inspect "$IMAGE_NAME" --format '{{.Created.Unix}}' 2>/dev/null || echo 0)"
-  dockerfile_epoch="$(stat -c %Y "$PROJECT_DIR/Dockerfile" 2>/dev/null || echo 0)"
+  dockerfile_epoch="$(stat -c %Y "$PROJECT_DIR/deploy/Dockerfile" 2>/dev/null || echo 0)"
   [ "$dockerfile_epoch" -gt "$created_epoch" ]
 }
 if needs_build; then
-  podman build -t "$IMAGE_NAME" "$PROJECT_DIR"
+  podman build -t "$IMAGE_NAME" -f "$PROJECT_DIR/deploy/Dockerfile" "$PROJECT_DIR"
 fi
 
 CMD="${1:-sh}"
@@ -24,7 +24,7 @@ case "$CMD" in
       -v "$PROJECT_DIR:/app:Z" \
       -p 8888:8888 \
       "$IMAGE_NAME" \
-      node node_modules/.bin/netlify dev --port 8888 --offline "$@"
+      node node_modules/.bin/netlify dev --filter @quip/frontend --port 8888 --offline "$@"
     ;;
   build)
     exec podman run --userns=keep-id --rm \

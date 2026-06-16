@@ -16,7 +16,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "migrate": "bun run --filter @quip/server migrate",
-    "start": "bun run docker/entrypoint.ts",
+    "start": "bun run deploy/entrypoint.ts",
     "typecheck": "bun run --filter '*' typecheck && tsc --noEmit",
     "test": "bun test --path-ignore-patterns '**/reference-material/**'"
   },

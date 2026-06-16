@@ -79,7 +79,7 @@ async function main(): Promise<number> {
   // applied deterministically before the server and indexer connect.
   console.log("entrypoint: running migrate");
   const migrateProc = Bun.spawn({
-    cmd: ["bun", "run", "/app/server/migrate.ts"],
+    cmd: ["bun", "run", "/app/apps/server/migrate.ts"],
     stdout: "inherit",
     stderr: "inherit",
   });
@@ -90,8 +90,8 @@ async function main(): Promise<number> {
   }
 
   const children: Child[] = [];
-  if (runServer) children.push(spawnChild("server", "/app/server/main.ts"));
-  if (runIndexer) children.push(spawnChild("indexer", "/app/indexer/main.ts"));
+  if (runServer) children.push(spawnChild("server", "/app/apps/server/main.ts"));
+  if (runIndexer) children.push(spawnChild("indexer", "/app/apps/indexer/main.ts"));
 
   const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
   for (const sig of signals) {

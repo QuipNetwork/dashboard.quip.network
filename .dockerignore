@@ -1,5 +1,5 @@
-node_modules
-dist
+**/node_modules
+**/dist
 .data
 data
 *.db
@@ -8,9 +8,8 @@ data
 .claude
 .venv
 dwave_topologies
-telemetry
 minertest
-build
+**/build
 *.log
 test_results
 *.md
