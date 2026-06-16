@@ -1,8 +1,8 @@
-/node_modules
-/dist
-/tsconfig.tsbuildinfo
+node_modules/
+dist/
+tsconfig.tsbuildinfo
 /bun.lock
-/build
+build/
 
 # env config
 .env
