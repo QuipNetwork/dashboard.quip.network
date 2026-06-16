@@ -18,7 +18,7 @@ interface BlockDetailCardProps {
 // Card chrome matching StatTile but built for a compact list of labeled fields
 // instead of one big-number value. Used by the MyNode "Energy Details" and
 // "Current Requirements" tiles.
-export function BlockDetailCard({ label, rows, accent = "#67E347", footer }: BlockDetailCardProps) {
+export function BlockDetailCard({ label, rows, accent = "#059669", footer }: BlockDetailCardProps) {
   return (
     <div className="border border-border bg-white p-5 transition-colors hover:border-border-strong">
       <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">{label}</p>
