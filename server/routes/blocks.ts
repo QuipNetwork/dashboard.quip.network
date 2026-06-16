@@ -2,7 +2,7 @@
 
 import type { Hono } from "hono";
 
-import type { DatabaseAdapter } from "../../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 const DEFAULT_BLOCKS_PAGE = 100;
 const MAX_BLOCKS_PAGE = 500;

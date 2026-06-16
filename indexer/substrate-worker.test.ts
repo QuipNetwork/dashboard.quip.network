@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { DatabaseAdapter } from "../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 import { FakeSubstrateClient } from "./substrate-client";
 import { IndexerState } from "./state";

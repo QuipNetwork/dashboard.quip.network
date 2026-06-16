@@ -2,7 +2,7 @@
 
 import type { Hono } from "hono";
 
-import type { DatabaseAdapter } from "../../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 export function registerHealthRoute(app: Hono, db: DatabaseAdapter): void {
   app.get("/api/health", async (c) => {

@@ -2,8 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { DatabaseAdapter } from "../api/db/adapter";
-import { newInMemoryAdapter } from "../indexer/test-helpers";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
+import { newInMemoryAdapter } from "@quip/core/test-helpers";
 import type { BlockRecord, TelemetryResponse } from "@quip/shared/telemetry";
 import { createApp } from "./app";
 

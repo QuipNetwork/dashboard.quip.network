@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { DatabaseAdapter } from "../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { IndexerObservability } from "@quip/shared/telemetry";
 
 /**

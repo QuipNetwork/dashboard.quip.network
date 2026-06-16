@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import type { DatabaseAdapter } from "../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { IndexerObservability } from "@quip/shared/telemetry";
 
 import { IndexerState } from "./state";

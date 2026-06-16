@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { MiningSubmissionNotFoundError, parseMiningAttemptsApiResponse } from "../api/miner-api";
+import { MiningSubmissionNotFoundError, parseMiningAttemptsApiResponse } from "@quip/core/miner-api";
 import type {
   MinerCategory,
   MinerStats,

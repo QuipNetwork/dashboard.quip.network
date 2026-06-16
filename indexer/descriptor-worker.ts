@@ -12,7 +12,7 @@
 // active descriptor set at each block; DB upserts ignore unchanged/older
 // `updated_at` provenance.
 
-import type { DatabaseAdapter } from "../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 import type { IndexerConfig } from "./config";
 import type { ChainSource } from "./sources";

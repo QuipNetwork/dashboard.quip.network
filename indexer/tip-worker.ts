@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { DatabaseAdapter } from "../api/db/adapter";
-import { MiningSubmissionNotFoundError } from "../api/miner-api";
-import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
+import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
+import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "@quip/shared/telemetry";
 
 import type { ChainStateReader } from "./chain-state";

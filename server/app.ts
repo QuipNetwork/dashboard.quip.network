@@ -3,7 +3,7 @@
 import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 
-import type { DatabaseAdapter } from "../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 import { registerBlocksRoute } from "./routes/blocks";
 import { registerHealthRoute } from "./routes/health";

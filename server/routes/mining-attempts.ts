@@ -2,8 +2,8 @@
 
 import type { Hono } from "hono";
 
-import { parseMiningAttemptsApiResponse } from "../../api/miner-api";
-import { resolveSelfMinerRestUrl } from "../../api/resolve-miner-rest";
+import { parseMiningAttemptsApiResponse } from "@quip/core/miner-api";
+import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 
   // Modal proxy: fetches `/api/v1/mining/attempts?solution_number=N` from
   // the local operator's miner-REST endpoint (resolved per-request via the

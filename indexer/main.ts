@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createAdapter } from "../api/db";
+import { createAdapter } from "@quip/core/db";
 
 import { DbChainStateReader } from "./chain-state";
 import { QuipClient } from "./client";

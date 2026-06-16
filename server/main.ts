@@ -2,7 +2,7 @@
 
 import { serveStatic } from "hono/bun";
 
-import { createAdapter, getConfigFromEnv } from "../api/db/index";
+import { createAdapter, getConfigFromEnv } from "@quip/core/db";
 import { createApp } from "./app";
 
 // Default mirrors indexer/config.ts so a server started without

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { DatabaseAdapter } from "../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { IndexerConfig } from "./config";
 import type { ChainSource } from "./sources";
 import type { IndexerState } from "./state";

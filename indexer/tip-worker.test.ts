@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { MiningSubmissionNotFoundError } from "../api/miner-api";
+import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
 import type {
   MinerStats,
   MiningAttemptsResponse,

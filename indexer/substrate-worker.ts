@@ -12,7 +12,7 @@
 // per-block data — REST is identity+stats only — so this worker writes
 // the full row at insert time, with no two-phase enrichment race.
 
-import type { DatabaseAdapter } from "../api/db/adapter";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { BlockRecord } from "@quip/shared/telemetry";
 
 import type { IndexerConfig } from "./config";

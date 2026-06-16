@@ -2,9 +2,9 @@
 
 import type { Hono } from "hono";
 
-import type { DatabaseAdapter } from "../../api/db/adapter";
-import { parseDispatchAttemptsApiResponse } from "../../api/miner-api";
-import { resolveSelfMinerRestUrl } from "../../api/resolve-miner-rest";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
+import { parseDispatchAttemptsApiResponse } from "@quip/core/miner-api";
+import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 import type {
   CurrentDispatch,
   MiningAttempt,

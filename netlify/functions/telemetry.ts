@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createAdapter, getConfigFromEnv } from "../../api/db/index";
-import type { DatabaseAdapter } from "../../api/db/adapter";
+import { createAdapter, getConfigFromEnv } from "@quip/core/db";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import { createApp } from "../../server/app";
 
 type Fetcher = (request: Request) => Promise<Response>;
