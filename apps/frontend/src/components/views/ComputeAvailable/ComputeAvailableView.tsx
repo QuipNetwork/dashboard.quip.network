@@ -49,7 +49,7 @@ export function ComputeAvailableView() {
 
   return (
     <>
-      <div className="mb-5 grid grid-cols-2 gap-5 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         {byNode ? (
           <>
             <StatTile
@@ -105,7 +105,7 @@ export function ComputeAvailableView() {
 
       {/* Block-ceiling FLOPS + live difficulty — orthogonal to By Node / By
           Type, visible in both modes. Three columns on lg; stacks below. */}
-      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <StatTile
           label="Last Block FLOPS"
           value={
@@ -149,7 +149,7 @@ export function ComputeAvailableView() {
       </div>
 
       {byNode ? (
-        <div className="mb-5 border border-border bg-white p-5">
+        <div className="border border-border bg-white p-5">
           <div className="mb-4">
             <h2 className="font-heading text-lg text-ink-strong">Node Compute Contribution</h2>
             <p className="font-accent text-xs text-ink-subtle">
@@ -160,7 +160,7 @@ export function ComputeAvailableView() {
           <NodeLeaderboard nodes={compute.perNodeTflops} accent="#67E347" />
         </div>
       ) : (
-        <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <ChartCard title="CPU Model Breakdown" subtitle="Logical CPU populations on the network">
             <HardwareBreakdown
               data={compute.cpuModels}
@@ -189,13 +189,9 @@ export function ComputeAvailableView() {
         <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
       </ChartCard>
 
-      <div className="mb-5">
-        <ChainMinersTable />
-      </div>
+      <ChainMinersTable />
 
-      <div className="mb-5">
-        <NodeIdentitiesPanel />
-      </div>
+      <NodeIdentitiesPanel />
 
       <DifficultyChart />
     </>

@@ -60,7 +60,6 @@ export function NetworkView() {
       <ChartCard
         title="Recent Solutions"
         subtitle="Last 10 mined solutions on the current chain tip"
-        className="mb-5"
       >
         <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
       </ChartCard>
@@ -68,7 +67,6 @@ export function NetworkView() {
       <ChartCard
         title="Mining Leaderboard"
         subtitle="Top performing miners by solutions"
-        className="mb-5"
       >
         <Leaderboard data={leaderboard} />
       </ChartCard>

@@ -74,7 +74,7 @@ export function MyNodeView() {
 
   return (
     <>
-      <div className="mb-5 flex flex-col gap-1 border border-border bg-white p-5 sm:flex-row sm:items-baseline sm:justify-between">
+      <div className="flex flex-col gap-1 border border-border bg-white p-5 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
             Connected Node
@@ -89,7 +89,7 @@ export function MyNodeView() {
         )}
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
         <StatTile
           label="Problems Won"
           value={formatNumber(Number(blocksMined))}
@@ -119,7 +119,7 @@ export function MyNodeView() {
         />
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <LastSolutionCard lastWonBlock={lastWonBlock} lastWonSubmission={lastWonSubmission} />
         <CurrentDifficultyCard
           currentRequirements={currentRequirements}

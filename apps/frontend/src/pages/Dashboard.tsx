@@ -21,12 +21,12 @@ export function Dashboard() {
           )}
           {error && <p className="py-20 text-center font-accent text-coral">{error}</p>}
           {!loading && !error && (
-            <>
+            <div className="flex flex-col gap-5">
               {viewMode === "my-node" && <MyNodeView />}
               {viewMode === "network" && <NetworkView />}
               {viewMode === "compute" && <ComputeAvailableView />}
               {viewMode === "chain" && <ChainView />}
-            </>
+            </div>
           )}
         </main>
       </div>
