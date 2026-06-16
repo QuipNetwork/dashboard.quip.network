@@ -1,12 +1,13 @@
-# Local Postgres for the dashboard (dev + self-host). The dashboard runs only
-# on Postgres; this brings up an instance matching DATABASE_URL in .env.example:
+# Full local dev stack for the dashboard. `./run dev` brings up Postgres plus
+# the app container (server + indexer + frontend, supervised by tini +
+# deploy/entrypoint.ts in DEV mode) on one network.
 #
-#   docker compose up -d postgres
-#   bun run migrate            # apply the schema
-#   bun run dev                # or dev:server / dev:indexer
+#   ./run dev          # build + start the whole stack (Ctrl-C to stop)
+#   ./run down         # stop and remove it
 #
-# Data persists in the named volume `quip-pgdata`. `docker compose down -v`
-# wipes it (the dashboard DB is rebuildable by re-indexing the chain).
+# The app's source is bind-mounted, so edits hot-reload (bun --watch for the
+# backends, vite HMR for the SPA). Postgres data persists in the named volume
+# `quip-pgdata`; `./run down -v` wipes it (the DB is rebuildable by re-indexing).
 
 services:
   postgres:
@@ -24,6 +25,30 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://quip:quip@postgres:5432/quip
+      # No validator in the dev stack — point this at a reachable node to index
+      # real chain data (e.g. ws://host.containers.internal:9944 or a testnet
+      # RPC). Left unset, the indexer just retries; the SPA + server still work.
+      QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-validator:9944}
+      DEV: "true"
+      RUN_SERVER: "true"
+      RUN_INDEXER: "true"
+      RUN_FRONTEND: "true"
+    volumes:
+      - ..:/app:Z
+    ports:
+      - "5173:5173" # vite (SPA, HMR) — open this in the browser
+      - "3001:3001" # hono server / API
 
 volumes:
   quip-pgdata:

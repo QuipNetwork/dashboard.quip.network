@@ -18,7 +18,8 @@
     "@types/geoip-lite": "^1.4.4"
   },
   "scripts": {
-    "dev": "bun run main.ts",
+    "dev": "bun --watch main.ts",
+    "start": "bun main.ts",
     "migrate": "bun run migrate.ts",
     "typecheck": "tsc --noEmit"
   }

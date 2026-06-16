@@ -113,10 +113,11 @@ volumes:
   pgdata:
 ```
 
-Then open <http://localhost:3001>. The entrypoint (`deploy/entrypoint.ts`) runs
-`migrate` before starting the server + indexer. The image is built from
-`deploy/Dockerfile` with the repository root as the build context
-(`docker build -f deploy/Dockerfile .`).
+Then open <http://localhost:3001>. PID 1 is `tini`; its single child is the
+process supervisor (`deploy/entrypoint.ts`), which runs `migrate` before starting
+the server + indexer (toggle either with `RUN_SERVER`/`RUN_INDEXER`). The image
+is built from the `prod` stage of `deploy/Dockerfile` with the repository root as
+the build context (`docker build --target prod -f deploy/Dockerfile .`).
 
 ## Configuration reference
 
@@ -127,18 +128,22 @@ override; each value shown there is the built-in default.
 
 ## Local development
 
+The whole stack runs in containers (the host needs no JS runtime). One command
+brings up Postgres + server + indexer + frontend — supervised by tini +
+`deploy/entrypoint.ts`, the same supervisor as prod — with the source
+bind-mounted for hot reload (`bun --watch` backends, vite HMR for the SPA):
+
 ```sh
-bun install                                            # links the workspaces
-docker compose -f deploy/docker-compose.yml up -d postgres   # local Postgres
-
-# option A: netlify dev — SPA + netlify function (monorepo-filtered)
-bun run dev                                             # netlify dev --filter @quip/frontend
-
-# option B: run server + indexer separately (matches docker shape)
-bun run migrate                                         # create tables (needs DATABASE_URL)
-bun run dev:server                                      # @quip/server on :3001
-bun run dev:indexer                                     # @quip/indexer polls the default node
+./run dev          # build + start everything; open http://localhost:5173
+./run down         # stop it (./run down -v also wipes the postgres volume)
 ```
+
+The SPA is on :5173 and proxies `/api` to the hono server on :3001. Point
+`QUIP_VALIDATOR_RPC_URLS` (in `.env`) at a reachable node to index real chain
+data; left unset, the indexer just retries while the SPA + server still work.
+
+To exercise the degraded Netlify function path specifically, use
+`./run bun run dev:netlify`.
 
 ## Layout
 
@@ -150,7 +155,7 @@ apps/
 packages/
   shared/     @quip/shared    zero-dependency shared code (telemetry types today)
   core/       @quip/core      DatabaseAdapter (Postgres via Kysely) + miner-api + migrations
-deploy/       Dockerfile, docker-compose.yml, entrypoint.ts (supervisor)
+deploy/       Dockerfile (dev+prod stages), docker-compose.yml (dev stack), entrypoint.ts (tini-supervised process manager)
 docs/         schema, plans, API specs, sample telemetry captures
 .gitlab-ci.yml  Lint + typecheck + multi-arch buildx publish
 ```
@@ -160,16 +165,22 @@ Internal packages export their TypeScript source directly (Turborepo's
 The frontend does not declare `@polkadot/*`, so the substrate worker can never
 leak into the SPA bundle (the `verify:no-polkadot-in-bundle` guard backs this up).
 
-## Scripts
+## Commands
 
-All run from the repo root:
+The host has no JS runtime, so everything runs through `./run` (see the script
+header for the full list):
 
 ```sh
-bun run typecheck     # per-package tsc --noEmit (+ the deploy entrypoint)
-bun test              # bun:test across every workspace
-bun run build         # vite build of @quip/frontend → apps/frontend/dist
-bun run format:check  # prettier --check .
+./run dev          # full dev stack (postgres + server + indexer + frontend)
+./run build        # build the production container image (the published artifact)
+./run typecheck    # per-package tsc --noEmit
+./run test         # bun:test across every workspace
+./run format       # prettier --write
 ```
+
+Note the two senses of "build": `./run build` builds the deployable **container
+image**, whereas the in-image `bun run build` produces the **SPA**
+(`apps/frontend/dist`) — that's what the Dockerfile's frontend stage runs.
 
 ## License
 

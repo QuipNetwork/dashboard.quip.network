@@ -8,9 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "netlify dev --filter @quip/frontend",
-    "dev:server": "bun run --filter @quip/server dev",
-    "dev:indexer": "bun run --filter @quip/indexer dev",
+    "dev:netlify": "netlify dev --filter @quip/frontend",
     "build": "bun run --filter @quip/frontend build && bun run verify:no-polkadot-in-bundle",
     "verify:no-polkadot-in-bundle": "if grep -rq '@polkadot' apps/frontend/dist/assets/ 2>/dev/null; then echo 'FAIL: @polkadot/* leaked into the SPA bundle. The substrate worker is indexer-only — never import @polkadot/* from the frontend.' >&2; exit 1; fi",
     "preview": "bun run --filter @quip/frontend preview",

@@ -1,9 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Container entrypoint: spawns the indexer and/or server, forwards signals,
-// and exits with the first non-zero child exit code.
+// App process supervisor. tini is PID 1 (zombie reaping + signal delivery);
+// this process is tini's single child and parents the app's own processes:
+// it installs deps (dev only), runs migrate, then spawns the server / indexer
+// / frontend, forwards signals, and exits with the first non-zero child code.
+//
+// Every process is delegated to a workspace package.json script (`bun run
+// <script>` with the workspace as cwd) so each app owns its own dev/start
+// command. Mode and which children run are env-driven:
+//   DEV          run watch/HMR dev scripts + `bun install` first  (default false)
+//   RUN_SERVER   start @quip/server   (default true)
+//   RUN_INDEXER  start @quip/indexer  (default true)
+//   RUN_FRONTEND start @quip/frontend vite dev server (default true, DEV-only)
 
-type ChildName = "server" | "indexer";
+const APP_DIR = "/app";
+
+type ChildName = "server" | "indexer" | "frontend";
+
+interface AppSpec {
+  name: ChildName;
+  dir: string;
+}
 
 interface Child {
   name: ChildName;
@@ -16,13 +33,22 @@ function envFlag(name: string, fallback: boolean): boolean {
   return raw.toLowerCase() !== "false" && raw !== "0";
 }
 
-function spawnChild(name: ChildName, entry: string): Child {
+const DEV = envFlag("DEV", false);
+
+function runWorkspaceScript(name: ChildName, dir: string, script: string): Child {
   const proc = Bun.spawn({
-    cmd: ["bun", "run", entry],
+    cmd: ["bun", "run", script],
+    cwd: dir,
     stdout: "inherit",
     stderr: "inherit",
   });
   return { name, proc };
+}
+
+async function runToCompletion(label: string, cmd: string[], cwd: string): Promise<number> {
+  console.log(`entrypoint: ${label}`);
+  const proc = Bun.spawn({ cmd, cwd, stdout: "inherit", stderr: "inherit" });
+  return (await proc.exited) ?? 1;
 }
 
 async function waitFirst(children: Child[]): Promise<{ name: ChildName; code: number }> {
@@ -66,32 +92,51 @@ async function shutdown(children: Child[], signal: NodeJS.Signals): Promise<void
   await Promise.all(children.map((c) => c.proc.exited));
 }
 
-async function main(): Promise<number> {
-  const runServer = envFlag("RUN_SERVER", true);
-  const runIndexer = envFlag("RUN_INDEXER", true);
+function plannedApps(): AppSpec[] {
+  const apps: AppSpec[] = [];
+  if (envFlag("RUN_SERVER", true)) apps.push({ name: "server", dir: `${APP_DIR}/apps/server` });
+  if (envFlag("RUN_INDEXER", true)) apps.push({ name: "indexer", dir: `${APP_DIR}/apps/indexer` });
+  // The SPA is static in prod (served by the server from STATIC_DIR); only the
+  // dev image runs vite, so the frontend child is DEV-gated.
+  if (DEV && envFlag("RUN_FRONTEND", true))
+    apps.push({ name: "frontend", dir: `${APP_DIR}/apps/frontend` });
+  return apps;
+}
 
-  if (!runServer && !runIndexer) {
-    console.error("entrypoint: both RUN_SERVER and RUN_INDEXER are false; nothing to do");
+async function main(): Promise<number> {
+  const apps = plannedApps();
+  if (apps.length === 0) {
+    console.error(
+      "entrypoint: no processes enabled (RUN_SERVER/RUN_INDEXER/RUN_FRONTEND); nothing to do",
+    );
     return 1;
+  }
+
+  // Dev installs against the bind-mounted source so node_modules tracks the
+  // host checkout; prod images bake deps at build time and skip this.
+  if (DEV) {
+    const installExit = await runToCompletion("bun install (dev)", ["bun", "install"], APP_DIR);
+    if (installExit !== 0) {
+      console.error(`entrypoint: bun install failed with code ${installExit}`);
+      return installExit;
+    }
   }
 
   // Run migrate synchronously before children start so the Postgres schema is
   // applied deterministically before the server and indexer connect.
-  console.log("entrypoint: running migrate");
-  const migrateProc = Bun.spawn({
-    cmd: ["bun", "run", "/app/apps/server/migrate.ts"],
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const migrateExit = (await migrateProc.exited) ?? 1;
+  const migrateExit = await runToCompletion(
+    "running migrate",
+    ["bun", "run", "migrate"],
+    `${APP_DIR}/apps/server`,
+  );
   if (migrateExit !== 0) {
     console.error(`entrypoint: migrate failed with code ${migrateExit}`);
     return migrateExit;
   }
 
-  const children: Child[] = [];
-  if (runServer) children.push(spawnChild("server", "/app/apps/server/main.ts"));
-  if (runIndexer) children.push(spawnChild("indexer", "/app/apps/indexer/main.ts"));
+  const script = DEV ? "dev" : "start";
+  const children = apps.map((a) => runWorkspaceScript(a.name, a.dir, script));
+  console.log(`entrypoint: started ${children.map((c) => c.name).join(", ")} (${script})`);
 
   const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
   for (const sig of signals) {
