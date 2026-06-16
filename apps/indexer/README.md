@@ -1,69 +1,73 @@
 # Indexer
 
-Long-running worker that polls a Quip node's telemetry REST API and persists
-blocks and node snapshots into Postgres.
+Long-running worker that fuses two sources into Postgres: the **substrate
+validator RPC** (canonical chain state — blocks, miners, difficulty, validators,
+BABE epoch, on-chain node descriptors) and the **local miner REST API**
+(per-node self-identity and miner stats). The dashboard server reads what this
+worker writes.
 
 ## Running
 
 ```bash
 # one-shot (exits after a single iteration)
-bun indexer/main.ts --once
+bun run apps/indexer/main.ts --once
 
-# long-running poll loop
-bun indexer/main.ts \
-  --node-url https://qpu-1.nodes.quip.network \
-  --token "$QUIP_NODE_TOKEN" \
-  --poll-interval 8 \
-  --nodes-refresh 45
+# long-running, against a reachable validator (dev)
+bun run apps/indexer/main.ts \
+  --validator-rpc-urls ws://127.0.0.1:9944 \
+  --poll-interval 8
+
+# via the workspace script (uses QUIP_VALIDATOR_RPC_URLS from .env)
+bun run dev:indexer
 ```
 
 ## Flags / env
 
-| Flag              | Env                 | Default                            |
-| ----------------- | ------------------- | ---------------------------------- |
-| `--node-url`      | `QUIP_NODE_URL`     | `https://qpu-1.nodes.quip.network` |
-| `--token`         | `QUIP_NODE_TOKEN`   | unset                              |
-| `--poll-interval` | `POLL_INTERVAL_SEC` | `8`                                |
-| `--nodes-refresh` | `NODES_REFRESH_SEC` | `45`                               |
-| `--once`          | —                   | `false`                            |
-| `--verbose`       | `VERBOSE=1`         | `false`                            |
+| Flag                                | Env                                       | Default                    |
+| ----------------------------------- | ----------------------------------------- | -------------------------- |
+| `--validator-rpc-urls`              | `QUIP_VALIDATOR_RPC_URLS`                 | `ws://quip-validator:9944` |
+| `--poll-interval`                   | `POLL_INTERVAL_SEC`                       | `8`                        |
+| `--nodes-refresh`                   | `NODES_REFRESH_SEC`                       | `45` (informational)       |
+| `--stall-warn-after`                | `STALL_WARN_AFTER_SEC`                    | `600` (0 disables)         |
+| `--substrate-rpc-timeout`           | `QUIP_VALIDATOR_RPC_TIMEOUT_MS`           | `15000`                    |
+| `--substrate-reconnect-max-backoff` | `QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS` | `60000`                    |
+| `--substrate-babe-poll`             | `QUIP_VALIDATOR_BABE_POLL_SEC`            | `30`                       |
+| `--substrate-chain-poll`            | `QUIP_VALIDATOR_CHAIN_POLL_SEC`           | `6`                        |
+| `--descriptor-start-block`          | `QUIP_DESCRIPTOR_START_BLOCK`             | `1` (genesis)              |
+| `--operator-account`                | `QUIP_OPERATOR_ACCOUNT`                   | unset                      |
+| `--once`                            | —                                         | `false`                    |
+| `--verbose`                         | `VERBOSE=1`                               | `false`                    |
 
-Database configuration is read from env via `api/db`:
+`QUIP_VALIDATOR_RPC_URLS` is comma-separated; the substrate / descriptor workers
+round-robin through the list on connect failure, and index 0 is the default any
+other code path uses (e.g. deriving the local miner-REST URL before an on-chain
+descriptor has landed).
 
-| Env            | Default |
-| -------------- | ------- | ------------------------------------- |
-| `DATABASE_URL` | —       | Required — Postgres connection string |
+Database configuration is read from env via `@quip/core/db`:
+
+| Env            | Default                               |
+| -------------- | ------------------------------------- |
+| `DATABASE_URL` | Required — Postgres connection string |
 
 ## How it works
 
-Two concurrent async workers run in one process. They share the same
-`IndexerState` and `DatabaseAdapter`. Canonical block data comes from the
-substrate worker (chain events); the tip worker only refreshes node
-self-identity, miner stats, and observability heartbeat.
+Three concurrent async workers run in one process under a shared
+`AbortController`. They share one `IndexerState` and `DatabaseAdapter`.
 
-- **Tip worker** (`indexer/tip-worker.ts`) runs a poll loop against the
-  node's REST surface: GET `/status` for self-identity, fetch miner stats,
-  and flush the observability heartbeat every iteration so the dashboard
-  knows the indexer is alive.
-- **Substrate worker** (`indexer/substrate-worker.ts`, opt-in via
-  `QUIP_VALIDATOR_RPC_URL`) subscribes to the chain over WSS and is the
-  canonical source of `BlockRecord` rows. When the env var is unset, the
-  indexer runs in REST-only degraded mode and the chain surfaces stay
-  null/empty.
-- **Orchestrator** (`indexer/main.ts`) spawns the workers under a shared
-  `AbortController`. An `AuthError` from the tip worker aborts substrate
-  and exits with code 1; substrate failures are non-fatal and the tip
-  worker keeps running. `SIGINT` / `SIGTERM` aborts cleanly.
-
-### Error handling
-
-| Situation            | Behavior                                        |
-| -------------------- | ----------------------------------------------- |
-| 401 (tip)            | abort substrate, `process.exit(1)`              |
-| 401 (substrate)      | log, keep tip running                           |
-| 429                  | exponential backoff 5s → 60s (reset on success) |
-| 5xx / network error  | warn, sleep `pollIntervalSec`, retry            |
-| `SIGINT` / `SIGTERM` | finish iteration, disconnect, exit 0            |
+- **Substrate worker** (`apps/indexer/substrate-worker.ts`) subscribes to the
+  validator over WSS and is the canonical source of `BlockRecord` rows plus the
+  chain surfaces (`quantum_pow.Miners`, difficulty, session validators, BABE
+  epoch). Failures self-heal via an exponential-backoff reconnect loop.
+- **Descriptor worker** (`apps/indexer/descriptor-worker.ts`) scans finalized
+  blocks for `System.remark{,_with_event}` extrinsics signed by operators
+  running `quip-miner identify`, populating on-chain node descriptors.
+- **Tip worker** (`apps/indexer/tip-worker.ts`) polls the local miner REST
+  surface for self-identity and miner stats and flushes the observability
+  heartbeat each iteration so the dashboard knows the indexer is alive.
+- **Orchestrator** (`apps/indexer/main.ts`) spawns the workers via
+  `runWorkers`. The tip worker is the only fatal one — its failure aborts the
+  siblings and exits non-zero; substrate and descriptor failures are non-fatal
+  and recover on their own. `SIGINT` / `SIGTERM` aborts cleanly.
 
 ### Big-int nonce
 
@@ -75,18 +79,19 @@ self-identity, miner stats, and observability heartbeat.
 ## Tests
 
 ```bash
-bun test indexer/
+bun test apps/indexer/
 ```
 
 Tests stub `fetch` and use a real adapter over an in-process Postgres (pglite),
 so they run self-contained with no external database.
 
-| File                               | Covers                                                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `indexer/tip-worker.test.ts`       | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
-| `indexer/substrate-worker.test.ts` | substrate event subscription, canonical block writes, reconnect backoff                                             |
-| `indexer/main.test.ts`             | orchestration: tip alone or with substrate; `AuthError` from tip aborts substrate; substrate failures are non-fatal |
-| `indexer/config.test.ts`           | flag / env parsing, validation, whitespace handling                                                                 |
-| `indexer/client.test.ts`           | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |
-| `indexer/state.test.ts`            | `IndexerState` load, observability seeding on restart                                                               |
-| `indexer/substrate-client.test.ts` | substrate client transport, event parsing                                                                           |
+| File                                     | Covers                                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `apps/indexer/tip-worker.test.ts`        | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
+| `apps/indexer/substrate-worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                                             |
+| `apps/indexer/descriptor-worker.test.ts` | descriptor scan: `System.remark` identify extrinsics, resume-from-checkpoint                                        |
+| `apps/indexer/main.test.ts`              | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal |
+| `apps/indexer/config.test.ts`            | flag / env parsing, validation, whitespace handling                                                                 |
+| `apps/indexer/client.test.ts`            | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |
+| `apps/indexer/state.test.ts`             | `IndexerState` load, observability seeding on restart                                                               |
+| `apps/indexer/substrate-client.test.ts`  | substrate client transport, event parsing                                                                           |
