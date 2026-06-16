@@ -4,7 +4,7 @@ import clsx from "clsx";
 
 import { formatNumber } from "@/lib/format";
 import { shortAddress } from "@/lib/format-chain";
-import type { MiningAttempt, MiningAttemptsResponse } from "@/types/telemetry";
+import type { MiningAttempt, MiningAttemptsResponse } from "@quip/shared/telemetry";
 import { ResultBadge } from "./mining-badges";
 import { meetingTargetCount } from "./mining-shared";
 

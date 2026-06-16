@@ -1,4 +1,4 @@
-import type { MinerCategory } from "@/types/telemetry";
+import type { MinerCategory } from "@quip/shared/telemetry";
 
 export const SERIES_COLORS: Record<MinerCategory, string> = {
   CPU: "#E11D48",

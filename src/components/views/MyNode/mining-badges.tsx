@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 
-import type { CurrentDispatch } from "@/types/telemetry";
+import type { CurrentDispatch } from "@quip/shared/telemetry";
 
 const badgeBase = "inline-block border px-1.5 py-0.5 font-accent text-[10px]";
 

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { estimateNodeFlops, lookupCpu, lookupGpu } from "@/lib/hardware-flops";
 import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
-import type { BlockRecord, NodeInfo } from "@/types/telemetry";
+import type { BlockRecord, NodeInfo } from "@quip/shared/telemetry";
 
 export interface ModelBreakdown {
   model: string;

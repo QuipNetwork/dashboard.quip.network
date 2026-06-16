@@ -1,6 +1,6 @@
 import { SERIES_COLORS, SERIES_GRADIENT } from "./colors";
 import { useMinerColors } from "@/store/miner-colors";
-import type { MinerCategory } from "@/types/telemetry";
+import type { MinerCategory } from "@quip/shared/telemetry";
 
 const TYPE_KEYS = new Set<string>(Object.keys(SERIES_COLORS));
 

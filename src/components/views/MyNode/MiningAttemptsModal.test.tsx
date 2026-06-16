@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import type { TelemetryClient } from "@/services/telemetry-client";
 import { StoryServices } from "@/testing/services";
-import type { MiningAttemptsResponse, MiningSubmissionRecord } from "@/types/telemetry";
+import type { MiningAttemptsResponse, MiningSubmissionRecord } from "@quip/shared/telemetry";
 import { MiningAttemptsModal } from "./MiningAttemptsModal";
 
 function submission(overrides: Partial<MiningSubmissionRecord> = {}): MiningSubmissionRecord {

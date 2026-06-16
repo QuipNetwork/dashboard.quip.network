@@ -11,7 +11,7 @@ import type {
   DifficultyRecord,
   IndexerObservability,
   MinerStats,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
 
 import { useMyNode, type MyNodeStats } from "./use-my-node";

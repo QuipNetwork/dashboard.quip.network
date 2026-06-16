@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { formatNumber } from "@/lib/format";
-import type { BlockRecord, ChainHead, DifficultyRecord } from "@/types/telemetry";
+import type { BlockRecord, ChainHead, DifficultyRecord } from "@quip/shared/telemetry";
 import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import type { CurrentRequirements } from "./use-my-node";
 

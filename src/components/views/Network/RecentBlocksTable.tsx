@@ -6,7 +6,7 @@ import { formatDuration } from "@/lib/format";
 import { formatBalance, shortAddress } from "@/lib/format-chain";
 import { useTelemetryClient } from "@/services/telemetry-client";
 import { computeChainHealth } from "@/lib/staleness";
-import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
+import type { BlockRecord, IndexerObservability } from "@quip/shared/telemetry";
 import { FinalityBadge } from "@/components/blocks/FinalityBadge";
 import { SearchInput } from "@/components/common/SearchInput";
 import { HealthBanner } from "./HealthBanner";

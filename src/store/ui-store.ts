@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import { createStore, useStore, type StoreApi } from "zustand";
-import type { MinerCategory } from "@/types/telemetry";
+import type { MinerCategory } from "@quip/shared/telemetry";
 
 export type AggregationMode = "byType" | "byNode";
 export type ViewMode = "my-node" | "network" | "compute" | "chain";

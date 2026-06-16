@@ -1,7 +1,7 @@
 import type { Story } from "@ladle/react";
 
 import { StoryServices } from "@/testing/services";
-import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
+import type { BlockRecord, IndexerObservability } from "@quip/shared/telemetry";
 import { SyncIndicator } from "./SyncIndicator";
 
 const nowMs = Date.now();

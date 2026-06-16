@@ -14,7 +14,7 @@ import type {
   NodeInfo,
   NodesSnapshot,
   ValidatorAuthorshipRecord,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 
 interface SampleMiner {
   account: string;

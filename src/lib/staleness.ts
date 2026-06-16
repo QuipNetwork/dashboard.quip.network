@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { IndexerObservability } from "@/types/telemetry";
+import type { IndexerObservability } from "@quip/shared/telemetry";
 
 export type HealthLevel = "healthy" | "warning" | "stalled";
 export type SyncStage = "connecting" | "caught_up" | "stalled";

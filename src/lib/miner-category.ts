@@ -5,7 +5,7 @@ import type {
   MinerCategory,
   NodeDescriptorRecord,
   NodeMinerEntry,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 
 /**
  * Build a `minerId -> MinerCategory` lookup keyed by SS58 account id.

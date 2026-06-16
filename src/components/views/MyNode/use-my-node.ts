@@ -9,7 +9,7 @@ import type {
   MinerStats,
   MiningSubmissionRecord,
   ModeBreakdown,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 import {
   computeLeaderboard,
   type LeaderboardEntry,

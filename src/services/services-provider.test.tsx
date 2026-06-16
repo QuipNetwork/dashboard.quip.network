@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { createTelemetryStore, telemetryStore, useTelemetryStore } from "@/store/telemetry-store";
 import { createUIStore, useUIStore } from "@/store/ui-store";
-import type { MiningAttemptsResponse, TelemetryResponse } from "@/types/telemetry";
+import type { MiningAttemptsResponse, TelemetryResponse } from "@quip/shared/telemetry";
 import { ServicesProvider } from "./services-provider";
 import type { TelemetryClient } from "./telemetry-client";
 

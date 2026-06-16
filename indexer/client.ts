@@ -6,7 +6,7 @@ import type {
   MinerStats,
   MiningAttemptsResponse,
   ModeBreakdown,
-} from "../src/types/telemetry";
+} from "@quip/shared/telemetry";
 
 export interface NodeStatus {
   ss58Address: string;

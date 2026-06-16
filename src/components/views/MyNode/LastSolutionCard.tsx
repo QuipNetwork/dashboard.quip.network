@@ -2,7 +2,7 @@
 
 import { formatDuration, formatNumber } from "@/lib/format";
 import { formatBalance, formatNonce } from "@/lib/format-chain";
-import type { BlockRecord, MiningSubmissionRecord } from "@/types/telemetry";
+import type { BlockRecord, MiningSubmissionRecord } from "@quip/shared/telemetry";
 import { BlockDetailCard } from "./BlockDetailCard";
 
 // `miningTime` is seconds (substrate-worker converts the block-delta via BABE

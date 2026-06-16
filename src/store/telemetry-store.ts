@@ -16,7 +16,7 @@ import type {
   NodeDescriptorRecord,
   NodesSnapshot,
   ValidatorAuthorshipRecord,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 
 export interface TelemetryState {
   blocks: BlockRecord[];

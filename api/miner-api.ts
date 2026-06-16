@@ -9,7 +9,7 @@ import type {
   MiningAttempt,
   MiningAttemptsResponse,
   MiningSubmissionRecord,
-} from "../src/types/telemetry";
+} from "@quip/shared/telemetry";
 
 interface RawSubmission {
   type?: string;

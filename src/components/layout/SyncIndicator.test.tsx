@@ -6,7 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { useTelemetryStore } from "@/store/telemetry-store";
-import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
+import type { BlockRecord, IndexerObservability } from "@quip/shared/telemetry";
 
 import { SyncIndicator } from "./SyncIndicator";
 

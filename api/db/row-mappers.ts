@@ -10,7 +10,7 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptor,
   NodeDescriptorRecord,
-} from "../../src/types/telemetry";
+} from "@quip/shared/telemetry";
 
 type Row = Record<string, unknown>;
 type ChainMinerLite = Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">;

@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { MiningAttempt } from "@/types/telemetry";
+import type { MiningAttempt } from "@quip/shared/telemetry";
 
 import {
   STALE_ITERATION_MS,

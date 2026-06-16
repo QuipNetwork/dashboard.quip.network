@@ -18,7 +18,7 @@
 
 import { lookup as dnsLookup } from "node:dns/promises";
 
-import type { NodeInfo, NodeLocation, NodesSnapshot } from "../src/types/telemetry";
+import type { NodeInfo, NodeLocation, NodesSnapshot } from "@quip/shared/telemetry";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 

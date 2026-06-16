@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { ChainMinerRecord, MinerStats } from "@/types/telemetry";
+import type { ChainMinerRecord, MinerStats } from "@quip/shared/telemetry";
 
 import { MinerStatsPanel } from "./MinerStatsPanel";
 
@@ -74,7 +74,7 @@ function render(
   chainMinerEntry: ChainMinerRecord | null = null,
   selfAvgMiningTimeSec: number | null = null,
   problemsAttempted: number = 0,
-  modes: Record<string, import("@/types/telemetry").ModeBreakdown> | undefined = undefined,
+  modes: Record<string, import("@quip/shared/telemetry").ModeBreakdown> | undefined = undefined,
   dataAgeMs: number | null = null,
 ) {
   act(() => {

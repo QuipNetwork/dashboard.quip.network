@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { formatNumber } from "@/lib/format";
 import { useTelemetryClient } from "@/services/telemetry-client";
-import type { MiningAttemptsResponse } from "@/types/telemetry";
+import type { MiningAttemptsResponse } from "@quip/shared/telemetry";
 import { SubmissionDetails } from "./SubmissionDetails";
 
 // Modal for a single mining submission: shows the submission summary in

@@ -5,7 +5,7 @@ import type {
   NodeMinerEntry,
   NodeRuntime,
   NodeSystemInfo,
-} from "../src/types/telemetry";
+} from "@quip/shared/telemetry";
 
 const SCHEMA_NAME = "quip.node_descriptor.v1";
 const MAX_NODE_NAME_BYTES = 64;

@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.2.0",
   "type": "module",
+  "workspaces": ["packages/*"],
   "scripts": {
     "dev": "netlify dev",
     "dev:server": "bun run server/main.ts",
@@ -20,6 +21,7 @@
     "test": "bun test --path-ignore-patterns '**/reference-material/**'"
   },
   "dependencies": {
+    "@quip/shared": "workspace:*",
     "@nivo/bar": "^0.88.0",
     "@nivo/core": "^0.88.0",
     "@nivo/line": "^0.88.0",

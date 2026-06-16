@@ -14,7 +14,7 @@ import type {
   MiningAttemptsResponse,
   TelemetryResponse,
   ValidatorAuthorshipRecord,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 import {
   createTelemetryStore,
   selectServerNowMs,

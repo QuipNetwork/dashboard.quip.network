@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
 import { newInMemoryAdapter } from "../indexer/test-helpers";
-import type { BlockRecord, TelemetryResponse } from "../src/types/telemetry";
+import type { BlockRecord, TelemetryResponse } from "@quip/shared/telemetry";
 import { createApp } from "./app";
 
 function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {

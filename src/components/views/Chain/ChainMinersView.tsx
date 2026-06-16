@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { formatBalance, shortAddress } from "@/lib/format-chain";
 import { useTelemetryStore } from "@/store/telemetry-store";
-import type { ChainMinerRecord, NodeDescriptorRecord } from "@/types/telemetry";
+import type { ChainMinerRecord, NodeDescriptorRecord } from "@quip/shared/telemetry";
 import { SearchInput } from "@/components/common/SearchInput";
 
 export function filterChainMiners(

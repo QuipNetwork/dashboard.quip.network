@@ -3,7 +3,7 @@
 import clsx from "clsx";
 
 import { shortAddress } from "@/lib/format-chain";
-import type { ValidatorAuthorshipRecord } from "@/types/telemetry";
+import type { ValidatorAuthorshipRecord } from "@quip/shared/telemetry";
 import { useValidatorSort, type SortColumn, type SortState } from "./use-validator-sort";
 
 function formatLastAuthored(

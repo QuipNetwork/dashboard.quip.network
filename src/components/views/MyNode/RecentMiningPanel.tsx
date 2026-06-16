@@ -4,7 +4,7 @@ import { useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { formatDuration, formatNumber } from "@/lib/format";
 import { ChartCard } from "@/components/layout/ChartCard";
-import type { MiningSubmissionRecord } from "@/types/telemetry";
+import type { MiningSubmissionRecord } from "@quip/shared/telemetry";
 import { MiningAttemptsModal } from "./MiningAttemptsModal";
 import { OutcomeBadge } from "./mining-badges";
 import { tsNsToMs } from "./mining-shared";

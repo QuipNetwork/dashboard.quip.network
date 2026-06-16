@@ -3,7 +3,7 @@
 import type { DatabaseAdapter } from "../api/db/adapter";
 import { MiningSubmissionNotFoundError } from "../api/miner-api";
 import { resolveSelfMinerRestUrl } from "../api/resolve-miner-rest";
-import type { MinerCategory, MinerHardwareRecord, MinerStats } from "../src/types/telemetry";
+import type { MinerCategory, MinerHardwareRecord, MinerStats } from "@quip/shared/telemetry";
 
 import type { ChainStateReader } from "./chain-state";
 import type { IndexerConfig } from "./config";

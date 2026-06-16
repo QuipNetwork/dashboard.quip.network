@@ -10,7 +10,7 @@ import type {
   ChainMinerRecord,
   MinerCategory,
   NodeDescriptorRecord,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 
 export interface LeaderboardEntry {
   rank: number;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { IndexerObservability } from "../src/types/telemetry";
+import type { IndexerObservability } from "@quip/shared/telemetry";
 
 /**
  * In-memory state shared across indexer workers. v0.3 reduces this to:

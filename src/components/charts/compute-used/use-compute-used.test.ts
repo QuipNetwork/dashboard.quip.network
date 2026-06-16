@@ -10,7 +10,7 @@ import type {
   ChainMinerRecord,
   MinerHardwareRecord,
   MiningSubmissionRecord,
-} from "@/types/telemetry";
+} from "@quip/shared/telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 

@@ -4,7 +4,7 @@ import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
-import type { BlockRecord, TelemetryResponse } from "@/types/telemetry";
+import type { BlockRecord, TelemetryResponse } from "@quip/shared/telemetry";
 import { ServicesProvider } from "@/services/services-provider";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";

@@ -13,7 +13,7 @@
 // the full row at insert time, with no two-phase enrichment race.
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { BlockRecord } from "../src/types/telemetry";
+import type { BlockRecord } from "@quip/shared/telemetry";
 
 import type { IndexerConfig } from "./config";
 import type { IndexerState } from "./state";

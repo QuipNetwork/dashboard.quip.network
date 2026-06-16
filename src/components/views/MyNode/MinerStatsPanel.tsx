@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ChainMinerRecord, MinerStats, ModeBreakdown } from "@/types/telemetry";
+import type { ChainMinerRecord, MinerStats, ModeBreakdown } from "@quip/shared/telemetry";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { StatTile } from "./StatTile";

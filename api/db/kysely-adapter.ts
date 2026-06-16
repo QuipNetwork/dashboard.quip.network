@@ -15,7 +15,7 @@ import type {
   MinerHardwareRecord,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
-} from "../../src/types/telemetry";
+} from "@quip/shared/telemetry";
 import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
 import {
   migrateToLatest,

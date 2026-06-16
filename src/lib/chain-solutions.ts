@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ChainHead, ChainMinerRecord } from "@/types/telemetry";
+import type { ChainHead, ChainMinerRecord } from "@quip/shared/telemetry";
 
 /**
  * Network-wide count of winning solutions accepted on chain — the basis for

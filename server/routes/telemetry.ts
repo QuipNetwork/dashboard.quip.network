@@ -13,7 +13,7 @@ import type {
   NodesSnapshot,
   TelemetryResponse,
   ValidatorAuthorshipRecord,
-} from "../../src/types/telemetry";
+} from "@quip/shared/telemetry";
 import { getGeoIpEnricher } from "../geo-ip";
 
 // Cap on submission rows surfaced in /api/telemetry. The MyNode panel

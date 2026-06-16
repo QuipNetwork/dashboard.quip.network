@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 import type { TelemetryClient } from "@/services/telemetry-client";
 import { createTelemetryStore } from "@/store/telemetry-store";
 import { createUIStore } from "@/store/ui-store";
-import type { MiningAttemptsResponse, TelemetryResponse } from "@/types/telemetry";
+import type { MiningAttemptsResponse, TelemetryResponse } from "@quip/shared/telemetry";
 import { buildAppEventBus } from "./build-app-event-bus";
 import { FetchTelemetry } from "./fetch-telemetry";
 import { SetViewMode, ToggleMinerType } from "./ui-actions";

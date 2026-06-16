@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { IndexerObservability } from "../src/types/telemetry";
+import type { IndexerObservability } from "@quip/shared/telemetry";
 
 import { IndexerState } from "./state";
 import { newInMemoryAdapter } from "./test-helpers";

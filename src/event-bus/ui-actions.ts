@@ -5,7 +5,7 @@ import { map, pipe } from "rxjs";
 import type { StoreApi } from "zustand";
 
 import type { AggregationMode, UIState, ViewMode } from "@/store/ui-store";
-import type { MinerCategory } from "@/types/telemetry";
+import type { MinerCategory } from "@quip/shared/telemetry";
 
 export class SetViewMode {
   constructor(readonly mode: ViewMode) {}

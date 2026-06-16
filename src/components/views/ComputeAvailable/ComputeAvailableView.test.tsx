@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
-import type { NodeInfo, NodesSnapshot } from "@/types/telemetry";
+import type { NodeInfo, NodesSnapshot } from "@quip/shared/telemetry";
 
 import { ComputeAvailableView } from "./ComputeAvailableView";
 

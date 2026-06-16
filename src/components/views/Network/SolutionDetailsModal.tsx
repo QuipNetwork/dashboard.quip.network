@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { Modal } from "@/components/ui/Modal";
 import { formatDuration } from "@/lib/format";
 import { formatBalance, formatNonce, shortAddress } from "@/lib/format-chain";
-import type { BlockRecord } from "@/types/telemetry";
+import type { BlockRecord } from "@quip/shared/telemetry";
 
 export function SolutionDetailsModal({
   block,

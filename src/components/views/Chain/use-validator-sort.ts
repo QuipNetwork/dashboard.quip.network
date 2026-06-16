@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { ValidatorAuthorshipRecord } from "@/types/telemetry";
+import type { ValidatorAuthorshipRecord } from "@quip/shared/telemetry";
 
 export type SortColumn =
   | "account"

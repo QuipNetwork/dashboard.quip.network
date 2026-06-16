@@ -13,7 +13,7 @@ import type {
   MiningSubmissionRecord,
   ModeBreakdown,
   NodeDescriptorRecord,
-} from "../../src/types/telemetry";
+} from "@quip/shared/telemetry";
 import type { MigrationStatusRow } from "./migrator";
 
 /**

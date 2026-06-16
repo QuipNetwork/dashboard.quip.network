@@ -7,7 +7,7 @@ import type {
   MinerStats,
   MiningAttemptsResponse,
   MiningSubmissionRecord,
-} from "../src/types/telemetry";
+} from "@quip/shared/telemetry";
 
 import { DbChainStateReader } from "./chain-state";
 import { type MinerSource, type NodeStatus } from "./client";

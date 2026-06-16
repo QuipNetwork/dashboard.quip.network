@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import type { TelemetryClient } from "@/services/telemetry-client";
 import { StoryServices } from "@/testing/services";
-import type { BlockRecord, IndexerObservability } from "@/types/telemetry";
+import type { BlockRecord, IndexerObservability } from "@quip/shared/telemetry";
 
 import { filterRecentBlocks, RecentBlocksTable, type NumberedBlock } from "./RecentBlocksTable";
 

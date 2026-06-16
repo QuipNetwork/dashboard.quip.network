@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { BlockRecord, ChainMinerRecord, MinerCategory } from "@/types/telemetry";
+import type { BlockRecord, ChainMinerRecord, MinerCategory } from "@quip/shared/telemetry";
 import { useTelemetryStore } from "./telemetry-store";
 import { useUIStore } from "./ui-store";
 import { useFilteredBlocks } from "./use-filtered-blocks";

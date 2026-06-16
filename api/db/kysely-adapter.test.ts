@@ -11,7 +11,7 @@ import type {
   MinerHardwareRecord,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
-} from "../../src/types/telemetry";
+} from "@quip/shared/telemetry";
 
 const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   blockHash: "0xpow1",
