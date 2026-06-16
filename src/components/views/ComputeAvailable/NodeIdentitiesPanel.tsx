@@ -6,8 +6,8 @@ import type { NodeDescriptorRecord } from "../../../types/telemetry";
 
 /**
  * Per-account chain-signed identity panel. One row per operator, sourced
- * from `System.remark_with_event` extrinsics carrying a
- * `quip.node_descriptor.v1` payload (see DASHBOARDPLAN.md). Displays the
+ * from `MinerRegistry.NodeDescriptors` entries carrying a compact
+ * `quip.node_descriptor.v1` payload. Displays the
  * operator's self-asserted rig name + hardware inventory + runtime
  * version alongside the SS58 account that signed it.
  *
@@ -25,9 +25,8 @@ export function NodeIdentitiesPanel() {
           Node Identities ({descriptors.length})
         </h2>
         <p className="mt-1 font-accent text-xs text-brand-gray-3">
-          Self-asserted operator inventory from <code>System.remark_with_event</code> extrinsics.
-          Identity is signed by the AccountId; hardware claims are operator-controlled, not
-          chain-verified.
+          Self-asserted operator inventory from <code>MinerRegistry.NodeDescriptors</code>. Identity
+          is signed by the AccountId; hardware claims are operator-controlled, not chain-verified.
         </p>
       </header>
       <div className="divide-y divide-brand-gray-2">

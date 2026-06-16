@@ -250,7 +250,7 @@ export function MyNodeView() {
         dispatch={currentDispatch}
         recentSubmissions={recentMiningSubmissions}
         problemNumber={
-          // Mining problem # = count(WinningSolutions) + 1, sourced from
+          // Mining problem # = LatestQBlockId + 1, sourced from
           // chain via chain_head (see winningSolutionsSolved). Matches both
           // CurrentBlockIndicator's header and the server's currentDispatch
           // probe so all three agree.

@@ -13,9 +13,8 @@ import { runTipLoop } from "./tip-worker";
 export interface WorkerRunner {
   runTip: (signal: AbortSignal) => Promise<void>;
   runSubstrate: (signal: AbortSignal) => Promise<void>;
-  // Node-descriptor indexer — scans every finalized block for
-  // `System.remark{,_with_event}` extrinsics signed by operators running
-  // `quip-miner identify`.
+  // Node-descriptor indexer — scans finalized `MinerRegistry.NodeDescriptors`
+  // snapshots written by operators running `quip-miner identify`.
   runDescriptor: (signal: AbortSignal) => Promise<void>;
 }
 

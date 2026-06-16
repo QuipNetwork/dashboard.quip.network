@@ -27,10 +27,10 @@ const CREDENTIAL_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Parse a chain remark body and return a validated NodeDescriptor — or
- * a structured failure when any of the spec's "Discarded payloads" rules
- * fires. The caller logs the rejection reason for operator-actionable
- * diagnostics.
+ * Legacy parser for pre-registry JSON descriptor payloads. The active
+ * descriptor worker reads runtime-validated `MinerRegistry.NodeDescriptors`
+ * instead; this remains only for old fixtures/tools that still need to
+ * validate a raw JSON descriptor body.
  *
  * Accepts either a UTF-8 string or raw Uint8Array (the chain hands us
  * `Bytes`, which the substrate client converts to a hex string upstream).
@@ -47,14 +47,14 @@ export function parseAndValidateDescriptor(rawBody: string | Uint8Array): Valida
         ? rawBody
         : new TextDecoder("utf-8", { fatal: true }).decode(rawBody);
   } catch {
-    return { ok: false, reason: "remark body is not valid UTF-8" };
+    return { ok: false, reason: "descriptor body is not valid UTF-8" };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, reason: "remark body is not valid JSON" };
+    return { ok: false, reason: "descriptor body is not valid JSON" };
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -186,7 +186,7 @@ function normaliseSystemInfo(v: unknown): NodeSystemInfo | undefined {
   // `gpus`, if present, must be an array. Non-array (e.g. operator wrote
   // `"gpus": "n/a"`) is a malformed payload — treat as no GPUs rather than
   // throw on `.map`, which would stall the descriptor worker on the bad
-  // remark forever.
+  // descriptor forever.
   const gpusCandidate = r.gpus;
   const gpusRaw: unknown[] = Array.isArray(gpusCandidate) ? gpusCandidate : [];
   return {

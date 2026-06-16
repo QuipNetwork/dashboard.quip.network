@@ -1,22 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Descriptor worker (v0.2): the canonical chain-signed identity ingest
-// path. Scans every finalized block for `System.remark{,_with_event}`
-// extrinsics carrying a `quip.node_descriptor.v1` JSON body, validates
-// each payload, and upserts a row into `node_descriptors` keyed by the
-// extrinsic signer's SS58 account. Replaces the v0.2 miner-survey HTTP
-// fan-out (deleted) with a single signed source of truth.
+// path. Scans finalized registry state from `MinerRegistry.NodeDescriptors`
+// and upserts one row into `node_descriptors` per chain account. Replaces
+// the v0.2 miner-survey HTTP fan-out and legacy opaque payloads with a
+// single schema-checked on-chain source of truth.
 //
-// See DASHBOARDPLAN.md for the indexing spec. This worker implements
-// Path A (event-driven scan) with the simplification that we walk every
-// block's extrinsics instead of first filtering on `System.Remarked`
-// events — the block fetch dominates RPC cost either way, and most blocks
-// carry zero remarks so the filter buys nothing.
+// The maintained storage map is good for metadata-backed prefix queries,
+// but not naturally ordered for numeric cursor APIs. The worker therefore
+// uses the finalized block range as its cursor and materializes the full
+// active descriptor set at each block; DB upserts ignore unchanged/older
+// `updated_at` provenance.
 
 import type { DatabaseAdapter } from "../api/db/adapter";
 
 import type { IndexerConfig } from "./config";
-import { parseAndValidateDescriptor } from "./descriptor-validator";
 import type { IndexerState } from "./state";
 import type { SubstrateClient } from "./substrate-client";
 
@@ -86,8 +84,8 @@ export async function runDescriptorIteration(
   blockNumber: string,
 ): Promise<boolean> {
   const { client, db } = deps;
-  const remarks = await client.getRemarksAtBlock(blockNumber);
-  if (remarks === null) {
+  const descriptors = await client.getMinerRegistryDescriptorsAt(blockNumber);
+  if (descriptors === null) {
     // chain_getBlockHash returned the zero sentinel — the block doesn't
     // exist on the connected node yet. Treat as transient (the substrate
     // worker may need another tick to land it) and retry without
@@ -95,29 +93,21 @@ export async function runDescriptorIteration(
     return false;
   }
   const observedAt = new Date((deps.now ?? Date.now)()).toISOString();
-  for (const remark of remarks) {
-    const result = parseAndValidateDescriptor(remark.body);
-    if (!result.ok) {
-      // Rejection is operator-actionable (bad JSON, schema mismatch,
-      // credential leak, etc.) — log loudly so the operator can find
-      // their bad descriptor.
-      console.warn(
-        `[indexer/descriptor] block ${remark.blockNumber} ext ${remark.extrinsicIndex} ` +
-          `from ${remark.sender}: ${result.reason}`,
-      );
-      continue;
-    }
+  for (const row of descriptors) {
     await db.upsertNodeDescriptor({
-      accountId: remark.sender,
-      blockNumber: remark.blockNumber,
-      blockHash: remark.blockHash,
-      extrinsicIndex: remark.extrinsicIndex,
-      blockTimestamp: remark.blockTimestamp,
+      accountId: row.accountId,
+      blockNumber: row.blockNumber,
+      blockHash: row.blockHash,
+      // Registry storage snapshots have account/block provenance, not an
+      // extrinsic position. One descriptor per account can exist at any
+      // finalized state, so 0 is stable for the existing DB tie-breaker.
+      extrinsicIndex: 0,
+      blockTimestamp: row.blockTimestamp,
       // The adapter preserves the original first_block_timestamp across
       // upserts; passing the current block's timestamp here is correct
       // for first-ever inserts and harmlessly ignored on conflict.
-      firstBlockTimestamp: remark.blockTimestamp,
-      descriptor: result.descriptor,
+      firstBlockTimestamp: row.blockTimestamp,
+      descriptor: row.descriptor,
       observedAt,
     });
   }

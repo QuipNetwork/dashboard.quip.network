@@ -95,9 +95,8 @@ const SCHEMA_STATEMENTS: string[] = [
      finalized_block_number  TEXT NOT NULL,
      finalized_block_hash    TEXT NOT NULL,
      finality_lag            INTEGER NOT NULL,
-     -- v21: length of quantum_pow.WinningSolutions — the global
-     -- solution_number bound (count + 1 is the in-flight problem, MR
-     -- !105). Nullable: pre-v0.2 chains / pre-first-read.
+     -- v21: latest monotonic qblock id / global solution_number bound
+     -- (id + 1 is the in-flight problem). Nullable: pre-first-read.
      winning_solutions_count INTEGER,
      spec_name               TEXT NOT NULL,
      spec_version            INTEGER NOT NULL,
@@ -158,10 +157,11 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_validator_authorship_authored
      ON validator_authorship(blocks_authored DESC)`,
   // v11: per-account chain-signed identity. One row per AccountId, sourced
-  // from `System.remark_with_event` extrinsics by the descriptor worker.
-  // (block_number, extrinsic_index) form the upsert tie-breaker so a later
-  // descriptor in the same block wins. `first_block_timestamp` is preserved
-  // across upserts to support "first observed" without keeping history.
+  // from `MinerRegistry.NodeDescriptors` by the descriptor worker.
+  // (block_number, extrinsic_index) stays as the upsert tie-breaker for
+  // compatibility; registry snapshots use extrinsic_index=0 and the
+  // descriptor's `updated_at` block number. `first_block_timestamp` is
+  // preserved across upserts to support "first observed" without history.
   `CREATE TABLE IF NOT EXISTS node_descriptors (
      account_id              TEXT PRIMARY KEY,
      block_number            TEXT NOT NULL,
@@ -177,9 +177,9 @@ const SCHEMA_STATEMENTS: string[] = [
   // v13: per-submission summary from the locally-polled miner's
   // `/api/v1/mining/attempts?solution_number=N` endpoint. Composite PK is
   // (miner_id, solution_number) so polling multiple miners from one
-  // dashboard never collides. v21 (MR !105): the key is the global chain
-  // `solution_number` (count(WinningSolutions)+1) — durable across
-  // restarts — replacing the pre-!105 controller-local `solution_id`, and
+  // dashboard never collides. v21: the key is the global chain
+  // `solution_number` (LatestQBlockId+1) — durable across restarts —
+  // replacing the pre-!105 controller-local `solution_id`, and
   // the per-dispatch `dispatch_id` column is dropped (gone from the miner
   // JSON). Milli-unit columns keep integer encoding; the UI divides by
   // 1000 at display time. `extrinsic_hash` / `chain_block_*` are nullable

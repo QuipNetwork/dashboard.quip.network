@@ -11,6 +11,8 @@
 // through the indexer state and DB, and the SPA reads them via the server's
 // /api/telemetry payload.
 
+import type { MinerCategory, NodeDescriptor, NodeMinerEntry } from "../src/types/telemetry";
+
 export interface SubstrateHead {
   // u64 as string — substrate block heights exceed Number.MAX_SAFE_INTEGER
   // on long-running chains.
@@ -209,12 +211,10 @@ export interface SubstrateClient {
   // absent (pre-v0.2) or empty (no wins yet).
   getWinningBlockNumbers(): Promise<string[]>;
 
-  // Count of entries in the `quantum_pow.WinningSolutions` storage map —
-  // the network-wide winning-solution total. The global "solution number"
-  // the miner keys its directories on is this + 1 (MR !105). Reads the
-  // pallet's `CounterFor` companion when the map is a CountedStorageMap
-  // (single storage read); otherwise falls back to counting keys. Null
-  // when the storage map is absent (pre-v0.2).
+  // Latest monotonic qblock id / network-wide winning-solution total. New
+  // runtimes expose `quantum_pow.LatestQBlockId`; older v0.2 runtimes are
+  // supported by falling back to the `WinningSolutions` count. The global
+  // in-flight problem id is this + 1.
   getWinningSolutionsCount(): Promise<number | null>;
 
   // Decode events, author, and timestamp for a specific finalized block,
@@ -223,35 +223,27 @@ export interface SubstrateClient {
   // path to route historical winning blocks through the worker's writer.
   processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null>;
 
-  // Extract every `System.remark{,_with_event}` extrinsic from a finalized
-  // block. Returns one record per call, in extrinsic order, with the
-  // sender's SS58 (extrinsic origin), the raw remark body as a UTF-8
-  // string, and provenance fields (block number, hash, extrinsic index)
-  // the descriptor worker uses for ordered upserts. Returns null when the
-  // block is not found on chain.
-  //
-  // We accept BOTH `remark` and `remark_with_event` because the FRAME
-  // version on the connected chain dictates which one operators sign;
-  // collapsing them under a single decoder simplifies the worker. The
-  // event-stream optimisation (filter `System.Remarked` first) buys
-  // nothing here — we already have to fetch the whole block to recover
-  // the extrinsic body, and most blocks carry zero remarks.
-  getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null>;
+  // Snapshot `miner_registry.NodeDescriptors` at a finalized block. The
+  // runtime stores the descriptor's own `updated_at` block; returned rows
+  // use that block for provenance so DB upserts are ordered by the actual
+  // registry update, not by the later scan block. Returns null when the
+  // requested block is not found on chain.
+  getMinerRegistryDescriptorsAt(
+    blockNumber: string,
+  ): Promise<MinerRegistryDescriptorRecord[] | null>;
 }
 
 /**
- * One `System.remark{,_with_event}` call extracted from a finalized block.
- * `body` is the UTF-8 decoded remark argument; the descriptor worker hands
- * it to `parseAndValidateDescriptor` which guards against non-UTF-8 and
- * non-JSON payloads itself, so we don't pre-filter here.
+ * One compact on-chain descriptor entry projected into the dashboard's
+ * existing descriptor JSON shape, plus the chain provenance of the registry
+ * update that produced it.
  */
-export interface RemarkRecord {
-  sender: string;
-  body: string;
+export interface MinerRegistryDescriptorRecord {
+  accountId: string;
   blockNumber: string;
   blockHash: string;
   blockTimestamp: number;
-  extrinsicIndex: number;
+  descriptor: NodeDescriptor;
 }
 
 /**
@@ -381,11 +373,16 @@ export class FakeSubstrateClient implements SubstrateClient {
   async processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null> {
     return this.historicalBlocks.get(blockNumber) ?? null;
   }
-  // Tests populate `remarksByBlock` (keyed by blockNumber string) with the
-  // pre-decoded remark records the descriptor worker should observe.
-  public remarksByBlock = new Map<string, RemarkRecord[] | null>();
-  async getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null> {
-    const v = this.remarksByBlock.get(blockNumber);
+  // Tests populate `minerRegistryDescriptorsByBlock` (keyed by scan block)
+  // with the storage snapshot the descriptor worker should observe.
+  public minerRegistryDescriptorsByBlock = new Map<
+    string,
+    MinerRegistryDescriptorRecord[] | null
+  >();
+  async getMinerRegistryDescriptorsAt(
+    blockNumber: string,
+  ): Promise<MinerRegistryDescriptorRecord[] | null> {
+    const v = this.minerRegistryDescriptorsByBlock.get(blockNumber);
     return v === undefined ? [] : v;
   }
 
@@ -827,7 +824,18 @@ export class PolkadotSubstrateClient implements SubstrateClient {
   async getWinningSolutionsCount(): Promise<number | null> {
     const api = this.requireApi();
     const q = api.query.quantumPow;
-    if (!q?.winningSolutions) return null; // pre-v0.2 chain
+    if (!q) return null;
+
+    const latestQBlockId = (q as Record<string, unknown>)["latestQBlockId"] as
+      | (() => Promise<unknown>)
+      | undefined;
+    if (typeof latestQBlockId === "function") {
+      const raw = await latestQBlockId();
+      const id = numberFromOption(raw);
+      return id ?? 0;
+    }
+
+    if (!q.winningSolutions) return null; // pre-v0.2 chain
     // Prefer the CountedStorageMap companion `counterForWinningSolutions`
     // — a single O(1) storage read — over scanning every key. FRAME
     // auto-generates it only when the map is declared `CountedStorageMap`;
@@ -946,55 +954,78 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     return Number(codec.toString());
   }
 
-  async getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null> {
+  async getMinerRegistryDescriptorsAt(
+    blockNumber: string,
+  ): Promise<MinerRegistryDescriptorRecord[] | null> {
     const api = this.requireApi();
     const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
     const blockHash = hashCodec.toHex();
-    // chain_getBlockHash returns the zero hash sentinel for unknown blocks.
     if (/^0x0+$/.test(blockHash)) return null;
 
+    const storage = api.query.minerRegistry?.nodeDescriptors as
+      | {
+          entriesAt?: (hash: unknown) => Promise<Array<[unknown, unknown]>>;
+          entries?: () => Promise<Array<[unknown, unknown]>>;
+        }
+      | undefined;
+    if (!storage) return [];
+
+    const entries =
+      typeof storage.entriesAt === "function"
+        ? await storage.entriesAt(hashCodec)
+        : typeof storage.entries === "function"
+          ? await storage.entries()
+          : [];
+
+    const metaCache = new Map<
+      string,
+      Promise<{ blockHash: string; blockTimestamp: number } | null>
+    >();
+    const blockMeta = (updatedAt: string) => {
+      let cached = metaCache.get(updatedAt);
+      if (!cached) {
+        cached = this.getBlockTimestampAndHash(updatedAt);
+        metaCache.set(updatedAt, cached);
+      }
+      return cached;
+    };
+
+    const records: MinerRegistryDescriptorRecord[] = [];
+    for (const [key, value] of entries) {
+      const accountId = decodeStorageKeyAccount(key);
+      const decoded = decodeMinerRegistryDescriptor(value);
+      if (!accountId || !decoded) continue;
+      const meta = await blockMeta(decoded.updatedAt);
+      if (!meta) continue;
+      records.push({
+        accountId,
+        blockNumber: decoded.updatedAt,
+        blockHash: meta.blockHash,
+        blockTimestamp: meta.blockTimestamp,
+        descriptor: decoded.descriptor,
+      });
+    }
+    return records;
+  }
+
+  private async getBlockTimestampAndHash(
+    blockNumber: string,
+  ): Promise<{ blockHash: string; blockTimestamp: number } | null> {
+    const api = this.requireApi();
+    const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
+    const blockHash = hashCodec.toHex();
+    if (/^0x0+$/.test(blockHash)) return null;
     const timestampAt = api.query.timestamp?.now?.at;
     if (!timestampAt) {
       throw new Error("[substrate-client] runtime missing timestamp.now");
     }
-    const [signed, timestampCodec] = await Promise.all([
-      api.rpc.chain.getBlock(hashCodec),
-      timestampAt(hashCodec),
-    ]);
-    const blockTimestamp = Math.floor(
-      Number((timestampCodec as unknown as { toString: () => string }).toString()) / 1000,
-    );
-
-    const records: RemarkRecord[] = [];
-    const extrinsics = signed.block.extrinsics;
-    for (let i = 0; i < extrinsics.length; i++) {
-      const ext = extrinsics[i];
-      if (!ext) continue;
-      const section = ext.method.section;
-      const method = ext.method.method;
-      if (section !== "system") continue;
-      // polkadot.js exposes the call method as camelCase irrespective of
-      // the FRAME-side `remark_with_event` snake_case naming.
-      if (method !== "remark" && method !== "remarkWithEvent") continue;
-      // Unsigned remarks have no extrinsic origin; without a signer there's
-      // no canonical identity to attribute the descriptor to. Skip rather
-      // than guess.
-      if (!ext.isSigned) continue;
-      const sender = ext.signer.toString();
-      const args = ext.method.args;
-      if (args.length === 0) continue;
-      const body = decodeRemarkBody(args[0]);
-      if (body === null) continue;
-      records.push({
-        sender,
-        body,
-        blockNumber,
-        blockHash,
-        blockTimestamp,
-        extrinsicIndex: i,
-      });
-    }
-    return records;
+    const timestampCodec = await timestampAt(hashCodec);
+    return {
+      blockHash,
+      blockTimestamp: Math.floor(
+        Number((timestampCodec as unknown as { toString: () => string }).toString()) / 1000,
+      ),
+    };
   }
 
   async getTopology(): Promise<TopologyInfo | null> {
@@ -1035,29 +1066,230 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 // instead. Less brittle: no dependency on extrinsic decoding or the custom
 // HybridTxSignature codec.
 
-/**
- * Decode a polkadot.js `Bytes` codec (the argument to `system.remark` /
- * `system.remarkWithEvent`) into a UTF-8 string. Returns null when the
- * payload isn't valid UTF-8 — caller treats that as "skip this extrinsic".
- *
- * polkadot.js exposes `.toHex()` reliably across versions; the alternative
- * `.toUtf8()` is method-name-unstable. Routing through hex keeps this
- * portable across @polkadot/types versions.
- */
-function decodeRemarkBody(arg: unknown): string | null {
-  const hex = (arg as { toHex?: () => string })?.toHex?.();
-  if (typeof hex !== "string") return null;
+function decodeStorageKeyAccount(key: unknown): string | null {
+  const args = (key as { args?: unknown[] })?.args;
+  const first = Array.isArray(args) ? args[0] : undefined;
+  if (first !== undefined && first !== null) return String(first);
+  const human = (key as { toHuman?: () => unknown })?.toHuman?.();
+  if (Array.isArray(human) && human[0] !== undefined && human[0] !== null) return String(human[0]);
+  return null;
+}
+
+function decodeMinerRegistryDescriptor(
+  value: unknown,
+): { updatedAt: string; descriptor: NodeDescriptor } | null {
+  const unwrapped = unwrapOptionLike(value);
+  if (!unwrapped) return null;
+  const raw = codecToRecord(unwrapped);
+  const schemaVersion = numberFromUnknown(field(raw, "schemaVersion", "schema_version"));
+  if (schemaVersion !== 1) return null;
+
+  const nodeName = stringFromBytes(field(raw, "nodeName", "node_name"));
+  if (!nodeName) return null;
+  const updatedAt = stringFromNumeric(field(raw, "updatedAt", "updated_at"));
+  if (!updatedAt) return null;
+
+  const publicHost = stringFromBytesOption(field(raw, "publicHost", "public_host"));
+  const publicPort = numberFromOption(field(raw, "publicPort", "public_port"));
+  const rpcEndpoints = stringArrayFromBytes(field(raw, "rpcEndpoints", "rpc_endpoints"));
+  const autoMine = booleanFromUnknown(field(raw, "autoMine", "auto_mine"));
+  const logLevel = enumVariant(field(raw, "logLevel", "log_level"));
+  const miners = normalizeRegistryMiners(field(raw, "miners"));
+
+  const descriptor: NodeDescriptor = {
+    schema: "quip.node_descriptor.v1",
+    descriptorVersion: 1,
+    nodeName,
+    ...(publicHost !== undefined ? { publicHost } : {}),
+    ...(publicPort !== undefined ? { publicPort } : {}),
+    ...(rpcEndpoints !== undefined ? { rpcEndpoints } : {}),
+    ...(autoMine !== undefined ? { autoMine } : {}),
+    ...(logLevel !== undefined ? { logLevel } : {}),
+    ...(miners !== undefined ? { miners } : {}),
+  };
+  return { updatedAt, descriptor };
+}
+
+function codecToRecord(value: unknown): Record<string, unknown> {
+  const json =
+    typeof (value as { toJSON?: () => unknown })?.toJSON === "function"
+      ? (value as { toJSON: () => unknown }).toJSON()
+      : value;
+  return json && typeof json === "object" && !Array.isArray(json)
+    ? (json as Record<string, unknown>)
+    : {};
+}
+
+function unwrapOptionLike(value: unknown): unknown | null {
+  const option = value as { isSome?: boolean; unwrap?: () => unknown; toJSON?: () => unknown };
+  if (typeof option.isSome === "boolean") {
+    if (!option.isSome || typeof option.unwrap !== "function") return null;
+    return option.unwrap();
+  }
+  const json = typeof option.toJSON === "function" ? option.toJSON() : value;
+  return json === null || json === undefined ? null : value;
+}
+
+function field(record: Record<string, unknown>, camel: string, snake?: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(record, camel)) return record[camel];
+  if (snake && Object.prototype.hasOwnProperty.call(record, snake)) return record[snake];
+  return undefined;
+}
+
+function stringFromBytesOption(value: unknown): string | undefined {
+  return stringFromBytes(unwrapOptionLike(value));
+}
+
+function stringFromBytes(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") {
+    if (!value.startsWith("0x")) return value;
+    return utf8FromHex(value);
+  }
+  if (Array.isArray(value) && value.every((n) => typeof n === "number")) {
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(value));
+    } catch {
+      return undefined;
+    }
+  }
+  const codec = value as {
+    toUtf8?: () => string;
+    toHex?: () => string;
+    toU8a?: (isBare?: boolean) => Uint8Array;
+    toJSON?: () => unknown;
+  };
+  if (typeof codec.toUtf8 === "function") return codec.toUtf8();
+  if (typeof codec.toHex === "function") return utf8FromHex(codec.toHex());
+  if (typeof codec.toU8a === "function") {
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(codec.toU8a(true));
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof codec.toJSON === "function") return stringFromBytes(codec.toJSON());
+  return undefined;
+}
+
+function utf8FromHex(hex: string): string | undefined {
   const cleaned = hex.startsWith("0x") ? hex.slice(2) : hex;
-  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return null;
-  const u8 = new Uint8Array(cleaned.length / 2);
+  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return undefined;
+  const bytes = new Uint8Array(cleaned.length / 2);
   for (let i = 0; i < cleaned.length; i += 2) {
-    u8[i / 2] = parseInt(cleaned.slice(i, i + 2), 16);
+    bytes[i / 2] = parseInt(cleaned.slice(i, i + 2), 16);
   }
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(u8);
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    return null;
+    return undefined;
   }
+}
+
+function stringArrayFromBytes(value: unknown): string[] | undefined {
+  const json =
+    typeof (value as { toJSON?: () => unknown })?.toJSON === "function"
+      ? (value as { toJSON: () => unknown }).toJSON()
+      : value;
+  if (!Array.isArray(json)) return undefined;
+  const out = json.map((entry) => stringFromBytes(entry)).filter((s): s is string => !!s);
+  return out.length > 0 ? out : undefined;
+}
+
+function numberFromOption(value: unknown): number | undefined {
+  return numberFromUnknown(unwrapOptionLike(value));
+}
+
+function numberFromUnknown(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.length > 0) {
+    const n = Number(value.replaceAll(",", ""));
+    return Number.isFinite(n) ? n : undefined;
+  }
+  const json =
+    typeof (value as { toJSON?: () => unknown })?.toJSON === "function"
+      ? (value as { toJSON: () => unknown }).toJSON()
+      : undefined;
+  if (json !== undefined && json !== value) return numberFromUnknown(json);
+  const text =
+    typeof (value as { toString?: () => string })?.toString === "function"
+      ? (value as { toString: () => string }).toString()
+      : undefined;
+  if (text && text !== "[object Object]") return numberFromUnknown(text);
+  return undefined;
+}
+
+function stringFromNumeric(value: unknown): string | undefined {
+  const n = numberFromUnknown(value);
+  if (n !== undefined) return String(n);
+  if (typeof value === "bigint") return value.toString();
+  const text =
+    typeof (value as { toString?: () => string })?.toString === "function"
+      ? (value as { toString: () => string }).toString()
+      : undefined;
+  return text && text !== "[object Object]" ? text : undefined;
+}
+
+function booleanFromUnknown(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  const json =
+    typeof (value as { toJSON?: () => unknown })?.toJSON === "function"
+      ? (value as { toJSON: () => unknown }).toJSON()
+      : undefined;
+  if (typeof json === "boolean") return json;
+  return undefined;
+}
+
+function enumVariant(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  const json =
+    typeof (value as { toJSON?: () => unknown })?.toJSON === "function"
+      ? (value as { toJSON: () => unknown }).toJSON()
+      : value;
+  if (typeof json === "string") return json;
+  if (json && typeof json === "object" && !Array.isArray(json)) {
+    const keys = Object.keys(json);
+    if (keys.length === 1) return keys[0];
+  }
+  const text =
+    typeof (value as { toString?: () => string })?.toString === "function"
+      ? (value as { toString: () => string }).toString()
+      : undefined;
+  return text && text !== "[object Object]" ? text : undefined;
+}
+
+function normalizeRegistryMiners(value: unknown): Record<string, NodeMinerEntry> | undefined {
+  const json =
+    typeof (value as { toJSON?: () => unknown })?.toJSON === "function"
+      ? (value as { toJSON: () => unknown }).toJSON()
+      : value;
+  if (!Array.isArray(json)) return undefined;
+  const out: Record<string, NodeMinerEntry> = {};
+  json.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+    const e = entry as Record<string, unknown>;
+    const kindVariant = enumVariant(field(e, "kind"));
+    const kind = normalizeMinerKind(kindVariant);
+    const label = stringFromBytesOption(field(e, "label")) ?? `${kind.toLowerCase()}-${index + 1}`;
+    const backend = stringFromBytesOption(field(e, "backend"));
+    const deviceId = stringFromBytesOption(field(e, "deviceId", "device_id")) ?? label;
+    out[label] = {
+      kind,
+      minerId: deviceId,
+      ...(backend !== undefined && kind === "GPU" ? { backend } : {}),
+      ...(backend !== undefined && kind === "QPU" ? { provider: backend } : {}),
+    };
+  });
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeMinerKind(value: string | undefined): MinerCategory {
+  const v = (value ?? "").toLowerCase();
+  if (v.includes("cpu")) return "CPU";
+  if (v.includes("gpu") || v.includes("cuda") || v.includes("metal")) return "GPU";
+  if (v.includes("qpu") || v.includes("dwave") || v.includes("quantum")) return "QPU";
+  return "OTHER";
 }
 
 // Decode a polkadot.js codec for a v0.2 `DifficultyConfig` struct into the

@@ -268,14 +268,15 @@ export interface DatabaseAdapter {
 
   // --- Node descriptors (v11) ---
   // Per-account chain-signed identity records — one row per AccountId,
-  // sourced from `System.remark_with_event` extrinsics carrying a
-  // `quip.node_descriptor.v1` JSON body. Replaces the v0.2 miner-survey
-  // pipeline as the canonical node-identity surface; see DASHBOARDPLAN.md.
+  // sourced from `MinerRegistry.NodeDescriptors` compact storage carrying
+  // runtime-validated `quip.node_descriptor.v1` data. Replaces the v0.2
+  // miner-survey pipeline as the canonical node-identity surface.
   //
-  // Upsert tie-breaker is `(blockNumber, extrinsicIndex)` so a later
-  // descriptor in the same block wins, and across blocks the newest one
-  // always wins. `firstBlockTimestamp` is preserved across upserts so the
-  // dashboard can report "first observed" without keeping a history table.
+  // Upsert tie-breaker remains `(blockNumber, extrinsicIndex)` for DB
+  // compatibility. Registry snapshots use `extrinsicIndex = 0`, and the
+  // `blockNumber` is the descriptor's own `updated_at` provenance.
+  // `firstBlockTimestamp` is preserved across upserts so the dashboard can
+  // report "first observed" without keeping a history table.
 
   /**
    * Insert-or-replace a descriptor by accountId. Skips the write when the
@@ -286,8 +287,8 @@ export interface DatabaseAdapter {
 
   /**
    * All descriptors known to the indexer, ordered by `nodeName` for stable
-   * UI rendering. Empty when no `quip-miner identify` extrinsic has been
-   * observed yet. Re-projected to NodesSnapshot at server time.
+   * UI rendering. Empty when no `quip-miner identify` registry update has
+   * been observed yet. Re-projected to NodesSnapshot at server time.
    */
   getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]>;
 
@@ -295,7 +296,7 @@ export interface DatabaseAdapter {
    * Single-row lookup by SS58 account. Returned by the URL-resolver helper
    * when deriving the local operator's miner-REST base URL from their
    * on-chain descriptor (`publicHost`/`publicPort`). Null when the operator
-   * hasn't yet signed a `quip.node_descriptor.v1` remark for this account.
+   * hasn't yet written a `quip.node_descriptor.v1` registry entry for this account.
    */
   getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null>;
 
@@ -432,10 +433,10 @@ export interface DbConfig {
 // without re-introducing the deleted PoW-epoch abstraction. Stored as a
 // JSON blob keyed by a single row, overwritten on every survey poll.
 // v11: drops `nodes_snapshot` and the HTTP fan-out survey-worker. Adds
-// `node_descriptors` — one row per AccountId, populated from
-// `System.remark_with_event` extrinsics carrying a `quip.node_descriptor.v1`
-// JSON body. Server projects to NodesSnapshot at read time. This is the
-// canonical chain-signed identity surface; see DASHBOARDPLAN.md.
+// `node_descriptors` — one row per AccountId, now populated from
+// `MinerRegistry.NodeDescriptors` compact runtime storage. Server projects
+// to NodesSnapshot at read time. This is the canonical chain-signed
+// identity surface.
 // v12: adds `proof_attempts` — every chain-accepted ProofAccepted event,
 // not only the lowest-energy winner per block. Lets the dashboard show
 // "Recent Performance vs problem #N" — the in-flight attempts against
@@ -509,14 +510,14 @@ export interface DbConfig {
 // v21: re-keys mining_submissions on the global chain `solution_number`
 // (quip-protocol MR !105). The miner dropped its controller-local
 // `solution_id` / `dispatch_id` counters (which reset on restart and on
-// attempts-dir moves) in favour of `solution_number = count(WinningSolutions)
-// + 1` — durable and monotonic across restarts. Renames the `solution_id`
+// attempts-dir moves) in favour of `solution_number = LatestQBlockId + 1`
+// — durable and monotonic across restarts. Renames the `solution_id`
 // column to `solution_number`, makes it the PK with `miner_id`, and drops
 // the now-gone `dispatch_id` column. Also adds `chain_head.winning_solutions_count`
-// (length of quantum_pow.WinningSolutions): the indexer re-bounds its
-// catch-up on `count + 1` read straight from chain (via the substrate
-// worker) instead of the controller's `results_received` counter. Wipe-on-
-// drift rebuilds both on next poll.
+// (now populated from quantum_pow.LatestQBlockId when available): the
+// indexer re-bounds its catch-up on `id + 1` read straight from chain (via
+// the substrate worker) instead of the controller's `results_received`
+// counter. Wipe-on-drift rebuilds both on next poll.
 export const SCHEMA_VERSION = 21;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can

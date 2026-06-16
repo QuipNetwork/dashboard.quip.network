@@ -94,7 +94,7 @@ function fakeClient(opts: {
   } as unknown as QuipClient;
 }
 
-// Seed chain_head.winning_solutions_count (length of WinningSolutions) so
+// Seed chain_head.winning_solutions_count (LatestQBlockId compatibility field) so
 // the catch-up loop can derive the global solution_number bound (count + 1).
 // This is what the substrate worker writes from chain.
 async function seedWinningSolutionsCount(deps: TipIterationDeps, count: number): Promise<void> {

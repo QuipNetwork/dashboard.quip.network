@@ -156,8 +156,8 @@ export async function runTipIteration(deps: TipIterationDeps): Promise<void> {
   }
 
   // Mining-attempts catch-up. Bound on the current global solution_number
-  // (MR !105) = `count(WinningSolutions) + 1`, read straight from chain via
-  // the substrate worker's `chain_head.winning_solutions_count`. The
+  // = `LatestQBlockId + 1`, read straight from chain via the substrate
+  // worker's `chain_head.winning_solutions_count`. The
   // miner's controller no longer exposes a per-solution counter, so the
   // bound is chain-derived, not from /api/v1/stats. Skip when selfAddress
   // is unknown or the substrate worker hasn't written the count yet (the
@@ -198,8 +198,7 @@ async function flushHeartbeat(deps: TipWorkerDeps): Promise<void> {
 }
 
 /**
- * Current global solution_number = `count(WinningSolutions) + 1` (MR !105),
- * read straight from chain via the substrate worker's
+ * Current global solution_number = `LatestQBlockId + 1`, read straight from chain via the substrate worker's
  * `chain_head.winning_solutions_count`. +1 is the in-flight problem every
  * miner is currently grinding.
  *

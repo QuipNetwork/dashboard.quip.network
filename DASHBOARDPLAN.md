@@ -1,223 +1,78 @@
-# DASHBOARDPLAN.md — Indexing Miner Identities from Chain Remarks
+# DASHBOARDPLAN.md - Registry-Based Miner Identity Indexing
 
-## Audience
+## General Idea
 
-Dashboard / indexer engineers who need to surface per-miner identity and
-hardware info (the v0.2 equivalent of v0.1 `nodes.json`) by reading the
-substrate chain — no off-chain coordination required.
+Goals are:
 
-## What the chain carries
+1. `quip-miner` in isolation should not require an indexer.
+2. The indexer should do less work where possible and should not need to query both the miner and the chain for the same data. Only one should be needed.
 
-When an operator runs `quip-miner identify`, the client posts a signed
-extrinsic to the runtime:
+A consequence is that the dashboard stays less complicated: it should be limited to talking with the indexer, and the indexer should provide all necessary dashboard data. The chain should not compute aggregate statistics; aggregate statistics remain the indexer's job.
 
-- **Preferred call**: `System.remark_with_event(remark: bytes)` — emits a
-  `System.Remarked { sender, hash }` event so indexers can subscribe to
-  the event stream instead of scanning every extrinsic call data field.
-- **Fallback call**: `System.remark(remark: bytes)` — used when the
-  runtime metadata doesn't expose `remark_with_event` (older FRAME
-  versions). No event is emitted; indexers must scan extrinsic bodies.
+## Descriptor Source
 
-The signed origin (`AccountId32`) is the canonical identity. The remark
-body is canonical UTF-8 JSON (sorted keys, compact separators) matching:
+Miner identity now comes from `MinerRegistry.NodeDescriptors`, not `System.remark` or `System.remark_with_event`.
 
-```json
-{
-  "schema": "quip.node_descriptor.v1",
-  "descriptor_version": 1,
-  "node_name": "rig-01",
-  "public_host": "rig-01.example.com",
-  "public_port": 20049,
-  "rpc_endpoints": ["ws://rig-01.example.com:9944"],
-  "auto_mine": true,
-  "log_level": "INFO",
-  "runtime": {
-    "python": "3.13.13",
-    "quip_version": "0.2.0",
-    "protocol_version": 2,
-    "in_docker": true,
-    "docker_image": "registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cpu:abc1234"
-  },
-  "miners": {
-    "cpu": { "kind": "CPU", "miner_id": "rig-01-CPU-1", "num_cpus": 2 },
-    "dwave": {
-      "kind": "QPU",
-      "miner_id": "rig-01-QPU-DWAVE-1",
-      "provider": "dwave",
-      "solver": "Advantage2_system1",
-      "daily_budget": "5m"
-    }
-  },
-  "system_info": {
-    "os": { "system": "Linux", "release": "5.15.0-176-generic", "machine": "x86_64" },
-    "cpu": {
-      "logical_cores": 32,
-      "physical_cores": 16,
-      "brand": "AMD Ryzen 9 5950X 16-Core Processor",
-      "arch": "x86_64"
-    },
-    "memory_mb": 128693,
-    "gpus": [
-      {
-        "index": 0,
-        "vendor": "NVIDIA",
-        "name": "NVIDIA RTX A4000",
-        "memory_mb": 16376,
-        "observed_utilization_pct": 0
-      }
-    ]
-  }
-}
-```
+`quip-miner identify` submits a typed `MinerRegistry.set_descriptor` extrinsic. The runtime validates the compact `quip.node_descriptor.v1` schema before writing storage, so the dashboard no longer parses or rejects arbitrary JSON remark payloads.
 
-Full schema is defined in `shared/system_info.py`
-(`NodeDescriptor`/`SCHEMA_NAME = "quip.node_descriptor.v1"`). The shape
-mirrors v0.1 `telemetry/nodes.json` exactly except for fields the
-dashboard owns (`address`, `status`, `first_seen`, `last_seen`,
-`last_heartbeat`, `ecdsa_public_key_hex`) — those are derived from the
-indexer's own state, never self-asserted.
+The archived remark-based design is kept in `DASHBOARDPLAN_REMARK_OLD.md` for historical context only.
 
-## Indexing strategy
+## Indexer Flow
 
-### Path A — event subscription (preferred when `remark_with_event` is on the chain)
+1. The descriptor worker follows finalized substrate block numbers using its existing checkpoint.
+2. For each finalized block, it reads the `MinerRegistry.NodeDescriptors` storage map at that block hash.
+3. Each storage value includes its own `updated_at` block number. The indexer uses that block as descriptor provenance.
+4. The indexer fetches the `updated_at` block hash and timestamp.
+5. The compact runtime descriptor is projected into the existing dashboard `NodeDescriptor` JSON shape.
+6. The row is upserted into `node_descriptors` by `account_id`.
 
-Subscribe to finalized blocks and filter `System.Remarked` events. The
-sender's AccountId is the extrinsic origin (also exposed by the event
-itself); the body is the corresponding `remark` argument.
+No dashboard database migration is required. The existing table remains useful:
 
-```python
-# substrate-interface
-from substrateinterface import SubstrateInterface
-import json
+- `account_id` is the storage map key.
+- `block_number` is the descriptor's `updated_at`.
+- `block_hash` and `block_timestamp` are resolved from `updated_at`.
+- `extrinsic_index` is set to `0` because registry snapshots have no extrinsic-position provenance.
+- `descriptor` keeps the projected dashboard JSON shape.
 
-iface = SubstrateInterface(url="wss://validator-1.quip.network:9944")
-for block_hash in iface.subscribe_block_headers(finalized_only=True):
-    events = iface.get_events(block_hash=block_hash)
-    for ev in events:
-        if ev["event"]["module_id"] != "System":
-            continue
-        if ev["event"]["event_id"] != "Remarked":
-            continue
-        sender = ev["event"]["attributes"]["sender"]   # AccountId32 (SS58)
-        body_hash = ev["event"]["attributes"]["hash"]  # blake2_256 of the remark
-        # Pull the matching extrinsic to recover the raw bytes.
-        block = iface.get_block(block_hash=block_hash)
-        ext = block["extrinsics"][ev["extrinsic_idx"]]
-        raw = ext.value["call"]["call_args"][0]["value"]  # 0x-prefixed hex
-        try:
-            payload = json.loads(bytes.fromhex(raw[2:]).decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if payload.get("schema") != "quip.node_descriptor.v1":
-            continue   # not ours; some other tool also remarks here
-        upsert_descriptor(sender, block_number, ev["extrinsic_idx"], payload)
-```
+## Cursor Consideration
 
-### Path B — extrinsic scan (when only plain `remark` is available)
+`MinerRegistry.NodeDescriptors` map keys are good for metadata-backed prefix queries, but not naturally ordered for numeric cursor APIs. The current descriptor worker therefore exposes a bounded runtime path by scanning finalized block numbers and materializing the active descriptor set at each block, filtering through DB upsert ordering by `updated_at`.
 
-Same approach minus the event filter: walk every extrinsic in the
-block, match `module="System"` and `function in {"remark", "remark_with_event"}`,
-decode the first argument. Slower (every block carries non-remark
-extrinsics) but works on any FRAME chain.
+This is acceptable for the current active-job and active-miner set, but should be revisited if the registry grows large or if clients need ordered descriptor history. A future runtime API or maintained descriptor-update index could provide direct numeric pagination.
 
-### Path C — historical backfill
+## Descriptor Projection
 
-On first startup the indexer needs to backfill before subscribing. Pick
-the earliest block at which the identify extrinsic could have landed
-(deployment date of the v0.2 runtime upgrade) and scan forward using
-Path A or B. Persist a `last_indexed_block` checkpoint so restarts
-resume in place.
+The runtime stores compact bounded fields:
 
-## Storage model
+- `schema_version`
+- `node_id`
+- `node_name`
+- `public_host`
+- `public_port`
+- `rpc_endpoints`
+- `auto_mine`
+- `log_level`
+- `miners`
+- `payload_hash`
+- `updated_at`
+- `deposit`
 
-Use a unique-per-account table; the latest valid descriptor wins.
+The dashboard projects only the fields it can display today:
 
-```sql
-CREATE TABLE node_descriptors (
-  account_id      BYTEA PRIMARY KEY,            -- 32 bytes
-  ss58_address    TEXT NOT NULL,                -- denormalized for UI
-  block_number    BIGINT NOT NULL,
-  extrinsic_index INT NOT NULL,
-  block_hash      BYTEA NOT NULL,
-  descriptor      JSONB NOT NULL,               -- the parsed payload
-  observed_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+- `schema = "quip.node_descriptor.v1"`
+- `descriptorVersion = 1`
+- `nodeName`
+- `publicHost`
+- `publicPort`
+- `rpcEndpoints`
+- `autoMine`
+- `logLevel`
+- `miners`
 
-CREATE INDEX ix_node_descriptors_block ON node_descriptors (block_number);
-CREATE INDEX ix_node_descriptors_name  ON node_descriptors ((descriptor->>'node_name'));
-```
+Rich local fields such as Python version, Docker image, OS, CPU brand, memory, and GPU model are not present in the compact on-chain descriptor and remain optional in the dashboard types.
 
-Upsert rule: replace the row whenever
-`(new.block_number, new.extrinsic_index) > (existing.block_number, existing.extrinsic_index)`.
-Never merge fields across descriptors — an operator clearing a field
-expects the omission to take effect.
+## QBlock Source
 
-## Field-by-field guidance
+The dashboard keeps the existing `chain_head.winning_solutions_count` column and `winningSolutionsCount` API field for compatibility, but the preferred source is now `quantum_pow.LatestQBlockId`.
 
-| Field                                | Use it for                                                         | Caveats                                                                                            |
-| ------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `node_name`                          | Display label only                                                 | Self-asserted; not unique. Awards key off AccountId.                                               |
-| `public_host`/`public_port`          | Show "where to reach this node"                                    | Self-asserted; verify via your own probe before linking.                                           |
-| `rpc_endpoints`                      | Show advertised RPC URLs                                           | Don't forward traffic without your own allow-listing.                                              |
-| `auto_mine`                          | Badge "auto-mining" vs "manual" in UI                              | Cosmetic.                                                                                          |
-| `runtime.quip_version`               | Compatibility / version-skew dashboards                            | Trust as-is.                                                                                       |
-| `runtime.protocol_version`           | Detect peers that need upgrading                                   | Mismatch ≠ malice; warn, don't reject.                                                             |
-| `runtime.in_docker` / `docker_image` | Surface deployment topology                                        | Image tag is the operator's free-form string.                                                      |
-| `miners.*`                           | Hardware breakdown per node (CPU/GPU/QPU bucket counts)            | `solver` is operator-asserted; cross-check against chain-side topology hash if you need authority. |
-| `system_info`                        | Total network-capacity dashboards (RAM, GPU model histogram, etc.) | Unverifiable; a misconfigured miner could claim anything. Don't weight rewards by these values.    |
-
-## Discarded payloads
-
-Drop and log (do not partially apply) when:
-
-- JSON parse fails.
-- `schema` is missing or not `quip.node_descriptor.v1`.
-- `descriptor_version` is not `1` (forward-compat: when newer versions
-  ship, write a parallel handler rather than mutate this one).
-- `node_name` is empty or > 64 UTF-8 bytes.
-- `rpc_endpoints` has > 8 entries or any entry > 256 UTF-8 bytes.
-- Any string value in the payload matches a known credential shape
-  (DWAVE_API_KEY, AWS keys, sk-..., Bearer tokens, JWT-ish strings) —
-  treat as misconfigured upload and refuse to display.
-
-These bounds match what the miner client enforces in
-`shared.system_info.validate_descriptor`; an indexer that mirrors them
-will only accept payloads the client also considered well-formed.
-
-## Awarding rewards
-
-Use `AccountId` exclusively. `node_name` collisions are allowed and
-expected (two different operators may legitimately name their nodes
-"rig-01"). Award by signed origin, display by name.
-
-## Update cadence
-
-Operators run `quip-miner identify` ad hoc (e.g., after changing
-hardware or `node_name`). There's no fixed interval. The dashboard
-should treat "no fresh descriptor in N days" as expected, not a
-liveness signal — use heartbeats / block authorship for liveness.
-
-## Forward compatibility
-
-When the runtime gains typed storage (`NodeDescriptors: AccountId =>
-NodeDescriptor` per Phase 2 of the original plan), the indexer should:
-
-1. Query the typed storage as the primary source: `state_getStorage("NodeDescriptors", [account])`.
-2. Fall back to the remark scan for accounts not yet present in storage
-   (operators who registered before the runtime upgrade).
-3. Stop scanning remarks once the upgrade block is well in the past and
-   all active miners have re-submitted via the typed extrinsic.
-
-The on-wire JSON shape, field names, and bounds are intended to stay
-stable across that migration — only the call envelope changes.
-
-## Troubleshooting
-
-| Symptom                                         | Likely cause                                                                           |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `System.Remarked` event missing                 | Runtime is on older FRAME; use Path B (extrinsic scan).                                |
-| Payload decodes but `schema` is wrong           | Another tool also uses `System.remark`; ignore non-matching schemas.                   |
-| Descriptor shows but never updates              | Operator hasn't re-run `quip-miner identify` since last hardware change.               |
-| Duplicate `node_name`s in dashboard             | Expected — names aren't unique. Display AccountId alongside.                           |
-| Validation rejects post-decode                  | Operator's quip-miner pre-dates the field-bound enforcement; ask them to upgrade.      |
-| `solver` field shows for one miner, not another | Suspicious value got dropped by the client-side scrub; operator should fix their TOML. |
+This field is the latest monotonic qblock ordinal and equals the number of accepted winning solutions. The current in-flight problem id remains `LatestQBlockId + 1`. Older v0.2 runtimes can still fall back to counting `WinningSolutions`.

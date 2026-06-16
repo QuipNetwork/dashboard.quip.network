@@ -6,7 +6,7 @@ import type { DatabaseAdapter } from "./adapter";
 
 test("schema v21: mining_submissions re-keyed on global solution_number (MR !105)", () => {
   // v21 re-keys mining_submissions on the global chain `solution_number`
-  // (count(WinningSolutions)+1, durable across restarts): the `solution_id`
+  // (LatestQBlockId+1, durable across restarts): the `solution_id`
   // column is renamed to `solution_number` and becomes the PK with
   // `miner_id`, and the now-gone controller-local `dispatch_id` column is
   // dropped. The indexer re-bounds its catch-up on the summed chain

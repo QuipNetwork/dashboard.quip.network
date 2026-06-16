@@ -8,8 +8,8 @@ import type { ChainHead, ChainMinerRecord } from "../types/telemetry";
  * every miner is grinding, quip-protocol MR !105).
  *
  * Prefers the authoritative chain figure `chainHead.winningSolutionsCount`
- * (length of `quantum_pow.WinningSolutions`, read straight from chain by the
- * substrate worker). Falls back to summing per-miner `proofsWon` when
+ * (`quantum_pow.LatestQBlockId` on current runtimes, with a legacy
+ * `WinningSolutions` count fallback). Falls back to summing per-miner `proofsWon` when
  * chain_head hasn't been observed yet (or a pre-v0.2 chain doesn't expose the
  * count) — every winning solution is one account's won proof, so the sum
  * equals the count whenever `chain_miners` is complete.

@@ -13,9 +13,9 @@ export function CurrentBlockIndicator() {
   if (!tip) return null;
   // BABE authors most blocks without a PoW solution attached, so the
   // "problem number" the network is currently racing to solve isn't tied
-  // to the substrate block height. It's `count(WinningSolutions) + 1`,
-  // sourced from chain via `chain_head.winningSolutionsCount` (falling back
-  // to summing `quantum_pow.Miners[*].proofs_won` until chain_head lands).
+  // to the substrate block height. It's `LatestQBlockId + 1`, sourced from
+  // chain via `chain_head.winningSolutionsCount` (falling back to summing
+  // `quantum_pow.Miners[*].proofs_won` until chain_head lands).
   const tipNum = Number(tip.substrateBlockNumber);
   const nextProblem = winningSolutionsSolved(chainHead, chainMiners) + 1;
   // Substrate blocks elapsed since the last winning PoW solution. Derived

@@ -68,14 +68,13 @@ export interface ChainHead {
   finalizedBlockHash: string;
   // bestBlockNumber - finalizedBlockNumber, precomputed for the UI.
   finalityLag: number;
-  // Length of the chain's `quantum_pow.WinningSolutions` storage map — the
-  // count of winning solutions accepted network-wide. This is the
+  // Latest monotonic qblock id (`quantum_pow.LatestQBlockId`) — equal to
+  // the count of winning solutions accepted network-wide. This is the
   // authoritative source for the global "solution number": the in-flight
-  // problem every miner is grinding is `winningSolutionsCount + 1` (MR
-  // !105), which keys the miner's per-solution directories. Null when the
-  // chain doesn't expose it yet (pre-v0.2 runtime, or the substrate worker
-  // hasn't read it). Equals `Σ chain_miners.proofsWon` when that table is
-  // complete, but sourced straight from chain so it can't undercount.
+  // problem every miner is grinding is `winningSolutionsCount + 1`. Null
+  // when the chain doesn't expose it yet or the substrate worker hasn't
+  // read it. Equals `Σ chain_miners.proofsWon` when that table is complete,
+  // but sourced straight from chain so it can't undercount.
   winningSolutionsCount: number | null;
   runtime: RuntimeVersion;
   updatedAt: string;
@@ -298,12 +297,11 @@ export interface ValidatorAuthorshipRecord {
 
 /**
  * Operator-published node descriptor — the canonical identity record for
- * a miner, sourced from a `System.remark_with_event` extrinsic signed by
- * the operator's chain account. Shape mirrors `quip.node_descriptor.v1`
- * defined in `shared/system_info.py` on the miner side; see
- * `DASHBOARDPLAN.md` for the indexing spec. Dashboard-owned fields
- * (`address`, `firstSeen`, `lastSeen`) live on NodeInfo, not here —
- * descriptors are the operator's self-asserted side, joined at read time.
+ * a miner, sourced from `MinerRegistry.NodeDescriptors` under the
+ * operator's chain account. The runtime validates the compact
+ * `quip.node_descriptor.v1` schema on write; the indexer projects it into
+ * this dashboard shape. Dashboard-owned fields (`address`, `firstSeen`,
+ * `lastSeen`) live on NodeInfo, not here.
  */
 export interface NodeSystemCpu {
   logicalCores?: number;
@@ -403,10 +401,10 @@ export interface NodesSnapshot {
 }
 
 /**
- * Raw signed payload an operator emits via `quip-miner identify`. Field
- * names use camelCase (the indexer normalises from the chain's snake_case
- * JSON at decode time). Pass-through of `descriptorVersion` lets future
- * versions ride a parallel handler without mutating this shape.
+ * Runtime-validated descriptor emitted via `quip-miner identify`. Field
+ * names use camelCase after the indexer normalises the compact on-chain
+ * storage value. Pass-through of `descriptorVersion` lets future versions
+ * ride a parallel handler without mutating this shape.
  */
 export interface NodeDescriptor {
   schema: "quip.node_descriptor.v1";
@@ -459,11 +457,11 @@ export interface NodeDescriptorRecord {
  */
 export interface MiningSubmissionRecord {
   // Global chain solution number this submission was produced for
-  // (quip-protocol MR !105): `count(WinningSolutions) + 1` at the time
-  // the miner opened the directory — i.e. the network-wide problem
-  // index, durable and monotonic across restarts. Every miner grinds
-  // the same global solution_number, so it's a stable identity/sort key
-  // that no longer resets when the attempts dir is moved.
+  // (`LatestQBlockId + 1`) at the time the miner opened the directory —
+  // i.e. the network-wide problem index, durable and monotonic across
+  // restarts. Every miner grinds the same global solution_number, so it's a
+  // stable identity/sort key that no longer resets when the attempts dir is
+  // moved.
   //
   // This is the key the modal proxies on
   // (`/api/v1/mining/attempts?solution_number=N`) and the DB primary
@@ -616,12 +614,12 @@ export interface TelemetryResponse {
   validators: ValidatorAuthorshipRecord[];
   // Snapshot of network nodes, projected server-side from the
   // `node_descriptors` table the indexer populates from
-  // `System.remark_with_event` extrinsics. Null when no descriptor has
+  // `MinerRegistry.NodeDescriptors`. Null when no descriptor has
   // been observed yet (fresh chain or pre-deploy operators). Drives the
   // Compute Available view's TFLOPS/PFLOPS surfaces.
   nodes: NodesSnapshot | null;
   // Per-account indexed descriptors — raw signed payloads plus provenance.
-  // Empty when no `quip-miner identify` extrinsic has been seen. Drives
+  // Empty when no `quip-miner identify` registry update has been seen. Drives
   // the Node Identities panel and joins into ChainMinersTable.
   nodeDescriptors: NodeDescriptorRecord[];
   // Recent submissions by the locally-polled miner, sourced from

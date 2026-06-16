@@ -77,7 +77,7 @@ describe("server app", () => {
 
     // v11 projects `nodes` from `node_descriptors`; null until the
     // descriptor worker observes its first valid `quip-miner identify`
-    // remark. `nodeDescriptors` is the raw per-account record array.
+    // registry update. `nodeDescriptors` is the raw per-account record array.
     expect("nodes" in body).toBe(true);
     expect(body.nodes).toBeNull();
     expect("nodeDescriptors" in body).toBe(true);

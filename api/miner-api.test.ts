@@ -310,8 +310,8 @@ describe("parseMiningAttemptsApiResponse — powSequence (!105 chain-derived Sol
 
 describe("parseMiningAttemptsApiResponse — solutionNumber (!105 global key)", () => {
   // MR !105 replaced the controller-local `solution_id` / `dispatch_id`
-  // counters with the global chain `solution_number` (count(WinningSolutions)
-  // + 1). The parser reads it from `submission.solution_number` and it is a
+  // counters with the global chain `solution_number` (LatestQBlockId + 1).
+  // The parser reads it from `submission.solution_number` and it is a
   // required field — a submission envelope without it is malformed.
   test("parses solution_number into solutionNumber", () => {
     const env = envelope({

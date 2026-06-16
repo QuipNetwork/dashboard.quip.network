@@ -37,9 +37,9 @@ export function NetworkView() {
   const indexer = useTelemetryStore((s) => s.indexer);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const chainHead = useTelemetryStore((s) => s.chainHead);
-  // Chain-wide lifetime PoW solution count = length of WinningSolutions,
-  // sourced from chain via chain_head (falling back to summing per-miner
-  // proofs_won until chain_head lands). u64, but values up to 2^53 fit
+  // Chain-wide lifetime PoW solution count = LatestQBlockId, sourced from
+  // chain via chain_head (falling back to summing per-miner proofs_won until
+  // chain_head lands). u64, but values up to 2^53 fit
   // Number safely, covering any realistic chain lifetime.
   const totalProofsWon = winningSolutionsSolved(chainHead, chainMiners);
 

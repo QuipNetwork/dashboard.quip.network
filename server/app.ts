@@ -111,11 +111,10 @@ export function createApp(options: CreateAppOptions): Hono {
     // once.
     const hardwareByAccount = new Map(allHardware.map((h) => [h.accountId, h]));
 
-    // Current-dispatch resolution. With MR !105 the in-flight problem is
-    // the global solution_number = `count(WinningSolutions) + 1`, sourced
-    // straight from chain via `chain_head.winning_solutions_count` (the
-    // miner's controller no longer exposes a per-solution counter). The
-    // miner grinds that solution_number; the prior one is the just-completed
+    // Current-dispatch resolution. The in-flight problem is the global
+    // solution_number = `LatestQBlockId + 1`, surfaced through
+    // `chain_head.winning_solutions_count` for API compatibility. The miner
+    // grinds that solution_number; the prior one is the just-completed
     // problem. Skip when the substrate worker hasn't written the count yet.
     const minerHardware = selfAddress ? hardwareByAccount.get(selfAddress) : undefined;
     const minerInternalId = minerHardware?.miners[0]?.id ?? null;
@@ -125,11 +124,11 @@ export function createApp(options: CreateAppOptions): Hono {
         ? await resolveCurrentDispatch(minerInternalId, winningSolutionsCount + 1)
         : null;
 
-    // Project per-account chain descriptors into the legacy NodesSnapshot
-    // shape so the Compute Available view's TFLOPS/PFLOPS surfaces keep
-    // their existing consumer contract. The descriptor pipeline (chain
-    // remarks, signed by operator) replaces the v0.2 HTTP-fanout survey
-    // but the snapshot shape is unchanged.
+    // Project per-account registry descriptors into the legacy
+    // NodesSnapshot shape so the Compute Available view's TFLOPS/PFLOPS
+    // surfaces keep their existing consumer contract. The descriptor
+    // pipeline replaces the v0.2 HTTP-fanout survey, but the snapshot
+    // shape is unchanged.
     const projected = projectDescriptorsToSnapshot(nodeDescriptors);
     // Geo-IP enrich the projection: resolve each node's `publicHost` to a
     // lat/lng via DNS + MaxMind. Cache-amortised, so warm calls are
