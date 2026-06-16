@@ -2,7 +2,7 @@
 
 import { createAdapter, getConfigFromEnv } from "@quip/core/db";
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
-import { createApp } from "../../server/app";
+import { createApp } from "../app";
 
 type Fetcher = (request: Request) => Promise<Response>;
 

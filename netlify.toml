@@ -7,7 +7,8 @@
   targetPort = 5173
 
 [functions]
-  directory = "netlify/functions"
+  directory = "apps/server/netlify"
+  node_bundler = "esbuild"
 
 [[redirects]]
   from = "/api/telemetry*"
