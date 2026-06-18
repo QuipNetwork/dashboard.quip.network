@@ -27,15 +27,15 @@ export class Backfill {
     );
   }
 
-  // Winning blocks recorded on-chain but not yet in our `blocks` table. Reads a
-  // generous chunk (rolling cap ~500 < chain-lifetime winners); a duplicate read
-  // is harmless — insertBlock is INSERT OR IGNORE.
+  // Winning blocks recorded on-chain but not yet in our `blocks` table. The
+  // membership test is targeted at exactly the winning set, so it stays correct
+  // regardless of chain size — a recent-window check would re-flag every winner
+  // older than the window as "missing" and re-backfill them on each reconnect.
+  // A duplicate read is harmless either way — insertBlock is INSERT OR IGNORE.
   private async missing(): Promise<string[]> {
     const winning = await this.client.getWinningBlockNumbers();
     if (winning.length === 0) return [];
-    const existing = new Set(
-      (await this.ctx.db.getRecentBlocks(10_000, 0)).map((b) => b.substrateBlockNumber),
-    );
+    const existing = new Set(await this.ctx.db.getExistingBlockNumbers(winning));
     const missing = winning.filter((n) => !existing.has(n)).sort((a, b) => Number(a) - Number(b));
     if (missing.length > 0) {
       console.log(

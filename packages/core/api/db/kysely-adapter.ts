@@ -157,6 +157,16 @@ export class KyselyAdapter implements DatabaseAdapter {
     return rows.map(rowToBlockRecord);
   }
 
+  async getExistingBlockNumbers(blockNumbers: string[]): Promise<string[]> {
+    if (blockNumbers.length === 0) return [];
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .select("substrate_block_number")
+      .where("substrate_block_number", "in", blockNumbers)
+      .execute();
+    return rows.map((r) => String(r.substrate_block_number));
+  }
+
   async markBlockFinalized(blockHash: string): Promise<void> {
     await this.requireDb()
       .updateTable("blocks")

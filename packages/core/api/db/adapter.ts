@@ -152,6 +152,15 @@ export interface DatabaseAdapter {
   getBlocksByMiner(minerId: string, limit: number): Promise<BlockRecord[]>;
 
   /**
+   * Of the supplied substrate block numbers, return those already present in
+   * `blocks`. Used by the startup/reconnect backfill to compute exactly which
+   * on-chain winners are missing locally — a targeted membership test that
+   * stays correct (and cheap) no matter how large the chain or the winner set
+   * grows. Empty input is a no-op.
+   */
+  getExistingBlockNumbers(blockNumbers: string[]): Promise<string[]>;
+
+  /**
    * Substrate worker flips `finalized=true` when finality lags catches a
    * block. Idempotent — re-running on an already-finalised hash is a no-op.
    * Silently no-ops if the hash is unknown (the worker may see finality

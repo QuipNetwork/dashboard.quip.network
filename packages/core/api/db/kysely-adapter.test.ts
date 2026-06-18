@@ -150,6 +150,19 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         const [a] = await db.getBlocksByMiner("5A", 10);
         expect(a?.finalized).toBe(true);
       });
+
+      it("getExistingBlockNumbers returns only the present subset", async () => {
+        for (const n of ["10", "20", "30"]) {
+          await db.insertBlock(sampleBlock({ blockHash: `0x${n}`, substrateBlockNumber: n }));
+        }
+        const present = await db.getExistingBlockNumbers(["5", "10", "25", "30", "99"]);
+        expect([...present].sort()).toEqual(["10", "30"]);
+      });
+
+      it("getExistingBlockNumbers is an empty-input no-op", async () => {
+        await db.insertBlock(sampleBlock());
+        expect(await db.getExistingBlockNumbers([])).toEqual([]);
+      });
     });
 
     describe("meta", () => {
