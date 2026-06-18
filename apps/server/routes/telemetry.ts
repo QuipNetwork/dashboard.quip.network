@@ -2,6 +2,7 @@
 
 import type { Hono } from "hono";
 
+import { TtlCache, type ICache } from "@quip/core/cache";
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import { parseDispatchAttemptsApiResponse } from "@quip/core/miner-api";
 import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
@@ -27,16 +28,47 @@ const RECENT_MINING_SUBMISSIONS_LIMIT = 20;
 // quip-protocol-rs spec 101 — short enough to catch operator outages,
 // long enough that BABE slot skips don't briefly flap a healthy node.
 const VALIDATOR_ONLINE_WINDOW_MS = 3 * 60 * 1000;
+// The telemetry payload is global to the deployment (no per-viewer state), so
+// one process-wide snapshot serves every concurrent poller. A short TTL keeps
+// staleness well under the indexer's own write cadence while collapsing N
+// viewers' per-poll recompute into one. The server-side cache is independent
+// of the `no-store` header below, which only stops *browsers* from caching.
+const DEFAULT_CACHE_TTL_MS = 1000;
+
+const SNAPSHOT_KEY = "telemetry";
 
 interface TelemetryDeps {
   db: DatabaseAdapter;
   validatorRpcUrls: string[];
+  // Injected clock — drives the snapshot timestamps (and the default cache's
+  // freshness check), so tests can pin time deterministically.
+  now?: () => number;
+  // 0 disables the cache (every request rebuilds); used by tests for an
+  // uncached baseline. Ignored when an explicit `cache` is injected.
+  cacheTtlMs?: number;
+  // The snapshot cache. Defaults to an in-process TtlCache; injectable so tests
+  // (or alternative deployments) can supply their own ICache implementation.
+  cache?: ICache<TelemetryResponse>;
 }
 
 export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
   const { db, validatorRpcUrls } = deps;
+  const now = deps.now ?? Date.now;
+  const cacheTtlMs = deps.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+  const cache =
+    deps.cache ?? new TtlCache<TelemetryResponse>({ ttlMs: cacheTtlMs, now });
 
   app.get("/api/telemetry", async (c) => {
+    const snapshot = await cache.read(SNAPSHOT_KEY, buildSnapshot);
+    // Telemetry is a moving target — every poll returns different counters.
+    // Without `no-store`, browsers can apply heuristic freshness to an opaque
+    // JSON body and serve a cached response after a refocus, masking real
+    // updates from the indexer.
+    c.header("Cache-Control", "no-store");
+    return c.json(snapshot);
+  });
+
+  async function buildSnapshot(): Promise<TelemetryResponse> {
     const [
       blocks,
       selfAddress,
@@ -127,7 +159,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
     // table so operators see their full authority set, not just the busy
     // ones.
     const authorshipByAccount = new Map(authorship.map((a) => [a.accountId, a]));
-    const nowMs = Date.now();
+    const nowMs = now();
     const validators: ValidatorAuthorshipRecord[] = babeAuthorities.map((a) => {
       const stats = authorshipByAccount.get(a.accountId);
       const lastAuthoredAt = stats?.lastAuthoredAt ?? null;
@@ -142,16 +174,11 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       };
     });
 
-    // Telemetry is a moving target — every poll returns different
-    // counters. Without `no-store`, browsers can apply heuristic
-    // freshness to an opaque JSON body and serve a cached response after
-    // a refocus, masking real updates from the indexer.
-    c.header("Cache-Control", "no-store");
-    return c.json({
+    return {
       blocks,
       selfAddress,
       indexer,
-      serverTime: new Date().toISOString(),
+      serverTime: new Date(now()).toISOString(),
       chainHead,
       babeEpoch,
       babeAuthorities,
@@ -163,8 +190,8 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       recentMiningSubmissions,
       selfProblemsAttempted,
       currentDispatch,
-    } satisfies TelemetryResponse);
-  });
+    } satisfies TelemetryResponse;
+  }
 
   /**
    * Resolve which global solution_number the panel shows + whether it's

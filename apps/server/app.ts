@@ -29,6 +29,10 @@ export interface CreateAppOptions {
   validatorRpcUrls: string[];
   enableStatic?: boolean;
   staticDir?: string;
+  /** Injected clock for the telemetry snapshot cache (defaults to Date.now). */
+  now?: () => number;
+  /** Telemetry snapshot cache TTL in ms; 0 disables it. Test seam. */
+  telemetryCacheTtlMs?: number;
   /**
    * Factory producing a Hono static-file middleware given (root, path?).
    * Injected by `server/main.ts` so this module never imports `hono/bun` —
@@ -38,10 +42,18 @@ export interface CreateAppOptions {
 }
 
 export function createApp(options: CreateAppOptions): Hono {
-  const { db, validatorRpcUrls, enableStatic = false, staticDir = "./dist", serveStatic } = options;
+  const {
+    db,
+    validatorRpcUrls,
+    enableStatic = false,
+    staticDir = "./dist",
+    serveStatic,
+    now,
+    telemetryCacheTtlMs,
+  } = options;
   const app = new Hono();
 
-  registerTelemetryRoute(app, { db, validatorRpcUrls });
+  registerTelemetryRoute(app, { db, validatorRpcUrls, now, cacheTtlMs: telemetryCacheTtlMs });
   registerBlocksRoute(app, db);
   registerMiningAttemptsRoute(app, validatorRpcUrls);
   registerHealthRoute(app, db);
