@@ -18,7 +18,7 @@
     "format:check": "prettier --check .",
     "migrate": "bun run --filter @quip/server migrate",
     "start": "bun run deploy/entrypoint.ts",
-    "typecheck": "bun run --filter '*' typecheck && tsc --noEmit",
+    "typecheck": "for w in @quip/shared @quip/core @quip/server @quip/indexer @quip/frontend; do bun run --filter \"$w\" typecheck || exit 1; done && tsc --noEmit",
     "test": "bun test --path-ignore-patterns '**/reference-material/**'"
   },
   "devDependencies": {
