@@ -6,7 +6,7 @@
 
 import { Observable } from "rxjs";
 
-import type { UnsubFn } from "../substrate-client";
+import type { UnsubFn } from "../clients/substrate-client";
 
 export function fromChainSubscription<T>(
   subscribe: (cb: (value: T) => void) => Promise<UnsubFn>,

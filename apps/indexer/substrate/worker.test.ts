@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
-import { FakeSubstrateClient } from "../substrate-client";
+import { FakeSubstrateClient } from "../clients/substrate-client";
 import { IndexerState } from "../core/state";
 import { SubstrateWorker, type SubstrateWorkerDeps } from "./worker";
 import { makeConfig, newInMemoryAdapter } from "../core/test-helpers";

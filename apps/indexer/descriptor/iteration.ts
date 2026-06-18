@@ -7,7 +7,7 @@
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
-import type { MinerRegistryDescriptorRecord } from "../substrate-client";
+import type { MinerRegistryDescriptorRecord } from "../clients/substrate-client";
 
 // Role-narrowed read slice of the substrate client (ISP) — the only chain call
 // an iteration makes.

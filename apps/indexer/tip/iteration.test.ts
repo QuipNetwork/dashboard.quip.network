@@ -10,7 +10,7 @@ import type {
 } from "@quip/shared/telemetry";
 
 import { DbChainStateReader } from "../core/chain-state";
-import { type MinerSource, type NodeStatus } from "../miner-client";
+import { type MinerSource, type NodeStatus } from "../clients/miner-client";
 import { IndexerState } from "../core/state";
 import { newInMemoryAdapter } from "../core/test-helpers";
 import { runTipIteration, type TipIterationDeps } from "./iteration";

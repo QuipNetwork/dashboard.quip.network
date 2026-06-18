@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
 
 import { DbChainStateReader } from "../core/chain-state";
-import type { MinerSource } from "../miner-client";
+import type { MinerSource } from "../clients/miner-client";
 import { IndexerState } from "../core/state";
 import { makeConfig, newInMemoryAdapter } from "../core/test-helpers";
 import { TipWorker, type TipWorkerDeps } from "./worker";

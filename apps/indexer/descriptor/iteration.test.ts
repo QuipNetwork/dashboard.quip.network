@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { NodeDescriptor } from "@quip/shared/telemetry";
 
-import { FakeSubstrateClient, type MinerRegistryDescriptorRecord } from "../substrate-client";
+import { FakeSubstrateClient, type MinerRegistryDescriptorRecord } from "../clients/substrate-client";
 import { newInMemoryAdapter } from "../core/test-helpers";
 import { runDescriptorIteration } from "./iteration";
 

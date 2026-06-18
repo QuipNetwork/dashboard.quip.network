@@ -18,7 +18,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   WinningSolutionInfo,
-} from "../substrate-client";
+} from "../clients/substrate-client";
 
 export interface ConnectionControl {
   connect(): Promise<void>;

@@ -18,7 +18,7 @@ import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 
 import type { ChainStateReader } from "../core/chain-state";
 import type { IndexerConfig } from "../core/config";
-import type { MinerSource } from "../miner-client";
+import type { MinerSource } from "../clients/miner-client";
 import { fromAbortSignal, runEffect } from "../core/rx";
 import type { IndexerState } from "../core/state";
 import { type Worker, type WorkerContext, nowIso } from "../core/worker";

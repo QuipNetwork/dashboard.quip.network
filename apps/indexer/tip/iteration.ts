@@ -12,7 +12,7 @@ import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "@quip/shared/telemetry";
 
 import type { ChainStateReader } from "../core/chain-state";
-import type { MinerSource } from "../miner-client";
+import type { MinerSource } from "../clients/miner-client";
 import { IndexerState } from "../core/state";
 
 // Cap on per-poll submission fetches. The global solution_number space is

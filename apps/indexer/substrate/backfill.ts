@@ -2,7 +2,7 @@
 
 import { EMPTY, type Observable, catchError, concatMap, defer, filter, from } from "rxjs";
 
-import type { BlockEvents } from "../substrate-client";
+import type { BlockEvents } from "../clients/substrate-client";
 import { type WorkerContext } from "../core/worker";
 import type { BackfillSource } from "./ports";
 

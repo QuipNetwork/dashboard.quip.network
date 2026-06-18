@@ -20,7 +20,7 @@ import {
   tap,
 } from "rxjs";
 
-import type { BlockEvents, DifficultyInfo, TopologyInfo } from "../substrate-client";
+import type { BlockEvents, DifficultyInfo, TopologyInfo } from "../clients/substrate-client";
 import { type WorkerContext, nowIso } from "../core/worker";
 import { Backfill } from "./backfill";
 import type { BackfillSource, BlockSource, ConnectionStream } from "./ports";

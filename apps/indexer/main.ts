@@ -3,11 +3,11 @@
 import { createAdapter } from "@quip/core/db";
 
 import { DbChainStateReader } from "./core/chain-state";
-import { QuipClient } from "./miner-client";
+import { QuipClient } from "./clients/miner-client";
 import { parseConfig } from "./core/config";
 import { DescriptorWorker } from "./descriptor";
 import { IndexerState } from "./core/state";
-import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
+import { PolkadotSubstrateClient, type SubstrateClient } from "./clients/substrate-client";
 import { SubstrateWorker } from "./substrate";
 import { TipWorker } from "./tip";
 import type { Worker } from "./core/worker";
