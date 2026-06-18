@@ -4,10 +4,16 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { sql, type Kysely } from "kysely";
 
+import { getMigrations } from "../../migrations";
 import { KyselyAdapter } from "./kysely-adapter";
 import { migrateToLatest, migrationStatus, pendingMigrations } from "./migrator";
 import { createPgliteKysely } from "./pglite-support";
 import type { DB } from "./schema-types";
+
+// Derived from the registry so adding a migration never breaks these tests —
+// they assert the migrator drains whatever is registered, not a fixed list.
+// Kysely runs migrations in sorted-name order.
+const expectedNames = Object.keys(getMigrations()).sort();
 
 let kysely: Kysely<DB>;
 let close: () => Promise<void>;
@@ -24,13 +30,15 @@ afterEach(async () => {
 
 describe("migrator (postgres)", () => {
   it("applies the baseline to a fresh DB and records it in the ledger", async () => {
-    expect(await pendingMigrations(mk)).toEqual(["0001_initial"]);
+    expect(await pendingMigrations(mk)).toEqual(expectedNames);
 
     const { applied } = await migrateToLatest(mk);
-    expect(applied).toEqual(["0001_initial"]);
+    expect(applied).toEqual(expectedNames);
 
     const status = await migrationStatus(mk);
-    expect(status).toEqual([{ name: "0001_initial", applied: true, executedAt: expect.any(Date) }]);
+    expect(status).toEqual(
+      expectedNames.map((name) => ({ name, applied: true, executedAt: expect.any(Date) })),
+    );
     expect(await pendingMigrations(mk)).toEqual([]);
   });
 
@@ -124,10 +132,10 @@ describe("migrator (postgres)", () => {
 
     // Drop the ledger → DB now looks "pre-migration" (schema + data, no ledger).
     await sql`DROP TABLE kysely_migration`.execute(kysely);
-    expect(await pendingMigrations(mk)).toEqual(["0001_initial"]);
+    expect(await pendingMigrations(mk)).toEqual(expectedNames);
 
     const { applied } = await migrateToLatest(mk);
-    expect(applied).toEqual(["0001_initial"]);
+    expect(applied).toEqual(expectedNames);
 
     // Every seeded row survived adoption.
     expect(await adapter.getRecentBlocks(10)).toHaveLength(1);

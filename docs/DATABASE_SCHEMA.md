@@ -80,6 +80,8 @@ Per-miner hardware inventory. In v0.3 only one row per account is written
 | `source`       | TEXT        | no   | Origin of the row (e.g. `self`).                           |
 | `observed_at`  | TIMESTAMPTZ | no   | When the inventory was observed.                           |
 
+Indexes: `(observed_at DESC)`.
+
 ## `meta`
 
 Generic key/value store, avoiding dedicated single-value tables.
@@ -157,6 +159,8 @@ On-chain miner registry stats.
 | `rewards_earned`   | NUMERIC     | no   | Lifetime rewards (planck).                     |
 | `updated_at`       | TIMESTAMPTZ | no   | When the row was written.                      |
 
+Indexes: `(rewards_earned DESC)`.
+
 ## `difficulty_history`
 
 Append-only difficulty snapshots, keyed by the block at which they were observed.
@@ -203,7 +207,7 @@ the descriptor's own `updated_at` block number.
 | `descriptor`            | JSONB       | no   | The signed descriptor payload (JSON).                         |
 | `observed_at`           | TIMESTAMPTZ | no   | When the row was written.                                     |
 
-Indexes: `(block_number DESC)`.
+Indexes: `(block_number DESC)`, `((coalesce(descriptor->>'nodeName', account_id)))`.
 
 ## `mining_submissions`
 
@@ -234,7 +238,7 @@ Per-submission summaries polled from the local miner's
 | `qpu_access_time_us`    | BIGINT      | no   | Summed D-Wave QPU access time across iterations (µs); 0 for non-QPU rows (default 0).                     |
 | `observed_at`           | TIMESTAMPTZ | no   | When the row was written.                                                                                 |
 
-Indexes: `(miner_id, solution_number DESC)`.
+Indexes: `(miner_id, solution_number DESC)`, `(miner_id) WHERE attempt_count > 0` — partial.
 
 ---
 
