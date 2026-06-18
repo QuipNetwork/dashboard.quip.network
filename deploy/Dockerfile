@@ -9,9 +9,8 @@
 # ---- frontend build stage (prod static SPA) ----
 FROM oven/bun:1 AS frontend
 WORKDIR /app
-# Copy every workspace manifest (+ lockfile) first so dep install stays cached
-# when only source files change.
-COPY package.json bun.lock ./
+# lockfiles are gitignored
+COPY package.json ./
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/indexer/package.json apps/indexer/package.json
