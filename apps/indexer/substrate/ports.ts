@@ -67,7 +67,3 @@ export type ChainClient = ConnectionControl &
 export interface ConnectionStream {
   stream(): Observable<never>;
 }
-
-export interface Worker {
-  run(signal: AbortSignal): Promise<void>;
-}

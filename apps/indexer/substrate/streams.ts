@@ -1,27 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// rxjs bridges where the callback / promise / AbortSignal world meets streams.
+// Substrate-specific rxjs bridges where the polkadot callback / promise world
+// meets streams. Generic bridges (AbortSignal, effect runner) live in `../rx`.
 
-import { EMPTY, Observable, catchError, defer, ignoreElements } from "rxjs";
+import { Observable } from "rxjs";
 
 import type { UnsubFn } from "../substrate-client";
 import type { ConnectionControl } from "./ports";
-
-export function fromAbortSignal(signal: AbortSignal): Observable<void> {
-  return new Observable<void>((subscriber) => {
-    if (signal.aborted) {
-      subscriber.next();
-      subscriber.complete();
-      return;
-    }
-    const onAbort = () => {
-      subscriber.next();
-      subscriber.complete();
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    return () => signal.removeEventListener("abort", onAbort);
-  });
-}
 
 export function fromChainSubscription<T>(
   subscribe: (cb: (value: T) => void) => Promise<UnsubFn>,
@@ -54,16 +39,4 @@ export function fromDisconnect(client: ConnectionControl): Observable<never> {
     });
     return off;
   });
-}
-
-// Runs an async side-effect as a stream step, logging and swallowing its error
-// so one failed write/poll never tears the connection down.
-export function runEffect(label: string, run: () => Promise<void>): Observable<never> {
-  return defer(run).pipe(
-    catchError((e) => {
-      console.warn(`[indexer/substrate] ${label} failed:`, e);
-      return EMPTY;
-    }),
-    ignoreElements(),
-  );
 }

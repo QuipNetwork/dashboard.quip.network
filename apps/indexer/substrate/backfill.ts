@@ -3,8 +3,8 @@
 import { EMPTY, type Observable, catchError, concatMap, defer, filter, from } from "rxjs";
 
 import type { BlockEvents } from "../substrate-client";
+import { type WorkerContext } from "../worker";
 import type { BackfillSource } from "./ports";
-import type { WorkerContext } from "./shared";
 
 // Startup backfill as a source of historical winning BlockEvents, run as its own
 // pipeline alongside the live subscription. A failed read logs and the source

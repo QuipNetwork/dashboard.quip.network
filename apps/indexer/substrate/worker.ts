@@ -23,13 +23,15 @@ import {
 } from "rxjs";
 
 import type { IndexerConfig } from "../config";
+import { fromAbortSignal } from "../rx";
 import type { IndexerState } from "../state";
+import { type Worker, type WorkerContext, backoffMs, nowIso } from "../worker";
 import { BlockPipeline } from "./blocks";
 import { ChainHeadWriter } from "./chain-head";
 import { PollScheduler } from "./polls";
-import type { ChainClient, ConnectionStream, Worker } from "./ports";
-import { CHAIN_HEAD_DEBOUNCE_DEFAULT_MS, type WorkerContext, backoffMs, nowIso } from "./shared";
-import { fromAbortSignal, fromDisconnect } from "./streams";
+import type { ChainClient, ConnectionStream } from "./ports";
+import { CHAIN_HEAD_DEBOUNCE_DEFAULT_MS } from "./shared";
+import { fromDisconnect } from "./streams";
 
 export interface SubstrateWorkerDeps {
   config: IndexerConfig;

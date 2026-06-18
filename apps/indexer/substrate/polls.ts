@@ -6,9 +6,9 @@
 
 import { type Observable, exhaustMap, merge, timer } from "rxjs";
 
+import { runEffect } from "../rx";
+import { type WorkerContext, nowIso } from "../worker";
 import type { ConnectionStream, PollSource } from "./ports";
-import { type WorkerContext, nowIso } from "./shared";
-import { runEffect } from "./streams";
 
 interface PollCache {
   babeEpoch: string | null;

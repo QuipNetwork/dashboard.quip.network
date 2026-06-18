@@ -21,9 +21,10 @@ import {
 } from "rxjs";
 
 import type { BlockEvents, DifficultyInfo, TopologyInfo } from "../substrate-client";
+import { type WorkerContext, nowIso } from "../worker";
 import { Backfill } from "./backfill";
 import type { BackfillSource, BlockSource, ConnectionStream } from "./ports";
-import { BABE_SLOT_DURATION_SEC, type WorkerContext, nowIso } from "./shared";
+import { BABE_SLOT_DURATION_SEC } from "./shared";
 import { fromChainSubscription } from "./streams";
 
 const ZERO_DIFFICULTY: DifficultyInfo = { maxEnergyMilli: 0, minDiversityMilli: 0, minSolutions: 0 };
