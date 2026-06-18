@@ -201,4 +201,90 @@ describe("DescriptorWorker loop", () => {
     expect(rows.map((r) => r.accountId)).toEqual(["5OK"]);
     expect(await db.getDescriptorCheckpoint()).toBe("1");
   });
+
+  it("reconnects when a scan error coincides with a dead connection (no hot-loop)", async () => {
+    const state = new IndexerState(db);
+    state.observability.finalizedBlockHeight = "1";
+    client.minerRegistryDescriptorsByBlock.set("1", [
+      makeDescriptor({ blockNumber: "1", accountId: "5OK" }),
+    ]);
+
+    // First client's socket has died: connect() resolves but isConnected() is
+    // false, the per-block RPC throws a (non-pruned) transport error, and the
+    // onDisconnected event never fires. The worker must NOT retry the dead
+    // client forever — it must rotate to the healthy endpoint.
+    const seenUrls: string[] = [];
+    let attempts = 0;
+    const clientFactory = (url: string): FakeSubstrateClient => {
+      seenUrls.push(url);
+      attempts += 1;
+      if (attempts === 1) {
+        const dead = new FakeSubstrateClient();
+        dead.isConnected = () => false;
+        dead.getMinerRegistryDescriptorsAt = async () => {
+          throw new Error("WebSocket is not connected");
+        };
+        return dead;
+      }
+      return client;
+    };
+
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 250);
+    await runDescriptorLoop(
+      { config: makeConfig(), db, state, urls: ["ws://a", "ws://b"], clientFactory },
+      ac.signal,
+    );
+
+    expect(seenUrls.slice(0, 2)).toEqual(["ws://a", "ws://b"]);
+    const rows = await db.getAllNodeDescriptors();
+    expect(rows.map((r) => r.accountId)).toEqual(["5OK"]);
+    expect(await db.getDescriptorCheckpoint()).toBe("1");
+  });
+
+  it("resumes from the checkpoint after a mid-run drop (reconnect, no replay)", async () => {
+    const state = new IndexerState(db);
+    state.observability.finalizedBlockHeight = "1";
+
+    const client1 = new FakeSubstrateClient();
+    client1.minerRegistryDescriptorsByBlock.set("1", [
+      makeDescriptor({ blockNumber: "1", accountId: "5BLK1" }),
+    ]);
+    const client2 = new FakeSubstrateClient();
+    // Trap: if the worker replayed block 1 after reconnecting (instead of
+    // resuming at checkpoint+1), 5TRAP would sneak into the DB.
+    client2.minerRegistryDescriptorsByBlock.set("1", [
+      makeDescriptor({ blockNumber: "1", accountId: "5TRAP" }),
+    ]);
+    client2.minerRegistryDescriptorsByBlock.set("2", [
+      makeDescriptor({ blockNumber: "2", accountId: "5BLK2" }),
+    ]);
+
+    const seenUrls: string[] = [];
+    let attempts = 0;
+    const clientFactory = (url: string): FakeSubstrateClient => {
+      seenUrls.push(url);
+      return ++attempts === 1 ? client1 : client2;
+    };
+
+    // Once block 1 is drained and the worker is idling, drop client1 and reveal
+    // block 2 on chain. The reconnect must resume at checkpoint+1 (block 2),
+    // never replaying block 1 on the fresh client.
+    setTimeout(() => {
+      state.observability.finalizedBlockHeight = "2";
+      void client1.disconnect();
+    }, 80);
+
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 250);
+    await runDescriptorLoop(
+      { config: makeConfig(), db, state, urls: ["ws://a", "ws://b"], clientFactory },
+      ac.signal,
+    );
+
+    const rows = await db.getAllNodeDescriptors();
+    expect(rows.map((r) => r.accountId).sort()).toEqual(["5BLK1", "5BLK2"]);
+    expect(seenUrls.slice(0, 2)).toEqual(["ws://a", "ws://b"]);
+    expect(await db.getDescriptorCheckpoint()).toBe("2");
+  });
 });

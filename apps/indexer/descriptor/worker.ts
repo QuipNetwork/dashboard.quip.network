@@ -26,6 +26,7 @@ import {
   of,
   retry,
   takeUntil,
+  throwError,
   timer,
 } from "rxjs";
 
@@ -46,6 +47,7 @@ import {
 export interface DescriptorSource extends DescriptorReadSource, Disconnectable {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
+  isConnected(): boolean;
   onDisconnected(cb: () => void): UnsubFn;
 }
 
@@ -139,7 +141,7 @@ export class DescriptorWorker implements Worker {
       }),
     );
     return connect$.pipe(
-      concatMap(() => merge(this.drain(iterDeps), fromDisconnect(client))),
+      concatMap(() => merge(this.drain(iterDeps, client), fromDisconnect(client))),
       finalize(() => {
         void client.disconnect().catch(() => {});
       }),
@@ -149,16 +151,20 @@ export class DescriptorWorker implements Worker {
   // Walk checkpoint+1 → finalized head one block at a time. `expand` re-feeds
   // each computed cursor back into `step`, so the recursion IS the loop; it
   // never completes on its own (only a drop or abort tears it down).
-  private drain(iterDeps: DescriptorIterationDeps): Observable<bigint> {
+  private drain(iterDeps: DescriptorIterationDeps, client: DescriptorSource): Observable<bigint> {
     return defer(() => from(this.initialCursor())).pipe(
-      expand((cursor) => this.step(iterDeps, cursor)),
+      expand((cursor) => this.step(iterDeps, client, cursor)),
     );
   }
 
   // Decide the next cursor: idle when caught up, advance on a processed block,
   // skip a pruned block, and back off (retrying the same block) on a transient
   // error or a block that isn't on chain yet.
-  private step(iterDeps: DescriptorIterationDeps, cursor: bigint): Observable<bigint> {
+  private step(
+    iterDeps: DescriptorIterationDeps,
+    client: DescriptorSource,
+    cursor: bigint,
+  ): Observable<bigint> {
     const finalizedNum = parseBigIntOrNull(this.state.observability.finalizedBlockHeight);
     if (finalizedNum === null || cursor > finalizedNum) {
       return timer(this.idlePollMs).pipe(map(() => cursor));
@@ -178,7 +184,13 @@ export class DescriptorWorker implements Worker {
           `[indexer/descriptor] block ${cursor} scan failed:`,
           e instanceof Error ? e.message : e,
         );
-        return timer(this.errorBackoffMs).pipe(map(() => cursor));
+        // A drop can surface as an RPC error before onDisconnected fires; if
+        // the socket is gone, error out so the outer retry rotates + reconnects
+        // instead of hammering the same block on a dead client. Otherwise the
+        // failure is transient — back off and retry the same block.
+        return timer(this.errorBackoffMs).pipe(
+          concatMap(() => (client.isConnected() ? of(cursor) : throwError(() => e))),
+        );
       }),
     );
   }
