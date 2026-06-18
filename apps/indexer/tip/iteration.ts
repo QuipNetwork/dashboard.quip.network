@@ -5,6 +5,8 @@
 // mining submissions bounded by the chain-derived global solution_number.
 // The cadence/lifecycle that drives this lives in `./worker`.
 
+import { concatMap, from, lastValueFrom, range } from "rxjs";
+
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "@quip/shared/telemetry";
@@ -143,7 +145,7 @@ async function catchUpMiningAttempts(
   currentSolutionNumber: number,
   observedAt: string,
 ): Promise<void> {
-  const { client, db } = deps;
+  const { db } = deps;
   const highestCompleted = currentSolutionNumber - 1;
   if (highestCompleted < 1) return; // no winning solutions on-chain yet
 
@@ -157,26 +159,44 @@ async function catchUpMiningAttempts(
   }
   if (checkpoint >= highestCompleted) return;
 
+  // Walk completed solution_numbers checkpoint+1 → target one at a time, the
+  // same from(sequence) → concatMap shape the substrate backfill uses. A
+  // non-404 error propagates and stops the walk with the checkpoint at the
+  // last good number.
   const target = Math.min(highestCompleted, checkpoint + MINING_ATTEMPTS_PER_POLL_CAP);
-  for (let n = checkpoint + 1; n <= target; n++) {
-    try {
-      const env = await client.getMiningAttempts(n);
-      // The miner's API returns `miner_id` as the controller's internal
-      // node id (e.g. "quip-miner-pow-CPU-1"). We persist under the chain
-      // SS58 (`minerId`/`selfAddress`) so the table joins cleanly against
-      // `chain_miners` and the server can look up by self. The original
-      // miner_id is recoverable via the proxy on modal open.
-      await db.insertMiningSubmission({
-        ...env.submission,
-        minerId,
-        observedAt,
-      });
-    } catch (e) {
-      if (!(e instanceof MiningSubmissionNotFoundError)) throw e;
-      // Sparse gap — skip and advance the checkpoint below.
-    }
-    await db.setMiningCheckpoint(minerId, n);
+  await lastValueFrom(
+    range(checkpoint + 1, target - checkpoint).pipe(
+      concatMap((n) => from(persistAttempt(deps, n, minerId, observedAt))),
+    ),
+    { defaultValue: undefined },
+  );
+}
+
+/**
+ * Persist one completed solution_number's submission, then advance the
+ * checkpoint. A sparse 404 (this miner has no directory for that number) is
+ * skipped — the checkpoint still advances so the walk doesn't stall on a gap.
+ */
+async function persistAttempt(
+  deps: TipIterationDeps,
+  n: number,
+  minerId: string,
+  observedAt: string,
+): Promise<void> {
+  const { client, db } = deps;
+  try {
+    const env = await client.getMiningAttempts(n);
+    // The miner's API returns `miner_id` as the controller's internal node id
+    // (e.g. "quip-miner-pow-CPU-1"). We persist under the chain SS58
+    // (`minerId`/`selfAddress`) so the table joins cleanly against
+    // `chain_miners` and the server can look up by self. The original miner_id
+    // is recoverable via the proxy on modal open.
+    await db.insertMiningSubmission({ ...env.submission, minerId, observedAt });
+  } catch (e) {
+    if (!(e instanceof MiningSubmissionNotFoundError)) throw e;
+    // Sparse gap — skip and advance the checkpoint below.
   }
+  await db.setMiningCheckpoint(minerId, n);
 }
 
 /**
