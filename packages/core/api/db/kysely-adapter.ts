@@ -316,25 +316,26 @@ export class KyselyAdapter implements DatabaseAdapter {
           .where("is_active", "=", true);
         if (incoming.length > 0) demote = demote.where("account_id", "not in", incoming);
         await demote.execute();
-        for (const a of authorities) {
-          await trx
-            .insertInto("babe_authorities")
-            .values({
+        if (authorities.length === 0) return;
+        await trx
+          .insertInto("babe_authorities")
+          .values(
+            authorities.map((a) => ({
               account_id: a.accountId,
               epoch_index: epochIndex,
               display_name: a.displayName,
               is_active: true,
               updated_at: now,
-            })
-            .onConflict((oc) =>
-              oc.columns(["account_id", "epoch_index"]).doUpdateSet({
-                display_name: sql`excluded.display_name`,
-                is_active: true,
-                updated_at: sql`excluded.updated_at`,
-              }),
-            )
-            .execute();
-        }
+            })),
+          )
+          .onConflict((oc) =>
+            oc.columns(["account_id", "epoch_index"]).doUpdateSet({
+              display_name: sql`excluded.display_name`,
+              is_active: true,
+              updated_at: sql`excluded.updated_at`,
+            }),
+          )
+          .execute();
       });
   }
 
@@ -352,44 +353,41 @@ export class KyselyAdapter implements DatabaseAdapter {
   }
 
   async upsertChainMiners(miners: ChainMinerLite[]): Promise<void> {
+    if (miners.length === 0) return;
     const distinct = this.distinctOp();
     const now = new Date().toISOString();
     await this.requireDb()
-      .transaction()
-      .execute(async (trx) => {
-        for (const m of miners) {
-          await trx
-            .insertInto("chain_miners")
-            .values({
-              account_id: m.accountId,
-              deposit: m.deposit,
-              proofs_submitted: m.proofsSubmitted,
-              proofs_won: m.proofsWon,
-              rewards_earned: m.rewardsEarned,
-              updated_at: now,
-            })
-            .onConflict((oc) =>
-              oc
-                .column("account_id")
-                .doUpdateSet({
-                  deposit: sql`excluded.deposit`,
-                  proofs_submitted: sql`excluded.proofs_submitted`,
-                  proofs_won: sql`excluded.proofs_won`,
-                  rewards_earned: sql`excluded.rewards_earned`,
-                  updated_at: sql`excluded.updated_at`,
-                })
-                .where(
-                  sql<boolean>`
-                    chain_miners.deposit ${distinct} excluded.deposit or
-                    chain_miners.proofs_submitted ${distinct} excluded.proofs_submitted or
-                    chain_miners.proofs_won ${distinct} excluded.proofs_won or
-                    chain_miners.rewards_earned ${distinct} excluded.rewards_earned
-                  `,
-                ),
-            )
-            .execute();
-        }
-      });
+      .insertInto("chain_miners")
+      .values(
+        miners.map((m) => ({
+          account_id: m.accountId,
+          deposit: m.deposit,
+          proofs_submitted: m.proofsSubmitted,
+          proofs_won: m.proofsWon,
+          rewards_earned: m.rewardsEarned,
+          updated_at: now,
+        })),
+      )
+      .onConflict((oc) =>
+        oc
+          .column("account_id")
+          .doUpdateSet({
+            deposit: sql`excluded.deposit`,
+            proofs_submitted: sql`excluded.proofs_submitted`,
+            proofs_won: sql`excluded.proofs_won`,
+            rewards_earned: sql`excluded.rewards_earned`,
+            updated_at: sql`excluded.updated_at`,
+          })
+          .where(
+            sql<boolean>`
+              chain_miners.deposit ${distinct} excluded.deposit or
+              chain_miners.proofs_submitted ${distinct} excluded.proofs_submitted or
+              chain_miners.proofs_won ${distinct} excluded.proofs_won or
+              chain_miners.rewards_earned ${distinct} excluded.rewards_earned
+            `,
+          ),
+      )
+      .execute();
   }
 
   async getChainMiners(): Promise<ChainMinerLite[]> {

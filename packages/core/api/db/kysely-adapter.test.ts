@@ -223,6 +223,23 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         const active = await db.getActiveBabeAuthorities();
         expect(active.map((a) => a.accountId)).toEqual(["5A"]);
       });
+
+      it("demotes every authority when the incoming set is empty", async () => {
+        await db.upsertBabeEpoch({
+          epochIndex: 7,
+          currentSlot: "1000",
+          epochStartSlot: "900",
+          slotsPerEpoch: 100,
+          currentSlotInEpoch: 50,
+          authorityCount: 2,
+        });
+        await db.upsertBabeAuthorities(7, [
+          { accountId: "5A", displayName: null },
+          { accountId: "5B", displayName: "Bee" },
+        ]);
+        await db.upsertBabeAuthorities(7, []);
+        expect(await db.getActiveBabeAuthorities()).toEqual([]);
+      });
     });
 
     describe("chain miners", () => {
@@ -245,6 +262,34 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         ]);
         const miners = await db.getChainMiners();
         expect(miners.map((m) => m.accountId)).toEqual(["5B", "5A"]);
+      });
+
+      it("batch-upserts a mix of updates and inserts in one call", async () => {
+        await db.upsertChainMiners([
+          { accountId: "5A", deposit: "1", proofsSubmitted: "1", proofsWon: "0", rewardsEarned: "100" },
+          { accountId: "5B", deposit: "1", proofsSubmitted: "2", proofsWon: "1", rewardsEarned: "900" },
+        ]);
+        // Bump 5A past 5B, leave 5B unchanged, add 5C — all in one batch.
+        await db.upsertChainMiners([
+          { accountId: "5A", deposit: "1", proofsSubmitted: "5", proofsWon: "2", rewardsEarned: "950" },
+          { accountId: "5B", deposit: "1", proofsSubmitted: "2", proofsWon: "1", rewardsEarned: "900" },
+          { accountId: "5C", deposit: "1", proofsSubmitted: "0", proofsWon: "0", rewardsEarned: "500" },
+        ]);
+        const miners = await db.getChainMiners();
+        expect(miners.map((m) => [m.accountId, m.proofsSubmitted, m.rewardsEarned])).toEqual([
+          ["5A", "5", "950"],
+          ["5B", "2", "900"],
+          ["5C", "0", "500"],
+        ]);
+      });
+
+      it("treats an empty batch as a no-op", async () => {
+        await db.upsertChainMiners([
+          { accountId: "5A", deposit: "1", proofsSubmitted: "1", proofsWon: "0", rewardsEarned: "100" },
+        ]);
+        await db.upsertChainMiners([]);
+        const miners = await db.getChainMiners();
+        expect(miners.map((m) => m.accountId)).toEqual(["5A"]);
       });
     });
 
