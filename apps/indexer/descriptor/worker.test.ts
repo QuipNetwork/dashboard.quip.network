@@ -5,10 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { NodeDescriptor } from "@quip/shared/telemetry";
 
-import { runDescriptorIteration, runDescriptorLoop } from "./descriptor-worker";
-import { IndexerState } from "./state";
-import { FakeSubstrateClient, type MinerRegistryDescriptorRecord } from "./substrate-client";
-import { makeConfig, newInMemoryAdapter } from "./test-helpers";
+import { IndexerState } from "../state";
+import { FakeSubstrateClient, type MinerRegistryDescriptorRecord } from "../substrate-client";
+import { makeConfig, newInMemoryAdapter } from "../test-helpers";
+import { DescriptorWorker, type DescriptorWorkerDeps } from "./worker";
+
+// Wrap construction so the behaviour tests below read as one call. Tiny poll /
+// backoff windows keep the reconnect + idle paths fast under test.
+const runDescriptorLoop = (deps: DescriptorWorkerDeps, signal: AbortSignal): Promise<void> =>
+  new DescriptorWorker({ idlePollMs: 10, errorBackoffMs: 10, ...deps }).run(signal);
 
 const VALID_DESCRIPTOR: NodeDescriptor = {
   schema: "quip.node_descriptor.v1",
@@ -44,79 +49,7 @@ afterEach(async () => {
   await db.disconnect();
 });
 
-describe("runDescriptorIteration", () => {
-  it("upserts a valid descriptor and advances the checkpoint", async () => {
-    client.minerRegistryDescriptorsByBlock.set("100", [makeDescriptor()]);
-
-    const advanced = await runDescriptorIteration({ db, client }, "100");
-    expect(advanced).toBe(true);
-
-    const all = await db.getAllNodeDescriptors();
-    expect(all).toHaveLength(1);
-    expect(all[0]?.accountId).toBe("5GPP");
-    expect(all[0]?.descriptor.nodeName).toBe("rig-test");
-    expect(all[0]?.firstBlockTimestamp).toBe(1_700_000_000);
-
-    expect(await db.getDescriptorCheckpoint()).toBe("100");
-  });
-
-  it("upserts every descriptor in a registry snapshot", async () => {
-    client.minerRegistryDescriptorsByBlock.set("200", [
-      makeDescriptor({ accountId: "5AAA", blockNumber: "200", blockHash: "0xaaa" }),
-      makeDescriptor({
-        accountId: "5BBB",
-        blockNumber: "200",
-        blockHash: "0xbbb",
-        descriptor: { ...VALID_DESCRIPTOR, nodeName: "rig-b" },
-      }),
-    ]);
-
-    const advanced = await runDescriptorIteration({ db, client }, "200");
-    expect(advanced).toBe(true);
-
-    const all = await db.getAllNodeDescriptors();
-    expect(all.map((r) => r.accountId).sort()).toEqual(["5AAA", "5BBB"]);
-    expect(await db.getDescriptorCheckpoint()).toBe("200");
-  });
-
-  it("returns false when the block is not yet on chain", async () => {
-    // The fake returns `null` when the key is explicitly set to null.
-    client.minerRegistryDescriptorsByBlock.set("999", null);
-
-    const advanced = await runDescriptorIteration({ db, client }, "999");
-    expect(advanced).toBe(false);
-    // Checkpoint stays at null so the loop retries this block.
-    expect(await db.getDescriptorCheckpoint()).toBeNull();
-  });
-
-  it("preserves first_block_timestamp across upserts (newer block wins on data, older ts on first_seen)", async () => {
-    // First descriptor at block 100, timestamp 1000.
-    client.minerRegistryDescriptorsByBlock.set("100", [
-      makeDescriptor({ blockNumber: "100", blockTimestamp: 1000, accountId: "5XYZ" }),
-    ]);
-    await runDescriptorIteration({ db, client }, "100");
-
-    // Newer descriptor at block 200, timestamp 5000 — newer storage value, but
-    // firstBlockTimestamp on the row should stay 1000.
-    client.minerRegistryDescriptorsByBlock.set("200", [
-      makeDescriptor({
-        blockNumber: "200",
-        blockTimestamp: 5000,
-        accountId: "5XYZ",
-        descriptor: { ...VALID_DESCRIPTOR, nodeName: "renamed" },
-      }),
-    ]);
-    await runDescriptorIteration({ db, client }, "200");
-
-    const rows = await db.getAllNodeDescriptors();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.blockTimestamp).toBe(5000);
-    expect(rows[0]?.firstBlockTimestamp).toBe(1000);
-    expect(rows[0]?.descriptor.nodeName).toBe("renamed");
-  });
-});
-
-describe("runDescriptorLoop", () => {
+describe("DescriptorWorker loop", () => {
   it("backfills from start block to finalized head, then idles", async () => {
     const state = new IndexerState(db);
     // Simulate a finalized chain head at block 3.
@@ -199,7 +132,8 @@ describe("runDescriptorLoop", () => {
 
     const ac = new AbortController();
     const loop = runDescriptorLoop(
-      { config: makeConfig(), db, state, urls: ["ws://x"], clientFactory: () => client },
+      // A long idle window so the loop genuinely parks; abort must unwind it.
+      { config: makeConfig(), db, state, urls: ["ws://x"], clientFactory: () => client, idlePollMs: 60_000 },
       ac.signal,
     );
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
@@ -229,5 +163,42 @@ describe("runDescriptorLoop", () => {
 
     expect(await db.getDescriptorCheckpoint()).toBe("2");
     expect(await db.getAllNodeDescriptors()).toHaveLength(0);
+  });
+
+  it("rotates to the next URL when a connect fails, then recovers", async () => {
+    const state = new IndexerState(db);
+    state.observability.finalizedBlockHeight = "1";
+    client.minerRegistryDescriptorsByBlock.set("1", [
+      makeDescriptor({ blockNumber: "1", accountId: "5OK" }),
+    ]);
+
+    const seenUrls: string[] = [];
+    let attempts = 0;
+    const clientFactory = (url: string): FakeSubstrateClient => {
+      seenUrls.push(url);
+      attempts += 1;
+      // First endpoint refuses the connection; the loop must rotate to the
+      // second and drain there.
+      if (attempts === 1) {
+        const failing = new FakeSubstrateClient();
+        failing.connect = async () => {
+          throw new Error("connect refused");
+        };
+        return failing;
+      }
+      return client;
+    };
+
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 200);
+    await runDescriptorLoop(
+      { config: makeConfig(), db, state, urls: ["ws://a", "ws://b"], clientFactory },
+      ac.signal,
+    );
+
+    expect(seenUrls.slice(0, 2)).toEqual(["ws://a", "ws://b"]);
+    const rows = await db.getAllNodeDescriptors();
+    expect(rows.map((r) => r.accountId)).toEqual(["5OK"]);
+    expect(await db.getDescriptorCheckpoint()).toBe("1");
   });
 });

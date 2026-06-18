@@ -5,7 +5,7 @@ import { createAdapter } from "@quip/core/db";
 import { DbChainStateReader } from "./chain-state";
 import { QuipClient } from "./client";
 import { parseConfig } from "./config";
-import { runDescriptorLoop } from "./descriptor-worker";
+import { DescriptorWorker } from "./descriptor";
 import { IndexerState } from "./state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
 import { SubstrateWorker } from "./substrate";
@@ -132,16 +132,13 @@ async function main(): Promise<number> {
             clientFactory,
           }).run(signal),
         runDescriptor: (signal) =>
-          runDescriptorLoop(
-            {
-              config,
-              db,
-              state,
-              urls: config.validatorRpcUrls,
-              clientFactory,
-            },
-            signal,
-          ),
+          new DescriptorWorker({
+            config,
+            db,
+            state,
+            urls: config.validatorRpcUrls,
+            clientFactory,
+          }).run(signal),
       },
       processAc.signal,
     );
