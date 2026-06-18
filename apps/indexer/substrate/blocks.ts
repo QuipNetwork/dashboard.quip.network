@@ -21,6 +21,7 @@ import {
 } from "rxjs";
 
 import type { BlockEvents, DifficultyInfo, TopologyInfo } from "../clients/substrate-client";
+import { BoundedKeySet } from "../core/bounded-key-set";
 import { type WorkerContext, nowIso } from "../core/worker";
 import { Backfill } from "./backfill";
 import type { BackfillSource, BlockSource, ConnectionStream } from "./ports";
@@ -28,6 +29,11 @@ import { BABE_SLOT_DURATION_SEC } from "./shared";
 import { fromChainSubscription } from "./streams";
 
 const ZERO_DIFFICULTY: DifficultyInfo = { maxEnergyMilli: 0, minDiversityMilli: 0, minSolutions: 0 };
+
+// Per-connection authorship-dedup window. Far exceeds any realistic live/
+// backfill startup overlap, so dedup is preserved while memory stays bounded
+// (~2x this many keys) on a connection that never reconnects.
+const AUTHORSHIP_DEDUP_WINDOW = 50_000;
 
 type WinningBlock = BlockEvents & { winner: NonNullable<BlockEvents["winner"]> };
 type ProofInfo = BlockEvents["proofs"][number];
@@ -127,8 +133,11 @@ function buildBlockRecord(
 
 export class BlockPipeline implements ConnectionStream {
   private readonly backfill: Backfill;
-  // recordValidatorAuthorship is increment-by-1, so dedup per connection.
-  private readonly seen = new Set<string>();
+  // recordValidatorAuthorship is increment-by-1, so dedup per connection. The
+  // only re-delivery this guards is the live/backfill overlap near startup
+  // (finalized blocks never arrive twice), so a bounded window is ample — and
+  // keeps the set from growing for the life of a long-lived connection.
+  private readonly seen = new BoundedKeySet(AUTHORSHIP_DEDUP_WINDOW);
 
   constructor(
     private readonly ctx: WorkerContext,
