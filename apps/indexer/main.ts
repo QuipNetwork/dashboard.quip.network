@@ -9,7 +9,7 @@ import { runDescriptorLoop } from "./descriptor-worker";
 import { IndexerState } from "./state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
 import { SubstrateWorker } from "./substrate";
-import { runTipLoop } from "./tip-worker";
+import { TipWorker } from "./tip";
 
 export interface WorkerRunner {
   runTip: (signal: AbortSignal) => Promise<void>;
@@ -116,16 +116,13 @@ async function main(): Promise<number> {
     exitCode = await runWorkers(
       {
         runTip: (signal) =>
-          runTipLoop(
-            {
-              config,
-              db,
-              state,
-              clientFactory: (baseUrl) => new QuipClient({ baseUrl }),
-              chainState: new DbChainStateReader(db),
-            },
-            signal,
-          ),
+          new TipWorker({
+            config,
+            db,
+            state,
+            clientFactory: (baseUrl) => new QuipClient({ baseUrl }),
+            chainState: new DbChainStateReader(db),
+          }).run(signal),
         runSubstrate: (signal) =>
           new SubstrateWorker({
             config,

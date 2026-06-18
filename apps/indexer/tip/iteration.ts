@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// One tip-worker poll: fetch /api/v1/status → upsert self miner_hardware +
+// selfAddress; fetch /api/v1/stats → cache minerStats; catch up persisted
+// mining submissions bounded by the chain-derived global solution_number.
+// The cadence/lifecycle that drives this lives in `./worker`.
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
-import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "@quip/shared/telemetry";
 
-import type { ChainStateReader } from "./chain-state";
-import type { IndexerConfig } from "./config";
-import type { MinerSource } from "./client";
-import { IndexerState } from "./state";
+import type { ChainStateReader } from "../chain-state";
+import type { MinerSource } from "../client";
+import { IndexerState } from "../state";
 
 // Cap on per-poll submission fetches. The global solution_number space is
 // dense from this miner's view (every miner grinds the same solutions), so
@@ -26,9 +29,9 @@ const MINING_ATTEMPTS_PER_POLL_CAP = 25;
 const MINING_ATTEMPTS_BACKFILL_WINDOW = 200;
 
 /**
- * Per-iteration dependencies used by {@link runTipIteration}. The loop
- * (below) resolves the miner-REST URL up-front and constructs the client;
- * tests can call `runTipIteration` directly with a fake client.
+ * Per-iteration dependencies. The worker (in `./worker`) resolves the
+ * miner-REST URL up-front and constructs the client; tests can call
+ * `runTipIteration` directly with a fake client.
  */
 export interface TipIterationDeps {
   client: MinerSource;
@@ -36,87 +39,6 @@ export interface TipIterationDeps {
   state: IndexerState;
   chainState: ChainStateReader;
   now?: () => number;
-}
-
-/**
- * Long-running loop dependencies. Compared to {@link TipIterationDeps},
- * this owns the responsibility of resolving the local operator's
- * miner-REST URL per iteration. The factory pattern keeps production
- * wiring (`new QuipClient(...)`) and test wiring (return a pre-canned
- * fake) symmetric.
- */
-export interface TipWorkerDeps {
-  config: IndexerConfig;
-  db: DatabaseAdapter;
-  state: IndexerState;
-  clientFactory: (baseUrl: string) => MinerSource;
-  chainState: ChainStateReader;
-  now?: () => number;
-}
-
-/**
- * Drive {@link runTipIteration} on a fixed cadence until the abort signal
- * fires. Each iteration:
- *   1. Read the cached operator SS58 from `db.getSelfAddress()` — the
- *      authoritative identity, written by prior /api/v1/status polls
- *      and surfaced everywhere in the UI (leaderboard, MyNode, etc.).
- *   2. Resolve the miner-REST base URL from the descriptor table (or
- *      the validator RPC URL fallback when no descriptor row exists
- *      yet).
- *   3. If a URL resolves, construct a {@link QuipClient} and run a
- *      full iteration. Otherwise flush the heartbeat alone so the UI
- *      can distinguish "indexer dead" from "indexer running without a
- *      miner to talk to yet".
- *
- * On a fresh DB `selfAddress` is null. The loop still resolves a URL
- * from the validator-RPC fallback (best-effort substitution), polls
- * /api/v1/status against it, and lets the iteration's `setSelfAddress`
- * write the answer — bootstrapping identity from the miner's own
- * response. From then on db.getSelfAddress() is the source of truth.
- *
- * Errors inside an iteration are logged and the loop continues — a
- * single bad poll doesn't kill the worker. No auth-fatal short-circuit:
- * REST access control is now a deployment concern (reverse-proxy auth),
- * not the indexer's.
- */
-export async function runTipLoop(deps: TipWorkerDeps, signal: AbortSignal): Promise<void> {
-  const intervalMs = deps.config.pollIntervalSec * 1000;
-  while (!signal.aborted) {
-    try {
-      // Identity comes ONLY from local network access: poll the co-located
-      // miner's /api/v1/status through the configured front door, which
-      // back-fills selfAddress (see runTipIteration). We never probe on-chain
-      // descriptors to find "self" — a reachable global node is not us, and
-      // adopting one would mis-identify this deployment. If the local miner is
-      // unreachable we warn and leave selfAddress null rather than guessing.
-      const baseUrl = resolveSelfMinerRestUrl(deps.config.validatorRpcUrls);
-      if (baseUrl) {
-        const client = deps.clientFactory(baseUrl);
-        await runTipIteration({
-          client,
-          db: deps.db,
-          state: deps.state,
-          chainState: deps.chainState,
-          now: deps.now,
-        });
-        if (!(await deps.db.getSelfAddress())) {
-          console.warn(
-            `[indexer/tip] could not identify this node: local miner REST ${baseUrl}/api/v1 ` +
-              `is unreachable or returned no ss58. Check that the miner is running and that ` +
-              `Caddy fronts /api/v1. Not falling back to a network node.`,
-          );
-        }
-      } else {
-        // No front door configured — keep the heartbeat fresh so the UI's
-        // SyncIndicator knows the indexer process is alive.
-        await flushHeartbeat(deps);
-      }
-    } catch (e) {
-      console.error("[indexer/tip] iteration failed:", e instanceof Error ? e.message : e);
-    }
-    if (deps.config.once) return;
-    await sleep(intervalMs, signal);
-  }
 }
 
 /**
@@ -196,18 +118,6 @@ export async function runTipIteration(deps: TipIterationDeps): Promise<void> {
 }
 
 /**
- * Heartbeat-only iteration. Used when the local operator hasn't been
- * discovered yet or the miner-REST URL can't be resolved. Bypasses every
- * REST call but still writes `lastStatusFetchAt` so the UI sees the
- * indexer process as live.
- */
-async function flushHeartbeat(deps: TipWorkerDeps): Promise<void> {
-  const nowIso = new Date((deps.now ?? Date.now)()).toISOString();
-  deps.state.observability.lastStatusFetchAt = nowIso;
-  await deps.db.setIndexerObservability(deps.state.observability);
-}
-
-/**
  * Persist completed global solution_numbers past the checkpoint, up to
  * {@link MINING_ATTEMPTS_PER_POLL_CAP} per tick. Completed (stable)
  * solution_numbers are `1 … currentSolutionNumber - 1`; the current one is
@@ -281,18 +191,4 @@ function derivePrimaryType(miners: Array<{ type: MinerCategory }>): MinerCategor
   return (Object.entries(counts) as Array<[MinerCategory, number]>).sort(
     (a, b) => b[1] - a[1],
   )[0]![0];
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(t);
-        resolve();
-      },
-      { once: true },
-    );
-  });
 }
