@@ -5,14 +5,7 @@
 // runs once immediately; exhaustMap drops a tick rather than overlapping a
 // still-running iteration. `once` mode runs a single iteration and returns.
 
-import {
-  defaultIfEmpty,
-  exhaustMap,
-  firstValueFrom,
-  ignoreElements,
-  takeUntil,
-  timer,
-} from "rxjs";
+import { defaultIfEmpty, exhaustMap, firstValueFrom, ignoreElements, takeUntil, timer } from "rxjs";
 
 import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 

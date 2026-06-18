@@ -25,13 +25,13 @@ DATABASE_URL=postgres://user:pass@host:5432/db bun run server/migrate.ts
 
 ## Env vars
 
-| Name            | Default  | Purpose                                |
-| --------------- | -------- | -------------------------------------- |
-| `PORT`          | `3001`   | Listen port                            |
-| `STATIC_DIR`    | `./dist` | SPA asset directory                    |
-| `DATABASE_URL`  | —        | Required — Postgres connection string  |
-| `DATABASE_POOL_MAX` | `10` | Max postgres pool connections          |
-| `GEOIP_DB_PATH` | —        | Path to GeoLite2-City.mmdb (see below) |
+| Name                | Default  | Purpose                                |
+| ------------------- | -------- | -------------------------------------- |
+| `PORT`              | `3001`   | Listen port                            |
+| `STATIC_DIR`        | `./dist` | SPA asset directory                    |
+| `DATABASE_URL`      | —        | Required — Postgres connection string  |
+| `DATABASE_POOL_MAX` | `10`     | Max postgres pool connections          |
+| `GEOIP_DB_PATH`     | —        | Path to GeoLite2-City.mmdb (see below) |
 
 ### Geo-IP
 

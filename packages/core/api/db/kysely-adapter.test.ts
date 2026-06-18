@@ -290,14 +290,44 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
 
       it("batch-upserts a mix of updates and inserts in one call", async () => {
         await db.upsertChainMiners([
-          { accountId: "5A", deposit: "1", proofsSubmitted: "1", proofsWon: "0", rewardsEarned: "100" },
-          { accountId: "5B", deposit: "1", proofsSubmitted: "2", proofsWon: "1", rewardsEarned: "900" },
+          {
+            accountId: "5A",
+            deposit: "1",
+            proofsSubmitted: "1",
+            proofsWon: "0",
+            rewardsEarned: "100",
+          },
+          {
+            accountId: "5B",
+            deposit: "1",
+            proofsSubmitted: "2",
+            proofsWon: "1",
+            rewardsEarned: "900",
+          },
         ]);
         // Bump 5A past 5B, leave 5B unchanged, add 5C — all in one batch.
         await db.upsertChainMiners([
-          { accountId: "5A", deposit: "1", proofsSubmitted: "5", proofsWon: "2", rewardsEarned: "950" },
-          { accountId: "5B", deposit: "1", proofsSubmitted: "2", proofsWon: "1", rewardsEarned: "900" },
-          { accountId: "5C", deposit: "1", proofsSubmitted: "0", proofsWon: "0", rewardsEarned: "500" },
+          {
+            accountId: "5A",
+            deposit: "1",
+            proofsSubmitted: "5",
+            proofsWon: "2",
+            rewardsEarned: "950",
+          },
+          {
+            accountId: "5B",
+            deposit: "1",
+            proofsSubmitted: "2",
+            proofsWon: "1",
+            rewardsEarned: "900",
+          },
+          {
+            accountId: "5C",
+            deposit: "1",
+            proofsSubmitted: "0",
+            proofsWon: "0",
+            rewardsEarned: "500",
+          },
         ]);
         const miners = await db.getChainMiners();
         expect(miners.map((m) => [m.accountId, m.proofsSubmitted, m.rewardsEarned])).toEqual([
@@ -309,7 +339,13 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
 
       it("treats an empty batch as a no-op", async () => {
         await db.upsertChainMiners([
-          { accountId: "5A", deposit: "1", proofsSubmitted: "1", proofsWon: "0", rewardsEarned: "100" },
+          {
+            accountId: "5A",
+            deposit: "1",
+            proofsSubmitted: "1",
+            proofsWon: "0",
+            rewardsEarned: "100",
+          },
         ]);
         await db.upsertChainMiners([]);
         const miners = await db.getChainMiners();

@@ -28,7 +28,11 @@ import type { BackfillSource, BlockSource, ConnectionStream } from "./ports";
 import { BABE_SLOT_DURATION_SEC } from "./shared";
 import { fromChainSubscription } from "./streams";
 
-const ZERO_DIFFICULTY: DifficultyInfo = { maxEnergyMilli: 0, minDiversityMilli: 0, minSolutions: 0 };
+const ZERO_DIFFICULTY: DifficultyInfo = {
+  maxEnergyMilli: 0,
+  minDiversityMilli: 0,
+  minSolutions: 0,
+};
 
 // Per-connection authorship-dedup window. Far exceeds any realistic live/
 // backfill startup overlap, so dedup is preserved while memory stays bounded
@@ -189,7 +193,10 @@ export class BlockPipeline implements ConnectionStream {
   }
 
   // Primes the topology + difficulty fallbacks used until per-block reads land.
-  private async prime(): Promise<{ topology: TopologyInfo; seedDifficulty: DifficultyInfo | null }> {
+  private async prime(): Promise<{
+    topology: TopologyInfo;
+    seedDifficulty: DifficultyInfo | null;
+  }> {
     const topology = await this.client.getTopology().catch(() => null);
     const seedDifficulty = await this.client.getDifficulty().catch(() => null);
     return { topology: topology ?? { nodeCount: 0, edgeCount: 0 }, seedDifficulty };

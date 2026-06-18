@@ -35,7 +35,9 @@ export class PollScheduler implements ConnectionStream {
     const chainMs = this.ctx.config.substrateChainPollSec * 1000;
 
     return merge(
-      timer(0, babeMs).pipe(exhaustMap(() => runEffect("babe-epoch poll", () => this.pollBabeEpoch()))),
+      timer(0, babeMs).pipe(
+        exhaustMap(() => runEffect("babe-epoch poll", () => this.pollBabeEpoch())),
+      ),
       timer(0, chainMs).pipe(
         exhaustMap(() => runEffect("difficulty poll", () => this.pollDifficulty())),
       ),

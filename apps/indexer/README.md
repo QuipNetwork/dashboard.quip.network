@@ -121,16 +121,16 @@ bun test apps/indexer/
 Tests stub `fetch` and use a real adapter over an in-process Postgres (pglite),
 so they run self-contained with no external database.
 
-| File                                     | Covers                                                                                                              |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `apps/indexer/tip/iteration.test.ts`     | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
-| `apps/indexer/tip/worker.test.ts`        | tip loop cadence: immediate-first-run, prompt abort, once mode, heartbeat fallback                                  |
-| `apps/indexer/substrate/worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                                             |
-| `apps/indexer/descriptor/iteration.test.ts` | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots                                              |
-| `apps/indexer/descriptor/reconstruct.test.ts` | firstSeen reconstruction: binary-search first-appearance, O(log) reads, LEAST guard, stale-row skip            |
-| `apps/indexer/descriptor/worker.test.ts` | descriptor loop: head snapshot, scan cost independent of chain height, head-advance pickup, URL rotation, dead-socket reconnect |
-| `apps/indexer/main.test.ts`              | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal |
-| `apps/indexer/core/config.test.ts`       | flag / env parsing, validation, whitespace handling                                                                 |
-| `apps/indexer/clients/miner-client.test.ts` | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                 |
-| `apps/indexer/core/state.test.ts`        | `IndexerState` load, observability seeding on restart                                                               |
-| `apps/indexer/clients/substrate-client/client.test.ts` | substrate client transport, event parsing                                                             |
+| File                                                   | Covers                                                                                                                          |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/indexer/tip/iteration.test.ts`                   | tip iteration: self-identity poll, miner stats, observability heartbeat                                                         |
+| `apps/indexer/tip/worker.test.ts`                      | tip loop cadence: immediate-first-run, prompt abort, once mode, heartbeat fallback                                              |
+| `apps/indexer/substrate/worker.test.ts`                | substrate event subscription, canonical block writes, reconnect backoff                                                         |
+| `apps/indexer/descriptor/iteration.test.ts`            | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots                                                             |
+| `apps/indexer/descriptor/reconstruct.test.ts`          | firstSeen reconstruction: binary-search first-appearance, O(log) reads, LEAST guard, stale-row skip                             |
+| `apps/indexer/descriptor/worker.test.ts`               | descriptor loop: head snapshot, scan cost independent of chain height, head-advance pickup, URL rotation, dead-socket reconnect |
+| `apps/indexer/main.test.ts`                            | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal             |
+| `apps/indexer/core/config.test.ts`                     | flag / env parsing, validation, whitespace handling                                                                             |
+| `apps/indexer/clients/miner-client.test.ts`            | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                                |
+| `apps/indexer/core/state.test.ts`                      | `IndexerState` load, observability seeding on restart                                                                           |
+| `apps/indexer/clients/substrate-client/client.test.ts` | substrate client transport, event parsing                                                                                       |

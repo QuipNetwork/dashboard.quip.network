@@ -878,9 +878,27 @@ describe("substrate worker", () => {
     await wait(50);
     // Three new heads inside one debounce window → the timer is reset twice
     // and only the last (height 102) is written.
-    client.emitNew({ number: "100", hash: "0x64", parentHash: "0x63", extrinsicsRoot: "0x", stateRoot: "0x" });
-    client.emitNew({ number: "101", hash: "0x65", parentHash: "0x64", extrinsicsRoot: "0x", stateRoot: "0x" });
-    client.emitNew({ number: "102", hash: "0x66", parentHash: "0x65", extrinsicsRoot: "0x", stateRoot: "0x" });
+    client.emitNew({
+      number: "100",
+      hash: "0x64",
+      parentHash: "0x63",
+      extrinsicsRoot: "0x",
+      stateRoot: "0x",
+    });
+    client.emitNew({
+      number: "101",
+      hash: "0x65",
+      parentHash: "0x64",
+      extrinsicsRoot: "0x",
+      stateRoot: "0x",
+    });
+    client.emitNew({
+      number: "102",
+      hash: "0x66",
+      parentHash: "0x65",
+      extrinsicsRoot: "0x",
+      stateRoot: "0x",
+    });
     await wait(120);
     ac.abort();
     await loop;
@@ -915,8 +933,20 @@ describe("substrate worker", () => {
       ac.signal,
     );
     await wait(50);
-    client.emitFinalized({ number: "100", hash: "0xf", parentHash: "0xe", extrinsicsRoot: "0x", stateRoot: "0x" });
-    client.emitNew({ number: "110", hash: "0xb", parentHash: "0xa", extrinsicsRoot: "0x", stateRoot: "0x" });
+    client.emitFinalized({
+      number: "100",
+      hash: "0xf",
+      parentHash: "0xe",
+      extrinsicsRoot: "0x",
+      stateRoot: "0x",
+    });
+    client.emitNew({
+      number: "110",
+      hash: "0xb",
+      parentHash: "0xa",
+      extrinsicsRoot: "0x",
+      stateRoot: "0x",
+    });
     await wait(100);
     ac.abort();
     await loop;

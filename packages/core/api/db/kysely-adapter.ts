@@ -613,7 +613,9 @@ export class KyselyAdapter implements DatabaseAdapter {
   ): Promise<void> {
     await this.requireDb()
       .updateTable("node_descriptors")
-      .set({ first_block_timestamp: sql`least(node_descriptors.first_block_timestamp, ${firstBlockTimestamp})` })
+      .set({
+        first_block_timestamp: sql`least(node_descriptors.first_block_timestamp, ${firstBlockTimestamp})`,
+      })
       .where("account_id", "=", accountId)
       .execute();
   }

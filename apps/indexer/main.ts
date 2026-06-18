@@ -118,7 +118,13 @@ async function main(): Promise<number> {
     {
       name: "substrate",
       fatal: false,
-      worker: new SubstrateWorker({ config, db, state, urls: config.validatorRpcUrls, clientFactory }),
+      worker: new SubstrateWorker({
+        config,
+        db,
+        state,
+        urls: config.validatorRpcUrls,
+        clientFactory,
+      }),
     },
     {
       name: "descriptor",

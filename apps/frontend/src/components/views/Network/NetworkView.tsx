@@ -64,10 +64,7 @@ export function NetworkView() {
         <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
       </ChartCard>
 
-      <ChartCard
-        title="Mining Leaderboard"
-        subtitle="Top performing miners by solutions"
-      >
+      <ChartCard title="Mining Leaderboard" subtitle="Top performing miners by solutions">
         <Leaderboard data={leaderboard} />
       </ChartCard>
 

@@ -55,8 +55,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
   const { db, validatorRpcUrls } = deps;
   const now = deps.now ?? Date.now;
   const cacheTtlMs = deps.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
-  const cache =
-    deps.cache ?? new TtlCache<TelemetryResponse>({ ttlMs: cacheTtlMs, now });
+  const cache = deps.cache ?? new TtlCache<TelemetryResponse>({ ttlMs: cacheTtlMs, now });
 
   app.get("/api/telemetry", async (c) => {
     const snapshot = await cache.read(SNAPSHOT_KEY, buildSnapshot);

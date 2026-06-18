@@ -99,21 +99,21 @@ node descriptors), `mining_checkpoint:<ss58>` (per-miner submission cursor).
 
 Singleton (`id = 1`) snapshot of the chain head and runtime.
 
-| Column                    | PostgreSQL  | Null | Description                                                                                                                  |
-| ------------------------- | ----------- | ---- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `id`                      | INTEGER     | PK   | Always 1 (`CHECK (id = 1)`).                                                                                                 |
-| `best_block_number`       | NUMERIC     | no   | Best (non-finalized) block height.                                                                                           |
-| `best_block_hash`         | TEXT        | no   | Best block hash.                                                                                                             |
-| `finalized_block_number`  | NUMERIC     | no   | Finalized block height.                                                                                                      |
-| `finalized_block_hash`    | TEXT        | no   | Finalized block hash.                                                                                                        |
-| `finality_lag`            | INTEGER     | no   | best − finalized height.                                                                                                     |
+| Column                    | PostgreSQL  | Null | Description                                                                                                                                              |
+| ------------------------- | ----------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                      | INTEGER     | PK   | Always 1 (`CHECK (id = 1)`).                                                                                                                             |
+| `best_block_number`       | NUMERIC     | no   | Best (non-finalized) block height.                                                                                                                       |
+| `best_block_hash`         | TEXT        | no   | Best block hash.                                                                                                                                         |
+| `finalized_block_number`  | NUMERIC     | no   | Finalized block height.                                                                                                                                  |
+| `finalized_block_hash`    | TEXT        | no   | Finalized block hash.                                                                                                                                    |
+| `finality_lag`            | INTEGER     | no   | best − finalized height.                                                                                                                                 |
 | `winning_solutions_count` | BIGINT      | yes  | `quantum_pow.LatestQBlockId` (legacy `WinningSolutions` count fallback); `id + 1` is the in-flight problem. Null on pre-v0.2 chains / before first read. |
-| `spec_name`               | TEXT        | no   | Runtime spec name.                                                                                                           |
-| `spec_version`            | INTEGER     | no   | Runtime spec version.                                                                                                        |
-| `transaction_version`     | INTEGER     | no   | Runtime transaction version.                                                                                                 |
-| `impl_name`               | TEXT        | no   | Runtime implementation name.                                                                                                 |
-| `last_runtime_upgrade`    | NUMERIC     | yes  | Block of the last runtime upgrade (u64-as-string).                                                                           |
-| `updated_at`              | TIMESTAMPTZ | no   | When this snapshot was written.                                                                                              |
+| `spec_name`               | TEXT        | no   | Runtime spec name.                                                                                                                                       |
+| `spec_version`            | INTEGER     | no   | Runtime spec version.                                                                                                                                    |
+| `transaction_version`     | INTEGER     | no   | Runtime transaction version.                                                                                                                             |
+| `impl_name`               | TEXT        | no   | Runtime implementation name.                                                                                                                             |
+| `last_runtime_upgrade`    | NUMERIC     | yes  | Block of the last runtime upgrade (u64-as-string).                                                                                                       |
+| `updated_at`              | TIMESTAMPTZ | no   | When this snapshot was written.                                                                                                                          |
 
 ## `babe_epochs`
 

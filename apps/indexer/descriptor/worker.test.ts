@@ -6,7 +6,10 @@ import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { NodeDescriptor } from "@quip/shared/telemetry";
 
 import { IndexerState } from "../core/state";
-import { FakeSubstrateClient, type MinerRegistryDescriptorRecord } from "../clients/substrate-client";
+import {
+  FakeSubstrateClient,
+  type MinerRegistryDescriptorRecord,
+} from "../clients/substrate-client";
 import { makeConfig, newInMemoryAdapter } from "../core/test-helpers";
 import { DescriptorWorker, type DescriptorWorkerDeps } from "./worker";
 

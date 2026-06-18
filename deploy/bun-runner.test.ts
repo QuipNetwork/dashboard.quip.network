@@ -25,7 +25,8 @@ class FakeProcess implements SpawnedProcess {
     this.signals.push(signal);
     if (this.exitCode !== null) return;
     if (signal === "SIGKILL") this.exit(137);
-    else if (signal === "SIGTERM" && this.exitOnSigterm !== undefined) this.exit(this.exitOnSigterm);
+    else if (signal === "SIGTERM" && this.exitOnSigterm !== undefined)
+      this.exit(this.exitOnSigterm);
   }
 
   exit(code: number): void {
@@ -116,7 +117,9 @@ describe("BunRunner", () => {
 
   test("setup steps run to completion, in order, before any application spawns", async () => {
     const { spawn, spawns } = fakeSpawn((command) =>
-      command.includes("install") || command.includes("migrate") ? exitedProc(0) : new FakeProcess(),
+      command.includes("install") || command.includes("migrate")
+        ? exitedProc(0)
+        : new FakeProcess(),
     );
     const run = testRunner(spawn).run({
       setup: [step("install"), step("migrate")],

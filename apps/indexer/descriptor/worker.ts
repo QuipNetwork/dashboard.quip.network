@@ -143,7 +143,10 @@ export class DescriptorWorker implements Worker {
 
   // timer(0, interval) → exhaustMap(scan): the leading 0 fires once on connect;
   // exhaustMap drops a tick rather than overlapping a still-running scan.
-  private scanLoop(iterDeps: DescriptorIterationDeps, client: DescriptorSource): Observable<unknown> {
+  private scanLoop(
+    iterDeps: DescriptorIterationDeps,
+    client: DescriptorSource,
+  ): Observable<unknown> {
     return timer(0, this.scanIntervalMs).pipe(
       exhaustMap(() => from(this.scanHead(iterDeps, client))),
     );
@@ -153,7 +156,10 @@ export class DescriptorWorker implements Worker {
   // unknown (substrate-worker hasn't connected yet). A scan error on a dead
   // socket tears the session down so the outer retry rotates + reconnects; a
   // transient error on a live connection is logged and retried next tick.
-  private async scanHead(iterDeps: DescriptorIterationDeps, client: DescriptorSource): Promise<void> {
+  private async scanHead(
+    iterDeps: DescriptorIterationDeps,
+    client: DescriptorSource,
+  ): Promise<void> {
     const head = this.state.observability.finalizedBlockHeight;
     if (head === null) return;
     try {

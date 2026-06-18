@@ -174,7 +174,9 @@ export class BunRunner implements Runner {
     if (timedOut) {
       for (const c of children) {
         if (c.proc.exitCode !== null) continue;
-        console.error(`entrypoint: ${c.name} did not exit in ${this.killGraceMs}ms, sending SIGKILL`);
+        console.error(
+          `entrypoint: ${c.name} did not exit in ${this.killGraceMs}ms, sending SIGKILL`,
+        );
       }
       this.signalLiveChildren(children, "SIGKILL");
     }
