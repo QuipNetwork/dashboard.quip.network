@@ -33,7 +33,7 @@ bun run dev:indexer
 | `--substrate-reconnect-max-backoff` | `QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS` | `60000`                    |
 | `--substrate-babe-poll`             | `QUIP_VALIDATOR_BABE_POLL_SEC`            | `30`                       |
 | `--substrate-chain-poll`            | `QUIP_VALIDATOR_CHAIN_POLL_SEC`           | `6`                        |
-| `--descriptor-start-block`          | `QUIP_DESCRIPTOR_START_BLOCK`             | `1` (genesis)              |
+| `--descriptor-start-block`          | `QUIP_DESCRIPTOR_START_BLOCK`             | `1` (deprecated, no-op)    |
 | `--operator-account`                | `QUIP_OPERATOR_ACCOUNT`                   | unset                      |
 | `--once`                            | —                                         | `false`                    |
 | `--verbose`                         | `VERBOSE=1`                               | `false`                    |
@@ -73,8 +73,12 @@ and the shared worker framework + cross-cutting infra (`worker.ts`, `rx.ts`,
   Failures self-heal via the exponential-backoff reconnect loop.
 - **Descriptor worker** (`apps/indexer/descriptor/`) snapshots the finalized
   `MinerRegistry.NodeDescriptors` storage written by operators running
-  `quip-miner identify`, populating on-chain node descriptors. A stateful
-  block-by-block cursor drain (not a stream) over its own client lifecycle.
+  `quip-miner identify`, populating on-chain node descriptors. A
+  `timer(0, interval) → exhaustMap(scan finalized head)` loop over its own
+  client lifecycle. Each registry entry carries its own `updatedAt`
+  provenance and `node_descriptors` is keyed per-account, so one read at the
+  finalized head yields what walking every block would converge to — at
+  O(nodes) per poll, independent of chain height.
 - **Tip worker** (`apps/indexer/tip/`) polls the local miner REST surface for
   self-identity and miner stats and flushes the observability heartbeat each
   iteration so the dashboard knows the indexer is alive. An rxjs
@@ -107,7 +111,7 @@ so they run self-contained with no external database.
 | `apps/indexer/tip/worker.test.ts`        | tip loop cadence: immediate-first-run, prompt abort, once mode, heartbeat fallback                                  |
 | `apps/indexer/substrate/worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                                             |
 | `apps/indexer/descriptor/iteration.test.ts` | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots                                              |
-| `apps/indexer/descriptor/worker.test.ts` | descriptor loop: backfill-to-head, resume-from-checkpoint, pruned-state skip, URL rotation                          |
+| `apps/indexer/descriptor/worker.test.ts` | descriptor loop: head snapshot, scan cost independent of chain height, head-advance pickup, URL rotation, dead-socket reconnect |
 | `apps/indexer/main.test.ts`              | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal |
 | `apps/indexer/core/config.test.ts`       | flag / env parsing, validation, whitespace handling                                                                 |
 | `apps/indexer/clients/miner-client.test.ts` | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                 |
