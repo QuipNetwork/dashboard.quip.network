@@ -58,8 +58,8 @@ Three concurrent async workers run in one process under a shared
   validator over WSS and is the canonical source of `BlockRecord` rows plus the
   chain surfaces (`quantum_pow.Miners`, difficulty, session validators, BABE
   epoch). Failures self-heal via an exponential-backoff reconnect loop.
-- **Descriptor worker** (`apps/indexer/descriptor-worker.ts`) scans finalized
-  blocks for `System.remark{,_with_event}` extrinsics signed by operators
+- **Descriptor worker** (`apps/indexer/descriptor-worker.ts`) snapshots the
+  finalized `MinerRegistry.NodeDescriptors` storage written by operators
   running `quip-miner identify`, populating on-chain node descriptors.
 - **Tip worker** (`apps/indexer/tip-worker.ts`) polls the local miner REST
   surface for self-identity and miner stats and flushes the observability
@@ -89,7 +89,7 @@ so they run self-contained with no external database.
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `apps/indexer/tip-worker.test.ts`        | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
 | `apps/indexer/substrate-worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                                             |
-| `apps/indexer/descriptor-worker.test.ts` | descriptor scan: `System.remark` identify extrinsics, resume-from-checkpoint                                        |
+| `apps/indexer/descriptor-worker.test.ts` | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots, resume-from-checkpoint                          |
 | `apps/indexer/main.test.ts`              | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal |
 | `apps/indexer/config.test.ts`            | flag / env parsing, validation, whitespace handling                                                                 |
 | `apps/indexer/client.test.ts`            | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |

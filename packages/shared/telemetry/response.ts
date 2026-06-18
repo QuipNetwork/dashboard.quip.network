@@ -83,12 +83,12 @@ export interface TelemetryResponse {
   validators: ValidatorAuthorshipRecord[];
   // Snapshot of network nodes, projected server-side from the
   // `node_descriptors` table the indexer populates from
-  // `System.remark_with_event` extrinsics. Null when no descriptor has
+  // `MinerRegistry.NodeDescriptors`. Null when no descriptor has
   // been observed yet (fresh chain or pre-deploy operators). Drives the
   // Compute Available view's TFLOPS/PFLOPS surfaces.
   nodes: NodesSnapshot | null;
   // Per-account indexed descriptors — raw signed payloads plus provenance.
-  // Empty when no `quip-miner identify` extrinsic has been seen. Drives
+  // Empty when no `quip-miner identify` registry update has been seen. Drives
   // the Node Identities panel and joins into ChainMinersTable.
   nodeDescriptors: NodeDescriptorRecord[];
   // Recent submissions by the locally-polled miner, sourced from

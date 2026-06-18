@@ -270,14 +270,15 @@ export interface DatabaseAdapter {
 
   // --- Node descriptors (v11) ---
   // Per-account chain-signed identity records — one row per AccountId,
-  // sourced from `System.remark_with_event` extrinsics carrying a
-  // `quip.node_descriptor.v1` JSON body. Replaces the v0.2 miner-survey
-  // pipeline as the canonical node-identity surface; see DASHBOARDPLAN.md.
+  // sourced from `MinerRegistry.NodeDescriptors` compact storage carrying
+  // runtime-validated `quip.node_descriptor.v1` data. Replaces the v0.2
+  // miner-survey pipeline as the canonical node-identity surface.
   //
-  // Upsert tie-breaker is `(blockNumber, extrinsicIndex)` so a later
-  // descriptor in the same block wins, and across blocks the newest one
-  // always wins. `firstBlockTimestamp` is preserved across upserts so the
-  // dashboard can report "first observed" without keeping a history table.
+  // Upsert tie-breaker remains `(blockNumber, extrinsicIndex)` for DB
+  // compatibility. Registry snapshots use `extrinsicIndex = 0`, and the
+  // `blockNumber` is the descriptor's own `updated_at` provenance.
+  // `firstBlockTimestamp` is preserved across upserts so the dashboard can
+  // report "first observed" without keeping a history table.
 
   /**
    * Insert-or-replace a descriptor by accountId. Skips the write when the
@@ -288,8 +289,8 @@ export interface DatabaseAdapter {
 
   /**
    * All descriptors known to the indexer, ordered by `nodeName` for stable
-   * UI rendering. Empty when no `quip-miner identify` extrinsic has been
-   * observed yet. Re-projected to NodesSnapshot at server time.
+   * UI rendering. Empty when no `quip-miner identify` registry update has
+   * been observed yet. Re-projected to NodesSnapshot at server time.
    */
   getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]>;
 
@@ -297,7 +298,7 @@ export interface DatabaseAdapter {
    * Single-row lookup by SS58 account. Returned by the URL-resolver helper
    * when deriving the local operator's miner-REST base URL from their
    * on-chain descriptor (`publicHost`/`publicPort`). Null when the operator
-   * hasn't yet signed a `quip.node_descriptor.v1` remark for this account.
+   * hasn't yet written a `quip.node_descriptor.v1` registry entry for this account.
    */
   getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null>;
 

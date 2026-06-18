@@ -15,7 +15,7 @@ import { ApiPromise, WsProvider } from "@polkadot/api";
 import { GenericExtrinsicSignatureV4 } from "@polkadot/types/extrinsic/v4/ExtrinsicSignature";
 import { GenericExtrinsicSignatureV5 } from "@polkadot/types/extrinsic/v5/ExtrinsicSignature";
 
-import type { MinerCategory, NodeDescriptor, NodeMinerEntry } from "../src/types/telemetry";
+import type { MinerCategory, NodeDescriptor, NodeMinerEntry } from "@quip/shared/telemetry";
 
 import type {
   BabeAuthorityInfo,

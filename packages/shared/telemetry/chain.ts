@@ -60,14 +60,13 @@ export interface ChainHead {
   finalizedBlockHash: string;
   // bestBlockNumber - finalizedBlockNumber, precomputed for the UI.
   finalityLag: number;
-  // Length of the chain's `quantum_pow.WinningSolutions` storage map — the
-  // count of winning solutions accepted network-wide. This is the
+  // Latest monotonic qblock id (`quantum_pow.LatestQBlockId`) — equal to
+  // the count of winning solutions accepted network-wide. This is the
   // authoritative source for the global "solution number": the in-flight
-  // problem every miner is grinding is `winningSolutionsCount + 1` (MR
-  // !105), which keys the miner's per-solution directories. Null when the
-  // chain doesn't expose it yet (pre-v0.2 runtime, or the substrate worker
-  // hasn't read it). Equals `Σ chain_miners.proofsWon` when that table is
-  // complete, but sourced straight from chain so it can't undercount.
+  // problem every miner is grinding is `winningSolutionsCount + 1`. Null
+  // when the chain doesn't expose it yet or the substrate worker hasn't
+  // read it. Equals `Σ chain_miners.proofsWon` when that table is complete,
+  // but sourced straight from chain so it can't undercount.
   winningSolutionsCount: number | null;
   runtime: RuntimeVersion;
   updatedAt: string;

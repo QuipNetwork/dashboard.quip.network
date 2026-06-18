@@ -96,11 +96,11 @@ export interface ModeBreakdown {
  */
 export interface MiningSubmissionRecord {
   // Global chain solution number this submission was produced for
-  // (quip-protocol MR !105): `count(WinningSolutions) + 1` at the time
-  // the miner opened the directory — i.e. the network-wide problem
-  // index, durable and monotonic across restarts. Every miner grinds
-  // the same global solution_number, so it's a stable identity/sort key
-  // that no longer resets when the attempts dir is moved.
+  // (`LatestQBlockId + 1`) at the time the miner opened the directory —
+  // i.e. the network-wide problem index, durable and monotonic across
+  // restarts. Every miner grinds the same global solution_number, so it's a
+  // stable identity/sort key that no longer resets when the attempts dir is
+  // moved.
   //
   // This is the key the modal proxies on
   // (`/api/v1/mining/attempts?solution_number=N`) and the DB primary

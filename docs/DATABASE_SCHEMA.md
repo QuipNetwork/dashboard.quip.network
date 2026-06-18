@@ -105,7 +105,7 @@ Singleton (`id = 1`) snapshot of the chain head and runtime.
 | `finalized_block_number`  | NUMERIC     | no   | Finalized block height.                                                                                                      |
 | `finalized_block_hash`    | TEXT        | no   | Finalized block hash.                                                                                                        |
 | `finality_lag`            | INTEGER     | no   | best − finalized height.                                                                                                     |
-| `winning_solutions_count` | BIGINT      | yes  | Length of `quantum_pow.WinningSolutions`; `count + 1` is the in-flight problem. Null on pre-v0.2 chains / before first read. |
+| `winning_solutions_count` | BIGINT      | yes  | `quantum_pow.LatestQBlockId` (legacy `WinningSolutions` count fallback); `id + 1` is the in-flight problem. Null on pre-v0.2 chains / before first read. |
 | `spec_name`               | TEXT        | no   | Runtime spec name.                                                                                                           |
 | `spec_version`            | INTEGER     | no   | Runtime spec version.                                                                                                        |
 | `transaction_version`     | INTEGER     | no   | Runtime transaction version.                                                                                                 |
@@ -187,9 +187,10 @@ Indexes: `(blocks_authored DESC)`.
 
 ## `node_descriptors`
 
-Per-account chain-signed identity, sourced from `System.remark_with_event`
-extrinsics by the descriptor worker. `(block_number, extrinsic_index)` is the
-upsert tie-breaker so a later descriptor in the same block wins.
+Per-account chain-signed identity, sourced from `MinerRegistry.NodeDescriptors`
+by the descriptor worker. `(block_number, extrinsic_index)` stays as the upsert
+tie-breaker for compatibility; registry snapshots use `extrinsic_index = 0` and
+the descriptor's own `updated_at` block number.
 
 | Column                  | PostgreSQL  | Null | Description                                                   |
 | ----------------------- | ----------- | ---- | ------------------------------------------------------------- |
@@ -210,7 +211,7 @@ Per-submission summaries polled from the local miner's
 `/api/v1/mining/attempts?solution_number=N` endpoint. Composite primary key
 `(miner_id, solution_number)` so polling multiple miners never collides.
 `solution_number` is the global chain solution index
-(`count(WinningSolutions) + 1`), durable across restarts.
+(`LatestQBlockId + 1`), durable across restarts.
 
 | Column                  | PostgreSQL  | Null | Description                                                                                               |
 | ----------------------- | ----------- | ---- | --------------------------------------------------------------------------------------------------------- |

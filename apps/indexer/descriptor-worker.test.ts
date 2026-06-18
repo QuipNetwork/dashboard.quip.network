@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
-import type { NodeDescriptor } from "../src/types/telemetry";
+import type { NodeDescriptor } from "@quip/shared/telemetry";
 
 import { runDescriptorIteration, runDescriptorLoop } from "./descriptor-worker";
 import { IndexerState } from "./state";

@@ -4,12 +4,11 @@ import type { MinerCategory } from "./miner";
 
 /**
  * Operator-published node descriptor — the canonical identity record for
- * a miner, sourced from a `System.remark_with_event` extrinsic signed by
- * the operator's chain account. Shape mirrors `quip.node_descriptor.v1`
- * defined in `shared/system_info.py` on the miner side; see
- * `DASHBOARDPLAN.md` for the indexing spec. Dashboard-owned fields
- * (`address`, `firstSeen`, `lastSeen`) live on NodeInfo, not here —
- * descriptors are the operator's self-asserted side, joined at read time.
+ * a miner, sourced from `MinerRegistry.NodeDescriptors` under the
+ * operator's chain account. The runtime validates the compact
+ * `quip.node_descriptor.v1` schema on write; the indexer projects it into
+ * this dashboard shape. Dashboard-owned fields (`address`, `firstSeen`,
+ * `lastSeen`) live on NodeInfo, not here.
  */
 export interface NodeSystemCpu {
   logicalCores?: number;
@@ -109,10 +108,10 @@ export interface NodesSnapshot {
 }
 
 /**
- * Raw signed payload an operator emits via `quip-miner identify`. Field
- * names use camelCase (the indexer normalises from the chain's snake_case
- * JSON at decode time). Pass-through of `descriptorVersion` lets future
- * versions ride a parallel handler without mutating this shape.
+ * Runtime-validated descriptor emitted via `quip-miner identify`. Field
+ * names use camelCase after the indexer normalises the compact on-chain
+ * storage value. Pass-through of `descriptorVersion` lets future versions
+ * ride a parallel handler without mutating this shape.
  */
 export interface NodeDescriptor {
   schema: "quip.node_descriptor.v1";

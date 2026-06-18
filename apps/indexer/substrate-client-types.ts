@@ -4,7 +4,7 @@
 // (PolkadotSubstrateClient) lives in substrate-client.ts; the test impl
 // (FakeSubstrateClient) in fake-substrate-client.ts.
 
-import type { NodeDescriptor } from "../src/types/telemetry";
+import type { NodeDescriptor } from "@quip/shared/telemetry";
 
 export interface SubstrateHead {
   // u64 as string — substrate block heights exceed Number.MAX_SAFE_INTEGER
