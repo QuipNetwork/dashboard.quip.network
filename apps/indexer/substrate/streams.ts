@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Substrate-specific rxjs bridges where the polkadot callback / promise world
-// meets streams. Generic bridges (AbortSignal, effect runner) live in `../rx`.
+// Substrate-specific rxjs bridge: a polkadot `subscribe(cb): Promise<UnsubFn>`
+// becomes an Observable. Generic bridges (AbortSignal, disconnect, effect
+// runner) live in `../rx`.
 
 import { Observable } from "rxjs";
 
 import type { UnsubFn } from "../substrate-client";
-import type { ConnectionControl } from "./ports";
 
 export function fromChainSubscription<T>(
   subscribe: (cb: (value: T) => void) => Promise<UnsubFn>,
@@ -27,16 +27,5 @@ export function fromChainSubscription<T>(
       cancelled = true;
       unsub?.();
     };
-  });
-}
-
-// Errors on disconnect so a drop flows through the worker's `retry` like a
-// failed connect.
-export function fromDisconnect(client: ConnectionControl): Observable<never> {
-  return new Observable<never>((subscriber) => {
-    const off = client.onDisconnected(() => {
-      subscriber.error(new Error("substrate connection dropped"));
-    });
-    return off;
   });
 }
