@@ -303,6 +303,16 @@ export interface DatabaseAdapter {
   getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null>;
 
   /**
+   * Lower an account's `first_block_timestamp` ("firstSeen") to the supplied
+   * value if it is earlier, leaving it untouched otherwise. Used by the
+   * offline firstSeen reconstruction to correct rows seeded from a head
+   * snapshot (which only knows the latest `updated_at`) down to the true
+   * first-registration timestamp. Never raises firstSeen, and is a no-op when
+   * no row exists for the account.
+   */
+  backfillNodeDescriptorFirstSeen(accountId: string, firstBlockTimestamp: number): Promise<void>;
+
+  /**
    * Read the highest substrate block height the descriptor worker has
    * scanned (inclusive). Null until the first scan completes.
    */

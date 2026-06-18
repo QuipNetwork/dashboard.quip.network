@@ -21,6 +21,22 @@ bun run apps/indexer/main.ts \
 bun run dev:indexer
 ```
 
+### Reconstructing firstSeen
+
+The live worker snapshots the registry at the finalized head, so a from-scratch
+rebuild of `node_descriptors` seeds each node's `firstSeen` from its latest
+`updated_at`, not its first registration. This one-shot command recovers the
+true value by binary-searching each account's first-appearance block —
+O(accounts × log(head)) reads, not a per-block walk. It requires an **archive
+node** (it reads historical state) and only ever lowers `firstSeen`, so it's
+safe to re-run.
+
+```bash
+bun run reconstruct-firstseen
+# or, against a specific archive endpoint:
+QUIP_VALIDATOR_RPC_URLS=wss://archive:443 bun run reconstruct-firstseen
+```
+
 ## Flags / env
 
 | Flag                                | Env                                       | Default                    |
@@ -110,6 +126,7 @@ so they run self-contained with no external database.
 | `apps/indexer/tip/worker.test.ts`        | tip loop cadence: immediate-first-run, prompt abort, once mode, heartbeat fallback                                  |
 | `apps/indexer/substrate/worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                                             |
 | `apps/indexer/descriptor/iteration.test.ts` | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots                                              |
+| `apps/indexer/descriptor/reconstruct.test.ts` | firstSeen reconstruction: binary-search first-appearance, O(log) reads, LEAST guard, stale-row skip            |
 | `apps/indexer/descriptor/worker.test.ts` | descriptor loop: head snapshot, scan cost independent of chain height, head-advance pickup, URL rotation, dead-socket reconnect |
 | `apps/indexer/main.test.ts`              | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal |
 | `apps/indexer/core/config.test.ts`       | flag / env parsing, validation, whitespace handling                                                                 |

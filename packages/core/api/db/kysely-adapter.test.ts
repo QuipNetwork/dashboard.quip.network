@@ -356,6 +356,22 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
 
         expect(await db.getAllNodeDescriptors()).toHaveLength(1);
       });
+
+      it("backfillNodeDescriptorFirstSeen lowers firstSeen but never raises it", async () => {
+        await db.upsertNodeDescriptor(sampleDescriptor({ firstBlockTimestamp: 1700000000 }));
+
+        // Earlier value wins.
+        await db.backfillNodeDescriptorFirstSeen("5Acc", 1699990000);
+        expect((await db.getNodeDescriptor("5Acc"))?.firstBlockTimestamp).toBe(1699990000);
+
+        // A later value is ignored (LEAST guard).
+        await db.backfillNodeDescriptorFirstSeen("5Acc", 1700500000);
+        expect((await db.getNodeDescriptor("5Acc"))?.firstBlockTimestamp).toBe(1699990000);
+
+        // No row for the account → no-op (no throw, nothing created).
+        await db.backfillNodeDescriptorFirstSeen("5Missing", 1);
+        expect(await db.getNodeDescriptor("5Missing")).toBeNull();
+      });
     });
 
     describe("checkpoints", () => {

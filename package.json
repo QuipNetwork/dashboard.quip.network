@@ -17,6 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "migrate": "bun run --filter @quip/server migrate",
+    "reconstruct-firstseen": "bun run --filter @quip/indexer reconstruct-firstseen",
     "start": "bun run deploy/entrypoint.ts",
     "typecheck": "for w in @quip/shared @quip/core @quip/server @quip/indexer @quip/frontend; do bun run --filter \"$w\" typecheck || exit 1; done && tsc --noEmit",
     "test": "bun test --path-ignore-patterns '**/reference-material/**'"

@@ -564,6 +564,17 @@ export class KyselyAdapter implements DatabaseAdapter {
     return row ? rowToNodeDescriptor(row) : null;
   }
 
+  async backfillNodeDescriptorFirstSeen(
+    accountId: string,
+    firstBlockTimestamp: number,
+  ): Promise<void> {
+    await this.requireDb()
+      .updateTable("node_descriptors")
+      .set({ first_block_timestamp: sql`least(node_descriptors.first_block_timestamp, ${firstBlockTimestamp})` })
+      .where("account_id", "=", accountId)
+      .execute();
+  }
+
   async getDescriptorCheckpoint(): Promise<string | null> {
     return this.getMeta(DESCRIPTOR_CHECKPOINT_KEY);
   }

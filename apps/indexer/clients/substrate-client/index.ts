@@ -632,6 +632,36 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     return records;
   }
 
+  // --- firstSeen reconstruction primitives (structurally satisfy
+  // descriptor/reconstruct.ts's FirstSeenSource) ---
+
+  async getFinalizedHead(): Promise<string> {
+    const api = this.requireApi();
+    const hash = await api.rpc.chain.getFinalizedHead();
+    const header = await api.rpc.chain.getHeader(hash);
+    return header.number.toString();
+  }
+
+  async getBlockTimestamp(blockNumber: string): Promise<number> {
+    const meta = await this.getBlockTimestampAndHash(blockNumber);
+    if (!meta) {
+      throw new Error(`[substrate-client] block ${blockNumber} not found on chain`);
+    }
+    return meta.blockTimestamp;
+  }
+
+  async isDescriptorPresentAt(accountId: string, blockNumber: string): Promise<boolean> {
+    const api = this.requireApi();
+    const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
+    if (/^0x0+$/.test(hashCodec.toHex())) return false;
+    const storage = api.query.minerRegistry?.nodeDescriptors as
+      | { at?: (hash: unknown, key: unknown) => Promise<unknown> }
+      | undefined;
+    if (!storage?.at) return false;
+    const value = await storage.at(hashCodec, accountId);
+    return decodeMinerRegistryDescriptor(value) !== null;
+  }
+
   private async getBlockTimestampAndHash(
     blockNumber: string,
   ): Promise<{ blockHash: string; blockTimestamp: number } | null> {

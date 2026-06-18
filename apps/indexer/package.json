@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "bun --watch main.ts",
     "start": "bun main.ts",
+    "reconstruct-firstseen": "bun reconstruct-firstseen.ts",
     "typecheck": "tsc --noEmit"
   }
 }
