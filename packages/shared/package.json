@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./telemetry": "./telemetry.ts"
+    "./telemetry": "./telemetry.ts",
+    "./deployment": "./deployment.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

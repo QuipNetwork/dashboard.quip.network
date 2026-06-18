@@ -74,7 +74,7 @@ COPY packages/shared packages/shared
 COPY packages/core packages/core
 COPY apps/server apps/server
 COPY apps/indexer apps/indexer
-COPY deploy/entrypoint.ts deploy/entrypoint.ts
+COPY deploy deploy
 COPY --from=frontend /app/apps/frontend/dist ./apps/frontend/dist
 RUN mkdir -p /data && chown -R bun:bun /app /data
 USER bun
