@@ -16,6 +16,7 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptorRecord,
 } from "@quip/shared/telemetry";
+import { chunk } from "@quip/shared/array";
 import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
 import {
   migrateToLatest,
@@ -43,6 +44,18 @@ const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
 
 function miningCheckpointKey(minerId: string): string {
   return `${MINING_CHECKPOINT_KEY_PREFIX}${minerId}`;
+}
+
+// Postgres encodes a statement's bound-parameter count as an int16, capping it
+// at 65535. Multi-row INSERTs and large IN-lists bind one parameter per value,
+// so they must be split to stay under that ceiling. 10k is well under the limit
+// with generous headroom and keeps each statement's lock/memory footprint small.
+const PG_MAX_BIND_PARAMS = 10_000;
+
+// Split `rows` so each chunk binds at most PG_MAX_BIND_PARAMS parameters, given
+// `columnsPerRow` parameters per row (always at least one row per chunk).
+function chunkForParams<T>(rows: readonly T[], columnsPerRow: number): T[][] {
+  return chunk(rows, Math.max(1, Math.floor(PG_MAX_BIND_PARAMS / Math.max(1, columnsPerRow))));
 }
 
 type ChainMinerLite = Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">;
@@ -163,12 +176,17 @@ export class KyselyAdapter implements DatabaseAdapter {
 
   async getExistingBlockNumbers(blockNumbers: string[]): Promise<string[]> {
     if (blockNumbers.length === 0) return [];
-    const rows = await this.requireDb()
-      .selectFrom("blocks")
-      .select("substrate_block_number")
-      .where("substrate_block_number", "in", blockNumbers)
-      .execute();
-    return rows.map((r) => String(r.substrate_block_number));
+    const out: string[] = [];
+    // One bind parameter per number, so chunk the IN-list under the ceiling.
+    for (const batch of chunk(blockNumbers, PG_MAX_BIND_PARAMS)) {
+      const rows = await this.requireDb()
+        .selectFrom("blocks")
+        .select("substrate_block_number")
+        .where("substrate_block_number", "in", batch)
+        .execute();
+      for (const r of rows) out.push(String(r.substrate_block_number));
+    }
+    return out;
   }
 
   async markBlockFinalized(blockHash: string): Promise<void> {
@@ -331,25 +349,27 @@ export class KyselyAdapter implements DatabaseAdapter {
         if (incoming.length > 0) demote = demote.where("account_id", "not in", incoming);
         await demote.execute();
         if (authorities.length === 0) return;
-        await trx
-          .insertInto("babe_authorities")
-          .values(
-            authorities.map((a) => ({
-              account_id: a.accountId,
-              epoch_index: epochIndex,
-              display_name: a.displayName,
-              is_active: true,
-              updated_at: now,
-            })),
-          )
-          .onConflict((oc) =>
-            oc.columns(["account_id", "epoch_index"]).doUpdateSet({
-              display_name: sql`excluded.display_name`,
-              is_active: true,
-              updated_at: sql`excluded.updated_at`,
-            }),
-          )
-          .execute();
+        for (const batch of chunkForParams(authorities, 5)) {
+          await trx
+            .insertInto("babe_authorities")
+            .values(
+              batch.map((a) => ({
+                account_id: a.accountId,
+                epoch_index: epochIndex,
+                display_name: a.displayName,
+                is_active: true,
+                updated_at: now,
+              })),
+            )
+            .onConflict((oc) =>
+              oc.columns(["account_id", "epoch_index"]).doUpdateSet({
+                display_name: sql`excluded.display_name`,
+                is_active: true,
+                updated_at: sql`excluded.updated_at`,
+              }),
+            )
+            .execute();
+        }
       });
   }
 
@@ -370,38 +390,47 @@ export class KyselyAdapter implements DatabaseAdapter {
     if (miners.length === 0) return;
     const distinct = this.distinctOp();
     const now = new Date().toISOString();
+    // chain_miners grows with the network, so a single multi-row INSERT can
+    // exceed Postgres' bind-parameter ceiling. Chunk by column count (6/row);
+    // the transaction keeps the whole set's update atomic across chunks.
     await this.requireDb()
-      .insertInto("chain_miners")
-      .values(
-        miners.map((m) => ({
-          account_id: m.accountId,
-          deposit: m.deposit,
-          proofs_submitted: m.proofsSubmitted,
-          proofs_won: m.proofsWon,
-          rewards_earned: m.rewardsEarned,
-          updated_at: now,
-        })),
-      )
-      .onConflict((oc) =>
-        oc
-          .column("account_id")
-          .doUpdateSet({
-            deposit: sql`excluded.deposit`,
-            proofs_submitted: sql`excluded.proofs_submitted`,
-            proofs_won: sql`excluded.proofs_won`,
-            rewards_earned: sql`excluded.rewards_earned`,
-            updated_at: sql`excluded.updated_at`,
-          })
-          .where(
-            sql<boolean>`
-              chain_miners.deposit ${distinct} excluded.deposit or
-              chain_miners.proofs_submitted ${distinct} excluded.proofs_submitted or
-              chain_miners.proofs_won ${distinct} excluded.proofs_won or
-              chain_miners.rewards_earned ${distinct} excluded.rewards_earned
-            `,
-          ),
-      )
-      .execute();
+      .transaction()
+      .execute(async (trx) => {
+        for (const batch of chunkForParams(miners, 6)) {
+          await trx
+            .insertInto("chain_miners")
+            .values(
+              batch.map((m) => ({
+                account_id: m.accountId,
+                deposit: m.deposit,
+                proofs_submitted: m.proofsSubmitted,
+                proofs_won: m.proofsWon,
+                rewards_earned: m.rewardsEarned,
+                updated_at: now,
+              })),
+            )
+            .onConflict((oc) =>
+              oc
+                .column("account_id")
+                .doUpdateSet({
+                  deposit: sql`excluded.deposit`,
+                  proofs_submitted: sql`excluded.proofs_submitted`,
+                  proofs_won: sql`excluded.proofs_won`,
+                  rewards_earned: sql`excluded.rewards_earned`,
+                  updated_at: sql`excluded.updated_at`,
+                })
+                .where(
+                  sql<boolean>`
+                    chain_miners.deposit ${distinct} excluded.deposit or
+                    chain_miners.proofs_submitted ${distinct} excluded.proofs_submitted or
+                    chain_miners.proofs_won ${distinct} excluded.proofs_won or
+                    chain_miners.rewards_earned ${distinct} excluded.rewards_earned
+                  `,
+                ),
+            )
+            .execute();
+        }
+      });
   }
 
   async getChainMiners(): Promise<ChainMinerLite[]> {

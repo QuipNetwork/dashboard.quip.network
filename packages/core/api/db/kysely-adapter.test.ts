@@ -163,6 +163,17 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         await db.insertBlock(sampleBlock());
         expect(await db.getExistingBlockNumbers([])).toEqual([]);
       });
+
+      it("getExistingBlockNumbers handles a lookup larger than the bind-parameter ceiling", async () => {
+        // Seed a handful of real blocks, then ask about 70k numbers (> the
+        // 65535 single-statement ceiling) — the adapter must chunk the IN-list.
+        for (const n of ["3", "5", "70001"]) {
+          await db.insertBlock(sampleBlock({ blockHash: `0x${n}`, substrateBlockNumber: n }));
+        }
+        const query = Array.from({ length: 70_000 }, (_, i) => String(i));
+        const present = await db.getExistingBlockNumbers(query);
+        expect([...present].sort()).toEqual(["3", "5"]); // 70001 is outside [0,70000)
+      });
     });
 
     describe("meta", () => {
@@ -303,6 +314,20 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         await db.upsertChainMiners([]);
         const miners = await db.getChainMiners();
         expect(miners.map((m) => m.accountId)).toEqual(["5A"]);
+      });
+
+      it("upserts a batch larger than the bind-parameter ceiling", async () => {
+        // 12k miners × 6 columns = 72k params > Postgres' 65535 ceiling, so a
+        // single statement would fail; the adapter must chunk.
+        const miners = Array.from({ length: 12_000 }, (_, i) => ({
+          accountId: `5acc${i}`,
+          deposit: "1",
+          proofsSubmitted: "1",
+          proofsWon: "0",
+          rewardsEarned: String(i),
+        }));
+        await db.upsertChainMiners(miners);
+        expect(await db.getChainMiners()).toHaveLength(12_000);
       });
     });
 
