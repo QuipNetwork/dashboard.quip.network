@@ -55,9 +55,15 @@ Three concurrent async workers run in one process under a shared
 `AbortController`. They share one `IndexerState` and `DatabaseAdapter`.
 
 Each worker is a class implementing the shared `Worker` contract
-(`run(signal)`, in `apps/indexer/worker.ts`); the connection-invariant deps
-(`WorkerContext`) and the generic rxjs bridges (`apps/indexer/rx.ts`) are
+(`run(signal)`, in `apps/indexer/core/worker.ts`); the connection-invariant deps
+(`WorkerContext`) and the generic rxjs bridges (`apps/indexer/core/rx.ts`) are
 shared across all three.
+
+Layout: each worker owns a directory (`substrate/`, `tip/`, `descriptor/`); the
+substrate RPC client cluster (real + fake + types) lives behind the
+`substrate-client/` barrel; the miner REST client is `miner-client.ts`; and the
+shared worker framework + cross-cutting infra (`worker.ts`, `rx.ts`, `config.ts`,
+`state.ts`, `chain-state.ts`, test helpers) sit under `core/`.
 
 - **Substrate worker** (`apps/indexer/substrate/`) subscribes to the validator
   over WSS and is the canonical source of `BlockRecord` rows plus the chain
@@ -103,7 +109,7 @@ so they run self-contained with no external database.
 | `apps/indexer/descriptor/iteration.test.ts` | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots                                              |
 | `apps/indexer/descriptor/worker.test.ts` | descriptor loop: backfill-to-head, resume-from-checkpoint, pruned-state skip, URL rotation                          |
 | `apps/indexer/main.test.ts`              | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal |
-| `apps/indexer/config.test.ts`            | flag / env parsing, validation, whitespace handling                                                                 |
-| `apps/indexer/client.test.ts`            | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |
-| `apps/indexer/state.test.ts`             | `IndexerState` load, observability seeding on restart                                                               |
-| `apps/indexer/substrate-client.test.ts`  | substrate client transport, event parsing                                                                           |
+| `apps/indexer/core/config.test.ts`       | flag / env parsing, validation, whitespace handling                                                                 |
+| `apps/indexer/miner-client.test.ts`      | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |
+| `apps/indexer/core/state.test.ts`        | `IndexerState` load, observability seeding on restart                                                               |
+| `apps/indexer/substrate-client/client.test.ts` | substrate client transport, event parsing                                                                     |

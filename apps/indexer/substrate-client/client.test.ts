@@ -7,7 +7,7 @@ import {
   PolkadotSubstrateClient,
   type BlockEvents,
   type SubstrateHead,
-} from "./substrate-client";
+} from ".";
 
 describe("FakeSubstrateClient", () => {
   test("emits finalized head to subscribers and stashes for getBlockHeader", async () => {

@@ -4,4 +4,4 @@
 // is an internal stream module or port.
 
 export { SubstrateWorker, type SubstrateWorkerDeps } from "./worker";
-export type { Worker } from "../worker";
+export type { Worker } from "../core/worker";

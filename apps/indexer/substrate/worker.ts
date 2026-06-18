@@ -22,10 +22,10 @@ import {
   timer,
 } from "rxjs";
 
-import type { IndexerConfig } from "../config";
-import { fromAbortSignal, fromDisconnect } from "../rx";
-import type { IndexerState } from "../state";
-import { type Worker, type WorkerContext, backoffMs, nowIso } from "../worker";
+import type { IndexerConfig } from "../core/config";
+import { fromAbortSignal, fromDisconnect } from "../core/rx";
+import type { IndexerState } from "../core/state";
+import { type Worker, type WorkerContext, backoffMs, nowIso } from "../core/worker";
 import { BlockPipeline } from "./blocks";
 import { ChainHeadWriter } from "./chain-head";
 import { PollScheduler } from "./polls";

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, test } from "bun:test";
-import { QuipClient, RateLimitError, type NodeStatus } from "./client";
+import { QuipClient, RateLimitError, type NodeStatus } from "./miner-client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

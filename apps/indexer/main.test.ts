@@ -3,7 +3,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { runWorkers, type WorkerSpec } from "./main";
-import type { Worker } from "./worker";
+import type { Worker } from "./core/worker";
 
 // Adapt a plain run function into a Worker for the orchestration tests.
 const asWorker = (run: (signal: AbortSignal) => Promise<void>): Worker => ({ run });

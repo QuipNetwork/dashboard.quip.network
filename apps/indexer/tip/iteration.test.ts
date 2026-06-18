@@ -9,10 +9,10 @@ import type {
   MiningSubmissionRecord,
 } from "@quip/shared/telemetry";
 
-import { DbChainStateReader } from "../chain-state";
-import { type MinerSource, type NodeStatus } from "../client";
-import { IndexerState } from "../state";
-import { newInMemoryAdapter } from "../test-helpers";
+import { DbChainStateReader } from "../core/chain-state";
+import { type MinerSource, type NodeStatus } from "../miner-client";
+import { IndexerState } from "../core/state";
+import { newInMemoryAdapter } from "../core/test-helpers";
 import { runTipIteration, type TipIterationDeps } from "./iteration";
 
 // Build a persisted-submission record for a given global solution_number.

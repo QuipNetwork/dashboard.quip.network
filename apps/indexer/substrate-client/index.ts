@@ -32,10 +32,10 @@ import type {
   TopologyInfo,
   UnsubFn,
   WinningSolutionInfo,
-} from "./substrate-client-types";
+} from "./types";
 
-export * from "./substrate-client-types";
-export { FakeSubstrateClient } from "./fake-substrate-client";
+export * from "./types";
+export { FakeSubstrateClient } from "./fake";
 
 // quip-protocol-rs replaces stock `MultiSignature` with `HybridTxSignature`
 // (a plain `{public: [u8;1344], signature: [u8;2484]}` struct — see

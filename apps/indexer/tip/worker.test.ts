@@ -4,10 +4,10 @@ import { describe, expect, test } from "bun:test";
 
 import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
 
-import { DbChainStateReader } from "../chain-state";
-import type { MinerSource } from "../client";
-import { IndexerState } from "../state";
-import { makeConfig, newInMemoryAdapter } from "../test-helpers";
+import { DbChainStateReader } from "../core/chain-state";
+import type { MinerSource } from "../miner-client";
+import { IndexerState } from "../core/state";
+import { makeConfig, newInMemoryAdapter } from "../core/test-helpers";
 import { TipWorker, type TipWorkerDeps } from "./worker";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

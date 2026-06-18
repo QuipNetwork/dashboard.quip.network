@@ -30,11 +30,11 @@ import {
   timer,
 } from "rxjs";
 
-import type { IndexerConfig } from "../config";
-import { type Disconnectable, fromAbortSignal, fromDisconnect } from "../rx";
-import type { IndexerState } from "../state";
+import type { IndexerConfig } from "../core/config";
+import { type Disconnectable, fromAbortSignal, fromDisconnect } from "../core/rx";
+import type { IndexerState } from "../core/state";
 import type { UnsubFn } from "../substrate-client";
-import { type Worker, type WorkerContext } from "../worker";
+import { type Worker, type WorkerContext } from "../core/worker";
 import {
   type DescriptorIterationDeps,
   type DescriptorReadSource,

@@ -14,7 +14,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   WinningSolutionInfo,
-} from "./substrate-client-types";
+} from "./types";
 
 /**
  * Programmable in-memory implementation for unit tests. Tests configure

@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { NodeDescriptor } from "@quip/shared/telemetry";
 
-import { IndexerState } from "../state";
+import { IndexerState } from "../core/state";
 import { FakeSubstrateClient, type MinerRegistryDescriptorRecord } from "../substrate-client";
-import { makeConfig, newInMemoryAdapter } from "../test-helpers";
+import { makeConfig, newInMemoryAdapter } from "../core/test-helpers";
 import { DescriptorWorker, type DescriptorWorkerDeps } from "./worker";
 
 // Wrap construction so the behaviour tests below read as one call. Tiny poll /

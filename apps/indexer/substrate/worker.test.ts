@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 import { FakeSubstrateClient } from "../substrate-client";
-import { IndexerState } from "../state";
+import { IndexerState } from "../core/state";
 import { SubstrateWorker, type SubstrateWorkerDeps } from "./worker";
-import { makeConfig, newInMemoryAdapter } from "../test-helpers";
+import { makeConfig, newInMemoryAdapter } from "../core/test-helpers";
 
 // Construct + run the worker. Keeps the behaviour-focused tests below reading
 // as one call; each exercises the real SubstrateWorker class.

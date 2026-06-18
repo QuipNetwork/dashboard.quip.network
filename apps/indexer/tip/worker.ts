@@ -16,12 +16,12 @@ import {
 
 import { resolveSelfMinerRestUrl } from "@quip/core/resolve-miner-rest";
 
-import type { ChainStateReader } from "../chain-state";
-import type { IndexerConfig } from "../config";
-import type { MinerSource } from "../client";
-import { fromAbortSignal, runEffect } from "../rx";
-import type { IndexerState } from "../state";
-import { type Worker, type WorkerContext, nowIso } from "../worker";
+import type { ChainStateReader } from "../core/chain-state";
+import type { IndexerConfig } from "../core/config";
+import type { MinerSource } from "../miner-client";
+import { fromAbortSignal, runEffect } from "../core/rx";
+import type { IndexerState } from "../core/state";
+import { type Worker, type WorkerContext, nowIso } from "../core/worker";
 import { runTipIteration } from "./iteration";
 
 export interface TipWorkerDeps {

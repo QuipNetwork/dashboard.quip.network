@@ -2,15 +2,15 @@
 
 import { createAdapter } from "@quip/core/db";
 
-import { DbChainStateReader } from "./chain-state";
-import { QuipClient } from "./client";
-import { parseConfig } from "./config";
+import { DbChainStateReader } from "./core/chain-state";
+import { QuipClient } from "./miner-client";
+import { parseConfig } from "./core/config";
 import { DescriptorWorker } from "./descriptor";
-import { IndexerState } from "./state";
+import { IndexerState } from "./core/state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
 import { SubstrateWorker } from "./substrate";
 import { TipWorker } from "./tip";
-import type { Worker } from "./worker";
+import type { Worker } from "./core/worker";
 
 export interface WorkerSpec {
   name: string;

@@ -6,7 +6,7 @@ import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { NodeDescriptor } from "@quip/shared/telemetry";
 
 import { FakeSubstrateClient, type MinerRegistryDescriptorRecord } from "../substrate-client";
-import { newInMemoryAdapter } from "../test-helpers";
+import { newInMemoryAdapter } from "../core/test-helpers";
 import { runDescriptorIteration } from "./iteration";
 
 const VALID_DESCRIPTOR: NodeDescriptor = {

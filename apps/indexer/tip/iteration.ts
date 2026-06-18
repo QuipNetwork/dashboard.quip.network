@@ -11,9 +11,9 @@ import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "@quip/shared/telemetry";
 
-import type { ChainStateReader } from "../chain-state";
-import type { MinerSource } from "../client";
-import { IndexerState } from "../state";
+import type { ChainStateReader } from "../core/chain-state";
+import type { MinerSource } from "../miner-client";
+import { IndexerState } from "../core/state";
 
 // Cap on per-poll submission fetches. The global solution_number space is
 // dense from this miner's view (every miner grinds the same solutions), so

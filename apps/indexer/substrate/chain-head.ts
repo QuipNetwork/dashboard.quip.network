@@ -6,9 +6,9 @@
 
 import { type Observable, concatMap, debounceTime, map, merge, scan, tap } from "rxjs";
 
-import { runEffect } from "../rx";
+import { runEffect } from "../core/rx";
 import type { SubstrateHead } from "../substrate-client";
-import { type WorkerContext, nowIso } from "../worker";
+import { type WorkerContext, nowIso } from "../core/worker";
 import type { ConnectionStream, HeadSource } from "./ports";
 import { fromChainSubscription } from "./streams";
 
