@@ -60,9 +60,10 @@ descriptor has landed).
 
 Database configuration is read from env via `@quip/core/db`:
 
-| Env            | Default                               |
-| -------------- | ------------------------------------- |
-| `DATABASE_URL` | Required — Postgres connection string |
+| Env                 | Default                               |
+| ------------------- | ------------------------------------- |
+| `DATABASE_URL`      | Required — Postgres connection string |
+| `DATABASE_POOL_MAX` | `10` — max postgres pool connections  |
 
 ## How it works
 

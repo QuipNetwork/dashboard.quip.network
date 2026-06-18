@@ -393,4 +393,11 @@ export interface DatabaseAdapter {
 
 export interface DbConfig {
   databaseUrl: string;
+  /**
+   * Max connections in the postgres pool. Defaults to a modest pool when
+   * unset. Raise it for a server fronting many concurrent clients; keep it
+   * low on serverless, where each instance opens its own pool against a
+   * shared connection budget.
+   */
+  poolMax?: number;
 }

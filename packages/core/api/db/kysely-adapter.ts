@@ -49,8 +49,11 @@ type ChainMinerLite = Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware"
 
 // A Postgres adapter over Kysely (postgres-js). Reads are normalised by the
 // shared row mappers; writes pass JS values straight through.
+const DEFAULT_POOL_MAX = 10;
+
 export class KyselyAdapter implements DatabaseAdapter {
   private readonly url: string | undefined;
+  private readonly poolMax: number;
   private db: Kysely<DB> | null = null;
   private sqlClient: Sql | null = null;
   // Test seam: an externally-built Kysely (e.g. over pglite). When present,
@@ -60,6 +63,7 @@ export class KyselyAdapter implements DatabaseAdapter {
 
   constructor(config: DbConfig, injected?: { db: Kysely<DB>; onClose?: () => Promise<void> }) {
     this.url = config.databaseUrl ?? process.env.DATABASE_URL;
+    this.poolMax = config.poolMax ?? DEFAULT_POOL_MAX;
     this.injected = injected ?? null;
     if (!this.url && !this.injected) {
       throw new Error("KyselyAdapter requires DATABASE_URL or config.databaseUrl");
@@ -72,7 +76,7 @@ export class KyselyAdapter implements DatabaseAdapter {
       return;
     }
     this.sqlClient = postgres(this.url as string, {
-      max: 4,
+      max: this.poolMax,
       idle_timeout: 30,
       // Migrations issue DROP TABLE IF EXISTS; silence the resulting NOTICEs.
       onnotice: () => {},

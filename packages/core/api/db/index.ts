@@ -7,7 +7,12 @@ export function getConfigFromEnv(): DbConfig {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required (Postgres connection string).");
   }
-  return { databaseUrl };
+  // DATABASE_POOL_MAX overrides the pool size; ignore non-positive / malformed
+  // values so a typo falls back to the default rather than opening 0/NaN.
+  const poolMaxRaw = Number(process.env.DATABASE_POOL_MAX);
+  const poolMax =
+    Number.isFinite(poolMaxRaw) && poolMaxRaw >= 1 ? Math.trunc(poolMaxRaw) : undefined;
+  return poolMax !== undefined ? { databaseUrl, poolMax } : { databaseUrl };
 }
 
 export async function createAdapter(config?: DbConfig): Promise<DatabaseAdapter> {
