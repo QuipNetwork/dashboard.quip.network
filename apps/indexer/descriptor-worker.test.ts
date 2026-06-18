@@ -184,4 +184,50 @@ describe("runDescriptorLoop", () => {
     expect(rows.map((r) => r.accountId)).toEqual(["5BLK6"]);
     expect(await db.getDescriptorCheckpoint()).toBe("7");
   });
+
+  // --- Lifecycle invariants (Worker-migration safety net) ---
+  // The loop must unwind promptly from an idle wait on abort, and must treat
+  // a pruned-state RPC error as a permanent miss that advances the checkpoint
+  // rather than hot-looping the block. These must hold identically after the
+  // loop is reshaped into a DescriptorWorker class.
+
+  it("aborts promptly while idle (caught up to the finalized head)", async () => {
+    const state = new IndexerState(db);
+    // nextBlock starts at 1 (genesis); a finalized head of 0 means the loop is
+    // immediately caught up and parks in the idle poll.
+    state.observability.finalizedBlockHeight = "0";
+
+    const ac = new AbortController();
+    const loop = runDescriptorLoop(
+      { config: makeConfig(), db, state, urls: ["ws://x"], clientFactory: () => client },
+      ac.signal,
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    const abortedAt = Date.now();
+    ac.abort();
+    await loop;
+    expect(Date.now() - abortedAt).toBeLessThan(500);
+  });
+
+  it("skips a pruned-state block and advances the checkpoint past it", async () => {
+    const state = new IndexerState(db);
+    state.observability.finalizedBlockHeight = "2";
+    // Block 1's state has been discarded by the pruned validator; block 2 is
+    // a normal empty snapshot. The loop must skip 1 (advancing the checkpoint)
+    // and still process 2 rather than retrying 1 forever.
+    client.getMinerRegistryDescriptorsAt = async (blockNumber: string) => {
+      if (blockNumber === "1") throw new Error("State already discarded");
+      return [];
+    };
+
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 200);
+    await runDescriptorLoop(
+      { config: makeConfig(), db, state, urls: ["ws://x"], clientFactory: () => client },
+      ac.signal,
+    );
+
+    expect(await db.getDescriptorCheckpoint()).toBe("2");
+    expect(await db.getAllNodeDescriptors()).toHaveLength(0);
+  });
 });
