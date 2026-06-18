@@ -62,7 +62,10 @@ export class BunRunner implements Runner {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly manageSignals: boolean;
   private children: Child[] = [];
+  // Defaults to resolved — "nothing to shut down yet". The first shutdown
+  // replaces it so every caller awaits the same teardown.
   private shuttingDown = false;
+  private shutdownPromise: Promise<void> = Promise.resolve();
   private shutdownSignaled = false;
 
   constructor(opts: BunRunnerOptions = {}) {
@@ -145,13 +148,22 @@ export class BunRunner implements Runner {
     };
   }
 
-  // Idempotent: SIGTERM every live child, wait up to the grace period for all
-  // to exit, then SIGKILL any straggler. Resolves only once every child is
-  // reaped, so the caller never exits ahead of its children.
-  private async shutdown(children: Child[]): Promise<void> {
-    if (this.shuttingDown) return;
-    this.shuttingDown = true;
+  // Memoised so every caller — run()'s post-wait teardown AND a concurrent
+  // signal handler / requestShutdown — awaits the SAME teardown. Without this,
+  // a signal-initiated shutdown lets run() resolve (and process.exit) before
+  // the children are reaped; matters most under a supervisor without tini to
+  // reap orphans.
+  private shutdown(children: Child[]): Promise<void> {
+    if (!this.shuttingDown) {
+      this.shuttingDown = true;
+      this.shutdownPromise = this.doShutdown(children);
+    }
+    return this.shutdownPromise;
+  }
 
+  // SIGTERM every live child, wait up to the grace period for all to exit, then
+  // SIGKILL any straggler. Resolves only once every child is reaped.
+  private async doShutdown(children: Child[]): Promise<void> {
     this.signalLiveChildren(children, "SIGTERM");
 
     const allExited = Promise.all(children.map((c) => c.proc.exited));

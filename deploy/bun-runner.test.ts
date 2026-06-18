@@ -156,4 +156,24 @@ describe("BunRunner", () => {
     expect(await run).toBe(0);
     expect(spawns[0]!.proc.signals).toEqual(["SIGTERM"]);
   });
+
+  test("run() does not resolve until every child is reaped, even on a signal-initiated shutdown", async () => {
+    // server stops on SIGTERM; indexer ignores it and only dies on SIGKILL
+    // after the (real) grace timer. A real Bun.sleep here also exercises the
+    // grace-escalation timing the other tests collapse with an instant sleep.
+    const { spawn, spawns } = fakeSpawn((_command, cwd) =>
+      cwd.endsWith("server") ? new FakeProcess(143) : new FakeProcess(),
+    );
+    const runner = new BunRunner({ spawn, killGraceMs: 30, installSignalHandlers: false });
+    const run = runner.run({ setup: [], apps: [app("server"), app("indexer")] });
+
+    void runner.requestShutdown(); // signal-style stop, not awaited
+    const code = await run;
+
+    // Both children must be fully reaped by the time run() resolves.
+    expect(spawns[0]!.proc.exitCode).toBe(143);
+    expect(spawns[1]!.proc.exitCode).toBe(137); // SIGKILLed after the grace period
+    expect(spawns[1]!.proc.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(code).toBe(0); // signal-initiated + a 143 first-exit → success
+  });
 });
