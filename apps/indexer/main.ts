@@ -10,57 +10,47 @@ import { IndexerState } from "./state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
 import { SubstrateWorker } from "./substrate";
 import { TipWorker } from "./tip";
+import type { Worker } from "./worker";
 
-export interface WorkerRunner {
-  runTip: (signal: AbortSignal) => Promise<void>;
-  runSubstrate: (signal: AbortSignal) => Promise<void>;
-  // Node-descriptor indexer — scans finalized `MinerRegistry.NodeDescriptors`
-  // snapshots written by operators running `quip-miner identify`.
-  runDescriptor: (signal: AbortSignal) => Promise<void>;
+export interface WorkerSpec {
+  name: string;
+  worker: Worker;
+  // A fatal worker's failure aborts its siblings and fails the whole run; a
+  // non-fatal worker's failure is logged and the others keep going (it
+  // self-heals via its own reconnect loop). Only the tip worker is fatal.
+  fatal: boolean;
 }
 
-type WorkerName = "tip" | "substrate" | "descriptor";
-
 /**
- * Run the configured workers concurrently. Each worker receives a composed
- * {@link AbortSignal} that fires when either:
- *   - any worker throws a non-recoverable error — this aborts every
- *     sibling so the process exits cleanly rather than running half-up
+ * Run the workers concurrently. Each receives a composed {@link AbortSignal}
+ * that fires when either:
+ *   - a {@link WorkerSpec.fatal} worker throws — this aborts every sibling so
+ *     the process exits cleanly rather than running half-up
  *   - the optional {@link parentSignal} (typically a process-level SIGINT
  *     controller) aborts
  *
  * Returns 0 when all workers complete normally, 1 when any rejects.
  */
-export async function runWorkers(
-  runners: WorkerRunner,
-  parentSignal?: AbortSignal,
-): Promise<number> {
+export async function runWorkers(specs: WorkerSpec[], parentSignal?: AbortSignal): Promise<number> {
   const ac = new AbortController();
   const signals = parentSignal ? [ac.signal, parentSignal] : [ac.signal];
   const combined = signals.length === 1 ? ac.signal : AbortSignal.any(signals);
 
-  const wrap = async (name: WorkerName, fn: (s: AbortSignal) => Promise<void>): Promise<void> => {
+  const wrap = async (spec: WorkerSpec): Promise<void> => {
     try {
-      await fn(combined);
+      await spec.worker.run(combined);
     } catch (e) {
       if ((e as Error)?.name === "AbortError") return;
       console.error(
-        `[indexer] ${name} unhandled error:`,
+        `[indexer] ${spec.name} unhandled error:`,
         e instanceof Error ? (e.stack ?? e.message) : e,
       );
-      // Tip worker is the only fatal — substrate/descriptor failures
-      // self-heal via their own reconnect loops, so we don't yank the
-      // whole indexer for those.
-      if (name === "tip") ac.abort();
+      if (spec.fatal) ac.abort();
       throw e;
     }
   };
 
-  const results = await Promise.allSettled([
-    wrap("tip", runners.runTip),
-    wrap("substrate", runners.runSubstrate),
-    wrap("descriptor", runners.runDescriptor),
-  ]);
+  const results = await Promise.allSettled(specs.map(wrap));
   const failed = results.some((r) => r.status === "rejected");
   return failed ? 1 : 0;
 }
@@ -111,37 +101,41 @@ async function main(): Promise<number> {
   const clientFactory = (url: string): SubstrateClient =>
     new PolkadotSubstrateClient(url, config.substrateRpcTimeoutMs);
 
+  // Tip is the only fatal worker — substrate/descriptor self-heal via their
+  // own reconnect loops, so their failures don't yank the whole indexer.
+  const specs: WorkerSpec[] = [
+    {
+      name: "tip",
+      fatal: true,
+      worker: new TipWorker({
+        config,
+        db,
+        state,
+        clientFactory: (baseUrl) => new QuipClient({ baseUrl }),
+        chainState: new DbChainStateReader(db),
+      }),
+    },
+    {
+      name: "substrate",
+      fatal: false,
+      worker: new SubstrateWorker({ config, db, state, urls: config.validatorRpcUrls, clientFactory }),
+    },
+    {
+      name: "descriptor",
+      fatal: false,
+      worker: new DescriptorWorker({
+        config,
+        db,
+        state,
+        urls: config.validatorRpcUrls,
+        clientFactory,
+      }),
+    },
+  ];
+
   let exitCode = 0;
   try {
-    exitCode = await runWorkers(
-      {
-        runTip: (signal) =>
-          new TipWorker({
-            config,
-            db,
-            state,
-            clientFactory: (baseUrl) => new QuipClient({ baseUrl }),
-            chainState: new DbChainStateReader(db),
-          }).run(signal),
-        runSubstrate: (signal) =>
-          new SubstrateWorker({
-            config,
-            db,
-            state,
-            urls: config.validatorRpcUrls,
-            clientFactory,
-          }).run(signal),
-        runDescriptor: (signal) =>
-          new DescriptorWorker({
-            config,
-            db,
-            state,
-            urls: config.validatorRpcUrls,
-            clientFactory,
-          }).run(signal),
-      },
-      processAc.signal,
-    );
+    exitCode = await runWorkers(specs, processAc.signal);
   } catch (e) {
     exitCode = 1;
     console.error(`[indexer] workers failed:`, e instanceof Error ? (e.stack ?? e.message) : e);

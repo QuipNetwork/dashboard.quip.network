@@ -54,20 +54,30 @@ Database configuration is read from env via `@quip/core/db`:
 Three concurrent async workers run in one process under a shared
 `AbortController`. They share one `IndexerState` and `DatabaseAdapter`.
 
-- **Substrate worker** (`apps/indexer/substrate-worker.ts`) subscribes to the
-  validator over WSS and is the canonical source of `BlockRecord` rows plus the
-  chain surfaces (`quantum_pow.Miners`, difficulty, session validators, BABE
-  epoch). Failures self-heal via an exponential-backoff reconnect loop.
-- **Descriptor worker** (`apps/indexer/descriptor-worker.ts`) snapshots the
-  finalized `MinerRegistry.NodeDescriptors` storage written by operators
-  running `quip-miner identify`, populating on-chain node descriptors.
-- **Tip worker** (`apps/indexer/tip-worker.ts`) polls the local miner REST
-  surface for self-identity and miner stats and flushes the observability
-  heartbeat each iteration so the dashboard knows the indexer is alive.
+Each worker is a class implementing the shared `Worker` contract
+(`run(signal)`, in `apps/indexer/worker.ts`); the connection-invariant deps
+(`WorkerContext`) and the generic rxjs bridges (`apps/indexer/rx.ts`) are
+shared across all three.
+
+- **Substrate worker** (`apps/indexer/substrate/`) subscribes to the validator
+  over WSS and is the canonical source of `BlockRecord` rows plus the chain
+  surfaces (`quantum_pow.Miners`, difficulty, session validators, BABE epoch).
+  An rxjs pipeline — `defer(connect) → merge(chainHead$, blocks$, polls$)`
+  wrapped in `retry` (reconnect + URL rotation) and `takeUntil(abort)`.
+  Failures self-heal via the exponential-backoff reconnect loop.
+- **Descriptor worker** (`apps/indexer/descriptor/`) snapshots the finalized
+  `MinerRegistry.NodeDescriptors` storage written by operators running
+  `quip-miner identify`, populating on-chain node descriptors. A stateful
+  block-by-block cursor drain (not a stream) over its own client lifecycle.
+- **Tip worker** (`apps/indexer/tip/`) polls the local miner REST surface for
+  self-identity and miner stats and flushes the observability heartbeat each
+  iteration so the dashboard knows the indexer is alive. An rxjs
+  `timer(0, interval) → exhaustMap(iterate) → takeUntil(abort)` loop.
 - **Orchestrator** (`apps/indexer/main.ts`) spawns the workers via
-  `runWorkers`. The tip worker is the only fatal one — its failure aborts the
-  siblings and exits non-zero; substrate and descriptor failures are non-fatal
-  and recover on their own. `SIGINT` / `SIGTERM` aborts cleanly.
+  `runWorkers`, which takes a `WorkerSpec[]` (worker + `fatal` flag). The tip
+  worker is the only fatal one — its failure aborts the siblings and exits
+  non-zero; substrate and descriptor failures are non-fatal and recover on
+  their own. `SIGINT` / `SIGTERM` aborts cleanly.
 
 ### Big-int nonce
 
@@ -87,9 +97,11 @@ so they run self-contained with no external database.
 
 | File                                     | Covers                                                                                                              |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `apps/indexer/tip-worker.test.ts`        | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
-| `apps/indexer/substrate-worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                                             |
-| `apps/indexer/descriptor-worker.test.ts` | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots, resume-from-checkpoint                          |
+| `apps/indexer/tip/iteration.test.ts`     | tip iteration: self-identity poll, miner stats, observability heartbeat                                             |
+| `apps/indexer/tip/worker.test.ts`        | tip loop cadence: immediate-first-run, prompt abort, once mode, heartbeat fallback                                  |
+| `apps/indexer/substrate/worker.test.ts`  | substrate event subscription, canonical block writes, reconnect backoff                                             |
+| `apps/indexer/descriptor/iteration.test.ts` | descriptor scan: `MinerRegistry.NodeDescriptors` registry snapshots                                              |
+| `apps/indexer/descriptor/worker.test.ts` | descriptor loop: backfill-to-head, resume-from-checkpoint, pruned-state skip, URL rotation                          |
 | `apps/indexer/main.test.ts`              | orchestration: workers run concurrently; a tip failure aborts siblings; substrate/descriptor failures are non-fatal |
 | `apps/indexer/config.test.ts`            | flag / env parsing, validation, whitespace handling                                                                 |
 | `apps/indexer/client.test.ts`            | `QuipClient` HTTP behavior, error mapping, big-int nonce quoting                                                    |
