@@ -33,7 +33,6 @@ bun run dev:indexer
 | `--substrate-reconnect-max-backoff` | `QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS` | `60000`                    |
 | `--substrate-babe-poll`             | `QUIP_VALIDATOR_BABE_POLL_SEC`            | `30`                       |
 | `--substrate-chain-poll`            | `QUIP_VALIDATOR_CHAIN_POLL_SEC`           | `6`                        |
-| `--descriptor-start-block`          | `QUIP_DESCRIPTOR_START_BLOCK`             | `1` (deprecated, no-op)    |
 | `--operator-account`                | `QUIP_OPERATOR_ACCOUNT`                   | unset                      |
 | `--once`                            | —                                         | `false`                    |
 | `--verbose`                         | `VERBOSE=1`                               | `false`                    |
