@@ -11,6 +11,18 @@
 // through the indexer state and DB, and the SPA reads them via the server's
 // /api/telemetry payload.
 
+import type {
+  MinerCategory,
+  NodeDescriptor,
+  NodeLogLevel,
+  NodeMinerEntry,
+  NodeRuntime,
+  NodeSystemCpu,
+  NodeSystemGpu,
+  NodeSystemInfo,
+  NodeSystemOs,
+} from "../src/types/telemetry";
+
 export interface SubstrateHead {
   // u64 as string — substrate block heights exceed Number.MAX_SAFE_INTEGER
   // on long-running chains.
@@ -22,9 +34,19 @@ export interface SubstrateHead {
 }
 
 // Emitted by pallet-quantum-pow on_finalize (verified in
-// quip-protocol-rs/pallets/quantum-pow/src/lib.rs:159-164). The substrate
+// quip-protocol-rs/pallets/quantum-pow/src/lib.rs:328-335). The substrate
 // worker subscribes to system.events and filters for these.
+//
+// v0.2 field order (BlockWinner): qblock_id, block_number, miner, reward,
+// energy_milli, submitted_at. The two leading fields are new in v0.2 — see
+// `decodeBlockWinnerEventData` for the positional decode.
 export interface BlockWinnerEvent {
+  // Monotonic 1-based qblock id assigned in on_finalize when this proof
+  // won. u64 as string. New in v0.2 (the network-wide "solution number").
+  qblockId: string;
+  // Substrate block number this win was sealed in (u64 as string). New in
+  // v0.2; for the canonical writer this equals BlockEvents.blockNumber.
+  blockNumber: string;
   miner: string; // SS58 account ID
   reward: string; // u128 as string
   energyMilli: number; // integer; divide by 1000 to compare to BlockRecord.energy
@@ -145,6 +167,17 @@ export interface WinningSolutionInfo {
   difficulty: DifficultyInfo;
 }
 
+// One topology on the chain's mineable whitelist, with its current decayed
+// difficulty and node/edge counts. Sourced from the v0.2 QuantumPow runtime
+// APIs `mineable_topologies()` + `difficulty_for(hash)` + `topology_meta(hash)`.
+export interface MineableTopologyInfo {
+  topologyHash: string;
+  isDefault: boolean;
+  difficulty: DifficultyInfo;
+  nodeCount: number;
+  edgeCount: number;
+}
+
 export type UnsubFn = () => void;
 
 export interface SubstrateClient {
@@ -188,6 +221,17 @@ export interface SubstrateClient {
   getBabeAuthorities(): Promise<BabeAuthorityInfo[]>;
   getChainMiners(): Promise<ChainMinerInfo[]>;
   getDifficulty(): Promise<DifficultyInfo | null>;
+
+  // v0.2: current per-topology difficulty for every topology on the mineable
+  // whitelist (`mineable_topologies()` → `difficulty_for(hash)` +
+  // `topology_meta(hash)`). Empty when the runtime APIs are absent (pre-v0.2).
+  getMineableTopologies(): Promise<MineableTopologyInfo[]>;
+
+  // v0.2: count of miners that declared participation on `qblockId` via
+  // `MinerRegistry.participate` (the `participant_count_by_qblock` runtime
+  // API). Null when the runtime API is absent (pre-v0.2 / pallet missing).
+  getQBlockParticipantCount(qblockId: string): Promise<number | null>;
+
   getRuntimeVersion(): Promise<RuntimeVersionInfo>;
   getLastRuntimeUpgrade(): Promise<{ blockNumber: string } | null>;
 
@@ -203,18 +247,18 @@ export interface SubstrateClient {
   getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null>;
 
   // Lists the block numbers (as decimal strings) for which a
-  // `quantum_pow.WinningSolutions` entry exists on chain. Used at indexer
-  // startup to backfill historical wins that fired before `subscribeBlockEvents`
-  // started receiving live heads. Returns empty when the storage map is
-  // absent (pre-v0.2) or empty (no wins yet).
+  // `quantum_pow.QBlocks` entry exists on chain (v0.2 renamed the v0.1
+  // `WinningSolutions` map). Used at indexer startup to backfill historical
+  // wins that fired before `subscribeBlockEvents` started receiving live
+  // heads. Returns empty when the storage map is absent (pre-v0.2) or empty
+  // (no wins yet).
   getWinningBlockNumbers(): Promise<string[]>;
 
-  // Count of entries in the `quantum_pow.WinningSolutions` storage map —
-  // the network-wide winning-solution total. The global "solution number"
-  // the miner keys its directories on is this + 1 (MR !105). Reads the
-  // pallet's `CounterFor` companion when the map is a CountedStorageMap
-  // (single storage read); otherwise falls back to counting keys. Null
-  // when the storage map is absent (pre-v0.2).
+  // Network-wide winning-qblock total. v0.2 exposes this directly as the
+  // `quantum_pow.QBlockCount` u64 (single O(1) read); falls back to counting
+  // `QBlocks` keys. The global "solution number" the miner keys its
+  // directories on is this + 1 (MR !105). Null when neither item is present
+  // (pre-v0.2).
   getWinningSolutionsCount(): Promise<number | null>;
 
   // Decode events, author, and timestamp for a specific finalized block,
@@ -223,35 +267,28 @@ export interface SubstrateClient {
   // path to route historical winning blocks through the worker's writer.
   processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null>;
 
-  // Extract every `System.remark{,_with_event}` extrinsic from a finalized
-  // block. Returns one record per call, in extrinsic order, with the
-  // sender's SS58 (extrinsic origin), the raw remark body as a UTF-8
-  // string, and provenance fields (block number, hash, extrinsic index)
-  // the descriptor worker uses for ordered upserts. Returns null when the
-  // block is not found on chain.
-  //
-  // We accept BOTH `remark` and `remark_with_event` because the FRAME
-  // version on the connected chain dictates which one operators sign;
-  // collapsing them under a single decoder simplifies the worker. The
-  // event-stream optimisation (filter `System.Remarked` first) buys
-  // nothing here — we already have to fetch the whole block to recover
-  // the extrinsic body, and most blocks carry zero remarks.
-  getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null>;
+  // Read every on-chain node descriptor from `MinerRegistry.NodeDescriptors`
+  // (a StorageMap keyed by AccountId), decoded into the dashboard's shape.
+  // v0.2 replaced the v0.1 `System.remark` JSON-descriptor flow with this
+  // typed pallet storage, so the descriptor surface is now a full-storage
+  // poll (like `getChainMiners`) rather than a per-block extrinsic scan.
+  // Returns empty when the pallet is absent (pre-v0.2) or no descriptor has
+  // been filed.
+  getNodeDescriptors(): Promise<ChainNodeDescriptor[]>;
 }
 
 /**
- * One `System.remark{,_with_event}` call extracted from a finalized block.
- * `body` is the UTF-8 decoded remark argument; the descriptor worker hands
- * it to `parseAndValidateDescriptor` which guards against non-UTF-8 and
- * non-JSON payloads itself, so we don't pre-filter here.
+ * One node descriptor read from `MinerRegistry.NodeDescriptors`. Carries the
+ * chain-sourced parts only — the indexer's descriptor poll adds the observed
+ * timestamps before persisting a `NodeDescriptorRecord`.
  */
-export interface RemarkRecord {
-  sender: string;
-  body: string;
-  blockNumber: string;
-  blockHash: string;
-  blockTimestamp: number;
-  extrinsicIndex: number;
+export interface ChainNodeDescriptor {
+  accountId: string;
+  // On-chain `updated_at` block number (u64 as string).
+  updatedAtBlock: string;
+  // On-chain `payload_hash` (H256 hex).
+  payloadHash: string;
+  descriptor: NodeDescriptor;
 }
 
 /**
@@ -286,8 +323,8 @@ export class FakeSubstrateClient implements SubstrateClient {
   public winningSolutionsByBlock = new Map<string, WinningSolutionInfo>();
   public runtimeVersion: RuntimeVersionInfo = {
     specName: "quip",
-    specVersion: 101,
-    transactionVersion: 2,
+    specVersion: 109,
+    transactionVersion: 4,
     implName: "quip",
   };
   public lastRuntimeUpgrade: { blockNumber: string } | null = null;
@@ -357,6 +394,15 @@ export class FakeSubstrateClient implements SubstrateClient {
   async getDifficulty(): Promise<DifficultyInfo | null> {
     return this.difficulty;
   }
+  public mineableTopologies: MineableTopologyInfo[] = [];
+  async getMineableTopologies(): Promise<MineableTopologyInfo[]> {
+    return this.mineableTopologies;
+  }
+  // Keyed by qblock id string; tests populate the counts they expect to read.
+  public qblockParticipantCounts = new Map<string, number>();
+  async getQBlockParticipantCount(qblockId: string): Promise<number | null> {
+    return this.qblockParticipantCounts.get(qblockId) ?? null;
+  }
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
     return this.runtimeVersion;
   }
@@ -381,12 +427,11 @@ export class FakeSubstrateClient implements SubstrateClient {
   async processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null> {
     return this.historicalBlocks.get(blockNumber) ?? null;
   }
-  // Tests populate `remarksByBlock` (keyed by blockNumber string) with the
-  // pre-decoded remark records the descriptor worker should observe.
-  public remarksByBlock = new Map<string, RemarkRecord[] | null>();
-  async getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null> {
-    const v = this.remarksByBlock.get(blockNumber);
-    return v === undefined ? [] : v;
+  // Tests populate `nodeDescriptors` with the chain descriptors the
+  // descriptor poll should observe.
+  public nodeDescriptors: ChainNodeDescriptor[] = [];
+  async getNodeDescriptors(): Promise<ChainNodeDescriptor[]> {
+    return this.nodeDescriptors;
   }
 
   emitFinalized(h: SubstrateHead): void {
@@ -464,7 +509,7 @@ class HybridExtrinsicSignatureV5 extends GenericExtrinsicSignatureV5 {
 /**
  * @polkadot/api-backed implementation. Pinned to 16.5.6 in package.json so
  * @polkadot/types stays in lockstep (a mismatch produces opaque decode
- * errors). Storage queries assume quip-protocol-rs spec_version 101 —
+ * errors). Storage queries target quip-protocol-rs v0.2 (spec_version 109) —
  * later runtime upgrades may rename items; capability checks (`?.`)
  * keep the worker non-fatal in that case.
  */
@@ -587,9 +632,11 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       );
     }
     // Subscribes to ALL events; filter to quantumPow.BlockWinner. Event
-    // shape: (miner: AccountId, reward: Balance, energy_milli: i64,
-    // submitted_at: BlockNumber). Verified against
-    // quip-protocol-rs/pallets/quantum-pow/src/lib.rs:159-164.
+    // shape (v0.2): (qblock_id: u64, block_number: BlockNumber, miner:
+    // AccountId, reward: Balance, energy_milli: i64, submitted_at:
+    // BlockNumber). Verified against
+    // quip-protocol-rs/pallets/quantum-pow/src/lib.rs:328-335. Positional
+    // decode lives in `decodeBlockWinnerEventData`.
     type EventRecord = {
       event: {
         section: string;
@@ -601,14 +648,8 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       for (const record of records) {
         const { event } = record;
         if (event.section !== "quantumPow" || event.method !== "BlockWinner") continue;
-        const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = event.data;
-        if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
-        cb({
-          miner: minerCodec.toString(),
-          reward: rewardCodec.toString(),
-          energyMilli: Number(energyCodec.toString()),
-          submittedAt: submittedAtCodec.toString(),
-        });
+        const decoded = decodeBlockWinnerEventData(event.data);
+        if (decoded) cb(decoded);
       }
     });
     return () => {
@@ -694,6 +735,74 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     if (!api.query.quantumPow?.difficulty) return null;
     const codec = await api.query.quantumPow.difficulty();
     return decodeDifficulty(codec);
+  }
+
+  async getMineableTopologies(): Promise<MineableTopologyInfo[]> {
+    const api = this.requireApi();
+    const call = api.call as unknown as Record<string, Record<string, unknown> | undefined>;
+    const listFn = call?.quantumPowApi?.mineableTopologies;
+    if (typeof listFn !== "function") return []; // pre-v0.2 runtime
+    const listCodec = await (listFn as () => Promise<unknown>)();
+    const hashes = (listCodec as { toJSON?: () => unknown }).toJSON?.();
+    if (!Array.isArray(hashes)) return [];
+
+    // Resolve the default topology hash so each entry can be flagged.
+    let defaultHash: string | null = null;
+    const dt = api.query.quantumPow?.defaultTopology;
+    if (dt) {
+      const opt = (await dt()) as { isSome?: boolean; unwrap?: () => { toHex: () => string } };
+      if (opt?.isSome && opt.unwrap) defaultHash = opt.unwrap().toHex();
+    }
+
+    const diffFn = call?.quantumPowApi?.difficultyFor;
+    const metaFn = call?.quantumPowApi?.topologyMeta;
+    const out: MineableTopologyInfo[] = [];
+    for (const raw of hashes) {
+      const topologyHash = String(raw);
+      let difficulty: DifficultyInfo = {
+        maxEnergyMilli: 0,
+        minDiversityMilli: 0,
+        minSolutions: 0,
+      };
+      if (typeof diffFn === "function") {
+        const dc = (await (diffFn as (h: string) => Promise<unknown>)(topologyHash)) as {
+          isSome?: boolean;
+          unwrap?: () => unknown;
+        };
+        if (dc?.isSome && dc.unwrap) difficulty = decodeDifficulty(dc.unwrap());
+      }
+      let nodeCount = 0;
+      let edgeCount = 0;
+      if (typeof metaFn === "function") {
+        const mc = (await (metaFn as (h: string) => Promise<unknown>)(topologyHash)) as {
+          isSome?: boolean;
+          unwrap?: () => { nodes: { length: number }; edges: { length: number } };
+        };
+        if (mc?.isSome && mc.unwrap) {
+          const meta = mc.unwrap();
+          nodeCount = meta.nodes.length;
+          edgeCount = meta.edges.length;
+        }
+      }
+      out.push({
+        topologyHash,
+        isDefault: topologyHash === defaultHash,
+        difficulty,
+        nodeCount,
+        edgeCount,
+      });
+    }
+    return out;
+  }
+
+  async getQBlockParticipantCount(qblockId: string): Promise<number | null> {
+    const api = this.requireApi();
+    const fn = (api.call as unknown as Record<string, Record<string, unknown> | undefined>)
+      ?.minerRegistryApi?.participantCountByQblock;
+    if (typeof fn !== "function") return null; // pre-v0.2 / pallet absent
+    const codec = await (fn as (id: string) => Promise<unknown>)(qblockId);
+    const n = Number((codec as { toString: () => string }).toString());
+    return Number.isFinite(n) ? n : null;
   }
 
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
@@ -816,9 +925,11 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 
   async getWinningBlockNumbers(): Promise<string[]> {
     const api = this.requireApi();
-    // Capability check — pre-v0.2 chains don't have this storage map.
-    if (!api.query.quantumPow?.winningSolutions?.entries) return [];
-    const entries = (await api.query.quantumPow.winningSolutions.entries()) as unknown as Array<
+    // v0.2 renamed the winning-solution storage: WinningSolutions → QBlocks
+    // (StorageMap keyed by substrate block number, lib.rs:275). Capability
+    // check covers pre-v0.2 chains where neither item exists.
+    if (!api.query.quantumPow?.qBlocks?.entries) return [];
+    const entries = (await api.query.quantumPow.qBlocks.entries()) as unknown as Array<
       [{ args: Array<{ toString: () => string }> }, unknown]
     >;
     return entries.map(([key]) => key.args[0]!.toString());
@@ -827,21 +938,23 @@ export class PolkadotSubstrateClient implements SubstrateClient {
   async getWinningSolutionsCount(): Promise<number | null> {
     const api = this.requireApi();
     const q = api.query.quantumPow;
-    if (!q?.winningSolutions) return null; // pre-v0.2 chain
-    // Prefer the CountedStorageMap companion `counterForWinningSolutions`
-    // — a single O(1) storage read — over scanning every key. FRAME
-    // auto-generates it only when the map is declared `CountedStorageMap`;
-    // fall back to counting keys (one paged scan) when it's a plain map.
-    const counter = (q as Record<string, unknown>)["counterForWinningSolutions"] as
+    // v0.2 exposes `QBlockCount` (u64 ValueQuery, lib.rs:280) — the
+    // network-wide count of winning qblocks, i.e. the global "solution
+    // number". Prefer it: a single O(1) storage read instead of scanning
+    // every QBlocks key. (Replaces the v0.1 WinningSolutions map + its
+    // CountedStorageMap companion.)
+    const countFn = (q as Record<string, unknown> | undefined)?.["qBlockCount"] as
       | { (): Promise<{ toString: () => string }> }
       | undefined;
-    if (typeof counter === "function") {
-      const raw = await counter();
+    if (typeof countFn === "function") {
+      const raw = await countFn();
       const n = Number(raw.toString());
       if (Number.isFinite(n)) return n;
     }
-    if (!q.winningSolutions.keys) return null;
-    const keys = (await q.winningSolutions.keys()) as unknown as unknown[];
+    // Fallback: count QBlocks keys (one paged scan). Null on pre-v0.2
+    // chains where neither QBlockCount nor QBlocks exists.
+    if (!q?.qBlocks?.keys) return null;
+    const keys = (await q.qBlocks.keys()) as unknown as unknown[];
     return keys.length;
   }
 
@@ -894,14 +1007,8 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       const { section, method, data } = rec.event;
       if (section !== "quantumPow") continue;
       if (method === "BlockWinner") {
-        const [minerCodec, rewardCodec, energyCodec, submittedAtCodec] = data;
-        if (!minerCodec || !rewardCodec || !energyCodec || !submittedAtCodec) continue;
-        winner = {
-          miner: minerCodec.toString(),
-          reward: rewardCodec.toString(),
-          energyMilli: Number(energyCodec.toString()),
-          submittedAt: submittedAtCodec.toString(),
-        };
+        const decoded = decodeBlockWinnerEventData(data);
+        if (decoded) winner = decoded;
       } else if (method === "ProofAccepted") {
         const [minerCodec, energyCodec, diversityCodec, validCodec] = data;
         if (!minerCodec || !energyCodec || !diversityCodec || !validCodec) continue;
@@ -946,55 +1053,24 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     return Number(codec.toString());
   }
 
-  async getRemarksAtBlock(blockNumber: string): Promise<RemarkRecord[] | null> {
+  async getNodeDescriptors(): Promise<ChainNodeDescriptor[]> {
     const api = this.requireApi();
-    const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
-    const blockHash = hashCodec.toHex();
-    // chain_getBlockHash returns the zero hash sentinel for unknown blocks.
-    if (/^0x0+$/.test(blockHash)) return null;
-
-    const timestampAt = api.query.timestamp?.now?.at;
-    if (!timestampAt) {
-      throw new Error("[substrate-client] runtime missing timestamp.now");
+    // v0.2: descriptors live in MinerRegistry.NodeDescriptors (StorageMap
+    // keyed by AccountId). Capability check covers chains without the pallet.
+    const map = api.query.minerRegistry?.nodeDescriptors;
+    if (!map?.entries) return [];
+    const entries = (await map.entries()) as unknown as Array<
+      [{ args: Array<{ toString: () => string }> }, { toJSON: () => unknown }]
+    >;
+    const out: ChainNodeDescriptor[] = [];
+    for (const [key, value] of entries) {
+      const accountId = key.args[0]?.toString();
+      if (!accountId) continue;
+      const json = value.toJSON();
+      if (!json || typeof json !== "object") continue;
+      out.push(mapChainDescriptor(accountId, json as Record<string, unknown>));
     }
-    const [signed, timestampCodec] = await Promise.all([
-      api.rpc.chain.getBlock(hashCodec),
-      timestampAt(hashCodec),
-    ]);
-    const blockTimestamp = Math.floor(
-      Number((timestampCodec as unknown as { toString: () => string }).toString()) / 1000,
-    );
-
-    const records: RemarkRecord[] = [];
-    const extrinsics = signed.block.extrinsics;
-    for (let i = 0; i < extrinsics.length; i++) {
-      const ext = extrinsics[i];
-      if (!ext) continue;
-      const section = ext.method.section;
-      const method = ext.method.method;
-      if (section !== "system") continue;
-      // polkadot.js exposes the call method as camelCase irrespective of
-      // the FRAME-side `remark_with_event` snake_case naming.
-      if (method !== "remark" && method !== "remarkWithEvent") continue;
-      // Unsigned remarks have no extrinsic origin; without a signer there's
-      // no canonical identity to attribute the descriptor to. Skip rather
-      // than guess.
-      if (!ext.isSigned) continue;
-      const sender = ext.signer.toString();
-      const args = ext.method.args;
-      if (args.length === 0) continue;
-      const body = decodeRemarkBody(args[0]);
-      if (body === null) continue;
-      records.push({
-        sender,
-        body,
-        blockNumber,
-        blockHash,
-        blockTimestamp,
-        extrinsicIndex: i,
-      });
-    }
-    return records;
+    return out;
   }
 
   async getTopology(): Promise<TopologyInfo | null> {
@@ -1028,6 +1104,43 @@ export class PolkadotSubstrateClient implements SubstrateClient {
   }
 }
 
+/**
+ * Decode a `quantumPow.BlockWinner` event's positional `data` array into a
+ * {@link BlockWinnerEvent}. The v0.2 event carries six fields in order:
+ * `[qblock_id, block_number, miner, reward, energy_milli, submitted_at]`
+ * (quip-protocol-rs/pallets/quantum-pow/src/lib.rs:328-335) — two more than
+ * the v0.1 shape, which the indexer used to read as `[miner, reward,
+ * energy_milli, submitted_at]`. Returns null when the data is truncated
+ * (decode anomaly) so callers skip rather than write a misaligned row.
+ *
+ * Extracted (and exported) so the positional decode can be unit-tested
+ * without a live chain — the Fake client emits already-decoded events.
+ */
+export function decodeBlockWinnerEventData(
+  data: Array<{ toString: () => string }>,
+): BlockWinnerEvent | null {
+  const [qblockIdCodec, blockNumberCodec, minerCodec, rewardCodec, energyCodec, submittedAtCodec] =
+    data;
+  if (
+    !qblockIdCodec ||
+    !blockNumberCodec ||
+    !minerCodec ||
+    !rewardCodec ||
+    !energyCodec ||
+    !submittedAtCodec
+  ) {
+    return null;
+  }
+  return {
+    qblockId: qblockIdCodec.toString(),
+    blockNumber: blockNumberCodec.toString(),
+    miner: minerCodec.toString(),
+    reward: rewardCodec.toString(),
+    energyMilli: Number(energyCodec.toString()),
+    submittedAt: submittedAtCodec.toString(),
+  };
+}
+
 // Note: the v0.1-era `extractNonce` helper that walked extrinsics to
 // recover the winning miner's nonce is gone in v0.2 — `WinningSolutionInfo`
 // (sourced from `QuantumPowApi::winning_solution`) carries the BLAKE3 nonce
@@ -1036,28 +1149,194 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 // HybridTxSignature codec.
 
 /**
- * Decode a polkadot.js `Bytes` codec (the argument to `system.remark` /
- * `system.remarkWithEvent`) into a UTF-8 string. Returns null when the
- * payload isn't valid UTF-8 — caller treats that as "skip this extrinsic".
- *
- * polkadot.js exposes `.toHex()` reliably across versions; the alternative
- * `.toUtf8()` is method-name-unstable. Routing through hex keeps this
- * portable across @polkadot/types versions.
+ * Decode a polkadot.js `Bytes` field surfaced via `.toJSON()` (a 0x-prefixed
+ * hex string) into UTF-8. Tolerates an already-plain string (returned as-is)
+ * and returns undefined for null/empty/odd-length input so optional
+ * descriptor fields stay absent rather than blank.
  */
-function decodeRemarkBody(arg: unknown): string | null {
-  const hex = (arg as { toHex?: () => string })?.toHex?.();
-  if (typeof hex !== "string") return null;
-  const cleaned = hex.startsWith("0x") ? hex.slice(2) : hex;
-  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return null;
+function bytesToString(v: unknown): string | undefined {
+  if (typeof v !== "string" || v.length === 0) return undefined;
+  if (!v.startsWith("0x")) return v;
+  const cleaned = v.slice(2);
+  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return undefined;
   const u8 = new Uint8Array(cleaned.length / 2);
   for (let i = 0; i < cleaned.length; i += 2) {
     u8[i / 2] = parseInt(cleaned.slice(i, i + 2), 16);
   }
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(u8);
+    return new TextDecoder("utf-8", { fatal: false }).decode(u8);
   } catch {
-    return null;
+    return undefined;
   }
+}
+
+// Map the on-chain MinerKind enum variant (Cpu | Gpu | QpuDwave | QpuIbm |
+// QpuIonq | QpuPasqal | Asic) to the dashboard's coarse MinerCategory.
+function mapMinerKind(v: unknown): MinerCategory {
+  const s = String(v ?? "").toLowerCase();
+  if (s.startsWith("cpu")) return "CPU";
+  if (s.startsWith("gpu")) return "GPU";
+  if (s.startsWith("qpu")) return "QPU";
+  return "OTHER";
+}
+
+// Map the on-chain LogLevel enum variant to NodeLogLevel; undefined when the
+// value isn't a recognised variant.
+function mapLogLevel(v: unknown): NodeLogLevel | undefined {
+  switch (String(v ?? "").toLowerCase()) {
+    case "debug":
+      return "Debug";
+    case "info":
+      return "Info";
+    case "warning":
+      return "Warning";
+    case "error":
+      return "Error";
+    default:
+      return undefined;
+  }
+}
+
+function finiteNumberOrUndef(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+// Decode the optional schema-v2 `runtime` (node-software) block. String
+// fields are `Bytes` (hex via toJSON); protocolVersion is a number, inDocker
+// a bool. Returns undefined for absent/non-object input (None / schema-v1).
+function mapRuntime(v: unknown): NodeRuntime | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const r = v as Record<string, unknown>;
+  const out: NodeRuntime = {};
+  const python = bytesToString(r.python);
+  const quipVersion = bytesToString(r.quipVersion);
+  const protocolVersion = finiteNumberOrUndef(r.protocolVersion);
+  const dockerImage = bytesToString(r.dockerImage);
+  if (python !== undefined) out.python = python;
+  if (quipVersion !== undefined) out.quipVersion = quipVersion;
+  if (protocolVersion !== undefined) out.protocolVersion = protocolVersion;
+  if (typeof r.inDocker === "boolean") out.inDocker = r.inDocker;
+  if (dockerImage !== undefined) out.dockerImage = dockerImage;
+  return out;
+}
+
+// Decode the optional schema-v2 `system_info` hardware survey. Every string
+// field is a `Bytes` (hex via toJSON); numeric fields pass through. Returns
+// undefined for absent/non-object input (schema-v1 descriptors).
+function mapSystemInfo(v: unknown): NodeSystemInfo | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const r = v as Record<string, unknown>;
+  const out: NodeSystemInfo = {};
+
+  const osRaw = r.os as Record<string, unknown> | null | undefined;
+  if (osRaw && typeof osRaw === "object") {
+    const os: NodeSystemOs = {};
+    const system = bytesToString(osRaw.system);
+    const release = bytesToString(osRaw.release);
+    const machine = bytesToString(osRaw.machine);
+    if (system !== undefined) os.system = system;
+    if (release !== undefined) os.release = release;
+    if (machine !== undefined) os.machine = machine;
+    out.os = os;
+  }
+
+  const cpuRaw = r.cpu as Record<string, unknown> | null | undefined;
+  if (cpuRaw && typeof cpuRaw === "object") {
+    const cpu: NodeSystemCpu = {};
+    const logicalCores = finiteNumberOrUndef(cpuRaw.logicalCores);
+    const physicalCores = finiteNumberOrUndef(cpuRaw.physicalCores);
+    const brand = bytesToString(cpuRaw.brand);
+    const arch = bytesToString(cpuRaw.arch);
+    if (logicalCores !== undefined) cpu.logicalCores = logicalCores;
+    if (physicalCores !== undefined) cpu.physicalCores = physicalCores;
+    if (brand !== undefined) cpu.brand = brand;
+    if (arch !== undefined) cpu.arch = arch;
+    out.cpu = cpu;
+  }
+
+  const memoryMb = finiteNumberOrUndef(r.memoryMb);
+  if (memoryMb !== undefined) out.memoryMb = memoryMb;
+
+  const gpusRaw = Array.isArray(r.gpus) ? r.gpus : [];
+  if (gpusRaw.length > 0) {
+    out.gpus = gpusRaw.map((g) => {
+      const gr = (g ?? {}) as Record<string, unknown>;
+      const gpu: NodeSystemGpu = {};
+      const index = finiteNumberOrUndef(gr.index);
+      const vendor = bytesToString(gr.vendor);
+      const name = bytesToString(gr.name);
+      const gpuMem = finiteNumberOrUndef(gr.memoryMb);
+      const util = finiteNumberOrUndef(gr.utilizationPct);
+      if (index !== undefined) gpu.index = index;
+      if (vendor !== undefined) gpu.vendor = vendor;
+      if (name !== undefined) gpu.name = name;
+      if (gpuMem !== undefined) gpu.memoryMb = gpuMem;
+      if (util !== undefined) gpu.utilizationPct = util;
+      return gpu;
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Map a `MinerRegistry.NodeDescriptor` storage value (as surfaced by
+ * polkadot.js `.toJSON()`) into a {@link ChainNodeDescriptor}. Pure and
+ * exported so the V1/V2 field mapping can be unit-tested without a live
+ * chain. `Bytes` fields arrive as hex and are decoded to UTF-8; enum
+ * variants are normalised case-insensitively; `None` options arrive as null
+ * and drop out as absent optionals.
+ */
+export function mapChainDescriptor(
+  accountId: string,
+  raw: Record<string, unknown>,
+): ChainNodeDescriptor {
+  const schemaVersion: 1 | 2 = raw.schemaVersion === 2 ? 2 : 1;
+
+  const minersRaw = Array.isArray(raw.miners) ? raw.miners : [];
+  const miners: NodeMinerEntry[] = minersRaw.map((m) => {
+    const mm = (m ?? {}) as Record<string, unknown>;
+    const entry: NodeMinerEntry = { kind: mapMinerKind(mm.kind) };
+    const label = bytesToString(mm.label);
+    const backend = bytesToString(mm.backend);
+    const deviceId = bytesToString(mm.deviceId);
+    if (label !== undefined) entry.label = label;
+    if (backend !== undefined) entry.backend = backend;
+    if (deviceId !== undefined) entry.deviceId = deviceId;
+    return entry;
+  });
+
+  const descriptor: NodeDescriptor = {
+    schemaVersion,
+    nodeId: bytesToString(raw.nodeId) ?? "",
+    nodeName: bytesToString(raw.nodeName) ?? "",
+  };
+  const publicHost = bytesToString(raw.publicHost);
+  if (publicHost !== undefined) descriptor.publicHost = publicHost;
+  const publicPort = finiteNumberOrUndef(raw.publicPort);
+  if (publicPort !== undefined) descriptor.publicPort = publicPort;
+  const rpcEndpoints = (Array.isArray(raw.rpcEndpoints) ? raw.rpcEndpoints : [])
+    .map(bytesToString)
+    .filter((s): s is string => s !== undefined);
+  if (rpcEndpoints.length > 0) descriptor.rpcEndpoints = rpcEndpoints;
+  if (typeof raw.autoMine === "boolean") descriptor.autoMine = raw.autoMine;
+  const logLevel = mapLogLevel(raw.logLevel);
+  if (logLevel !== undefined) descriptor.logLevel = logLevel;
+  if (miners.length > 0) descriptor.miners = miners;
+  const runtime = mapRuntime(raw.runtime);
+  if (runtime !== undefined) descriptor.runtime = runtime;
+  const systemInfo = mapSystemInfo(raw.systemInfo);
+  if (systemInfo !== undefined) descriptor.systemInfo = systemInfo;
+  if (raw.deposit !== undefined && raw.deposit !== null) {
+    descriptor.deposit = String(raw.deposit);
+  }
+
+  return {
+    accountId,
+    updatedAtBlock: String(raw.updatedAt ?? "0"),
+    payloadHash: typeof raw.payloadHash === "string" ? raw.payloadHash : "",
+    descriptor,
+  };
 }
 
 // Decode a polkadot.js codec for a v0.2 `DifficultyConfig` struct into the

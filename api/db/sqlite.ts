@@ -12,6 +12,7 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
+  MineableTopologyRecord,
   MinerCategory,
   MinerHardwareRecord,
   MiningSubmissionRecord,
@@ -61,6 +62,7 @@ const SCHEMA_STATEMENTS: string[] = [
      num_valid_solutions     INTEGER NOT NULL,
      mining_time             REAL NOT NULL,
      reward                  TEXT NOT NULL,
+     qblock_id               TEXT NOT NULL,
      nonce                   TEXT NOT NULL,
      num_nodes               INTEGER NOT NULL,
      num_edges               INTEGER NOT NULL,
@@ -99,6 +101,10 @@ const SCHEMA_STATEMENTS: string[] = [
      -- solution_number bound (count + 1 is the in-flight problem, MR
      -- !105). Nullable: pre-v0.2 chains / pre-first-read.
      winning_solutions_count INTEGER,
+     -- v23: in-flight qblock (winning_solutions_count + 1) and how many
+     -- miners declared participation on it. Both nullable pre-v0.2/pre-read.
+     current_qblock_id          TEXT,
+     current_qblock_participants INTEGER,
      spec_name               TEXT NOT NULL,
      spec_version            INTEGER NOT NULL,
      transaction_version     INTEGER NOT NULL,
@@ -157,16 +163,17 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_validator_authorship_authored
      ON validator_authorship(blocks_authored DESC)`,
-  // v11: per-account chain-signed identity. One row per AccountId, sourced
-  // from `System.remark_with_event` extrinsics by the descriptor worker.
-  // (block_number, extrinsic_index) form the upsert tie-breaker so a later
-  // descriptor in the same block wins. `first_block_timestamp` is preserved
-  // across upserts to support "first observed" without keeping history.
+  // Per-account chain-signed identity. One row per AccountId, sourced from
+  // the `MinerRegistry.NodeDescriptors` storage map by the substrate worker's
+  // chain-state poll (v0.2; replaced the v11 `System.remark` scan).
+  // `block_number` is the on-chain `updated_at` height — the upsert
+  // tie-breaker so the newest descriptor wins. `payload_hash` is the
+  // on-chain descriptor hash. `first_block_timestamp` is preserved across
+  // upserts to support "first observed" without keeping history.
   `CREATE TABLE IF NOT EXISTS node_descriptors (
      account_id              TEXT PRIMARY KEY,
      block_number            TEXT NOT NULL,
-     block_hash              TEXT NOT NULL,
-     extrinsic_index         INTEGER NOT NULL,
+     payload_hash            TEXT NOT NULL,
      block_timestamp         INTEGER NOT NULL,
      first_block_timestamp   INTEGER NOT NULL,
      descriptor              TEXT NOT NULL,
@@ -224,10 +231,9 @@ const SCHEMA_STATEMENTS: string[] = [
      ON mining_submissions(miner_id, solution_number DESC)`,
 ];
 
-const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
-
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
+const MINEABLE_TOPOLOGIES_KEY = "mineable_topologies";
 
 // Per-miner submission checkpoint, keyed in `meta` to avoid a dedicated
 // table for a single integer per miner. Multiple miners polled by one
@@ -314,13 +320,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
            block_hash, substrate_block_number, substrate_block_hash, substrate_parent_hash,
            timestamp, miner_id,
            energy, diversity, num_valid_solutions, mining_time,
-           reward, nonce, num_nodes, num_edges,
+           reward, qblock_id, nonce, num_nodes, num_edges,
            difficulty_energy, min_diversity, min_solutions, finalized
          ) VALUES (
            $blockHash, $substrateBlockNumber, $substrateBlockHash, $substrateParentHash,
            $timestamp, $minerId,
            $energy, $diversity, $numValidSolutions, $miningTime,
-           $reward, $nonce, $numNodes, $numEdges,
+           $reward, $qblockId, $nonce, $numNodes, $numEdges,
            $difficultyEnergy, $minDiversity, $minSolutions, $finalized
          )`,
       )
@@ -336,6 +342,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $numValidSolutions: b.numValidSolutions,
         $miningTime: b.miningTime,
         $reward: b.reward,
+        $qblockId: b.qblockId,
         $nonce: b.nonce,
         $numNodes: b.numNodes,
         $numEdges: b.numEdges,
@@ -432,13 +439,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
         `INSERT INTO chain_head (
            id, best_block_number, best_block_hash,
            finalized_block_number, finalized_block_hash, finality_lag,
-           winning_solutions_count,
+           winning_solutions_count, current_qblock_id, current_qblock_participants,
            spec_name, spec_version, transaction_version, impl_name,
            last_runtime_upgrade, updated_at
          ) VALUES (
            1, $bestNumber, $bestHash,
            $finNumber, $finHash, $finLag,
-           $winSolCount,
+           $winSolCount, $curQBlockId, $curQBlockParticipants,
            $specName, $specVersion, $txVersion, $implName,
            $lastUpgrade, $updatedAt
          )
@@ -449,6 +456,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
            finalized_block_hash=excluded.finalized_block_hash,
            finality_lag=excluded.finality_lag,
            winning_solutions_count=excluded.winning_solutions_count,
+           current_qblock_id=excluded.current_qblock_id,
+           current_qblock_participants=excluded.current_qblock_participants,
            spec_name=excluded.spec_name,
            spec_version=excluded.spec_version,
            transaction_version=excluded.transaction_version,
@@ -459,6 +468,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
            chain_head.best_block_number IS NOT excluded.best_block_number OR
            chain_head.finalized_block_number IS NOT excluded.finalized_block_number OR
            chain_head.winning_solutions_count IS NOT excluded.winning_solutions_count OR
+           chain_head.current_qblock_participants IS NOT excluded.current_qblock_participants OR
            chain_head.spec_version IS NOT excluded.spec_version`,
       )
       .run({
@@ -468,6 +478,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
         $finHash: head.finalizedBlockHash,
         $finLag: head.finalityLag,
         $winSolCount: head.winningSolutionsCount,
+        $curQBlockId: head.currentQBlockId,
+        $curQBlockParticipants: head.currentQBlockParticipants,
         $specName: head.runtime.specName,
         $specVersion: head.runtime.specVersion,
         $txVersion: head.runtime.transactionVersion,
@@ -487,6 +499,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
           finalized_block_hash: string;
           finality_lag: number;
           winning_solutions_count: number | null;
+          current_qblock_id: string | null;
+          current_qblock_participants: number | null;
           spec_name: string;
           spec_version: number;
           transaction_version: number;
@@ -505,6 +519,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
       finalizedBlockHash: row.finalized_block_hash,
       finalityLag: row.finality_lag,
       winningSolutionsCount: row.winning_solutions_count,
+      currentQBlockId: row.current_qblock_id,
+      currentQBlockParticipants: row.current_qblock_participants,
       runtime: {
         specName: row.spec_name,
         specVersion: row.spec_version,
@@ -734,6 +750,28 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }));
   }
 
+  async setMineableTopologies(records: MineableTopologyRecord[]): Promise<void> {
+    this.requireDb()
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES ($k, $v)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run({ $k: MINEABLE_TOPOLOGIES_KEY, $v: JSON.stringify(records) });
+  }
+
+  async getMineableTopologies(): Promise<MineableTopologyRecord[]> {
+    const row = this.requireDb()
+      .query<{ value: string }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get(MINEABLE_TOPOLOGIES_KEY);
+    if (!row) return [];
+    try {
+      const parsed = JSON.parse(row.value);
+      return Array.isArray(parsed) ? (parsed as MineableTopologyRecord[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
   // --- Miner hardware ---
 
   async upsertMinerHardware(record: MinerHardwareRecord): Promise<void> {
@@ -839,39 +877,36 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }));
   }
 
-  // --- Node descriptors (v11) ---
+  // --- Node descriptors ---
 
   async upsertNodeDescriptor(record: NodeDescriptorRecord): Promise<void> {
-    // Tuple comparison `(a, b) < (c, d)` is the ordering tie-breaker the
-    // spec calls for — newer block, or same block + later extrinsic index,
-    // wins. The CAST forces numeric ordering on `block_number` (TEXT u64).
-    // first_block_timestamp uses COALESCE(existing, incoming) so it sticks
-    // to the first observation; ON CONFLICT DO UPDATE keeps every other
-    // column on the newer payload.
+    // `block_number` (on-chain updated_at) is the ordering tie-breaker —
+    // the newer descriptor wins. The CAST forces numeric ordering on the
+    // TEXT u64. first_block_timestamp sticks to the first observation
+    // (only set on insert); ON CONFLICT DO UPDATE keeps every other column
+    // on the newer payload.
     this.requireDb()
       .prepare(
         `INSERT INTO node_descriptors (
-           account_id, block_number, block_hash, extrinsic_index,
+           account_id, block_number, payload_hash,
            block_timestamp, first_block_timestamp, descriptor, observed_at
          ) VALUES (
-           $acct, $bn, $bh, $ix, $ts, $ts, $desc, $obs
+           $acct, $bn, $ph, $ts, $ts, $desc, $obs
          )
          ON CONFLICT(account_id) DO UPDATE SET
            block_number     = excluded.block_number,
-           block_hash       = excluded.block_hash,
-           extrinsic_index  = excluded.extrinsic_index,
+           payload_hash     = excluded.payload_hash,
            block_timestamp  = excluded.block_timestamp,
            descriptor       = excluded.descriptor,
            observed_at      = excluded.observed_at
          WHERE
-           (CAST(node_descriptors.block_number AS INTEGER), node_descriptors.extrinsic_index)
-             < (CAST(excluded.block_number AS INTEGER), excluded.extrinsic_index)`,
+           CAST(node_descriptors.block_number AS INTEGER)
+             < CAST(excluded.block_number AS INTEGER)`,
       )
       .run({
         $acct: record.accountId,
         $bn: record.blockNumber,
-        $bh: record.blockHash,
-        $ix: record.extrinsicIndex,
+        $ph: record.payloadHash,
         $ts: record.blockTimestamp,
         $desc: JSON.stringify(record.descriptor),
         $obs: record.observedAt,
@@ -880,19 +915,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]> {
     const rows = this.requireDb()
-      .query<
-        {
-          account_id: string;
-          block_number: string;
-          block_hash: string;
-          extrinsic_index: number;
-          block_timestamp: number;
-          first_block_timestamp: number;
-          descriptor: string;
-          observed_at: string;
-        },
-        []
-      >(
+      .query<DescriptorRow, []>(
         // Sort by node_name extracted from the JSON. SQLite supports
         // `json_extract(...)`; fall back to account_id for rows with a
         // missing name (the validator forbids this, but be defensive).
@@ -905,41 +928,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null> {
     const row = this.requireDb()
-      .query<
-        {
-          account_id: string;
-          block_number: string;
-          block_hash: string;
-          extrinsic_index: number;
-          block_timestamp: number;
-          first_block_timestamp: number;
-          descriptor: string;
-          observed_at: string;
-        },
-        [string]
-      >("SELECT * FROM node_descriptors WHERE account_id = ?")
+      .query<DescriptorRow, [string]>("SELECT * FROM node_descriptors WHERE account_id = ?")
       .get(accountId);
     return row ? rowToNodeDescriptorRecord(row) : null;
-  }
-
-  async getDescriptorCheckpoint(): Promise<string | null> {
-    const row = this.requireDb()
-      .query<{ value: string | null }, [string]>("SELECT value FROM meta WHERE key = ?")
-      .get(DESCRIPTOR_CHECKPOINT_KEY);
-    return row?.value ?? null;
-  }
-
-  async setDescriptorCheckpoint(blockNumber: string): Promise<void> {
-    // Monotonic: only advance, never rewind. Guards against a misconfigured
-    // restart that resumes from an earlier checkpoint than what we already
-    // scanned.
-    this.requireDb()
-      .prepare(
-        `INSERT INTO meta (key, value) VALUES ($k, $v)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-         WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)`,
-      )
-      .run({ $k: DESCRIPTOR_CHECKPOINT_KEY, $v: blockNumber });
   }
 
   async insertMiningSubmission(record: MiningSubmissionRecord): Promise<void> {
@@ -1058,8 +1049,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
   }
 
   async setMiningCheckpoint(minerId: string, solutionNumber: number): Promise<void> {
-    // Monotonic advance only — same shape as setDescriptorCheckpoint. Guards
-    // against a misconfigured restart that rewinds the cursor.
+    // Monotonic advance only — never rewinds the catch-up cursor. Guards
+    // against a misconfigured restart that rewinds it.
     this.requireDb()
       .prepare(
         `INSERT INTO meta (key, value) VALUES ($k, $v)
@@ -1096,6 +1087,7 @@ function rowToBlockRecord(row: Record<string, unknown>): BlockRecord {
     numValidSolutions: Number(row.num_valid_solutions),
     miningTime: Number(row.mining_time),
     reward: String(row.reward),
+    qblockId: String(row.qblock_id),
     nonce: String(row.nonce),
     numNodes: Number(row.num_nodes),
     numEdges: Number(row.num_edges),
@@ -1121,8 +1113,7 @@ function rowToMinerHardware(row: Record<string, unknown>): MinerHardwareRecord {
 interface DescriptorRow {
   account_id: string;
   block_number: string;
-  block_hash: string;
-  extrinsic_index: number;
+  payload_hash: string;
   block_timestamp: number;
   first_block_timestamp: number;
   descriptor: string;
@@ -1133,8 +1124,7 @@ function rowToNodeDescriptorRecord(row: DescriptorRow): NodeDescriptorRecord {
   return {
     accountId: row.account_id,
     blockNumber: row.block_number,
-    blockHash: row.block_hash,
-    extrinsicIndex: row.extrinsic_index,
+    payloadHash: row.payload_hash,
     blockTimestamp: row.block_timestamp,
     firstBlockTimestamp: row.first_block_timestamp,
     descriptor: JSON.parse(row.descriptor) as NodeDescriptor,

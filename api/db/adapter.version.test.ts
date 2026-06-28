@@ -4,17 +4,15 @@ import { expect, test } from "bun:test";
 import { OWNED_TABLES, SCHEMA_VERSION } from "./adapter";
 import type { DatabaseAdapter } from "./adapter";
 
-test("schema v21: mining_submissions re-keyed on global solution_number (MR !105)", () => {
-  // v21 re-keys mining_submissions on the global chain `solution_number`
-  // (count(WinningSolutions)+1, durable across restarts): the `solution_id`
-  // column is renamed to `solution_number` and becomes the PK with
-  // `miner_id`, and the now-gone controller-local `dispatch_id` column is
-  // dropped. The indexer re-bounds its catch-up on the summed chain
-  // `proofsWon` instead of the controller's `results_received` counter.
-  // Wipe-on-drift rebuilds the table against the new key on the next poll.
-  // (v20 added pow_sequence + re-sourced num_valid/Sol#; table shape is
-  // otherwise unchanged apart from the column rename + dropped column.)
-  expect(SCHEMA_VERSION).toBe(21);
+test("schema v23: qblock_id, current-qblock participation, mineable topologies", () => {
+  // v22 re-sourced node_descriptors from MinerRegistry storage. v23 surfaces
+  // three more v0.2 chain data points: blocks.qblock_id (per-block solution
+  // number from the BlockWinner event), chain_head.current_qblock_id +
+  // current_qblock_participants (the in-flight qblock and its MinerRegistry
+  // participant count), and a mineable_topologies meta JSON row (per-topology
+  // live difficulty + node/edge counts). Wipe-on-drift rebuilds blocks on the
+  // next chain scan.
+  expect(SCHEMA_VERSION).toBe(23);
   expect([...OWNED_TABLES]).toEqual([
     "blocks",
     "meta",
@@ -58,6 +56,9 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     "getChainMiners",
     "insertDifficultySnapshot",
     "getRecentDifficulty",
+    // per-topology difficulty snapshot (v23, meta-backed)
+    "setMineableTopologies",
+    "getMineableTopologies",
     // hardware identity (v6)
     "upsertMinerHardware",
     "getMinerHardware",
@@ -65,11 +66,10 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     // validator authorship (v7)
     "recordValidatorAuthorship",
     "getValidatorAuthorship",
-    // node descriptors (v11) — replaces v10's nodes_snapshot ingest path.
+    // node descriptors — sourced from MinerRegistry.NodeDescriptors storage
+    // (v0.2; replaced the v11 System.remark scan, which needed a checkpoint).
     "upsertNodeDescriptor",
     "getAllNodeDescriptors",
-    "getDescriptorCheckpoint",
-    "setDescriptorCheckpoint",
     // mining submissions (v13) — replaces v12 chain-side proof_attempts.
     "insertMiningSubmission",
     "getRecentMiningSubmissions",

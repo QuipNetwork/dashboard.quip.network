@@ -12,7 +12,6 @@ describe("runWorkers", () => {
   it("returns 0 when every worker completes normally", async () => {
     let tipRan = false;
     let subRan = false;
-    let descRan = false;
     const code = await runWorkers({
       runTip: async () => {
         tipRan = true;
@@ -20,14 +19,10 @@ describe("runWorkers", () => {
       runSubstrate: async () => {
         subRan = true;
       },
-      runDescriptor: async () => {
-        descRan = true;
-      },
     });
     expect(code).toBe(0);
     expect(tipRan).toBe(true);
     expect(subRan).toBe(true);
-    expect(descRan).toBe(true);
   });
 
   it("returns 1 when the tip worker throws", async () => {
@@ -36,7 +31,6 @@ describe("runWorkers", () => {
         throw new Error("boom");
       },
       runSubstrate: noopRunner,
-      runDescriptor: noopRunner,
     });
     expect(code).toBe(1);
   });
@@ -65,7 +59,6 @@ describe("runWorkers", () => {
           setTimeout(() => reject(new Error("timed out without abort")), 500);
         });
       },
-      runDescriptor: noopRunner,
     });
     expect(code).toBe(1);
     expect(subAborted.value).toBe(true);
@@ -93,7 +86,6 @@ describe("runWorkers", () => {
       runSubstrate: async () => {
         throw new Error("substrate boom");
       },
-      runDescriptor: noopRunner,
     });
     // Substrate failure → exit code 1, but the tip worker completed.
     expect(code).toBe(1);

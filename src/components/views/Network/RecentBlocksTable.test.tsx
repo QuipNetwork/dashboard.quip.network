@@ -29,6 +29,7 @@ function makeBlock(i: number, tsSec: number): BlockRecord {
     numValidSolutions: 1,
     miningTime: 1,
     reward: "1000000000000000000",
+    qblockId: String(i),
     nonce: "1",
     numNodes: 1,
     numEdges: 1,

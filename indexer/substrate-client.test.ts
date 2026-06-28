@@ -3,11 +3,157 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  decodeBlockWinnerEventData,
+  mapChainDescriptor,
   FakeSubstrateClient,
   PolkadotSubstrateClient,
   type BlockEvents,
   type SubstrateHead,
 } from "./substrate-client";
+
+describe("mapChainDescriptor", () => {
+  // polkadot.js `.toJSON()` surfaces `Bytes` fields as 0x-prefixed hex.
+  const hex = (s: string) =>
+    "0x" +
+    Array.from(new TextEncoder().encode(s))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+  test("decodes a schema-v2 descriptor (hex bytes, enums, system_info)", () => {
+    const raw = {
+      schemaVersion: 2,
+      nodeId: hex("node-1"),
+      nodeName: hex("alice-rig"),
+      publicHost: hex("alice.example.com"),
+      publicPort: 20050,
+      rpcEndpoints: [hex("https://rpc1"), hex("https://rpc2")],
+      autoMine: true,
+      logLevel: "Info",
+      miners: [
+        { kind: "Cpu", label: hex("cpu"), backend: null, deviceId: null },
+        { kind: "QpuDwave", label: hex("dwave"), backend: null, deviceId: null },
+        { kind: "Gpu", label: hex("gpu0"), backend: hex("cuda"), deviceId: hex("0") },
+      ],
+      runtime: {
+        python: hex("3.13.13"),
+        quipVersion: hex("0.2.1rc14"),
+        protocolVersion: 2,
+        inDocker: true,
+        dockerImage: hex("registry/quip:abc1234"),
+      },
+      payloadHash: "0xdeadbeef",
+      updatedAt: 1234,
+      deposit: 1000000,
+      systemInfo: {
+        os: { system: hex("Linux"), release: hex("6.1.0"), machine: hex("x86_64") },
+        cpu: {
+          logicalCores: 16,
+          physicalCores: 8,
+          brand: hex("AMD EPYC 7763"),
+          arch: hex("x86_64"),
+        },
+        memoryMb: 64000,
+        gpus: [
+          {
+            index: 0,
+            vendor: hex("NVIDIA"),
+            name: hex("H100"),
+            memoryMb: 81920,
+            utilizationPct: 42,
+          },
+        ],
+      },
+    };
+
+    expect(mapChainDescriptor("5Test", raw)).toEqual({
+      accountId: "5Test",
+      updatedAtBlock: "1234",
+      payloadHash: "0xdeadbeef",
+      descriptor: {
+        schemaVersion: 2,
+        nodeId: "node-1",
+        nodeName: "alice-rig",
+        publicHost: "alice.example.com",
+        publicPort: 20050,
+        rpcEndpoints: ["https://rpc1", "https://rpc2"],
+        autoMine: true,
+        logLevel: "Info",
+        miners: [
+          { kind: "CPU", label: "cpu" },
+          { kind: "QPU", label: "dwave" },
+          { kind: "GPU", label: "gpu0", backend: "cuda", deviceId: "0" },
+        ],
+        runtime: {
+          python: "3.13.13",
+          quipVersion: "0.2.1rc14",
+          protocolVersion: 2,
+          inDocker: true,
+          dockerImage: "registry/quip:abc1234",
+        },
+        systemInfo: {
+          os: { system: "Linux", release: "6.1.0", machine: "x86_64" },
+          cpu: { logicalCores: 16, physicalCores: 8, brand: "AMD EPYC 7763", arch: "x86_64" },
+          memoryMb: 64000,
+          gpus: [{ index: 0, vendor: "NVIDIA", name: "H100", memoryMb: 81920, utilizationPct: 42 }],
+        },
+        deposit: "1000000",
+      },
+    });
+  });
+
+  test("decodes a schema-v1 descriptor (no system_info)", () => {
+    const raw = {
+      schemaVersion: 1,
+      nodeId: hex("n2"),
+      nodeName: hex("bob"),
+      publicHost: null,
+      publicPort: null,
+      rpcEndpoints: [],
+      autoMine: false,
+      logLevel: "Debug",
+      miners: [{ kind: "Asic", label: null, backend: null, deviceId: null }],
+      payloadHash: "0xabc",
+      updatedAt: 7,
+      deposit: 0,
+      systemInfo: null,
+    };
+    const out = mapChainDescriptor("5Bob", raw);
+    expect(out.descriptor.schemaVersion).toBe(1);
+    expect(out.descriptor.nodeName).toBe("bob");
+    expect(out.descriptor.publicHost).toBeUndefined();
+    expect(out.descriptor.systemInfo).toBeUndefined();
+    expect(out.descriptor.miners).toEqual([{ kind: "OTHER" }]);
+  });
+});
+
+describe("decodeBlockWinnerEventData", () => {
+  const codec = (s: string) => ({ toString: () => s });
+
+  test("decodes the v0.2 six-field BlockWinner event", () => {
+    // quip-protocol-rs v0.2 order:
+    // [qblock_id, block_number, miner, reward, energy_milli, submitted_at]
+    const data = [
+      codec("7"),
+      codec("1234"),
+      codec("5GrwMiner"),
+      codec("1000"),
+      codec("-2510"),
+      codec("1230"),
+    ];
+    expect(decodeBlockWinnerEventData(data)).toEqual({
+      qblockId: "7",
+      blockNumber: "1234",
+      miner: "5GrwMiner",
+      reward: "1000",
+      energyMilli: -2510,
+      submittedAt: "1230",
+    });
+  });
+
+  test("returns null when the event data is truncated", () => {
+    expect(decodeBlockWinnerEventData([codec("7"), codec("1234")])).toBeNull();
+  });
+});
 
 describe("FakeSubstrateClient", () => {
   test("emits finalized head to subscribers and stashes for getBlockHeader", async () => {
@@ -56,6 +202,8 @@ describe("FakeSubstrateClient", () => {
       received.push({ miner: e.miner, energyMilli: e.energyMilli, submittedAt: e.submittedAt }),
     );
     c.emitBlockWinner({
+      qblockId: "1",
+      blockNumber: "42",
       miner: "5Grw",
       reward: "1000",
       energyMilli: 12500,
@@ -86,7 +234,7 @@ describe("FakeSubstrateClient", () => {
     expect(await c.getDifficulty()).toBeNull();
     const rt = await c.getRuntimeVersion();
     expect(rt.specName).toBe("quip");
-    expect(rt.specVersion).toBe(101);
+    expect(rt.specVersion).toBe(109);
 
     c.babeEpoch = {
       epochIndex: 1,
@@ -118,6 +266,8 @@ describe("FakeSubstrateClient", () => {
       author: "5Author",
       timestamp: 1700000000,
       winner: {
+        qblockId: "1",
+        blockNumber: "100",
         miner: "5GPPxx",
         reward: "1000",
         energyMilli: -2510,

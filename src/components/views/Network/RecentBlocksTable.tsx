@@ -11,13 +11,6 @@ import { FinalityBadge } from "../../blocks/FinalityBadge";
 interface RecentBlocksTableProps {
   blocks: BlockRecord[];
   indexer?: IndexerObservability | null;
-  // Chain-wide total of accepted PoW proofs (sum of
-  // `chainMiners[].proofsWon`). The tip row is solution #totalProofsWon,
-  // each row below decrements by one. When omitted (e.g., legacy callers
-  // and unit tests), Solution# falls back to indexing from `blocks.length`,
-  // which is accurate after a fresh wipe-on-drift but undercounts when
-  // older proofs predate the current `blocks` window.
-  totalProofsWon?: number;
 }
 
 // Client-side pagination page size. The telemetry store already caps the
@@ -29,11 +22,7 @@ const PAGE_SIZE = 100;
 // Renders the most recent solutions (one per chain block) with click-to-open
 // detail modal. `blocks` is expected in descending order (tip first) —
 // matching how the store ships it.
-export function RecentBlocksTable({
-  blocks,
-  indexer = null,
-  totalProofsWon,
-}: RecentBlocksTableProps) {
+export function RecentBlocksTable({ blocks, indexer = null }: RecentBlocksTableProps) {
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [selectedBlock, setSelectedBlock] = useState<{
     block: BlockRecord;
@@ -61,9 +50,6 @@ export function RecentBlocksTable({
   const visibleBlocks = blocks.slice(0, pageSize);
   const canLoadMore = pageSize < blocks.length;
   const remaining = blocks.length - pageSize;
-  // blocks is DESC by substrateBlockNumber, so blocks[0] is the most recent
-  // winning solution. Solution numbering walks down from totalProofsWon.
-  const tipSolutionNumber = totalProofsWon ?? blocks.length;
 
   return (
     <div className="h-full overflow-auto">
@@ -82,10 +68,10 @@ export function RecentBlocksTable({
           </tr>
         </thead>
         <tbody>
-          {visibleBlocks.map((b, i) => (
+          {visibleBlocks.map((b) => (
             <tr
               key={b.blockHash}
-              onClick={() => setSelectedBlock({ block: b, solutionNumber: tipSolutionNumber - i })}
+              onClick={() => setSelectedBlock({ block: b, solutionNumber: Number(b.qblockId) })}
               className="cursor-pointer border-b border-brand-gray-1 transition-colors last:border-b-0 hover:bg-brand-gray-1/30"
             >
               <td className="py-2 pr-4 font-mono text-brand-gray-5">
@@ -94,7 +80,7 @@ export function RecentBlocksTable({
                   <FinalityBadge block={b} />
                 </span>
               </td>
-              <td className="py-2 pr-4 font-mono text-brand-gray-4">#{tipSolutionNumber - i}</td>
+              <td className="py-2 pr-4 font-mono text-brand-gray-4">#{b.qblockId}</td>
               <td className="py-2 pr-4 text-brand-gray-4" title={b.minerId}>
                 {shortAddress(b.minerId, 22, 4)}
               </td>

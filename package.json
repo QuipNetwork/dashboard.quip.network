@@ -7,7 +7,6 @@
     "dev": "netlify dev",
     "dev:server": "bun run server/main.ts",
     "dev:indexer": "bun run indexer/main.ts",
-    "scan:remarks": "bun run indexer/scan-remarks.ts",
     "build": "tsc -b && vite build && bun run verify:no-polkadot-in-bundle",
     "verify:no-polkadot-in-bundle": "if grep -rq '@polkadot' dist/assets/ 2>/dev/null; then echo 'FAIL: @polkadot/* leaked into the SPA bundle. The substrate worker is indexer-only — never import @polkadot/* from src/.' >&2; exit 1; fi",
     "preview": "vite preview",
@@ -49,7 +48,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^29.0.0",
     "netlify-cli": "^24.3.0",
-    "prettier": "^3.8.1",
+    "prettier": "3.8.1",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.7.3",
     "vite": "^6.2.4"

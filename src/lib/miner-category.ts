@@ -49,23 +49,20 @@ export function buildMinerCategoryIndex(
 }
 
 /**
- * Pick the dominant `MinerCategory` for a descriptor's `miners` map. Ties
+ * Pick the dominant `MinerCategory` for a descriptor's `miners` list. Ties
  * resolve toward the higher-yield hardware (GPU > QPU > CPU > OTHER) so a
  * heterogeneous rig shows up under its most computationally-significant
- * device. Returns null for an empty/undefined map so the caller can fall
+ * device. Returns null for an empty/undefined list so the caller can fall
  * through to the next resolution step.
  */
 function derivePrimaryTypeFromDescriptor(
-  miners: Record<string, NodeMinerEntry> | undefined,
+  miners: NodeMinerEntry[] | undefined,
 ): MinerCategory | null {
-  if (!miners) return null;
+  if (!miners || miners.length === 0) return null;
   const counts: Record<MinerCategory, number> = { CPU: 0, GPU: 0, QPU: 0, OTHER: 0 };
-  let any = false;
-  for (const m of Object.values(miners)) {
+  for (const m of miners) {
     counts[m.kind] = (counts[m.kind] ?? 0) + 1;
-    any = true;
   }
-  if (!any) return null;
   // Tie-break order — GPU first since it's the highest-throughput in this
   // project's typical fleet, then QPU, then CPU, then OTHER.
   const priority: MinerCategory[] = ["GPU", "QPU", "CPU", "OTHER"];

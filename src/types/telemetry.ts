@@ -34,6 +34,10 @@ export interface BlockRecord {
   miningTime: number;
   // u128 as string (token amount).
   reward: string;
+  // Monotonic 1-based qblock id this win was assigned on chain (u64 as
+  // string) — the network-wide "solution number" for this block. From the
+  // v0.2 `quantum_pow.BlockWinner` event's `qblock_id` field.
+  qblockId: string;
   // u64 as string — nonce can exceed Number.MAX_SAFE_INTEGER.
   nonce: string;
   numNodes: number;
@@ -68,14 +72,23 @@ export interface ChainHead {
   finalizedBlockHash: string;
   // bestBlockNumber - finalizedBlockNumber, precomputed for the UI.
   finalityLag: number;
-  // Length of the chain's `quantum_pow.WinningSolutions` storage map — the
-  // count of winning solutions accepted network-wide. This is the
-  // authoritative source for the global "solution number": the in-flight
-  // problem every miner is grinding is `winningSolutionsCount + 1` (MR
-  // !105), which keys the miner's per-solution directories. Null when the
-  // chain doesn't expose it yet (pre-v0.2 runtime, or the substrate worker
-  // hasn't read it). Equals `Σ chain_miners.proofsWon` when that table is
-  // complete, but sourced straight from chain so it can't undercount.
+  // The in-flight qblock id miners are currently racing — `QBlockCount + 1`
+  // (u64 as string). Null when the chain has no wins yet or the worker
+  // hasn't read it.
+  currentQBlockId: string | null;
+  // Number of miners that declared participation on `currentQBlockId` via
+  // `MinerRegistry.participate` (from the `participant_count_by_qblock`
+  // runtime API). Null when the runtime API is absent or unread.
+  currentQBlockParticipants: number | null;
+  // Value of the chain's `quantum_pow.QBlockCount` (v0.2; renamed from the
+  // v0.1 `WinningSolutions` map length) — the count of winning qblocks
+  // accepted network-wide. This is the authoritative source for the global
+  // "solution number": the in-flight problem every miner is grinding is
+  // `winningSolutionsCount + 1` (MR !105), which keys the miner's
+  // per-solution directories. Null when the chain doesn't expose it yet
+  // (pre-v0.2 runtime, or the substrate worker hasn't read it). Equals
+  // `Σ chain_miners.proofsWon` when that table is complete, but sourced
+  // straight from chain so it can't undercount.
   winningSolutionsCount: number | null;
   runtime: RuntimeVersion;
   updatedAt: string;
@@ -156,6 +169,30 @@ export interface DifficultyRecord {
   // From chain `min_solutions` (already integer-units; no conversion).
   minSolutions: number;
   observedAt: string; // ISO 8601
+}
+
+/**
+ * Current per-topology difficulty for one topology on the mineable whitelist
+ * (`quantum_pow.MineableTopologies`). v0.2 keys difficulty by topology hash
+ * (`Difficulties` storage); the worker reads the live decayed threshold via
+ * `QuantumPowApi::difficulty_for(hash)` plus node/edge counts via
+ * `topology_meta(hash)`. This is a current-state snapshot (overwritten each
+ * poll), not append-only history like `DifficultyRecord`.
+ */
+export interface MineableTopologyRecord {
+  // H256 topology hash (0x hex).
+  topologyHash: string;
+  // True for the chain's `DefaultTopology` — the difficulty curve is
+  // calibrated against it and it is always mineable.
+  isDefault: boolean;
+  // From chain `max_energy_milli / 1000` — proof energy must be ≤ this.
+  difficultyEnergy: number;
+  // From chain `min_diversity_milli / 1000`.
+  minDiversity: number;
+  // From chain `min_solutions` (integer units).
+  minSolutions: number;
+  nodeCount: number;
+  edgeCount: number;
 }
 
 /**
@@ -297,12 +334,11 @@ export interface ValidatorAuthorshipRecord {
 }
 
 /**
- * Operator-published node descriptor — the canonical identity record for
- * a miner, sourced from a `System.remark_with_event` extrinsic signed by
- * the operator's chain account. Shape mirrors `quip.node_descriptor.v1`
- * defined in `shared/system_info.py` on the miner side; see
- * `DASHBOARDPLAN.md` for the indexing spec. Dashboard-owned fields
- * (`address`, `firstSeen`, `lastSeen`) live on NodeInfo, not here —
+ * Operator-published node descriptor — the canonical identity record for a
+ * miner, sourced from the `MinerRegistry.NodeDescriptors` storage map (the
+ * operator signs a `MinerRegistry.set_descriptor` extrinsic). Mirrors the
+ * pallet's typed `NodeDescriptor` struct (schema V1/V2). Dashboard-owned
+ * fields (`address`, `firstSeen`, `lastSeen`) live on NodeInfo, not here —
  * descriptors are the operator's self-asserted side, joined at read time.
  */
 export interface NodeSystemCpu {
@@ -323,7 +359,8 @@ export interface NodeSystemGpu {
   vendor?: string;
   name?: string;
   memoryMb?: number;
-  observedUtilizationPct?: number;
+  // On-chain GpuInfo.utilization_pct (0..=100).
+  utilizationPct?: number;
 }
 
 export interface NodeSystemInfo {
@@ -333,6 +370,15 @@ export interface NodeSystemInfo {
   gpus?: NodeSystemGpu[];
 }
 
+// On-chain LogLevel enum (pallet-miner-registry).
+export type NodeLogLevel = "Debug" | "Info" | "Warning" | "Error";
+
+/**
+ * Node-software runtime block from a schema-v2 descriptor's optional
+ * on-chain `RuntimeInfo`. Mirrors `pallet-miner-registry`'s `RuntimeInfo`
+ * struct (re-added to descriptor V2). All fields optional so a descriptor
+ * filed without a runtime block (or a schema-v1 descriptor) degrades cleanly.
+ */
 export interface NodeRuntime {
   python?: string;
   quipVersion?: string;
@@ -341,19 +387,22 @@ export interface NodeRuntime {
   dockerImage?: string;
 }
 
+/**
+ * One advertised miner from a node descriptor's on-chain `MinerSpec` list.
+ * The v0.2 chain stores a compact, typed shape — `kind` plus the operator's
+ * local `label`, `backend`, and `deviceId` — and no longer carries the JSON
+ * era's per-miner economics (provider/solver/dailyBudget) or CPU counts;
+ * those live in `systemInfo` (V2) now.
+ */
 export interface NodeMinerEntry {
   kind: MinerCategory;
-  minerId: string;
-  // CPU-only
-  numCpus?: number;
-  // GPU-only
+  // On-chain MinerSpec.label — operator's local handle (was the JSON
+  // descriptor's dict key / minerId). Optional on chain.
+  label?: string;
+  // On-chain MinerSpec.backend, e.g. "cuda" / "metal".
   backend?: string;
-  deviceIndex?: number;
-  utilization?: number;
-  // QPU-only
-  provider?: string;
-  solver?: string;
-  dailyBudget?: string;
+  // On-chain MinerSpec.device_id, e.g. "0" / "cuda:0".
+  deviceId?: string;
 }
 
 /**
@@ -387,7 +436,7 @@ export interface NodeInfo {
   autoMine?: boolean;
   logLevel?: string;
   runtime?: NodeRuntime;
-  miners?: Record<string, NodeMinerEntry>;
+  miners?: NodeMinerEntry[];
   systemInfo?: NodeSystemInfo;
   // Geo-IP enrichment of `publicHost`. Absent when the lookup failed or
   // when geo is disabled (no geoip-lite + no GEOIP_DB_PATH). The UI's
@@ -403,40 +452,49 @@ export interface NodesSnapshot {
 }
 
 /**
- * Raw signed payload an operator emits via `quip-miner identify`. Field
- * names use camelCase (the indexer normalises from the chain's snake_case
- * JSON at decode time). Pass-through of `descriptorVersion` lets future
- * versions ride a parallel handler without mutating this shape.
+ * Operator's node descriptor as stored on-chain in
+ * `MinerRegistry.NodeDescriptors` (keyed by AccountId). Mirrors the pallet's
+ * typed `NodeDescriptor` struct (schema V1/V2) — the indexer reads it from
+ * storage via `getNodeDescriptors` and normalises Bytes→UTF-8 and enum
+ * variants at decode time. `systemInfo` is present only on schema-v2
+ * descriptors.
  */
 export interface NodeDescriptor {
-  schema: "quip.node_descriptor.v1";
-  descriptorVersion: 1;
+  // On-chain schema_version: 1 = identity only, 2 = identity + systemInfo.
+  schemaVersion: 1 | 2;
+  // On-chain node_id — operator's node identifier.
+  nodeId: string;
   nodeName: string;
   publicHost?: string;
   publicPort?: number;
   rpcEndpoints?: string[];
   autoMine?: boolean;
-  logLevel?: string;
+  logLevel?: NodeLogLevel;
+  miners?: NodeMinerEntry[];
+  // Node-software runtime block — present only on schema-v2 descriptors that
+  // include it.
   runtime?: NodeRuntime;
-  miners?: Record<string, NodeMinerEntry>;
   systemInfo?: NodeSystemInfo;
+  // Token deposit reserved for this descriptor (u128 as string).
+  deposit?: string;
 }
 
 /**
  * Indexed descriptor row — one per chain account, holding the most recent
- * valid payload plus provenance (block + extrinsic position used by the
- * upsert tie-breaker). `observedAt` is when the indexer wrote the row,
- * NOT when the extrinsic was signed; use `blockNumber` for chain-time.
+ * descriptor read from `MinerRegistry.NodeDescriptors` plus provenance.
+ * `observedAt` is when the indexer wrote the row; `blockNumber` is the
+ * on-chain `updated_at` height of the descriptor.
  */
 export interface NodeDescriptorRecord {
   accountId: string;
+  // On-chain updated_at block number (u64 as string). The newest one wins
+  // on upsert.
   blockNumber: string;
-  blockHash: string;
-  extrinsicIndex: number;
-  // Block timestamp of the *most recent* descriptor for this account
-  // (newer one wins on upsert).
+  // On-chain payload_hash (H256 hex) — identifies the exact descriptor bytes.
+  payloadHash: string;
+  // Unix seconds: when the indexer most recently observed this descriptor.
   blockTimestamp: number;
-  // Block timestamp of the *first* descriptor we ever observed for this
+  // Unix seconds: when the indexer first observed any descriptor for this
   // account — preserved across upserts so the NodeInfo projection can
   // populate `firstSeen` distinctly from `lastSeen`.
   firstBlockTimestamp: number;
@@ -611,18 +669,22 @@ export interface TelemetryResponse {
   chainMiners: ChainMinerRecord[];
   // Recent DifficultyRecord snapshots (most recent first).
   recentDifficulty: DifficultyRecord[];
+  // Current per-topology difficulty for every topology on the mineable
+  // whitelist (v0.2). Empty when the chain predates per-topology difficulty
+  // or the worker hasn't read it yet.
+  mineableTopologies: MineableTopologyRecord[];
   // Active BABE authority set joined with per-validator authorship counters.
   // Empty when no BABE epoch has been polled yet.
   validators: ValidatorAuthorshipRecord[];
   // Snapshot of network nodes, projected server-side from the
-  // `node_descriptors` table the indexer populates from
-  // `System.remark_with_event` extrinsics. Null when no descriptor has
+  // `node_descriptors` table the indexer populates from the
+  // `MinerRegistry.NodeDescriptors` storage map. Null when no descriptor has
   // been observed yet (fresh chain or pre-deploy operators). Drives the
   // Compute Available view's TFLOPS/PFLOPS surfaces.
   nodes: NodesSnapshot | null;
-  // Per-account indexed descriptors — raw signed payloads plus provenance.
-  // Empty when no `quip-miner identify` extrinsic has been seen. Drives
-  // the Node Identities panel and joins into ChainMinersTable.
+  // Per-account indexed descriptors — decoded on-chain payloads plus
+  // provenance. Empty when no descriptor has been filed on chain. Drives the
+  // Node Identities panel and joins into ChainMinersTable.
   nodeDescriptors: NodeDescriptorRecord[];
   // Recent submissions by the locally-polled miner, sourced from
   // `/api/v1/mining/attempts?solution_number=N` on the miner. Newest

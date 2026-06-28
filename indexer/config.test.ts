@@ -16,7 +16,6 @@ const TOUCHED_ENV = [
   "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
   "QUIP_VALIDATOR_BABE_POLL_SEC",
   "QUIP_VALIDATOR_CHAIN_POLL_SEC",
-  "QUIP_DESCRIPTOR_START_BLOCK",
   "QUIP_OPERATOR_ACCOUNT",
 ] as const;
 
@@ -102,22 +101,6 @@ describe("parseConfig", () => {
     expect(cfg.substrateBabePollSec).toBe(30);
     // Matches BABE slot duration on quip-protocol-rs spec 101.
     expect(cfg.substrateChainPollSec).toBe(6);
-    // Backfills from genesis by default; long-lived chains override via env.
-    expect(cfg.descriptorStartBlock).toBe("1");
-  });
-
-  it("honours QUIP_DESCRIPTOR_START_BLOCK env var", () => {
-    process.env.QUIP_DESCRIPTOR_START_BLOCK = "5000";
-    expect(parseConfig([]).descriptorStartBlock).toBe("5000");
-  });
-
-  it("honours --descriptor-start-block flag (overrides env)", () => {
-    process.env.QUIP_DESCRIPTOR_START_BLOCK = "5000";
-    expect(parseConfig(["--descriptor-start-block=9000"]).descriptorStartBlock).toBe("9000");
-  });
-
-  it("rejects descriptorStartBlock < 1", () => {
-    expect(() => parseConfig(["--descriptor-start-block=0"])).toThrow(/>= 1/);
   });
 
   it("reads QUIP_VALIDATOR_RPC_URLS from env (single entry)", () => {
