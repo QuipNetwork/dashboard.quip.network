@@ -2,7 +2,7 @@
 #   prod (default, what CI publishes):  docker build -f deploy/Dockerfile .
 #   dev  (used by docker-compose):       docker build -f deploy/Dockerfile --target dev .
 #
-# Stage graph: frontend (SPA build) → runtime-base (node + tini) → dev | prod.
+# Stage graph: frontend (SPA build) → runtime-base (bun + tini) → dev | prod.
 # tini is PID 1 in both runtime targets; deploy/entrypoint.ts is its single
 # child and supervises the app processes.
 
@@ -25,21 +25,20 @@ COPY apps/frontend apps/frontend
 RUN bun run --filter @quip/frontend build
 RUN bun run verify:no-polkadot-in-bundle
 
-# ---- runtime base: node + tini, shared by dev and prod ----
+# ---- runtime base: tini (PID 1), shared by dev and prod ----
 FROM oven/bun:1 AS runtime-base
 WORKDIR /app
-# Bun runs the app, but a real Node is needed for some toolchain bits and the
-# substrate client. tini is our PID 1 (zombie reaping + signal forwarding).
+# The app runs entirely under bun — the entrypoint, server, indexer, migrations
+# and the @polkadot substrate client all execute via `bun` (see
+# deploy/entrypoint.ts), so no separate Node runtime is installed. That keeps the
+# base arch-clean: apt resolves tini per-arch, so the image builds natively on
+# amd64 and arm64 with no architecture-specific downloads. tini is our PID 1
+# (zombie reaping + signal forwarding); ca-certificates backs runtime TLS (wss to
+# the validator, outbound fetches).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates xz-utils tini \
-    && NODE_VER="$(curl -fsSL https://nodejs.org/dist/index.json \
-         | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{process.stdout.write(JSON.parse(d).find(x=>x.version.startsWith("v24."))?.version??"")})')" \
-    && test -n "$NODE_VER" \
-    && curl -fsSL "https://nodejs.org/dist/${NODE_VER}/node-${NODE_VER}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
-    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-    && rm /tmp/node.tar.xz \
-    && apt-get purge -y curl xz-utils && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
-    && node -v && tini --version
+    && apt-get install -y --no-install-recommends ca-certificates tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && tini --version
 # tini PID 1 → bun supervisor → app processes.
 ENTRYPOINT ["/usr/bin/tini", "--", "bun", "run", "/app/deploy/entrypoint.ts"]
 
