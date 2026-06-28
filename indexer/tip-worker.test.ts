@@ -105,6 +105,8 @@ async function seedWinningSolutionsCount(deps: TipIterationDeps, count: number):
     finalizedBlockHash: "0xfin",
     finalityLag: 2,
     winningSolutionsCount: count,
+    currentQBlockId: null,
+    currentQBlockParticipants: null,
     runtime: {
       specName: "quip",
       specVersion: 101,

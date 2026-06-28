@@ -10,6 +10,7 @@ import type {
   CurrentDispatch,
   DifficultyRecord,
   IndexerObservability,
+  MineableTopologyRecord,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
   NodesSnapshot,
@@ -30,6 +31,9 @@ export interface TelemetryState {
   babeAuthorities: BabeAuthorityRecord[];
   chainMiners: ChainMinerRecord[];
   recentDifficulty: DifficultyRecord[];
+  // Current per-topology difficulty for the mineable whitelist (v0.2).
+  // Empty until the worker reads the per-topology runtime APIs.
+  mineableTopologies: MineableTopologyRecord[];
   validators: ValidatorAuthorshipRecord[];
   // Snapshot of network nodes, projected server-side from chain-signed
   // `node_descriptors`. Null until the descriptor worker has observed at
@@ -66,6 +70,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   babeAuthorities: [],
   chainMiners: [],
   recentDifficulty: [],
+  mineableTopologies: [],
   validators: [],
   nodes: null,
   nodeDescriptors: [],
@@ -100,6 +105,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         babeAuthorities: data.babeAuthorities ?? [],
         chainMiners: data.chainMiners ?? [],
         recentDifficulty: data.recentDifficulty ?? [],
+        mineableTopologies: data.mineableTopologies ?? [],
         validators: data.validators ?? [],
         nodes: data.nodes ?? null,
         nodeDescriptors: data.nodeDescriptors ?? [],

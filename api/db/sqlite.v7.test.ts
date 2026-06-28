@@ -38,6 +38,7 @@ describe("SQLite v7 schema", () => {
     numValidSolutions: 5,
     miningTime: 6,
     reward: "1000000000000",
+    qblockId: "1",
     nonce: "42",
     numNodes: 100,
     numEdges: 200,

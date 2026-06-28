@@ -8,6 +8,7 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
+  MineableTopologyRecord,
   MinerHardwareRecord,
   MinerStats,
   MiningSubmissionRecord,
@@ -208,6 +209,13 @@ export interface DatabaseAdapter {
   insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void>;
   getRecentDifficulty(limit: number): Promise<DifficultyRecord[]>;
 
+  // Current per-topology difficulty snapshot for the mineable whitelist
+  // (v0.2). Stored as a single overwritten JSON row in `meta` — current
+  // state, not history. `set` replaces the whole set each poll; `get`
+  // returns [] when nothing has been written yet.
+  setMineableTopologies(records: MineableTopologyRecord[]): Promise<void>;
+  getMineableTopologies(): Promise<MineableTopologyRecord[]>;
+
   // --- Miner hardware identity ---
   // Per-miner hardware inventory keyed by SS58 account. v0.3 only ever
   // writes one row (source='self') from the locally polled quip-node;
@@ -266,28 +274,26 @@ export interface DatabaseAdapter {
     }>
   >;
 
-  // --- Node descriptors (v11) ---
+  // --- Node descriptors ---
   // Per-account chain-signed identity records — one row per AccountId,
-  // sourced from `System.remark_with_event` extrinsics carrying a
-  // `quip.node_descriptor.v1` JSON body. Replaces the v0.2 miner-survey
-  // pipeline as the canonical node-identity surface; see DASHBOARDPLAN.md.
-  //
-  // Upsert tie-breaker is `(blockNumber, extrinsicIndex)` so a later
-  // descriptor in the same block wins, and across blocks the newest one
-  // always wins. `firstBlockTimestamp` is preserved across upserts so the
-  // dashboard can report "first observed" without keeping a history table.
+  // sourced from the `MinerRegistry.NodeDescriptors` storage map (v0.2;
+  // replaces the v11 `System.remark` JSON scan). The substrate worker's
+  // chain-state poll reads the whole map and upserts each entry. Upsert
+  // tie-breaker is `blockNumber` (the on-chain `updated_at` height) so the
+  // newest descriptor always wins; `firstBlockTimestamp` is preserved across
+  // upserts so the dashboard can report "first observed" distinctly.
 
   /**
    * Insert-or-replace a descriptor by accountId. Skips the write when the
-   * stored row's `(block_number, extrinsic_index)` already orders strictly
-   * later than the incoming one — protects against out-of-order live + backfill.
+   * stored row's `block_number` already orders strictly later than the
+   * incoming one — protects against an out-of-order poll observation.
    */
   upsertNodeDescriptor(record: NodeDescriptorRecord): Promise<void>;
 
   /**
    * All descriptors known to the indexer, ordered by `nodeName` for stable
-   * UI rendering. Empty when no `quip-miner identify` extrinsic has been
-   * observed yet. Re-projected to NodesSnapshot at server time.
+   * UI rendering. Empty when no descriptor has been filed on chain yet.
+   * Re-projected to NodesSnapshot at server time.
    */
   getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]>;
 
@@ -295,18 +301,9 @@ export interface DatabaseAdapter {
    * Single-row lookup by SS58 account. Returned by the URL-resolver helper
    * when deriving the local operator's miner-REST base URL from their
    * on-chain descriptor (`publicHost`/`publicPort`). Null when the operator
-   * hasn't yet signed a `quip.node_descriptor.v1` remark for this account.
+   * hasn't yet filed a descriptor for this account.
    */
   getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null>;
-
-  /**
-   * Read the highest substrate block height the descriptor worker has
-   * scanned (inclusive). Null until the first scan completes.
-   */
-  getDescriptorCheckpoint(): Promise<string | null>;
-
-  /** Persist the descriptor-worker's last-scanned block. Monotonic-only. */
-  setDescriptorCheckpoint(blockNumber: string): Promise<void>;
 
   // --- Mining submissions (v13) ---
   // Per-submission summaries sourced from the locally-polled miner's
@@ -517,7 +514,24 @@ export interface DbConfig {
 // catch-up on `count + 1` read straight from chain (via the substrate
 // worker) instead of the controller's `results_received` counter. Wipe-on-
 // drift rebuilds both on next poll.
-export const SCHEMA_VERSION = 21;
+// v22: re-sources `node_descriptors` from the v0.2 `MinerRegistry.NodeDescriptors`
+// storage map instead of `System.remark` JSON. The descriptor JSON payload
+// shape changes (typed on-chain V1/V2 struct: adds nodeId/deposit/schemaVersion,
+// drops the JSON-era runtime + per-miner provider/solver) and the table swaps
+// its extrinsic-scan provenance columns (`block_hash`, `extrinsic_index`) for
+// the on-chain `payload_hash`; the `descriptor_checkpoint` meta row is gone
+// (descriptors are a storage poll now, not a block scan). `winning_solutions_count`
+// is sourced from `quantum_pow.QBlockCount` (renamed v0.2 storage). Wipe-on-
+// drift rebuilds descriptors from chain storage on the next poll.
+// v23: surfaces three more v0.2 chain data points. (1) `blocks.qblock_id` —
+// the monotonic qblock id from the `BlockWinner` event, the per-block
+// "solution number". (2) `chain_head.current_qblock_id` +
+// `current_qblock_participants` — the in-flight qblock (QBlockCount+1) and
+// how many miners declared participation on it (MinerRegistry runtime API).
+// (3) a `mineable_topologies` meta JSON row — per-topology live difficulty +
+// node/edge counts for the mineable whitelist (QuantumPow runtime API).
+// Wipe-on-drift rebuilds blocks (qblock_id) on the next chain scan.
+export const SCHEMA_VERSION = 23;
 
 // Tables owned by this app. Listed explicitly so a drop-and-recreate can
 // target exactly our data and never touch unrelated tables that may share

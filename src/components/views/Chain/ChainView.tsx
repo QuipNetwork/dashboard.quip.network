@@ -6,6 +6,7 @@ import { shortAddress } from "../../../lib/format-chain";
 import { selectServerNowMs, useTelemetryStore } from "../../../store/telemetry-store";
 import type { ValidatorAuthorshipRecord } from "../../../types/telemetry";
 import { BabeAuthoritiesPanel } from "./BabeAuthoritiesPanel";
+import { MineableTopologiesPanel } from "./MineableTopologiesPanel";
 
 // Sortable column identifiers. Tied to the visible columns on the table.
 type SortColumn =
@@ -134,6 +135,7 @@ export function ChainView() {
             set and per-validator authorship stats here.
           </p>
         </div>
+        <MineableTopologiesPanel />
         <BabeAuthoritiesPanel />
       </>
     );
@@ -212,6 +214,7 @@ export function ChainView() {
           </table>
         </div>
       </div>
+      <MineableTopologiesPanel />
       <BabeAuthoritiesPanel />
     </>
   );

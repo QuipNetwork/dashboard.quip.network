@@ -21,6 +21,7 @@ function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId"
     numValidSolutions: 1,
     miningTime: 12,
     reward: "1000000000000",
+    qblockId: "1",
     nonce: "42",
     numNodes: 100,
     numEdges: 200,
@@ -51,6 +52,7 @@ const MOCK_RESPONSE: TelemetryResponse = {
   babeAuthorities: [],
   chainMiners: [],
   recentDifficulty: [],
+  mineableTopologies: [],
   validators: [],
   nodes: null,
   nodeDescriptors: [],
@@ -77,6 +79,7 @@ beforeEach(() => {
     babeAuthorities: [],
     chainMiners: [],
     recentDifficulty: [],
+    mineableTopologies: [],
     loading: true,
     error: null,
   });

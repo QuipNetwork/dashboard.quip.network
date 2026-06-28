@@ -81,6 +81,8 @@ describe("substrate worker", () => {
       author: "5Author",
       timestamp: 1700000000,
       winner: {
+        qblockId: "1",
+        blockNumber: "100",
         miner: "5GPP",
         reward: "1000",
         energyMilli: -2510,
@@ -158,6 +160,8 @@ describe("substrate worker", () => {
       author: "5Author",
       timestamp: 1700000077,
       winner: {
+        qblockId: "1",
+        blockNumber: "77",
         miner: "5GPP",
         reward: "1000",
         energyMilli: -500,
@@ -212,6 +216,8 @@ describe("substrate worker", () => {
       author: "5Author",
       timestamp: 1700000001,
       winner: {
+        qblockId: "1",
+        blockNumber: "42",
         miner: "5GPP",
         reward: "1000",
         energyMilli: -1000,
@@ -264,7 +270,14 @@ describe("substrate worker", () => {
       parentHash: "0xgenesis",
       author: "5Author",
       timestamp: 1700000002,
-      winner: { miner: "5A", reward: "0", energyMilli: -100, submittedAt: "5" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "5",
+        miner: "5A",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "5",
+      },
       proofs: [
         {
           miner: "5A",
@@ -306,6 +319,18 @@ describe("substrate worker", () => {
       nonce: "2",
       difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
     });
+    // In-flight qblock = count + 1 = 3; 5 miners declared participation on it.
+    client.qblockParticipantCounts.set("3", 5);
+    // Per-topology difficulty snapshot (chain milli units; worker /1000s).
+    client.mineableTopologies = [
+      {
+        topologyHash: "0xtopo1",
+        isDefault: true,
+        difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
+        nodeCount: 64,
+        edgeCount: 128,
+      },
+    ];
 
     const ac = new AbortController();
     const loop = runSubstrateLoop(
@@ -348,8 +373,19 @@ describe("substrate worker", () => {
     expect(head?.finalizedBlockNumber).toBe("100");
     expect(head?.finalizedBlockHash).toBe("0xab");
     expect(head?.winningSolutionsCount).toBe(2);
+    // In-flight qblock = winningSolutionsCount + 1, with its participant count.
+    expect(head?.currentQBlockId).toBe("3");
+    expect(head?.currentQBlockParticipants).toBe(5);
     expect(state.observability.lastSubstrateEventAt).toBe("2026-05-15T00:00:00.000Z");
     expect(state.observability.finalizedBlockHeight).toBe("100");
+
+    // Per-topology difficulty snapshot persisted (milli → float conversion).
+    const topos = await db.getMineableTopologies();
+    expect(topos).toHaveLength(1);
+    expect(topos[0]?.topologyHash).toBe("0xtopo1");
+    expect(topos[0]?.isDefault).toBe(true);
+    expect(topos[0]?.difficultyEnergy).toBe(-2.5);
+    expect(topos[0]?.nodeCount).toBe(64);
   });
 
   test("disconnect flips chainConnected to false", async () => {
@@ -588,6 +624,55 @@ describe("substrate worker", () => {
     expect(m1?.proofsWon).toBe("7");
   });
 
+  test("polls MinerRegistry node descriptors on connect and writes the rows", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.nodeDescriptors = [
+      {
+        accountId: "5GrwvaEF1",
+        updatedAtBlock: "120",
+        payloadHash: "0xabc",
+        descriptor: {
+          schemaVersion: 2,
+          nodeId: "node-1",
+          nodeName: "alice-rig",
+          publicHost: "alice.example.com",
+          miners: [{ kind: "GPU", label: "gpu0", backend: "cuda" }],
+          systemInfo: { cpu: { logicalCores: 16, brand: "AMD EPYC" } },
+        },
+      },
+    ];
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({
+          substrateBabePollSec: 1000,
+          substrateChainPollSec: 1000,
+        }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+      },
+      ac.signal,
+    );
+    await wait(100);
+    ac.abort();
+    await loop;
+
+    const descriptors = await db.getAllNodeDescriptors();
+    expect(descriptors).toHaveLength(1);
+    const d = descriptors[0];
+    expect(d?.accountId).toBe("5GrwvaEF1");
+    expect(d?.blockNumber).toBe("120");
+    expect(d?.payloadHash).toBe("0xabc");
+    expect(d?.descriptor.nodeName).toBe("alice-rig");
+    expect(d?.descriptor.miners).toEqual([{ kind: "GPU", label: "gpu0", backend: "cuda" }]);
+  });
+
   test("polls BABE authorities scoped to the current epoch", async () => {
     const state = new IndexerState(db);
     await state.load();
@@ -657,7 +742,14 @@ describe("substrate worker", () => {
       parentHash: "0x0",
       author: "5Auth1",
       timestamp: 1_700_000_000,
-      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "10" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "10",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "10",
+      },
       proofs: [
         {
           miner: "5M",
@@ -684,7 +776,14 @@ describe("substrate worker", () => {
       parentHash: "0xb",
       author: "5Auth2",
       timestamp: 1_700_000_012,
-      winner: { miner: "5M", reward: "0", energyMilli: -200, submittedAt: "12" },
+      winner: {
+        qblockId: "2",
+        blockNumber: "12",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -200,
+        submittedAt: "12",
+      },
       proofs: [
         {
           miner: "5M",

@@ -25,7 +25,6 @@ import { useCumulativeBlocksThreshold } from "../../charts/cumulative-blocks-thr
 import { useLeaderboard } from "../../charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "../../../store/telemetry-store";
 import { useUIStore } from "../../../store/ui-store";
-import { winningSolutionsSolved } from "../../../lib/chain-solutions";
 import { RecentBlocksTable } from "./RecentBlocksTable";
 
 export function NetworkView() {
@@ -35,13 +34,6 @@ export function NetworkView() {
   // ships DESC by substrate_block_number, which is the order the table wants.
   const blocks = useTelemetryStore((s) => s.blocks);
   const indexer = useTelemetryStore((s) => s.indexer);
-  const chainMiners = useTelemetryStore((s) => s.chainMiners);
-  const chainHead = useTelemetryStore((s) => s.chainHead);
-  // Chain-wide lifetime PoW solution count = length of WinningSolutions,
-  // sourced from chain via chain_head (falling back to summing per-miner
-  // proofs_won until chain_head lands). u64, but values up to 2^53 fit
-  // Number safely, covering any realistic chain lifetime.
-  const totalProofsWon = winningSolutionsSolved(chainHead, chainMiners);
 
   const blocksOverTime = useBlocksOverTime();
   const miningTime = useMiningTime();
@@ -62,7 +54,7 @@ export function NetworkView() {
         subtitle="Last 10 mined solutions on the current chain tip"
         className="mb-5"
       >
-        <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
+        <RecentBlocksTable blocks={blocks} indexer={indexer} />
       </ChartCard>
 
       <ChartCard

@@ -13,13 +13,15 @@
 // the full row at insert time, with no two-phase enrichment race.
 
 import type { DatabaseAdapter } from "../api/db/adapter";
-import type { BlockRecord } from "../src/types/telemetry";
+import type { BlockRecord, MineableTopologyRecord } from "../src/types/telemetry";
 
 import type { IndexerConfig } from "./config";
 import type { IndexerState } from "./state";
 import type {
   BlockEvents,
+  ChainNodeDescriptor,
   DifficultyInfo,
+  MineableTopologyInfo,
   SubstrateClient,
   SubstrateHead,
   TopologyInfo,
@@ -57,7 +59,7 @@ interface ConnectedDeps {
 
 const CHAIN_HEAD_DEBOUNCE_DEFAULT_MS = 1000;
 
-// BABE slot duration on quip-protocol-rs (spec_version 101). Used to
+// BABE slot duration on quip-protocol-rs (spec_version 109). Used to
 // convert block-delta `miningTime` into seconds — the canonical unit
 // every consumer expects (chart axes labelled "seconds", RecentBlocks
 // and ComputeAvailable apply `* 1000` for ms). The runtime constant
@@ -129,6 +131,16 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
     // mining-attempts catch-up simply skips a tick rather than poisoning
     // the chain_head write.
     const winningSolutionsCount = await client.getWinningSolutionsCount().catch(() => null);
+    // In-flight qblock = QBlockCount + 1 (the problem miners are racing now);
+    // its participant count comes from the MinerRegistry runtime API. Both
+    // best-effort: a failed read leaves them null rather than poisoning the
+    // chain_head write.
+    const currentQBlockId =
+      winningSolutionsCount !== null ? String(winningSolutionsCount + 1) : null;
+    const currentQBlockParticipants =
+      currentQBlockId !== null
+        ? await client.getQBlockParticipantCount(currentQBlockId).catch(() => null)
+        : null;
     const bestN = best.number;
     const finN = finalized.number;
     const lag = (() => {
@@ -145,6 +157,8 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
       finalizedBlockHash: finalized.hash,
       finalityLag: lag,
       winningSolutionsCount,
+      currentQBlockId,
+      currentQBlockParticipants,
       runtime: {
         specName: rt.specName,
         specVersion: rt.specVersion,
@@ -281,8 +295,8 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
       const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
       const miningTime = miningTimeBlocks * BABE_SLOT_DURATION_SEC;
 
-      // Per-block difficulty snapshot. v0.2 chain persists the exact
-      // threshold each winning proof cleared in `WinningSolutions[N]`
+      // Per-block difficulty snapshot. The v0.2 chain persists the exact
+      // threshold each winning proof cleared in `QBlocks[N].difficulty`
       // — sourced via `QuantumPowApi::winning_solution(blockNumber)`.
       // Falls back to the most recent live `current_difficulty()` poll
       // for pre-v0.2 chains, then to zeros, so the writer never blocks
@@ -308,6 +322,7 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
         numValidSolutions: winningProof.validSolutionCount,
         miningTime,
         reward: winnerEvent.reward,
+        qblockId: winnerEvent.qblockId,
         nonce,
         numNodes: topology.nodeCount,
         numEdges: topology.edgeCount,
@@ -327,7 +342,7 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
   unsubs.push(await client.subscribeBlockEvents(writeBlockEvents));
 
   // Startup backfill: for each block number recorded in the chain's
-  // `quantum_pow.WinningSolutions` storage map but NOT yet in our local
+  // `quantum_pow.QBlocks` storage map but NOT yet in our local
   // `blocks` table, fetch and decode the block, then route through the
   // same writer. This recovers historical wins that fired before our
   // finalized-heads subscription started receiving events. Fire-and-forget
@@ -348,6 +363,8 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
     difficultyHash: null,
     chainMinersHash: null,
     babeAuthoritiesHash: null,
+    nodeDescriptorsHash: null,
+    mineableTopologiesHash: null,
   };
 
   // Initial polls on connect — populate UI before the first timer tick.
@@ -406,9 +423,9 @@ async function runConnected(deps: ConnectedDeps, signal: AbortSignal): Promise<v
 }
 
 /**
- * Walk `quantum_pow.WinningSolutions` storage to find historical winning
- * blocks that aren't in our local `blocks` table yet, then fetch and write
- * each through the same path the live subscription uses.
+ * Walk `quantum_pow.QBlocks` storage to find historical winning blocks that
+ * aren't in our local `blocks` table yet, then fetch and write each through
+ * the same path the live subscription uses.
  *
  * Called once on every successful connect. With INSERT OR IGNORE
  * idempotency on `blocks.block_hash`, repeated runs over already-backfilled
@@ -468,6 +485,13 @@ interface PollIdempotencyCache {
   chainMinersHash: string | null;
   // Hash of (epochIndex + sorted authority account IDs).
   babeAuthoritiesHash: string | null;
+  // Hash of the sorted (accountId, updatedAtBlock, payloadHash) tuples —
+  // bumped when any on-chain node descriptor changes. Single hash for the
+  // whole set, matching the coarse `chainMinersHash` cadence.
+  nodeDescriptorsHash: string | null;
+  // Hash of the sorted per-topology difficulty snapshot — bumped when the
+  // mineable set or any topology's difficulty/cardinality changes.
+  mineableTopologiesHash: string | null;
 }
 
 /**
@@ -550,10 +574,12 @@ async function pollDifficulty(deps: ConnectedDeps, cache: PollIdempotencyCache):
  * unconditionally — they're keyed by account ID, not by era.
  */
 async function pollChainState(deps: ConnectedDeps, cache: PollIdempotencyCache): Promise<void> {
-  const [miners, authorities, epoch] = await Promise.all([
+  const [miners, authorities, epoch, descriptors, mineableTopologies] = await Promise.all([
     deps.client.getChainMiners(),
     deps.client.getBabeAuthorities(),
     deps.client.getBabeEpoch(),
+    deps.client.getNodeDescriptors(),
+    deps.client.getMineableTopologies(),
   ]);
 
   // --- Miners ---
@@ -590,6 +616,85 @@ async function pollChainState(deps: ConnectedDeps, cache: PollIdempotencyCache):
       cache.babeAuthoritiesHash = authoritiesHash;
       await deps.db.upsertBabeAuthorities(epoch.epochIndex, sortedAuthorities);
     }
+  }
+
+  // --- Node descriptors (MinerRegistry.NodeDescriptors) ---
+  // v0.2 publishes node identity through pallet storage rather than
+  // per-block remarks, so the descriptor surface is a coarse poll keyed by
+  // accountId — same cadence as miners. The on-chain `payload_hash` makes the
+  // change-detection hash exact.
+  await upsertNodeDescriptors(deps, cache, descriptors);
+
+  // --- Mineable topologies (per-topology difficulty snapshot) ---
+  await upsertMineableTopologies(deps, cache, mineableTopologies);
+}
+
+/**
+ * Replace the per-topology difficulty snapshot when the mineable set or any
+ * topology's difficulty/cardinality changed since the last poll. Converts
+ * the chain's milli-encoded difficulty into the dashboard's float units.
+ */
+async function upsertMineableTopologies(
+  deps: ConnectedDeps,
+  cache: PollIdempotencyCache,
+  topologies: MineableTopologyInfo[],
+): Promise<void> {
+  const records: MineableTopologyRecord[] = topologies.map((t) => ({
+    topologyHash: t.topologyHash,
+    isDefault: t.isDefault,
+    difficultyEnergy: t.difficulty.maxEnergyMilli / 1000,
+    minDiversity: t.difficulty.minDiversityMilli / 1000,
+    minSolutions: t.difficulty.minSolutions,
+    nodeCount: t.nodeCount,
+    edgeCount: t.edgeCount,
+  }));
+  const sorted = [...records].sort((a, b) =>
+    a.topologyHash < b.topologyHash ? -1 : a.topologyHash > b.topologyHash ? 1 : 0,
+  );
+  const hash = sorted
+    .map(
+      (t) =>
+        `${t.topologyHash}:${t.isDefault}:${t.difficultyEnergy}:${t.minDiversity}:${t.minSolutions}:${t.nodeCount}:${t.edgeCount}`,
+    )
+    .join("|");
+  if (hash === cache.mineableTopologiesHash) return;
+  cache.mineableTopologiesHash = hash;
+  await deps.db.setMineableTopologies(sorted);
+}
+
+/**
+ * Upsert on-chain node descriptors into `node_descriptors`, skipping the DB
+ * round-trip when nothing changed since the last poll. `blockTimestamp` /
+ * `firstBlockTimestamp` are stamped with the indexer's observe time (unix
+ * seconds) — the chain descriptor carries only an `updated_at` block number,
+ * not a wall-clock — and the adapter preserves the first-observed value
+ * across upserts so the NodeInfo projection can distinguish firstSeen from
+ * lastSeen.
+ */
+async function upsertNodeDescriptors(
+  deps: ConnectedDeps,
+  cache: PollIdempotencyCache,
+  descriptors: ChainNodeDescriptor[],
+): Promise<void> {
+  const sorted = [...descriptors].sort((a, b) =>
+    a.accountId < b.accountId ? -1 : a.accountId > b.accountId ? 1 : 0,
+  );
+  const hash = sorted.map((d) => `${d.accountId}:${d.updatedAtBlock}:${d.payloadHash}`).join("|");
+  if (hash === cache.nodeDescriptorsHash) return;
+  cache.nodeDescriptorsHash = hash;
+
+  const observedAt = nowIso(deps);
+  const observedUnix = Math.floor((deps.now ?? Date.now)() / 1000);
+  for (const d of sorted) {
+    await deps.db.upsertNodeDescriptor({
+      accountId: d.accountId,
+      blockNumber: d.updatedAtBlock,
+      payloadHash: d.payloadHash,
+      blockTimestamp: observedUnix,
+      firstBlockTimestamp: observedUnix,
+      descriptor: d.descriptor,
+      observedAt,
+    });
   }
 }
 

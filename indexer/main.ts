@@ -4,7 +4,6 @@ import { createAdapter } from "../api/db";
 
 import { QuipClient } from "./client";
 import { parseConfig } from "./config";
-import { runDescriptorLoop } from "./descriptor-worker";
 import { IndexerState } from "./state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./substrate-client";
 import { runSubstrateLoop } from "./substrate-worker";
@@ -13,13 +12,9 @@ import { runTipLoop } from "./tip-worker";
 export interface WorkerRunner {
   runTip: (signal: AbortSignal) => Promise<void>;
   runSubstrate: (signal: AbortSignal) => Promise<void>;
-  // Node-descriptor indexer — scans every finalized block for
-  // `System.remark{,_with_event}` extrinsics signed by operators running
-  // `quip-miner identify`.
-  runDescriptor: (signal: AbortSignal) => Promise<void>;
 }
 
-type WorkerName = "tip" | "substrate" | "descriptor";
+type WorkerName = "tip" | "substrate";
 
 /**
  * Run the configured workers concurrently. Each worker receives a composed
@@ -48,9 +43,9 @@ export async function runWorkers(
         `[indexer] ${name} unhandled error:`,
         e instanceof Error ? (e.stack ?? e.message) : e,
       );
-      // Tip worker is the only fatal — substrate/descriptor failures
-      // self-heal via their own reconnect loops, so we don't yank the
-      // whole indexer for those.
+      // Tip worker is the only fatal — substrate failures self-heal via
+      // their own reconnect loop, so we don't yank the whole indexer for
+      // those.
       if (name === "tip") ac.abort();
       throw e;
     }
@@ -59,7 +54,6 @@ export async function runWorkers(
   const results = await Promise.allSettled([
     wrap("tip", runners.runTip),
     wrap("substrate", runners.runSubstrate),
-    wrap("descriptor", runners.runDescriptor),
   ]);
   const failed = results.some((r) => r.status === "rejected");
   return failed ? 1 : 0;
@@ -105,9 +99,7 @@ async function main(): Promise<number> {
 
   // Substrate client factory: each connect attempt builds a fresh client
   // pointed at one of the configured RPC URLs (rotated by the worker's
-  // outer reconnect loop). One shared client per worker (substrate +
-  // descriptor) keeps the connect lifecycle independent — descriptor
-  // failures don't drop substrate, and vice versa.
+  // outer reconnect loop).
   const clientFactory = (url: string): SubstrateClient =>
     new PolkadotSubstrateClient(url, config.substrateRpcTimeoutMs);
 
@@ -127,17 +119,6 @@ async function main(): Promise<number> {
           ),
         runSubstrate: (signal) =>
           runSubstrateLoop(
-            {
-              config,
-              db,
-              state,
-              urls: config.validatorRpcUrls,
-              clientFactory,
-            },
-            signal,
-          ),
-        runDescriptor: (signal) =>
-          runDescriptorLoop(
             {
               config,
               db,
