@@ -1,57 +1,80 @@
 #!/usr/bin/env bash
+# Single entry point for containerised dev/build (the host has no JS runtime).
+#
+#   ./run dev          Build + start the WHOLE dev stack (postgres + server +
+#                      indexer + frontend) via docker-compose. Ctrl-C to stop.
+#   ./run down [-v]    Stop the dev stack (-v also wipes the postgres volume).
+#   ./run logs [svc]   Follow logs from the running stack.
+#   ./run build        Build the production container image (the published artifact).
+#
+#   ./run sh           Shell in the dev image (source mounted, deps ensured).
+#   ./run typecheck    Type-check the workspace.
+#   ./run test [...]   Run the test suite.
+#   ./run format       Prettier --write.
+#   ./run ladle        Component workbench (host network).
+#   ./run bun ...      Arbitrary bun invocation.
+#   ./run <script>     Any other arg runs `bun run <script>` in the dev image.
 set -euo pipefail
 
-IMAGE_NAME="quip-dashboard"
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOCKERFILE="$PROJECT_DIR/deploy/Dockerfile"
+COMPOSE_FILE="$PROJECT_DIR/deploy/docker-compose.yml"
+DEV_IMAGE="quip-dashboard-dev"
+PROD_IMAGE="quip-dashboard"
 
-# Build image if it doesn't exist or Containerfile changed
-if ! podman image exists "$IMAGE_NAME" || \
-   [ "$PROJECT_DIR/Containerfile" -nt "$(podman image inspect "$IMAGE_NAME" --format '{{.Created}}' 2>/dev/null || echo 0)" ]; then
-  podman build -t "$IMAGE_NAME" "$PROJECT_DIR"
-fi
+compose() {
+  if podman compose version >/dev/null 2>&1; then
+    podman compose -f "$COMPOSE_FILE" "$@"
+  elif command -v docker >/dev/null 2>&1; then
+    docker compose -f "$COMPOSE_FILE" "$@"
+  else
+    podman-compose -f "$COMPOSE_FILE" "$@"
+  fi
+}
 
-CMD="${1:-sh}"
+stale_image() { # $1 = image tag; true if missing or older than the Dockerfile
+  podman image exists "$1" || return 0
+  local created dockerfile
+  created="$(podman image inspect "$1" --format '{{.Created.Unix}}' 2>/dev/null || echo 0)"
+  dockerfile="$(stat -c %Y "$DOCKERFILE" 2>/dev/null || echo 0)"
+  [ "$dockerfile" -gt "$created" ]
+}
+
+ensure_dev_image() {
+  if stale_image "$DEV_IMAGE"; then
+    podman build --target dev -t "$DEV_IMAGE" -f "$DOCKERFILE" "$PROJECT_DIR"
+  fi
+}
+
+# Run a one-off command in the dev image: source mounted, supervisor entrypoint
+# bypassed, deps installed if missing. Host network so dev servers are reachable.
+run_dev() {
+  ensure_dev_image
+  exec podman run --rm -it \
+    -v "$PROJECT_DIR:/app:Z" -w /app --network host \
+    --entrypoint bash "$DEV_IMAGE" \
+    -lc 'test -d node_modules || bun install; exec "$@"' bash "$@"
+}
+
+CMD="${1:-help}"
 shift 2>/dev/null || true
 
 case "$CMD" in
-  dev)
-    exec podman run -it \
-      -v "$PROJECT_DIR:/app:Z" \
-      -p 8888:8888 \
-      "$IMAGE_NAME" \
-      node node_modules/.bin/netlify dev --port 8888 --offline "$@"
+  dev) compose up --build "$@" ;;
+  down) compose down "$@" ;;
+  logs) compose logs -f "$@" ;;
+  build) exec podman build --target prod -t "$PROD_IMAGE" -f "$DOCKERFILE" "$PROJECT_DIR" "$@" ;;
+
+  sh) run_dev bash ;;
+  bun) run_dev bun "$@" ;;
+  ladle) run_dev bun run ladle -- --host 0.0.0.0 "$@" ;;
+  typecheck) run_dev bun run typecheck ;;
+  test) run_dev bun run test "$@" ;;
+  format) run_dev bun run format ;;
+  migrate) run_dev bun run migrate ;;
+
+  help | -h | --help)
+    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
     ;;
-  build)
-    exec podman run \
-      -v "$PROJECT_DIR:/app:Z" \
-      "$IMAGE_NAME" \
-      bun run build "$@"
-    ;;
-  ladle)
-    exec podman run -it \
-      -v "$PROJECT_DIR:/app:Z" \
-      --network host \
-      "$IMAGE_NAME" \
-      bun run ladle -- --host 0.0.0.0 "$@"
-    ;;
-  sh)
-    exec podman run -it \
-      -v "$PROJECT_DIR:/app:Z" \
-      -p 8888:8888 \
-      "$IMAGE_NAME" \
-      bash "$@"
-    ;;
-  bun)
-    exec podman run -it \
-      -v "$PROJECT_DIR:/app:Z" \
-      "$IMAGE_NAME" \
-      bun "$@"
-    ;;
-  *)
-    exec podman run -it \
-      -v "$PROJECT_DIR:/app:Z" \
-      -p 8888:8888 \
-      "$IMAGE_NAME" \
-      bun "$CMD" "$@"
-    ;;
+  *) run_dev bun run "$CMD" "$@" ;;
 esac

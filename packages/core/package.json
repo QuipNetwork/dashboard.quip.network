@@ -1,0 +1,29 @@
+{
+  "name": "@quip/core",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./api/db/index.ts",
+    "./db": "./api/db/index.ts",
+    "./db/adapter": "./api/db/adapter.ts",
+    "./db/pglite-support": "./api/db/pglite-support.ts",
+    "./cache": "./cache.ts",
+    "./miner-api": "./api/miner-api.ts",
+    "./resolve-miner-rest": "./api/resolve-miner-rest.ts",
+    "./test-helpers": "./test-helpers.ts"
+  },
+  "dependencies": {
+    "@quip/shared": "workspace:*",
+    "kysely": "^0.29.2",
+    "kysely-postgres-js": "^3.0.0",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.2",
+    "@types/bun": "^1.3.10"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@quip/shared",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./telemetry": "./telemetry.ts",
+    "./deployment": "./deployment.ts",
+    "./array": "./array.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
