@@ -8,6 +8,7 @@ import type {
   CurrentDispatch,
   DifficultyRecord,
   IndexerObservability,
+  MineableTopologyRecord,
   MinerCategory,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
@@ -152,6 +153,7 @@ function buildBlocks(nowSec: number): BlockRecord[] {
       numValidSolutions: 1 + (i % 3),
       miningTime: MINING_TIME_BY_TYPE[type] + jitter,
       reward: "1000000000000",
+      qblockId: String(tipNumber - i),
       nonce: String(100000 + i),
       numNodes: 120 + i,
       numEdges: 240 + i * 2,
@@ -321,6 +323,29 @@ function buildDifficulty(): DifficultyRecord[] {
   }));
 }
 
+function buildMineableTopologies(): MineableTopologyRecord[] {
+  return [
+    {
+      topologyHash: "0xtopo-default",
+      isDefault: true,
+      difficultyEnergy: -15500,
+      minDiversity: 0.1,
+      minSolutions: 1,
+      nodeCount: 120,
+      edgeCount: 240,
+    },
+    {
+      topologyHash: "0xtopo-alt",
+      isDefault: false,
+      difficultyEnergy: -14200,
+      minDiversity: 0.15,
+      minSolutions: 2,
+      nodeCount: 64,
+      edgeCount: 128,
+    },
+  ];
+}
+
 function buildObservability(nowIso: string): IndexerObservability {
   return {
     chainHeadFromNode: "1042",
@@ -361,6 +386,8 @@ export function sampleTelemetry(): Partial<TelemetryState> {
       finalizedBlockHash: "0xfinal",
       finalityLag: 3,
       winningSolutionsCount: 1042,
+      currentQBlockId: "1043",
+      currentQBlockParticipants: 4,
       runtime: {
         specName: "quip",
         specVersion: 101,
@@ -381,6 +408,7 @@ export function sampleTelemetry(): Partial<TelemetryState> {
     babeAuthorities: buildBabeAuthorities(),
     chainMiners: buildChainMiners(blocks),
     recentDifficulty: buildDifficulty(),
+    mineableTopologies: buildMineableTopologies(),
     validators: buildValidators(nowSec),
     nodes: buildNodes(nowSec),
     nodeDescriptors: buildNodeDescriptors(nowSec),

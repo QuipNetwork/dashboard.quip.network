@@ -43,6 +43,7 @@ export function rowToBlockRecord(r: Row): BlockRecord {
     numValidSolutions: num(r.num_valid_solutions),
     miningTime: num(r.mining_time),
     reward: String(r.reward),
+    qblockId: String(r.qblock_id),
     nonce: String(r.nonce),
     numNodes: num(r.num_nodes),
     numEdges: num(r.num_edges),
@@ -62,6 +63,9 @@ export function rowToChainHead(r: Row): ChainHead {
     finalityLag: num(r.finality_lag),
     winningSolutionsCount:
       r.winning_solutions_count == null ? null : num(r.winning_solutions_count),
+    currentQBlockId: r.current_qblock_id == null ? null : String(r.current_qblock_id),
+    currentQBlockParticipants:
+      r.current_qblock_participants == null ? null : num(r.current_qblock_participants),
     runtime: {
       specName: String(r.spec_name),
       specVersion: num(r.spec_version),

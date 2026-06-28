@@ -13,6 +13,7 @@ import type {
   BlockEvents,
   ChainMinerInfo,
   DifficultyInfo,
+  MineableTopologyInfo,
   RuntimeVersionInfo,
   SubstrateHead,
   TopologyInfo,
@@ -32,6 +33,7 @@ export interface HeadSource {
   getRuntimeVersion(): Promise<RuntimeVersionInfo>;
   getLastRuntimeUpgrade(): Promise<{ blockNumber: string } | null>;
   getWinningSolutionsCount(): Promise<number | null>;
+  getQBlockParticipantCount(qblockId: string): Promise<number | null>;
 }
 
 export interface BlockSource {
@@ -52,6 +54,7 @@ export interface PollSource {
   getBabeAuthorities(): Promise<BabeAuthorityInfo[]>;
   getChainMiners(): Promise<ChainMinerInfo[]>;
   getDifficulty(): Promise<DifficultyInfo | null>;
+  getMineableTopologies(): Promise<MineableTopologyInfo[]>;
 }
 
 // Distinct name from `sources.ChainSource` (the full SubstrateClient alias) so

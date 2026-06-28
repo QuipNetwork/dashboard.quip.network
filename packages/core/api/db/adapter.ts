@@ -8,6 +8,7 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
+  MineableTopologyRecord,
   MinerHardwareRecord,
   MinerStats,
   MiningSubmissionRecord,
@@ -218,6 +219,14 @@ export interface DatabaseAdapter {
   // workers see the same boundary block.
   insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void>;
   getRecentDifficulty(limit: number): Promise<DifficultyRecord[]>;
+
+  // Current per-topology difficulty snapshot for the chain's mineable
+  // whitelist (`quantum_pow` runtime APIs). Current-state, not history:
+  // `setMineableTopologies` replaces the whole set each poll, stored as a
+  // single `meta` JSON row. Empty when the substrate worker hasn't observed
+  // any topology (or the runtime APIs are absent pre-v0.2).
+  setMineableTopologies(records: MineableTopologyRecord[]): Promise<void>;
+  getMineableTopologies(): Promise<MineableTopologyRecord[]>;
 
   // --- Miner hardware identity ---
   // Per-miner hardware inventory keyed by SS58 account. v0.3 only ever

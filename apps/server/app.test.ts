@@ -20,6 +20,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     numValidSolutions: 5,
     miningTime: 6,
     reward: "1000000000000",
+    qblockId: "7",
     nonce: "42",
     numNodes: 100,
     numEdges: 200,
@@ -173,6 +174,8 @@ describe("server app", () => {
       finalizedBlockHash: "0xdef",
       finalityLag: 2,
       winningSolutionsCount: null,
+      currentQBlockId: null,
+      currentQBlockParticipants: null,
       runtime: {
         specName: "quip",
         specVersion: 101,

@@ -16,10 +16,19 @@ export interface SubstrateHead {
   stateRoot: string;
 }
 
-// Emitted by pallet-quantum-pow on_finalize (verified in
-// quip-protocol-rs/pallets/quantum-pow/src/lib.rs:159-164). The substrate
-// worker subscribes to system.events and filters for these.
+// Emitted by pallet-quantum-pow on_finalize. The substrate worker subscribes
+// to system.events and filters for these.
+//
+// v0.2 field order (BlockWinner): qblock_id, block_number, miner, reward,
+// energy_milli, submitted_at. The two leading fields are new in v0.2 — see
+// `decodeBlockWinnerEventData` for the positional decode.
 export interface BlockWinnerEvent {
+  // Monotonic 1-based qblock id assigned in on_finalize when this proof
+  // won. u64 as string. New in v0.2 (the network-wide "solution number").
+  qblockId: string;
+  // Substrate block number this win was sealed in (u64 as string). New in
+  // v0.2; for the canonical writer this equals BlockEvents.blockNumber.
+  blockNumber: string;
   miner: string; // SS58 account ID
   reward: string; // u128 as string
   energyMilli: number; // integer; divide by 1000 to compare to BlockRecord.energy
@@ -140,6 +149,17 @@ export interface WinningSolutionInfo {
   difficulty: DifficultyInfo;
 }
 
+// One topology on the chain's mineable whitelist, with its current decayed
+// difficulty and node/edge counts. Sourced from the v0.2 QuantumPow runtime
+// APIs `mineable_topologies()` + `difficulty_for(hash)` + `topology_meta(hash)`.
+export interface MineableTopologyInfo {
+  topologyHash: string;
+  isDefault: boolean;
+  difficulty: DifficultyInfo;
+  nodeCount: number;
+  edgeCount: number;
+}
+
 export type UnsubFn = () => void;
 
 export interface SubstrateClient {
@@ -183,6 +203,17 @@ export interface SubstrateClient {
   getBabeAuthorities(): Promise<BabeAuthorityInfo[]>;
   getChainMiners(): Promise<ChainMinerInfo[]>;
   getDifficulty(): Promise<DifficultyInfo | null>;
+
+  // v0.2: current per-topology difficulty for every topology on the mineable
+  // whitelist (`mineable_topologies()` → `difficulty_for(hash)` +
+  // `topology_meta(hash)`). Empty when the runtime APIs are absent (pre-v0.2).
+  getMineableTopologies(): Promise<MineableTopologyInfo[]>;
+
+  // v0.2: count of miners that declared participation on `qblockId` via
+  // `MinerRegistry.participate` (the `participant_count_by_qblock` runtime
+  // API). Null when the runtime API is absent (pre-v0.2 / pallet missing).
+  getQBlockParticipantCount(qblockId: string): Promise<number | null>;
+
   getRuntimeVersion(): Promise<RuntimeVersionInfo>;
   getLastRuntimeUpgrade(): Promise<{ blockNumber: string } | null>;
 
@@ -198,16 +229,17 @@ export interface SubstrateClient {
   getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null>;
 
   // Lists the block numbers (as decimal strings) for which a
-  // `quantum_pow.WinningSolutions` entry exists on chain. Used at indexer
-  // startup to backfill historical wins that fired before `subscribeBlockEvents`
-  // started receiving live heads. Returns empty when the storage map is
-  // absent (pre-v0.2) or empty (no wins yet).
+  // `quantum_pow.QBlocks` entry exists on chain (v0.2 renamed the v0.1
+  // `WinningSolutions` map). Used at indexer startup to backfill historical
+  // wins that fired before `subscribeBlockEvents` started receiving live
+  // heads. Returns empty when the storage map is absent (pre-v0.2) or empty
+  // (no wins yet).
   getWinningBlockNumbers(): Promise<string[]>;
 
-  // Latest monotonic qblock id / network-wide winning-solution total. New
-  // runtimes expose `quantum_pow.LatestQBlockId`; older v0.2 runtimes are
-  // supported by falling back to the `WinningSolutions` count. The global
-  // in-flight problem id is this + 1.
+  // Network-wide winning-qblock total. v0.2 exposes this directly as the
+  // `quantum_pow.QBlockCount` u64 (single O(1) read); falls back to counting
+  // `QBlocks` keys. The global in-flight problem id is this + 1. Null when
+  // neither item is present (pre-v0.2).
   getWinningSolutionsCount(): Promise<number | null>;
 
   // Decode events, author, and timestamp for a specific finalized block,

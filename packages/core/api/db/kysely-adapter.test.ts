@@ -25,6 +25,7 @@ const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   numValidSolutions: 1,
   miningTime: 1.25,
   reward: "1000000000000",
+  qblockId: "1",
   nonce: "1",
   numNodes: 2,
   numEdges: 3,
@@ -42,6 +43,8 @@ const sampleHead = (overrides: Partial<ChainHead> = {}): ChainHead => ({
   finalizedBlockHash: "0xfinal",
   finalityLag: 10,
   winningSolutionsCount: 5,
+  currentQBlockId: "6",
+  currentQBlockParticipants: 3,
   runtime: {
     specName: "quip",
     specVersion: 21,

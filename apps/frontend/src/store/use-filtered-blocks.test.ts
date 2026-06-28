@@ -25,6 +25,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     numValidSolutions: 1,
     miningTime: 60,
     reward: "1000000000000",
+    qblockId: "1",
     nonce: "1",
     numNodes: 100,
     numEdges: 200,

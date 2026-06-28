@@ -2,6 +2,7 @@
 
 import { selectServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { BabeAuthoritiesPanel } from "./BabeAuthoritiesPanel";
+import { MineableTopologiesPanel } from "./MineableTopologiesPanel";
 import { ValidatorsTable } from "./ValidatorsTable";
 
 /**
@@ -23,6 +24,7 @@ export function ChainView() {
             set and per-validator authorship stats here.
           </p>
         </div>
+        <MineableTopologiesPanel />
         <BabeAuthoritiesPanel />
       </>
     );
@@ -31,6 +33,7 @@ export function ChainView() {
   return (
     <>
       <ValidatorsTable validators={validators} serverNowMs={serverNowMs} />
+      <MineableTopologiesPanel />
       <BabeAuthoritiesPanel />
     </>
   );

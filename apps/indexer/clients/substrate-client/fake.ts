@@ -7,6 +7,7 @@ import type {
   BlockWinnerEvent,
   ChainMinerInfo,
   DifficultyInfo,
+  MineableTopologyInfo,
   MinerRegistryDescriptorRecord,
   RuntimeVersionInfo,
   SubstrateClient,
@@ -118,6 +119,15 @@ export class FakeSubstrateClient implements SubstrateClient {
   }
   async getDifficulty(): Promise<DifficultyInfo | null> {
     return this.difficulty;
+  }
+  public mineableTopologies: MineableTopologyInfo[] = [];
+  async getMineableTopologies(): Promise<MineableTopologyInfo[]> {
+    return this.mineableTopologies;
+  }
+  // Keyed by qblock id string; tests populate the counts they expect to read.
+  public qblockParticipantCounts = new Map<string, number>();
+  async getQBlockParticipantCount(qblockId: string): Promise<number | null> {
+    return this.qblockParticipantCounts.get(qblockId) ?? null;
   }
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
     return this.runtimeVersion;

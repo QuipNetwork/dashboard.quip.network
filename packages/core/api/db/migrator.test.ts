@@ -68,6 +68,7 @@ describe("migrator (postgres)", () => {
       numValidSolutions: 1,
       miningTime: 1,
       reward: "1000",
+      qblockId: "1",
       nonce: "1",
       numNodes: 1,
       numEdges: 1,
@@ -84,6 +85,8 @@ describe("migrator (postgres)", () => {
       finalizedBlockHash: "0xf",
       finalityLag: 10,
       winningSolutionsCount: 5,
+      currentQBlockId: "6",
+      currentQBlockParticipants: 3,
       runtime: {
         specName: "quip",
         specVersion: 21,

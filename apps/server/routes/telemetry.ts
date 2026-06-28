@@ -80,6 +80,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       allHardware,
       authorship,
       nodeDescriptors,
+      mineableTopologies,
     ] = await Promise.all([
       // Page-1 default; the UI can request later pages once pagination lands.
       db.getRecentBlocks(500, 0),
@@ -93,6 +94,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       db.getAllMinerHardware(),
       db.getValidatorAuthorship(),
       db.getAllNodeDescriptors(),
+      db.getMineableTopologies(),
     ]);
 
     // Recent submissions by the locally-polled miner — drives the
@@ -183,6 +185,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       babeAuthorities,
       chainMiners: enrichedMiners,
       recentDifficulty,
+      mineableTopologies,
       validators,
       nodes,
       nodeDescriptors,

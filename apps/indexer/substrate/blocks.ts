@@ -125,6 +125,7 @@ function buildBlockRecord(
     numValidSolutions: winningProof.validSolutionCount,
     miningTime,
     reward: e.winner.reward,
+    qblockId: e.winner.qblockId,
     nonce,
     numNodes: topology.nodeCount,
     numEdges: topology.edgeCount,

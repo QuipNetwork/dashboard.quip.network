@@ -6,6 +6,9 @@
 
 import { type Observable, exhaustMap, merge, timer } from "rxjs";
 
+import type { MineableTopologyRecord } from "@quip/shared/telemetry";
+
+import type { MineableTopologyInfo } from "../clients/substrate-client";
 import { runEffect } from "../core/rx";
 import { type WorkerContext, nowIso } from "../core/worker";
 import type { ConnectionStream, PollSource } from "./ports";
@@ -15,6 +18,7 @@ interface PollCache {
   difficulty: string | null;
   chainMiners: string | null;
   babeAuthorities: string | null;
+  mineableTopologies: string | null;
 }
 
 export class PollScheduler implements ConnectionStream {
@@ -23,6 +27,7 @@ export class PollScheduler implements ConnectionStream {
     difficulty: null,
     chainMiners: null,
     babeAuthorities: null,
+    mineableTopologies: null,
   };
 
   constructor(
@@ -95,10 +100,11 @@ export class PollScheduler implements ConnectionStream {
   }
 
   private async pollChainState(): Promise<void> {
-    const [miners, authorities, epoch] = await Promise.all([
+    const [miners, authorities, epoch, mineableTopologies] = await Promise.all([
       this.client.getChainMiners(),
       this.client.getBabeAuthorities(),
       this.client.getBabeEpoch(),
+      this.client.getMineableTopologies(),
     ]);
 
     const sortedMiners = [...miners].sort((a, b) =>
@@ -134,5 +140,36 @@ export class PollScheduler implements ConnectionStream {
         await this.ctx.db.upsertBabeAuthorities(epoch.epochIndex, sortedAuthorities);
       }
     }
+
+    await this.upsertMineableTopologies(mineableTopologies);
+  }
+
+  /**
+   * Replace the per-topology difficulty snapshot when the mineable set or any
+   * topology's difficulty/cardinality changed since the last poll. Converts
+   * the chain's milli-encoded difficulty into the dashboard's float units.
+   */
+  private async upsertMineableTopologies(topologies: MineableTopologyInfo[]): Promise<void> {
+    const records: MineableTopologyRecord[] = topologies.map((t) => ({
+      topologyHash: t.topologyHash,
+      isDefault: t.isDefault,
+      difficultyEnergy: t.difficulty.maxEnergyMilli / 1000,
+      minDiversity: t.difficulty.minDiversityMilli / 1000,
+      minSolutions: t.difficulty.minSolutions,
+      nodeCount: t.nodeCount,
+      edgeCount: t.edgeCount,
+    }));
+    const sorted = [...records].sort((a, b) =>
+      a.topologyHash < b.topologyHash ? -1 : a.topologyHash > b.topologyHash ? 1 : 0,
+    );
+    const hash = sorted
+      .map(
+        (t) =>
+          `${t.topologyHash}:${t.isDefault}:${t.difficultyEnergy}:${t.minDiversity}:${t.minSolutions}:${t.nodeCount}:${t.edgeCount}`,
+      )
+      .join("|");
+    if (hash === this.cache.mineableTopologies) return;
+    this.cache.mineableTopologies = hash;
+    await this.ctx.db.setMineableTopologies(sorted);
   }
 }

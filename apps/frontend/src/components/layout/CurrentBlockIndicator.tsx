@@ -33,10 +33,20 @@ export function CurrentBlockIndicator() {
   const QUANTUM_POW_EPOCH_LENGTH = 100;
   const decaysApplied =
     blocksSinceWin != null ? Math.floor(blocksSinceWin / QUANTUM_POW_EPOCH_LENGTH) : null;
+  // Number of miners that declared participation on the in-flight qblock via
+  // `MinerRegistry.participate`, sourced from chain. Null when the runtime API
+  // is absent (pre-v0.2) or the substrate worker hasn't read it yet.
+  const participants = chainHead?.currentQBlockParticipants ?? null;
   return (
     <div className="mt-2 text-center font-accent text-xs text-ink-subtle">
       <p>
         Mining Problem <span className="text-ink-strong">#{nextProblem}</span>
+        {participants != null && (
+          <span className="text-ink-subtle">
+            {" "}
+            · {participants} {participants === 1 ? "participant" : "participants"}
+          </span>
+        )}
       </p>
       <p className="mt-0.5 text-ink-subtle">
         Last PoW Block: <span className="text-ink-body">#{tipNum}</span>

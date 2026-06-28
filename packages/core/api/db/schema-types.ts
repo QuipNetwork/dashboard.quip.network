@@ -23,6 +23,7 @@ export interface BlocksTable {
   num_valid_solutions: number;
   mining_time: number;
   reward: string;
+  qblock_id: string;
   nonce: string;
   num_nodes: number;
   num_edges: number;
@@ -54,6 +55,8 @@ export interface ChainHeadTable {
   finalized_block_hash: string;
   finality_lag: number;
   winning_solutions_count: Big | null;
+  current_qblock_id: string | null;
+  current_qblock_participants: number | null;
   spec_name: string;
   spec_version: number;
   transaction_version: number;

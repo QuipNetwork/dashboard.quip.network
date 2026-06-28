@@ -33,6 +33,9 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     "getChainMiners",
     "insertDifficultySnapshot",
     "getRecentDifficulty",
+    // mineable topologies (v0.2 protocol sync)
+    "setMineableTopologies",
+    "getMineableTopologies",
     // hardware identity (v6)
     "upsertMinerHardware",
     "getMinerHardware",
@@ -51,5 +54,5 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     "getMiningCheckpoint",
     "setMiningCheckpoint",
   ];
-  expect(required.length).toBe(36);
+  expect(required.length).toBe(38);
 });

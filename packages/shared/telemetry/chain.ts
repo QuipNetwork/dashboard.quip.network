@@ -26,6 +26,10 @@ export interface BlockRecord {
   miningTime: number;
   // u128 as string (token amount).
   reward: string;
+  // Monotonic 1-based qblock id this win was assigned on chain (u64 as
+  // string) — the per-block "solution number". Sourced from the v0.2
+  // `quantum_pow.BlockWinner` event's `qblock_id` field.
+  qblockId: string;
   // u64 as string — nonce can exceed Number.MAX_SAFE_INTEGER.
   nonce: string;
   numNodes: number;
@@ -60,16 +64,48 @@ export interface ChainHead {
   finalizedBlockHash: string;
   // bestBlockNumber - finalizedBlockNumber, precomputed for the UI.
   finalityLag: number;
-  // Latest monotonic qblock id (`quantum_pow.LatestQBlockId`) — equal to
-  // the count of winning solutions accepted network-wide. This is the
-  // authoritative source for the global "solution number": the in-flight
-  // problem every miner is grinding is `winningSolutionsCount + 1`. Null
-  // when the chain doesn't expose it yet or the substrate worker hasn't
-  // read it. Equals `Σ chain_miners.proofsWon` when that table is complete,
-  // but sourced straight from chain so it can't undercount.
+  // Network-wide count of winning qblocks, sourced from the v0.2
+  // `quantum_pow.QBlockCount` u64 (a single O(1) read; renamed from the
+  // v0.1 `WinningSolutions` map length). This is the authoritative source
+  // for the global "solution number": the in-flight problem every miner is
+  // grinding is `winningSolutionsCount + 1`. Null when the chain doesn't
+  // expose it yet or the substrate worker hasn't read it. Equals
+  // `Σ chain_miners.proofsWon` when that table is complete, but sourced
+  // straight from chain so it can't undercount.
   winningSolutionsCount: number | null;
+  // The in-flight qblock id miners are currently racing — `QBlockCount + 1`
+  // (i.e. `winningSolutionsCount + 1`). Null when the count is unknown.
+  currentQBlockId: string | null;
+  // Number of miners that declared participation on `currentQBlockId` via
+  // `MinerRegistry.participate` (from the `participant_count_by_qblock`
+  // runtime API). Null when the runtime API is absent (pre-v0.2) or the
+  // count couldn't be read.
+  currentQBlockParticipants: number | null;
   runtime: RuntimeVersion;
   updatedAt: string;
+}
+
+/**
+ * Current per-topology difficulty for one topology on the chain's mineable
+ * whitelist. v0.2 keys difficulty by topology hash; the substrate worker reads
+ * the live decayed threshold via `QuantumPowApi::difficulty_for(hash)` plus
+ * node/edge counts via `topology_meta(hash)`. This is a current-state snapshot
+ * (overwritten each poll), not append-only history like `DifficultyRecord`.
+ */
+export interface MineableTopologyRecord {
+  // H256 topology hash (0x hex).
+  topologyHash: string;
+  // True for the chain's `DefaultTopology` — the difficulty curve is
+  // calibrated against it and it is always mineable.
+  isDefault: boolean;
+  // From chain `max_energy_milli / 1000` — proof energy must be ≤ this.
+  difficultyEnergy: number;
+  // From chain `min_diversity_milli / 1000`.
+  minDiversity: number;
+  // From chain `min_solutions` (integer units).
+  minSolutions: number;
+  nodeCount: number;
+  edgeCount: number;
 }
 
 /**

@@ -12,6 +12,7 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   IndexerObservability,
+  MineableTopologyRecord,
   MinerHardwareRecord,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
@@ -40,6 +41,7 @@ import type { DB } from "./schema-types";
 const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
 const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
+const MINEABLE_TOPOLOGIES_KEY = "mineable_topologies";
 const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
 
 function miningCheckpointKey(minerId: string): string {
@@ -140,6 +142,7 @@ export class KyselyAdapter implements DatabaseAdapter {
         num_valid_solutions: b.numValidSolutions,
         mining_time: b.miningTime,
         reward: b.reward,
+        qblock_id: b.qblockId,
         nonce: b.nonce,
         num_nodes: b.numNodes,
         num_edges: b.numEdges,
@@ -239,6 +242,8 @@ export class KyselyAdapter implements DatabaseAdapter {
         finalized_block_hash: head.finalizedBlockHash,
         finality_lag: head.finalityLag,
         winning_solutions_count: head.winningSolutionsCount,
+        current_qblock_id: head.currentQBlockId,
+        current_qblock_participants: head.currentQBlockParticipants,
         spec_name: head.runtime.specName,
         spec_version: head.runtime.specVersion,
         transaction_version: head.runtime.transactionVersion,
@@ -256,6 +261,8 @@ export class KyselyAdapter implements DatabaseAdapter {
             finalized_block_hash: sql`excluded.finalized_block_hash`,
             finality_lag: sql`excluded.finality_lag`,
             winning_solutions_count: sql`excluded.winning_solutions_count`,
+            current_qblock_id: sql`excluded.current_qblock_id`,
+            current_qblock_participants: sql`excluded.current_qblock_participants`,
             spec_name: sql`excluded.spec_name`,
             spec_version: sql`excluded.spec_version`,
             transaction_version: sql`excluded.transaction_version`,
@@ -268,6 +275,8 @@ export class KyselyAdapter implements DatabaseAdapter {
               chain_head.best_block_number ${distinct} excluded.best_block_number or
               chain_head.finalized_block_number ${distinct} excluded.finalized_block_number or
               chain_head.winning_solutions_count ${distinct} excluded.winning_solutions_count or
+              chain_head.current_qblock_id ${distinct} excluded.current_qblock_id or
+              chain_head.current_qblock_participants ${distinct} excluded.current_qblock_participants or
               chain_head.spec_version ${distinct} excluded.spec_version
             `,
           ),
@@ -464,6 +473,23 @@ export class KyselyAdapter implements DatabaseAdapter {
       .limit(limit)
       .execute();
     return rows.map(rowToDifficulty);
+  }
+
+  // --- Mineable topologies (current-state snapshot in `meta`) ---
+
+  async setMineableTopologies(records: MineableTopologyRecord[]): Promise<void> {
+    await this.setMeta(MINEABLE_TOPOLOGIES_KEY, JSON.stringify(records));
+  }
+
+  async getMineableTopologies(): Promise<MineableTopologyRecord[]> {
+    const raw = await this.getMeta(MINEABLE_TOPOLOGIES_KEY);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as MineableTopologyRecord[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   // --- Miner hardware ---

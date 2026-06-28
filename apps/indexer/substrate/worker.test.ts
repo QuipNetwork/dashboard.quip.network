@@ -78,6 +78,8 @@ describe("substrate worker", () => {
       author: "5Author",
       timestamp: 1700000000,
       winner: {
+        qblockId: "1",
+        blockNumber: "100",
         miner: "5GPP",
         reward: "1000",
         energyMilli: -2510,
@@ -155,6 +157,8 @@ describe("substrate worker", () => {
       author: "5Author",
       timestamp: 1700000077,
       winner: {
+        qblockId: "1",
+        blockNumber: "77",
         miner: "5GPP",
         reward: "1000",
         energyMilli: -500,
@@ -209,6 +213,8 @@ describe("substrate worker", () => {
       author: "5Author",
       timestamp: 1700000001,
       winner: {
+        qblockId: "1",
+        blockNumber: "42",
         miner: "5GPP",
         reward: "1000",
         energyMilli: -1000,
@@ -261,7 +267,14 @@ describe("substrate worker", () => {
       parentHash: "0xgenesis",
       author: "5Author",
       timestamp: 1700000002,
-      winner: { miner: "5A", reward: "0", energyMilli: -100, submittedAt: "5" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "5",
+        miner: "5A",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "5",
+      },
       proofs: [
         {
           miner: "5A",
@@ -658,7 +671,14 @@ describe("substrate worker", () => {
       parentHash: "0x0",
       author: "5Auth1",
       timestamp: 1_700_000_000,
-      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "10" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "10",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "10",
+      },
       proofs: [
         {
           miner: "5M",
@@ -685,7 +705,14 @@ describe("substrate worker", () => {
       parentHash: "0xb",
       author: "5Auth2",
       timestamp: 1_700_000_012,
-      winner: { miner: "5M", reward: "0", energyMilli: -200, submittedAt: "12" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "12",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -200,
+        submittedAt: "12",
+      },
       proofs: [
         {
           miner: "5M",
@@ -993,7 +1020,14 @@ describe("substrate worker", () => {
       parentHash: "0x0",
       author: "5Auth1",
       timestamp: 1_700_000_000,
-      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "10" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "10",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "10",
+      },
       proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
       nonce: "1",
     };
@@ -1078,7 +1112,14 @@ describe("substrate worker", () => {
       parentHash: "0xc7",
       author: "5HAuth",
       timestamp: 1_700_000_200,
-      winner: { miner: "5H", reward: "5", energyMilli: -300, submittedAt: "200" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "200",
+        miner: "5H",
+        reward: "5",
+        energyMilli: -300,
+        submittedAt: "200",
+      },
       proofs: [{ miner: "5H", energyMilli: -300, diversityMilli: 30, validSolutionCount: 1 }],
       nonce: "9",
     });
@@ -1158,7 +1199,14 @@ describe("substrate worker", () => {
       parentHash: "0x6",
       author: "5Auth",
       timestamp: 1_700_000_007,
-      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "7" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "7",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "7",
+      },
       proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
       nonce: "7",
     });
@@ -1239,7 +1287,14 @@ describe("substrate worker", () => {
       parentHash: "0x9",
       author: "5A",
       timestamp: 1_700_000_010,
-      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "10" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "10",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "10",
+      },
       proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
       nonce: "1",
     });
@@ -1250,7 +1305,14 @@ describe("substrate worker", () => {
       parentHash: "0x10",
       author: "5A",
       timestamp: 1_700_000_011,
-      winner: { miner: "5M", reward: "0", energyMilli: -200, submittedAt: "11" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "11",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -200,
+        submittedAt: "11",
+      },
       proofs: [{ miner: "5M", energyMilli: -200, diversityMilli: 2, validSolutionCount: 1 }],
       nonce: "2",
     });
@@ -1296,7 +1358,14 @@ describe("substrate worker", () => {
       parentHash: "0x4",
       author: "5A",
       timestamp: 1_700_000_005,
-      winner: { miner: "5M", reward: "0", energyMilli: -100, submittedAt: "5" },
+      winner: {
+        qblockId: "1",
+        blockNumber: "5",
+        miner: "5M",
+        reward: "0",
+        energyMilli: -100,
+        submittedAt: "5",
+      },
       proofs: [{ miner: "5M", energyMilli: -100, diversityMilli: 1, validSolutionCount: 1 }],
       nonce: "5",
     });

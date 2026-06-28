@@ -7,6 +7,7 @@ import type {
   ChainHead,
   ChainMinerRecord,
   DifficultyRecord,
+  MineableTopologyRecord,
   ValidatorAuthorshipRecord,
 } from "./chain";
 import type {
@@ -78,6 +79,11 @@ export interface TelemetryResponse {
   chainMiners: ChainMinerRecord[];
   // Recent DifficultyRecord snapshots (most recent first).
   recentDifficulty: DifficultyRecord[];
+  // Current per-topology difficulty for the chain's mineable whitelist.
+  // Current-state snapshot (overwritten each indexer poll), not history.
+  // Empty when the substrate worker hasn't observed any topology yet or the
+  // runtime APIs are absent (pre-v0.2).
+  mineableTopologies: MineableTopologyRecord[];
   // Active BABE authority set joined with per-validator authorship counters.
   // Empty when no BABE epoch has been polled yet.
   validators: ValidatorAuthorshipRecord[];

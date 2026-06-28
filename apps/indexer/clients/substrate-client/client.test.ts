@@ -5,9 +5,16 @@ import { describe, expect, test } from "bun:test";
 import {
   FakeSubstrateClient,
   PolkadotSubstrateClient,
+  decodeBlockWinnerEventData,
+  decodeMinerRegistryDescriptor,
   type BlockEvents,
   type SubstrateHead,
 } from ".";
+
+// Minimal codec stand-in: polkadot.js event `data` entries expose `.toString()`.
+const codec = (v: string | number): { toString: () => string } => ({
+  toString: () => String(v),
+});
 
 describe("FakeSubstrateClient", () => {
   test("emits finalized head to subscribers and stashes for getBlockHeader", async () => {
@@ -56,6 +63,8 @@ describe("FakeSubstrateClient", () => {
       received.push({ miner: e.miner, energyMilli: e.energyMilli, submittedAt: e.submittedAt }),
     );
     c.emitBlockWinner({
+      qblockId: "7",
+      blockNumber: "42",
       miner: "5Grw",
       reward: "1000",
       energyMilli: 12500,
@@ -118,6 +127,8 @@ describe("FakeSubstrateClient", () => {
       author: "5Author",
       timestamp: 1700000000,
       winner: {
+        qblockId: "3",
+        blockNumber: "100",
         miner: "5GPPxx",
         reward: "1000",
         energyMilli: -2510,
@@ -230,6 +241,108 @@ describe("PolkadotSubstrateClient (integration)", () => {
     },
     30_000,
   );
+});
+
+describe("decodeBlockWinnerEventData (v0.2 6-field BlockWinner)", () => {
+  test("decodes [qblock_id, block_number, miner, reward, energy_milli, submitted_at]", () => {
+    const decoded = decodeBlockWinnerEventData([
+      codec("7"),
+      codec("4500"),
+      codec("5GPPxx"),
+      codec("1000000000000"),
+      codec(-2510),
+      codec("4498"),
+    ]);
+    expect(decoded).toEqual({
+      qblockId: "7",
+      blockNumber: "4500",
+      miner: "5GPPxx",
+      reward: "1000000000000",
+      energyMilli: -2510,
+      submittedAt: "4498",
+    });
+  });
+
+  test("returns null when the data array is truncated", () => {
+    expect(decodeBlockWinnerEventData([codec("7"), codec("4500"), codec("5GPPxx")])).toBeNull();
+    expect(decodeBlockWinnerEventData([])).toBeNull();
+  });
+});
+
+describe("decodeMinerRegistryDescriptor (V1 / V2 schema)", () => {
+  // Bytes fields surface as 0x-prefixed hex via polkadot.js `.toJSON()`.
+  const hex = (s: string) =>
+    "0x" + [...new TextEncoder().encode(s)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  test("decodes a V1 descriptor (no runtime / systemInfo)", () => {
+    const decoded = decodeMinerRegistryDescriptor({
+      schemaVersion: 1,
+      nodeName: hex("alpha"),
+      updatedAt: 4500,
+      autoMine: true,
+    });
+    expect(decoded?.updatedAt).toBe("4500");
+    expect(decoded?.descriptor.nodeName).toBe("alpha");
+    expect(decoded?.descriptor.runtime).toBeUndefined();
+    expect(decoded?.descriptor.systemInfo).toBeUndefined();
+  });
+
+  test("decodes a V2 descriptor with runtime + systemInfo (utilization → observedUtilizationPct)", () => {
+    const decoded = decodeMinerRegistryDescriptor({
+      schemaVersion: 2,
+      nodeName: hex("beta"),
+      updatedAt: 5000,
+      runtime: {
+        python: hex("3.12.1"),
+        quipVersion: hex("0.2.0"),
+        protocolVersion: 2,
+        inDocker: true,
+        dockerImage: hex("quip/miner:latest"),
+      },
+      systemInfo: {
+        os: { system: hex("Linux"), release: hex("6.1"), machine: hex("x86_64") },
+        cpu: { logicalCores: 16, physicalCores: 8, brand: hex("AMD"), arch: hex("x86_64") },
+        memoryMb: 65536,
+        gpus: [
+          {
+            index: 0,
+            vendor: hex("NVIDIA"),
+            name: hex("RTX"),
+            memoryMb: 24576,
+            utilizationPct: 73,
+          },
+        ],
+      },
+    });
+    expect(decoded?.descriptor.nodeName).toBe("beta");
+    expect(decoded?.descriptor.runtime).toEqual({
+      python: "3.12.1",
+      quipVersion: "0.2.0",
+      protocolVersion: 2,
+      inDocker: true,
+      dockerImage: "quip/miner:latest",
+    });
+    expect(decoded?.descriptor.systemInfo?.os).toEqual({
+      system: "Linux",
+      release: "6.1",
+      machine: "x86_64",
+    });
+    expect(decoded?.descriptor.systemInfo?.cpu?.logicalCores).toBe(16);
+    expect(decoded?.descriptor.systemInfo?.memoryMb).toBe(65536);
+    expect(decoded?.descriptor.systemInfo?.gpus?.[0]).toEqual({
+      index: 0,
+      vendor: "NVIDIA",
+      name: "RTX",
+      memoryMb: 24576,
+      observedUtilizationPct: 73,
+    });
+  });
+
+  test("rejects an unsupported schema_version", () => {
+    expect(
+      decodeMinerRegistryDescriptor({ schemaVersion: 3, nodeName: hex("x"), updatedAt: 1 }),
+    ).toBeNull();
+  });
 });
 
 describe("FakeSubstrateClient.getWinningSolution", () => {
