@@ -5,8 +5,10 @@
 #   - push to main       →  build + publish (:latest)
 #   - push to v0.2         →  build + publish (:v0.2)   # rolling v0.2 line
 #   - git tag vX.Y.Z       →  build + publish (:latest, :vX.Y, :<tag>)
-#   - git tag vX.Y.Z<pre>  →  build + publish (:vX.Y, :<tag>)   # no :latest
-#                             (pre-release: rc/alpha/beta suffix, e.g. v0.2.0rc1)
+#   - git tag vX.Y.Z-<pre> →  build + publish (:vX.Y, :<tag>)   # no :latest
+#                             (pre-release tags are hyphenated SemVer, e.g.
+#                             v0.2.1-rc18 — see AGENTS.md "Versioning & release
+#                             tags" / quip-protocol/docs/VERSIONING.md)
 
 stages:
   - test
@@ -113,9 +115,10 @@ manifest:
         TARGETS="$TARGETS $IMAGE:v0.2"
       fi
       if [ -n "${CI_COMMIT_TAG:-}" ]; then
-        # Immutable, exact-version tag (e.g. v0.2.0rc1).
+        # Immutable, exact-version tag (e.g. v0.2.1-rc18).
         TARGETS="$TARGETS $IMAGE:$CI_COMMIT_TAG"
-        # Floating minor-line tag: v0.2.0rc1 -> v0.2.
+        # Floating minor-line tag: v0.2.1-rc18 -> v0.2. Format-agnostic, so a
+        # hyphenated pre-release resolves to the same series as a stable tag.
         MINOR="$(printf '%s' "$CI_COMMIT_TAG" | sed -E 's/^(v[0-9]+\.[0-9]+).*/\1/')"
         if [ "$MINOR" != "$CI_COMMIT_TAG" ]; then
           TARGETS="$TARGETS $IMAGE:$MINOR"
