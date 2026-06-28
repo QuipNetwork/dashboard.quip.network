@@ -5,8 +5,12 @@
 #   - push to main       →  build + publish (:latest)
 #   - push to v0.2         →  build + publish (:v0.2)   # rolling v0.2 line
 #   - git tag vX.Y.Z       →  build + publish (:latest, :vX.Y, :<tag>)
-#   - git tag vX.Y.Z<pre>  →  build + publish (:vX.Y, :<tag>)   # no :latest
-#                             (pre-release: rc/alpha/beta suffix, e.g. v0.2.0rc1)
+#   - git tag vX.Y.Z-<pre> →  build + publish (:vX.Y, :<tag>)   # no :latest
+#                             (pre-release: SemVer hyphenated rc/alpha/beta,
+#                              e.g. v0.2.1-rc18 — NOT the PEP 440 no-hyphen
+#                              v0.2.1rc18; see quip-protocol/docs/VERSIONING.md.
+#                              The series/:latest logic below is format-agnostic,
+#                              so both build, but use the hyphenated standard.)
 
 stages:
   - test
