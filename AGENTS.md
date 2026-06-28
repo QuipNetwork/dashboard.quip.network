@@ -39,11 +39,11 @@ builds the **SPA** (`apps/frontend/dist`).
 Canonical doc: `quip-protocol/docs/VERSIONING.md`. Git release tags use
 **hyphenated SemVer**; package-manifest versions use the toolchain's native format.
 
-| Artifact                                      | Format                    | Example       |
-| --------------------------------------------- | ------------------------- | ------------- |
-| Git release tag (pre-release)                 | `vMAJOR.MINOR.PATCH-rcN`  | `v0.2.1-rc18` |
-| Git release tag (stable)                      | `vMAJOR.MINOR.PATCH`      | `v0.2.1`      |
-| Package version (PEP 440 / Cargo, where req.) | toolchain-native          | `0.2.1rc18`   |
+| Artifact                                      | Format                   | Example       |
+| --------------------------------------------- | ------------------------ | ------------- |
+| Git release tag (pre-release)                 | `vMAJOR.MINOR.PATCH-rcN` | `v0.2.1-rc18` |
+| Git release tag (stable)                      | `vMAJOR.MINOR.PATCH`     | `v0.2.1`      |
+| Package version (PEP 440 / Cargo, where req.) | toolchain-native         | `0.2.1rc18`   |
 
 Rules:
 
