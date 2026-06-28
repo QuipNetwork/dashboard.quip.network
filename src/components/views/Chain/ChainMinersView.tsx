@@ -34,7 +34,7 @@ export function ChainMinersTable() {
         </h2>
         <p className="mt-1 font-accent text-xs text-brand-gray-3">
           From <code>quantum_pow.Miners</code> storage. Sorted by lifetime rewards. Identity columns
-          (rig name, version) joined from <code>System.remark_with_event</code> extrinsics.
+          (rig name, version) joined from <code>MinerRegistry.NodeDescriptors</code>.
         </p>
       </header>
       {chainMiners.length === 0 ? (

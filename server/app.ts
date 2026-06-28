@@ -72,6 +72,7 @@ export function createApp(options: CreateAppOptions): Hono {
       babeAuthorities,
       chainMiners,
       recentDifficulty,
+      mineableTopologies,
       allHardware,
       authorship,
       nodeDescriptors,
@@ -85,6 +86,7 @@ export function createApp(options: CreateAppOptions): Hono {
       db.getActiveBabeAuthorities(),
       db.getChainMiners(),
       db.getRecentDifficulty(50),
+      db.getMineableTopologies(),
       db.getAllMinerHardware(),
       db.getValidatorAuthorship(),
       db.getAllNodeDescriptors(),
@@ -184,6 +186,7 @@ export function createApp(options: CreateAppOptions): Hono {
       babeAuthorities,
       chainMiners: enrichedMiners,
       recentDifficulty,
+      mineableTopologies,
       validators,
       nodes,
       nodeDescriptors,
@@ -331,12 +334,14 @@ export function createApp(options: CreateAppOptions): Hono {
     });
   });
 
-  // Project the descriptor-worker's per-account rows into the legacy
-  // NodesSnapshot shape the Compute Available view already consumes.
-  // Field ownership per DASHBOARDPLAN.md:
-  //   - chain-derived: address (SS58), firstSeen, lastSeen (block timestamps)
+  // Project the per-account descriptor rows (sourced from
+  // MinerRegistry.NodeDescriptors) into the NodesSnapshot shape the Compute
+  // Available view consumes. Field ownership:
+  //   - chain-derived: address (SS58), firstSeen/lastSeen (indexer observe
+  //     times — the descriptor carries only an `updated_at` block, not a
+  //     wall-clock)
   //   - operator self-asserted: nodeName, publicHost, runtime, miners,
-  //     systemInfo (from descriptor)
+  //     systemInfo (from the on-chain descriptor)
   //   - dashboard placeholders: status="active" (we have no liveness signal
   //     yet — the chain doesn't beat), lastHeartbeat=null (same)
   function projectDescriptorsToSnapshot(records: NodeDescriptorRecord[]): NodesSnapshot | null {

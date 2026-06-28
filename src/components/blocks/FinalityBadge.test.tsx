@@ -22,6 +22,7 @@ function block(overrides: Partial<BlockRecord> = {}): BlockRecord {
     numValidSolutions: 0,
     miningTime: 0,
     reward: "0",
+    qblockId: "1",
     nonce: "0",
     numNodes: 0,
     numEdges: 0,

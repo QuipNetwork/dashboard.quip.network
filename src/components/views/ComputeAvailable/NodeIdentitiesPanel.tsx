@@ -6,10 +6,9 @@ import type { NodeDescriptorRecord } from "../../../types/telemetry";
 
 /**
  * Per-account chain-signed identity panel. One row per operator, sourced
- * from `System.remark_with_event` extrinsics carrying a
- * `quip.node_descriptor.v1` payload (see DASHBOARDPLAN.md). Displays the
- * operator's self-asserted rig name + hardware inventory + runtime
- * version alongside the SS58 account that signed it.
+ * from the `MinerRegistry.NodeDescriptors` storage map. Displays the
+ * operator's self-asserted rig name + hardware inventory alongside the SS58
+ * account that filed it.
  *
  * Hidden when no descriptors exist — the dashboard is useful well before
  * operators register, and an empty stub panel would just be noise.
@@ -25,9 +24,8 @@ export function NodeIdentitiesPanel() {
           Node Identities ({descriptors.length})
         </h2>
         <p className="mt-1 font-accent text-xs text-brand-gray-3">
-          Self-asserted operator inventory from <code>System.remark_with_event</code> extrinsics.
-          Identity is signed by the AccountId; hardware claims are operator-controlled, not
-          chain-verified.
+          Self-asserted operator inventory from the <code>MinerRegistry</code> pallet. Identity is
+          signed by the AccountId; hardware claims are operator-controlled, not chain-verified.
         </p>
       </header>
       <div className="divide-y divide-brand-gray-2">
@@ -41,21 +39,15 @@ export function NodeIdentitiesPanel() {
 
 function NodeRow({ record }: { record: NodeDescriptorRecord }) {
   const d = record.descriptor;
-  const minerEntries = d.miners ? Object.values(d.miners) : [];
+  const minerEntries = d.miners ?? [];
   const gpus = d.systemInfo?.gpus ?? [];
-  // Report CPUs actually utilized by the miner (operator-signed
-  // `miners.cpu.numCpus`), not host `systemInfo.cpu.logicalCores` —
-  // logicalCores reflects the kernel's view of the container's host, which
-  // overstates usage on bounded miners (e.g. num_cpus=1 on a 16-core box).
-  const cpuMinerCpus = d.miners
-    ? Object.values(d.miners).reduce(
-        (sum, m) => (m.kind === "CPU" ? sum + (m.numCpus ?? 0) : sum),
-        0,
-      )
-    : 0;
+  // The v0.2 on-chain descriptor no longer carries a per-miner CPU count, so
+  // the host hardware survey (`systemInfo.cpu.logicalCores`, schema-v2 only)
+  // is the only CPU-core signal available.
+  const cpuCores = d.systemInfo?.cpu?.logicalCores ?? 0;
   const cpuLine = d.systemInfo?.cpu?.brand
     ? `${d.systemInfo.cpu.brand}${
-        cpuMinerCpus > 0 ? ` (${cpuMinerCpus} CPU${cpuMinerCpus === 1 ? "" : "s"})` : ""
+        cpuCores > 0 ? ` (${cpuCores} core${cpuCores === 1 ? "" : "s"})` : ""
       }`
     : null;
 
@@ -93,7 +85,7 @@ function NodeRow({ record }: { record: NodeDescriptorRecord }) {
           <div>
             <span className="text-brand-gray-3">Miners:</span>{" "}
             <span className="text-brand-gray-5">
-              {minerEntries.map((m) => `${m.kind}/${m.minerId}`).join(" · ")}
+              {minerEntries.map((m) => (m.label ? `${m.kind}/${m.label}` : m.kind)).join(" · ")}
             </span>
           </div>
         )}

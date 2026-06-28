@@ -191,22 +191,19 @@ const EMPTY: ComputeAvailability = {
 };
 
 function countCpus(node: NodeInfo): number {
-  // Operator-declared CPU utilization (chain-signed `miners.cpu.numCpus`).
-  // We deliberately do NOT fall back to `systemInfo.cpu.logicalCores`:
-  // logicalCores reflects the container's kernel view of host capacity, so
-  // a `num_cpus=1` miner on a 16-core box would otherwise report 16. A node
-  // with no CPU miner declared contributes zero — the tile measures network
-  // mining capacity, not aggregate host hardware.
-  let sum = 0;
-  for (const m of Object.values(node.miners ?? {})) {
-    if (m.kind === "CPU" && typeof m.numCpus === "number") sum += m.numCpus;
-  }
-  return sum;
+  // A node with no CPU miner declared contributes zero — the tile measures
+  // network mining capacity, not aggregate host hardware.
+  const hasCpuMiner = (node.miners ?? []).some((m) => m.kind === "CPU");
+  if (!hasCpuMiner) return 0;
+  // v0.2 descriptors dropped the per-miner CPU count; the schema-v2 hardware
+  // survey's `logicalCores` is now the only core signal. Nodes that ran a CPU
+  // miner but filed a schema-v1 descriptor (no survey) contribute 0.
+  return node.systemInfo?.cpu?.logicalCores ?? 0;
 }
 
 function countQpus(node: NodeInfo): number {
   let sum = 0;
-  for (const m of Object.values(node.miners ?? {})) {
+  for (const m of node.miners ?? []) {
     if (m.kind === "QPU") sum += 1;
   }
   return sum;

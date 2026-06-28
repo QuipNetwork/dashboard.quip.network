@@ -36,6 +36,8 @@ const sampleHead = (): ChainHead => ({
   finalizedBlockHash: "0xdef",
   finalityLag: 2,
   winningSolutionsCount: 42,
+  currentQBlockId: null,
+  currentQBlockParticipants: null,
   runtime: {
     specName: "quip",
     specVersion: 101,
@@ -113,6 +115,7 @@ maybeDescribe("PostgresAdapter.migrate schema-version drift", () => {
       numValidSolutions: 0,
       miningTime: 0,
       reward: "0",
+      qblockId: "1",
       nonce: "0",
       numNodes: 0,
       numEdges: 0,

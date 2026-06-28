@@ -24,10 +24,10 @@ function makeNode(overrides: Partial<NodeInfo> = {}): NodeInfo {
       memoryMb: 32_000,
       gpus: [{ name: "NVIDIA RTX 4090" }],
     },
-    miners: {
-      "alice-CPU-1": { kind: "CPU", minerId: "alice-CPU-1", numCpus: 8 },
-      "alice-GPU-1": { kind: "GPU", minerId: "alice-GPU-1", backend: "cuda" },
-    },
+    miners: [
+      { kind: "CPU", label: "alice-CPU-1" },
+      { kind: "GPU", label: "alice-GPU-1", backend: "cuda" },
+    ],
     ...overrides,
   };
 }
