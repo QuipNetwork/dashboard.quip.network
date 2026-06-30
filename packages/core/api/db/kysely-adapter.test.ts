@@ -33,6 +33,7 @@ const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   minDiversity: 0,
   minSolutions: 1,
   finalized: false,
+  topologyHash: null,
   ...overrides,
 });
 
@@ -378,6 +379,7 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
           minDiversity: 0,
           minSolutions: 1,
           observedAt: "2026-01-01T00:00:00.000Z",
+          topologyHash: null,
         });
         await db.insertDifficultySnapshot({
           observedAtBlock: "100",
@@ -385,6 +387,7 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
           minDiversity: 0,
           minSolutions: 1,
           observedAt: "2026-01-02T00:00:00.000Z",
+          topologyHash: null,
         });
         const rows = await db.getRecentDifficulty(10);
         expect(rows).toHaveLength(1);

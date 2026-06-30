@@ -175,8 +175,22 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       };
     });
 
+    // Scope the block/difficulty surfaces to the chain's current default
+    // topology so every chart resets when the default topology changes —
+    // without destroying history (rows keep their topology_hash). Rows tagged
+    // with a prior topology (or NULL, i.e. written before tagging) fall out of
+    // scope. When the chain exposes no default topology (e.g. pre-v0.2), we
+    // don't filter at all, so those charts keep rendering everything.
+    const defaultTopologyHash = mineableTopologies.find((t) => t.isDefault)?.topologyHash ?? null;
+    const scopedBlocks = defaultTopologyHash
+      ? blocks.filter((b) => b.topologyHash === defaultTopologyHash)
+      : blocks;
+    const scopedDifficulty = defaultTopologyHash
+      ? recentDifficulty.filter((d) => d.topologyHash === defaultTopologyHash)
+      : recentDifficulty;
+
     return {
-      blocks,
+      blocks: scopedBlocks,
       selfAddress,
       indexer,
       serverTime: new Date(now()).toISOString(),
@@ -184,7 +198,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       babeEpoch,
       babeAuthorities,
       chainMiners: enrichedMiners,
-      recentDifficulty,
+      recentDifficulty: scopedDifficulty,
       mineableTopologies,
       validators,
       nodes,

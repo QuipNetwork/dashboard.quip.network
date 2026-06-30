@@ -46,14 +46,14 @@ export function CurrentAttemptsPanel({
 }) {
   const heading =
     problemNumber != null && problemNumber > 0
-      ? `Current Attempts · problem #${formatNumber(problemNumber)}`
+      ? `Current Attempts · qblock #${formatNumber(problemNumber)}`
       : "Current Attempts";
 
   if (dispatch === null || dispatch.attempts.length === 0) {
     return (
       <ChartCard
         title={heading}
-        subtitle="Live iteration trail. Empty between dispatches or while the miner is dialing in on the next problem."
+        subtitle="Live iteration trail. Empty between dispatches or while the miner is dialing in on the next qblock."
         bodyClassName="h-auto"
       >
         <p className="font-accent text-xs text-ink-subtle">No attempts yet.</p>

@@ -38,6 +38,12 @@ export interface BlockRecord {
   minDiversity: number;
   minSolutions: number;
   finalized: boolean;
+  // H256 (0x hex) of the chain's default topology at index time, or null for
+  // rows written before topology tagging (and on chains with no default
+  // topology). The API scopes the block/chart surfaces to the chain's current
+  // default topology so the charts reset when the default topology changes,
+  // without destroying history.
+  topologyHash: string | null;
 }
 
 export interface RuntimeVersion {
@@ -183,6 +189,11 @@ export interface DifficultyRecord {
   // From chain `min_solutions` (already integer-units; no conversion).
   minSolutions: number;
   observedAt: string; // ISO 8601
+  // H256 (0x hex) of the chain's default topology when this snapshot was
+  // taken, or null for rows predating topology tagging. Mirrors
+  // BlockRecord.topologyHash so the difficulty chart scopes to (and resets
+  // with) the current default topology.
+  topologyHash: string | null;
 }
 
 /**

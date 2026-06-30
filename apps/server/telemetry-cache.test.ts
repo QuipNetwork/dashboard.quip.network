@@ -53,6 +53,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     minDiversity: 0.2,
     minSolutions: 5,
     finalized: false,
+    topologyHash: null,
     ...overrides,
   };
 }

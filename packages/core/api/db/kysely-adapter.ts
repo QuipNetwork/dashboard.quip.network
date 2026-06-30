@@ -150,6 +150,7 @@ export class KyselyAdapter implements DatabaseAdapter {
         min_diversity: b.minDiversity,
         min_solutions: b.minSolutions,
         finalized: b.finalized,
+        topology_hash: b.topologyHash,
       })
       .onConflict((oc) => oc.column("block_hash").doNothing())
       .execute();
@@ -460,6 +461,7 @@ export class KyselyAdapter implements DatabaseAdapter {
         min_diversity: snapshot.minDiversity,
         min_solutions: snapshot.minSolutions,
         observed_at: snapshot.observedAt,
+        topology_hash: snapshot.topologyHash,
       })
       .onConflict((oc) => oc.column("observed_at_block").doNothing())
       .execute();

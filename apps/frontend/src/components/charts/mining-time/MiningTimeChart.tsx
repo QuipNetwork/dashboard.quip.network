@@ -7,7 +7,7 @@ import { createLineTooltip } from "@/components/charts/common/LineTooltip";
 import type { MiningTimeSeries } from "./use-mining-time";
 
 const tooltip = createLineTooltip({
-  xLabel: "Solution",
+  xLabel: "QBlock",
   yLabel: "Mining Time",
   yFormat: (v) => `${v.toFixed(1)}s`,
 });

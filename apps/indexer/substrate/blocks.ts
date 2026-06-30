@@ -111,6 +111,7 @@ function buildBlockRecord(
   topology: TopologyInfo,
   enriched: EnrichedBlock,
   difficulty: DifficultyInfo,
+  topologyHash: string | null,
 ): BlockRecord {
   const { e, winningProof, nonce, miningTime } = enriched;
   return {
@@ -133,6 +134,7 @@ function buildBlockRecord(
     minDiversity: difficulty.minDiversityMilli / 1000,
     minSolutions: difficulty.minSolutions,
     finalized: true, // backfill + subscribe are both finalized-only
+    topologyHash,
   };
 }
 
@@ -171,7 +173,15 @@ export class BlockPipeline implements ConnectionStream {
             scan(threadDifficulty, this.seedScan(seedDifficulty)),
             concatMap(({ block, difficulty }) => {
               const enriched = block!; // scan only emits after a real block
-              return from(this.insertBlock(buildBlockRecord(topology, enriched, difficulty))).pipe(
+              // Stamp the CURRENT default topology (published by the chain-state
+              // poll) so a mid-connection topology change re-tags new blocks
+              // immediately; fall back to the value primed at connect time
+              // until the first poll lands. Empty hash → NULL (out of scope).
+              const topologyHash =
+                (this.ctx.state.defaultTopologyHash ?? topology.topologyHash) || null;
+              return from(
+                this.insertBlock(buildBlockRecord(topology, enriched, difficulty, topologyHash)),
+              ).pipe(
                 catchError((err) => {
                   console.warn(
                     `[indexer/substrate] block #${enriched.e.blockNumber} writer failed:`,
@@ -200,7 +210,10 @@ export class BlockPipeline implements ConnectionStream {
   }> {
     const topology = await this.client.getTopology().catch(() => null);
     const seedDifficulty = await this.client.getDifficulty().catch(() => null);
-    return { topology: topology ?? { nodeCount: 0, edgeCount: 0 }, seedDifficulty };
+    return {
+      topology: topology ?? { nodeCount: 0, edgeCount: 0, topologyHash: "" },
+      seedDifficulty,
+    };
   }
 
   // Recorded for every authored block, winnerless heads included. The key is

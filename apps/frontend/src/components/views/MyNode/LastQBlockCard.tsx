@@ -9,7 +9,7 @@ import { BlockDetailCard } from "./BlockDetailCard";
 // slot duration before writing); divide back out for the "X blocks" display.
 const BLOCK_TIME_SEC = 6;
 
-export function LastSolutionCard({
+export function LastQBlockCard({
   lastWonBlock,
   lastWonSubmission,
 }: {
@@ -22,12 +22,12 @@ export function LastSolutionCard({
 
   return (
     <BlockDetailCard
-      label="Last Problem Solution Details"
+      label="Last QBlock Details"
       rows={
         lastWonBlock != null
           ? [
               {
-                label: "Time to Solution",
+                label: "Time to QBlock",
                 value:
                   lastSolutionTimeMs != null && lastSolutionTimeMs > 0
                     ? `${formatDuration(lastSolutionTimeMs)} · ${lastSolutionBlocks} blocks`

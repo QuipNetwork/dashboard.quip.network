@@ -7,7 +7,7 @@ import { formatDuration } from "@/lib/format";
 import { formatBalance, formatNonce, shortAddress } from "@/lib/format-chain";
 import type { BlockRecord } from "@quip/shared/telemetry";
 
-export function SolutionDetailsModal({
+export function QBlockDetailsModal({
   block,
   solutionNumber,
   onClose,
@@ -19,8 +19,8 @@ export function SolutionDetailsModal({
   const completedAt = new Date(block.timestamp * 1000).toISOString();
 
   return (
-    <Modal isOpen onClose={onClose} size="xl" ariaLabel={`Solution #${solutionNumber} details`}>
-      <Modal.Header>Solution #{solutionNumber}</Modal.Header>
+    <Modal isOpen onClose={onClose} size="xl" ariaLabel={`QBlock #${solutionNumber} details`}>
+      <Modal.Header>QBlock #{solutionNumber}</Modal.Header>
       <Modal.Body>
         <p className="-mt-2 mb-4 font-accent text-xs text-ink-subtle">
           Block #{block.substrateBlockNumber}{" "}
@@ -39,7 +39,7 @@ export function SolutionDetailsModal({
           <Row label="Min Diversity" value={block.minDiversity.toFixed(3)} />
           <Row label="Solutions Found" value={String(block.numValidSolutions)} />
           <Row label="Min Solutions" value={String(block.minSolutions)} />
-          <Row label="Time to Solution" value={formatDuration(block.miningTime * 1000)} />
+          <Row label="Time to QBlock" value={formatDuration(block.miningTime * 1000)} />
           <Row label="Reward" value={formatBalance(block.reward)} />
           <Row label="Nodes" value={String(block.numNodes)} />
           <Row label="Edges" value={String(block.numEdges)} />
@@ -59,7 +59,7 @@ export function SolutionDetailsModal({
             span={2}
           />
           <Row
-            label="Solution Hash"
+            label="QBlock Hash"
             value={shortAddress(block.blockHash, 10, 8)}
             mono
             title={block.blockHash}

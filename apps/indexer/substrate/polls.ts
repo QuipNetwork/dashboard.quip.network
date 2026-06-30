@@ -86,7 +86,12 @@ export class PollScheduler implements ConnectionStream {
     // milli → float: the chain stores milli-encodings to keep consensus integer-only.
     const difficultyEnergy = info.maxEnergyMilli / 1000;
     const minDiversity = info.minDiversityMilli / 1000;
-    const hash = `${difficultyEnergy}:${minDiversity}:${info.minSolutions}`;
+    // Stamp with the current default topology and fold it into the dedup key, so
+    // a topology change forces a fresh snapshot even when the difficulty values
+    // are momentarily unchanged (otherwise the scoped difficulty chart would
+    // stay empty after a topology switch until difficulty next moves).
+    const topologyHash = this.ctx.state.defaultTopologyHash;
+    const hash = `${difficultyEnergy}:${minDiversity}:${info.minSolutions}:${topologyHash ?? ""}`;
     if (hash === this.cache.difficulty) return;
     this.cache.difficulty = hash;
 
@@ -96,6 +101,7 @@ export class PollScheduler implements ConnectionStream {
       minDiversity,
       minSolutions: info.minSolutions,
       observedAt: nowIso(this.ctx),
+      topologyHash,
     });
   }
 
@@ -159,6 +165,11 @@ export class PollScheduler implements ConnectionStream {
       nodeCount: t.nodeCount,
       edgeCount: t.edgeCount,
     }));
+    // Publish the default-topology hash to shared state every poll (independent
+    // of the change-dedup below) so the block + difficulty writers always stamp
+    // the CURRENT default topology — even on polls where the mineable set is
+    // otherwise unchanged, and even mid-connection after a topology switch.
+    this.ctx.state.defaultTopologyHash = records.find((r) => r.isDefault)?.topologyHash ?? null;
     const sorted = [...records].sort((a, b) =>
       a.topologyHash < b.topologyHash ? -1 : a.topologyHash > b.topologyHash ? 1 : 0,
     );
