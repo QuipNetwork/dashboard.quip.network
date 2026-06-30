@@ -2,7 +2,7 @@
 
 import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 import { SERIES_COLORS } from "@/lib/colors";
-import { displayNodeName } from "@/lib/format-chain";
+import { displayNodeName, formatEnergy } from "@/lib/format-chain";
 import { formatNumber, formatSeconds } from "@/lib/format";
 import { useMinerColors } from "@/store/miner-colors";
 import type { LeaderboardEntry } from "@/components/charts/leaderboard/use-leaderboard";
@@ -103,7 +103,7 @@ export function NeighborsList({ self, neighbors }: NeighborsListProps) {
                   {formatSeconds(entry.avgMiningTime)}
                 </td>
                 <td className="hidden py-2 pr-3 text-right font-accent text-xs text-ink-subtle md:table-cell">
-                  {formatNumber(entry.bestEnergy)}
+                  {formatEnergy(entry.bestEnergy)}
                 </td>
               </tr>
             );

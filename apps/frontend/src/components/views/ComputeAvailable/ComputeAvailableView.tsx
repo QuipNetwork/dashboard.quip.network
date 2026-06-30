@@ -3,6 +3,7 @@
 import { ChartCard } from "@/components/layout/ChartCard";
 import { SERIES_COLORS } from "@/lib/colors";
 import { formatDuration, formatNumber } from "@/lib/format";
+import { formatEnergy } from "@/lib/format-chain";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 import { StatTile } from "@/components/views/MyNode/StatTile";
@@ -136,7 +137,9 @@ export function ComputeAvailableView() {
         <StatTile
           label="Current Difficulty"
           value={
-            currentDifficulty != null ? `≤ ${currentDifficulty.difficultyEnergy.toFixed(1)}` : "—"
+            currentDifficulty != null
+              ? `≤ ${formatEnergy(currentDifficulty.difficultyEnergy)}`
+              : "—"
           }
           sublabel={
             currentDifficulty != null

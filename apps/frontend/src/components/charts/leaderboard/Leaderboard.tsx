@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { SearchInput } from "@/components/common/SearchInput";
 import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 import { SERIES_COLORS } from "@/lib/colors";
-import { displayNodeName } from "@/lib/format-chain";
+import { displayNodeName, formatEnergy } from "@/lib/format-chain";
 import { formatSeconds, formatNumber } from "@/lib/format";
 import { useMinerColors } from "@/store/miner-colors";
 import { filterLeaderboardEntries, type LeaderboardEntry } from "./use-leaderboard";
@@ -149,7 +149,7 @@ export function Leaderboard({ data }: LeaderboardProps) {
                       {formatSeconds(entry.avgMiningTime)}
                     </td>
                     <td className="hidden py-2 pr-3 text-right font-accent text-xs text-ink-subtle md:table-cell">
-                      {formatNumber(entry.bestEnergy)}
+                      {formatEnergy(entry.bestEnergy)}
                     </td>
                     <td className="w-28 py-2 pr-1 sm:w-36">
                       <ShareBar share={entry.share} color={minerColor} />

@@ -3,7 +3,7 @@
 import clsx from "clsx";
 
 import { formatNumber } from "@/lib/format";
-import { shortAddress } from "@/lib/format-chain";
+import { formatEnergy, shortAddress } from "@/lib/format-chain";
 import type { MiningAttempt, MiningAttemptsResponse } from "@quip/shared/telemetry";
 import { ResultBadge } from "./mining-badges";
 import { meetingTargetCount } from "./mining-shared";
@@ -23,7 +23,7 @@ export function SubmissionDetails({ envelope }: { envelope: MiningAttemptsRespon
         {submission.powSequence !== null && (
           <Row label="PoW Seq" value={formatNumber(submission.powSequence)} />
         )}
-        <Row label="Energy" value={(submission.energyMilli / 1000).toFixed(3)} />
+        <Row label="Energy" value={formatEnergy(submission.energyMilli / 1000)} />
         <Row label="Threshold" value={`≤ ${(submission.thresholdMilli / 1000).toFixed(3)}`} />
         <Row label="Diversity" value={(submission.diversityMilli / 1000).toFixed(3)} />
         <Row label="Attempts" value={formatNumber(submission.attemptCount)} />
@@ -90,7 +90,7 @@ function AttemptsTable({ attempts }: { attempts: MiningAttempt[] }) {
               <tr key={a.iter} className="border-b border-border last:border-0">
                 <td className="py-1.5 pr-4 text-ink-strong">{a.iter}</td>
                 <td className="py-1.5 pr-4 text-ink-strong">
-                  {(a.bestEnergyMilli / 1000).toFixed(3)}
+                  {formatEnergy(a.bestEnergyMilli / 1000)}
                 </td>
                 <td className="py-1.5 pr-4 text-ink-strong">
                   {numMeetingTarget !== null ? formatNumber(numMeetingTarget) : "—"}

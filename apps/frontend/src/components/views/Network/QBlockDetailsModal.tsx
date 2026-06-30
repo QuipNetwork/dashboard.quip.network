@@ -4,7 +4,7 @@ import clsx from "clsx";
 
 import { Modal } from "@/components/ui/Modal";
 import { formatDuration } from "@/lib/format";
-import { formatBalance, formatNonce, shortAddress } from "@/lib/format-chain";
+import { formatBalance, formatEnergy, formatNonce, shortAddress } from "@/lib/format-chain";
 import type { BlockRecord } from "@quip/shared/telemetry";
 
 export function QBlockDetailsModal({
@@ -22,7 +22,7 @@ export function QBlockDetailsModal({
     <Modal isOpen onClose={onClose} size="xl" ariaLabel={`QBlock #${solutionNumber} details`}>
       <Modal.Header>QBlock #{solutionNumber}</Modal.Header>
       <Modal.Body>
-        <p className="-mt-2 mb-4 font-accent text-xs text-ink-subtle">
+        <p className="mb-4 font-accent text-xs text-ink-subtle">
           Block #{block.substrateBlockNumber}{" "}
           {block.finalized ? "· finalized" : "· best (unfinalized)"}
         </p>
@@ -33,8 +33,8 @@ export function QBlockDetailsModal({
             mono
             title={block.minerId}
           />
-          <Row label="Energy" value={block.energy.toFixed(3)} />
-          <Row label="Target Energy" value={block.difficultyEnergy.toFixed(3)} />
+          <Row label="Energy" value={formatEnergy(block.energy)} />
+          <Row label="Target Energy" value={formatEnergy(block.difficultyEnergy)} />
           <Row label="Diversity" value={block.diversity.toFixed(3)} />
           <Row label="Min Diversity" value={block.minDiversity.toFixed(3)} />
           <Row label="Solutions Found" value={String(block.numValidSolutions)} />
