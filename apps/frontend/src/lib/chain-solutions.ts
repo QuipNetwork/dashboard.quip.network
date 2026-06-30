@@ -7,7 +7,7 @@ import type { ChainHead, ChainMinerRecord } from "@quip/shared/telemetry";
  * the global "solution / problem number" (count + 1 is the in-flight problem
  * every miner is grinding, quip-protocol MR !105).
  *
- * Prefers the authoritative chain figure `chainHead.winningSolutionsCount`
+ * Prefers the authoritative chain figure `chainHead.qblockCount`
  * (`quantum_pow.LatestQBlockId` on current runtimes, with a legacy
  * `WinningSolutions` count fallback). Falls back to summing per-miner `proofsWon` when
  * chain_head hasn't been observed yet (or a pre-v0.2 chain doesn't expose the
@@ -18,6 +18,6 @@ export function winningSolutionsSolved(
   chainHead: ChainHead | null,
   chainMiners: Array<Pick<ChainMinerRecord, "proofsWon">>,
 ): number {
-  if (chainHead?.winningSolutionsCount != null) return chainHead.winningSolutionsCount;
+  if (chainHead?.qblockCount != null) return chainHead.qblockCount;
   return chainMiners.reduce((sum, m) => sum + Number(m.proofsWon || "0"), 0);
 }

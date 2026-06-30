@@ -85,7 +85,7 @@ describe("migrator (postgres)", () => {
       finalizedBlockNumber: "190",
       finalizedBlockHash: "0xf",
       finalityLag: 10,
-      winningSolutionsCount: 5,
+      qblockCount: 5,
       currentQBlockId: "6",
       currentQBlockParticipants: 3,
       runtime: {

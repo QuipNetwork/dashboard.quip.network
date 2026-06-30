@@ -178,6 +178,42 @@ export class KyselyAdapter implements DatabaseAdapter {
     return rows.map(rowToBlockRecord);
   }
 
+  async getBlocksMissingTopology(
+    limit: number,
+  ): Promise<Array<{ blockHash: string; substrateBlockNumber: string }>> {
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .select(["block_hash", "substrate_block_number"])
+      .where("topology_hash", "is", null)
+      .orderBy("substrate_block_number", "desc")
+      .limit(limit)
+      .execute();
+    return rows.map((r) => ({
+      blockHash: String(r.block_hash),
+      substrateBlockNumber: String(r.substrate_block_number),
+    }));
+  }
+
+  async setBlockTopology(blockHash: string, topologyHash: string): Promise<void> {
+    await this.requireDb()
+      .updateTable("blocks")
+      .set({ topology_hash: topologyHash })
+      .where("block_hash", "=", blockHash)
+      .execute();
+  }
+
+  async backfillDifficultyTopology(fromBlock: string, topologyHash: string): Promise<number> {
+    // `observed_at_block` is a numeric column, so the string param compares
+    // numerically (no lexical-ordering hazard).
+    const res = await this.requireDb()
+      .updateTable("difficulty_history")
+      .set({ topology_hash: topologyHash })
+      .where("topology_hash", "is", null)
+      .where("observed_at_block", ">=", fromBlock)
+      .executeTakeFirst();
+    return Number(res?.numUpdatedRows ?? 0);
+  }
+
   async getExistingBlockNumbers(blockNumbers: string[]): Promise<string[]> {
     if (blockNumbers.length === 0) return [];
     const out: string[] = [];
@@ -242,7 +278,7 @@ export class KyselyAdapter implements DatabaseAdapter {
         finalized_block_number: head.finalizedBlockNumber,
         finalized_block_hash: head.finalizedBlockHash,
         finality_lag: head.finalityLag,
-        winning_solutions_count: head.winningSolutionsCount,
+        winning_solutions_count: head.qblockCount,
         current_qblock_id: head.currentQBlockId,
         current_qblock_participants: head.currentQBlockParticipants,
         spec_name: head.runtime.specName,

@@ -11,7 +11,7 @@ export class DbChainStateReader implements ChainStateReader {
 
   async currentGlobalSolutionNumber(): Promise<number | null> {
     const head = await this.db.getChainHead();
-    if (!head || head.winningSolutionsCount === null) return null;
-    return head.winningSolutionsCount + 1;
+    if (!head || head.qblockCount === null) return null;
+    return head.qblockCount + 1;
   }
 }

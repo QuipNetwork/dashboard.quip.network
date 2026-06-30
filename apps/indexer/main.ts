@@ -9,6 +9,7 @@ import { DescriptorWorker } from "./descriptor";
 import { IndexerState } from "./core/state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./clients/substrate-client";
 import { SubstrateWorker } from "./substrate";
+import { backfillTopologyTags } from "./substrate/backfill-topology";
 import { TipWorker } from "./tip";
 import type { Worker } from "./core/worker";
 
@@ -100,6 +101,32 @@ async function main(): Promise<number> {
   // failures don't drop substrate, and vice versa.
   const clientFactory = (url: string): SubstrateClient =>
     new PolkadotSubstrateClient(url, config.substrateRpcTimeoutMs);
+
+  // One-time topology-tag backfill: re-read each legacy NULL block's qblock and
+  // stamp the topology it was won under, so the API's strict topology filter
+  // surfaces the current-topology history instead of blanking every chart on
+  // the first deploy after migration 0004. Non-fatal and idempotent (only
+  // NULL-tagged rows remain to tag) — if it fails, the workers still start and a
+  // later restart retries. Blocks worker startup briefly; the substrate worker's
+  // gap backfill catches up any heads missed during it.
+  if (config.validatorRpcUrls.length > 0) {
+    const bf = clientFactory(config.validatorRpcUrls[0]!);
+    try {
+      await bf.connect();
+      const s = await backfillTopologyTags({ source: bf, store: db });
+      if (s.tagged > 0 || s.capped) {
+        console.log(
+          `[indexer] topology backfill: tagged ${s.tagged}/${s.scanned} legacy blocks ` +
+            `(${s.currentTopologyBlocks} on current topology, ${s.difficultyTagged} difficulty rows)` +
+            (s.capped ? " — capped; older untagged blocks remain" : ""),
+        );
+      }
+    } catch (e) {
+      console.warn(`[indexer] topology backfill skipped: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      await bf.disconnect().catch(() => {});
+    }
+  }
 
   // Tip is the only fatal worker — substrate/descriptor self-heal via their
   // own reconnect loops, so their failures don't yank the whole indexer.

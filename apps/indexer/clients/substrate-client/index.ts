@@ -41,7 +41,7 @@ import type {
   SubstrateHead,
   TopologyInfo,
   UnsubFn,
-  WinningSolutionInfo,
+  QBlockInfo,
 } from "./types";
 
 export * from "./types";
@@ -434,7 +434,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     };
   }
 
-  async getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null> {
+  async getQBlock(blockNumber: string): Promise<QBlockInfo | null> {
     const api = this.requireApi();
     const fn = (api.call as unknown as Record<string, Record<string, unknown> | undefined>)
       ?.quantumPowApi?.winningSolution;
@@ -470,6 +470,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       submittedAt: String(sol.submittedAt ?? sol.submitted_at ?? "0"),
       nonce,
       difficulty: decodeDifficulty(sol.difficulty),
+      topologyHash: String(sol.topologyHash ?? sol.topology_hash ?? ""),
     };
   }
 
@@ -507,7 +508,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     };
   }
 
-  async getWinningBlockNumbers(): Promise<string[]> {
+  async getQBlockNumbers(): Promise<string[]> {
     const api = this.requireApi();
     // v0.2 renamed the winning-solution storage: WinningSolutions → QBlocks
     // (StorageMap keyed by substrate block number). Capability check covers
@@ -519,7 +520,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     return entries.map(([key]) => key.args[0]!.toString());
   }
 
-  async getWinningSolutionsCount(): Promise<number | null> {
+  async getQBlockCount(): Promise<number | null> {
     const api = this.requireApi();
     const q = api.query.quantumPow;
     if (!q) return null;
@@ -608,9 +609,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     // `QuantumPowApi::winning_solution(block)` — the runtime computes the
     // BLAKE3 digest server-side. Null for winnerless heads (no fetch
     // performed) and for chains pre-v0.2 (capability absent).
-    const nonce = winner
-      ? ((await this.getWinningSolution(String(blockNumber)))?.nonce ?? null)
-      : null;
+    const nonce = winner ? ((await this.getQBlock(String(blockNumber)))?.nonce ?? null) : null;
     return {
       blockNumber,
       blockHash,
@@ -768,15 +767,14 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     return {
       nodeCount: meta.nodes.length,
       edgeCount: meta.edges.length,
-      topologyHash,
     };
   }
 }
 
 // Note: the v0.1-era `extractNonce` helper that walked extrinsics to
-// recover the winning miner's nonce is gone in v0.2 — `WinningSolutionInfo`
+// recover the winning miner's nonce is gone in v0.2 — `QBlockInfo`
 // (sourced from `QuantumPowApi::winning_solution`) carries the BLAKE3 nonce
-// directly, so subscribeBlockEvents calls `getWinningSolution(...)`
+// directly, so subscribeBlockEvents calls `getQBlock(...)`
 // instead. Less brittle: no dependency on extrinsic decoding or the custom
 // HybridTxSignature codec.
 
