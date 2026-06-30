@@ -4,6 +4,7 @@ import { SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import { formatDifficultyTick, useDifficultyCurveK } from "@/lib/difficulty-curve";
 import type { WinRateByDifficultyResult } from "./use-win-rate-by-difficulty";
 
 const tooltip = createLineTooltip({
@@ -30,6 +31,7 @@ export interface WinRateByDifficultyChartProps {
 
 export function WinRateByDifficultyChart({ data }: WinRateByDifficultyChartProps) {
   const { series, xMin, xMax } = data;
+  const k = useDifficultyCurveK();
   if (series.length === 0) return null;
 
   return (
@@ -39,7 +41,7 @@ export function WinRateByDifficultyChart({ data }: WinRateByDifficultyChartProps
         theme={nivoTheme}
         colors={(series) => getSeriesColor(String(series.id))}
         margin={{ top: 20, right: 20, bottom: 50, left: 60 }}
-        xScale={{ type: "linear", min: xMin, max: xMax }}
+        xScale={{ type: "linear", min: xMin, max: xMax, reverse: true }}
         yScale={{ type: "linear", min: 0, max: 100, stacked: false }}
         curve="monotoneX"
         enableArea={true}
@@ -63,9 +65,11 @@ export function WinRateByDifficultyChart({ data }: WinRateByDifficultyChartProps
           "legends",
         ]}
         axisBottom={{
-          legend: "Difficulty (Energy)",
+          legend: "(lower energy == more difficult)",
           legendOffset: 40,
           legendPosition: "middle",
+          tickValues: 5,
+          format: (v) => formatDifficultyTick(Number(v), k),
         }}
         axisLeft={{
           legend: "Win Rate (%)",

@@ -357,15 +357,28 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       }
       let nodeCount = 0;
       let edgeCount = 0;
+      let curveConstant: number | null = null;
       if (typeof metaFn === "function") {
         const mc = (await (metaFn as (h: string) => Promise<unknown>)(topologyHash)) as {
           isSome?: boolean;
-          unwrap?: () => { nodes: { length: number }; edges: { length: number } };
+          unwrap?: () => {
+            nodes: { length: number };
+            edges: { length: number };
+            // The allowed-value specs are small enums; toJSON only these (never
+            // the large nodes/edges vectors) to keep the poll cheap.
+            allowedHValues?: { toJSON?: () => unknown };
+            allowedJValues?: { toJSON?: () => unknown };
+            allowed_h_values?: { toJSON?: () => unknown };
+            allowed_j_values?: { toJSON?: () => unknown };
+          };
         };
         if (mc?.isSome && mc.unwrap) {
           const meta = mc.unwrap();
           nodeCount = meta.nodes.length;
           edgeCount = meta.edges.length;
+          const hSpec = (meta.allowedHValues ?? meta.allowed_h_values)?.toJSON?.();
+          const jSpec = (meta.allowedJValues ?? meta.allowed_j_values)?.toJSON?.();
+          curveConstant = computeCurveConstant(nodeCount, edgeCount, hSpec, jSpec);
         }
       }
       out.push({
@@ -374,6 +387,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
         difficulty,
         nodeCount,
         edgeCount,
+        curveConstant,
       });
     }
     return out;
@@ -795,6 +809,74 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     if (!opt.isSome || !opt.unwrap) return null;
     return opt.unwrap().toHex();
   }
+}
+
+// --- Energy-curve constant (K) -------------------------------------------
+//
+// Port of `quantum-validation::expected_gse`, which is LINEAR in the per-mille
+// curve position `c`: `energy_milli = -c * K`, where
+//   K = j_mean_abs * sqrt(2m/n) * n  +  H_ALPHA * h_mean_abs * n / sqrt(2m/n)
+// (n = nodes, m = edges; means taken on the unit scale). The dashboard surfaces
+// a proof's difficulty as the curve position `‰ = -energy * 1000 / K` instead
+// of a raw negative energy, so the chain math lives here and ships one scalar.
+
+const CURVE_H_ALPHA = 0.88; // quantum-validation DEFAULT_H_ALPHA
+const CURVE_MILLI_SCALE = 1000; // quantum-validation MILLI_SCALE
+
+/**
+ * Compute the energy-curve constant K for a topology. Returns null when the
+ * inputs are unusable (no nodes/edges, empty/unknown value specs) so callers
+ * degrade gracefully to raw energy.
+ */
+export function computeCurveConstant(
+  nodeCount: number,
+  edgeCount: number,
+  allowedH: unknown,
+  allowedJ: unknown,
+): number | null {
+  if (nodeCount <= 0 || edgeCount <= 0) return null;
+  const hMean = meanAbsUnit(allowedH);
+  const jMean = meanAbsUnit(allowedJ);
+  if (hMean === null || jMean === null) return null;
+  const avgDegree = (2 * edgeCount) / nodeCount;
+  const sqrtAvgDegree = Math.sqrt(avgDegree);
+  if (!(sqrtAvgDegree > 0)) return null;
+  const k = jMean * sqrtAvgDegree * nodeCount + (CURVE_H_ALPHA * hMean * nodeCount) / sqrtAvgDegree;
+  return k > 0 ? k : null;
+}
+
+// Mean |value| on the unit scale (1.0 == MILLI_SCALE milli) for an
+// `AllowedValueSpec` in its `toJSON` form: `{ set: [...] }`,
+// `{ integerRange: { min, max } }`, or `{ continuousRange: { min, max } }`.
+function meanAbsUnit(spec: unknown): number | null {
+  if (!spec || typeof spec !== "object") return null;
+  const s = spec as Record<string, unknown>;
+  if (Array.isArray(s.set)) {
+    const vals = s.set as unknown[];
+    if (vals.length === 0) return null;
+    const sum = vals.reduce<number>((acc, v) => acc + Math.abs(Number(v)), 0);
+    return sum / (vals.length * CURVE_MILLI_SCALE);
+  }
+  const ir = s.integerRange as { min: number; max: number } | undefined;
+  if (ir) return discreteMeanAbs(Number(ir.min), Number(ir.max));
+  const cr = s.continuousRange as { min: number; max: number } | undefined;
+  if (cr) {
+    const d = discreteMeanAbs(Number(cr.min), Number(cr.max));
+    return d === null ? null : d / CURVE_MILLI_SCALE;
+  }
+  return null;
+}
+
+// Mean of |k| over integers k in [min, max], via triangular-number sums.
+function discreteMeanAbs(min: number, max: number): number | null {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return null;
+  const tri = (x: number): number => (x <= 0 ? 0 : (x * (x + 1)) / 2);
+  const count = max - min + 1;
+  let sumAbs: number;
+  if (min >= 0) sumAbs = tri(max) - tri(min - 1);
+  else if (max <= 0) sumAbs = tri(-min) - tri(-max - 1);
+  else sumAbs = tri(max) + tri(-min);
+  return sumAbs / count;
 }
 
 // Note: the v0.1-era `extractNonce` helper that walked extrinsics to

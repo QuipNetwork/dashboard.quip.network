@@ -112,6 +112,13 @@ export interface MineableTopologyRecord {
   minSolutions: number;
   nodeCount: number;
   edgeCount: number;
+  // Energy-curve constant K for this topology: the mean-field slope of the
+  // chain's (linear) energy curve, `energy_milli = -c * K` (c = per-mille curve
+  // position). Lets the UI render a proof's difficulty as a curve position
+  // `‰ = -energy * 1000 / K` instead of raw negative energy. Null when the
+  // chain doesn't expose the topology's field/coupling specs (pre-v0.2) or they
+  // can't be evaluated. Derived from `expected_gse`: see the indexer.
+  curveConstant: number | null;
 }
 
 /**

@@ -158,6 +158,9 @@ export interface MineableTopologyInfo {
   difficulty: DifficultyInfo;
   nodeCount: number;
   edgeCount: number;
+  // Energy-curve slope K (see MineableTopologyRecord.curveConstant), or null
+  // when the topology's field/coupling specs aren't available.
+  curveConstant: number | null;
 }
 
 export type UnsubFn = () => void;
