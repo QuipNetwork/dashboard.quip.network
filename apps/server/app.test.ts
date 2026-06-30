@@ -129,6 +129,7 @@ describe("server app", () => {
         minSolutions: 1,
         nodeCount: 2,
         edgeCount: 3,
+        curveConstant: null,
       },
       {
         topologyHash: "0xPRIOR",
@@ -138,6 +139,7 @@ describe("server app", () => {
         minSolutions: 1,
         nodeCount: 2,
         edgeCount: 3,
+        curveConstant: null,
       },
     ]);
 

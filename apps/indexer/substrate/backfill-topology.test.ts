@@ -41,8 +41,22 @@ function block(num: string): BlockRecord {
 function source(defaultTopologyByBlock: Record<string, string>): TopologyBackfillSource {
   return {
     getMineableTopologies: async (): Promise<MineableTopologyInfo[]> => [
-      { topologyHash: CUR, isDefault: true, difficulty: z(), nodeCount: 1, edgeCount: 1 },
-      { topologyHash: OLD, isDefault: false, difficulty: z(), nodeCount: 1, edgeCount: 1 },
+      {
+        topologyHash: CUR,
+        isDefault: true,
+        difficulty: z(),
+        nodeCount: 1,
+        edgeCount: 1,
+        curveConstant: null,
+      },
+      {
+        topologyHash: OLD,
+        isDefault: false,
+        difficulty: z(),
+        nodeCount: 1,
+        edgeCount: 1,
+        curveConstant: null,
+      },
     ],
     getDefaultTopologyAt: async (n: string): Promise<string | null> =>
       defaultTopologyByBlock[n] ?? null,
@@ -116,7 +130,14 @@ describe("backfillTopologyTags", () => {
     await db.insertBlock(block("100"));
     const unreadable: TopologyBackfillSource = {
       getMineableTopologies: async () => [
-        { topologyHash: CUR, isDefault: true, difficulty: z(), nodeCount: 1, edgeCount: 1 },
+        {
+          topologyHash: CUR,
+          isDefault: true,
+          difficulty: z(),
+          nodeCount: 1,
+          edgeCount: 1,
+          curveConstant: null,
+        },
       ],
       getDefaultTopologyAt: async () => {
         throw new Error("state already discarded");

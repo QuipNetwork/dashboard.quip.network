@@ -4,10 +4,11 @@ import { SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import { formatDifficultyTick, useDifficultyCurveK } from "@/lib/difficulty-curve";
 import type { EnergyCdfResult } from "./use-energy-cdf";
 
 const tooltip = createLineTooltip({
-  xLabel: "Energy Threshold",
+  xLabel: "Difficulty",
   yLabel: "Probability",
   yFormat: (v) => `${v.toFixed(1)}%`,
 });
@@ -30,6 +31,7 @@ export interface EnergyCdfChartProps {
 
 export function EnergyCdfChart({ data }: EnergyCdfChartProps) {
   const { series, xMin, xMax } = data;
+  const k = useDifficultyCurveK();
   if (series.length === 0) return null;
 
   return (
@@ -39,7 +41,7 @@ export function EnergyCdfChart({ data }: EnergyCdfChartProps) {
         theme={nivoTheme}
         colors={(s) => getSeriesColor(String(s.id))}
         margin={{ top: 20, right: 20, bottom: 50, left: 60 }}
-        xScale={{ type: "linear", min: xMin, max: xMax }}
+        xScale={{ type: "linear", min: xMin, max: xMax, reverse: true }}
         yScale={{ type: "linear", min: 0, max: 100, stacked: false }}
         curve="monotoneX"
         enableArea={true}
@@ -59,9 +61,11 @@ export function EnergyCdfChart({ data }: EnergyCdfChartProps) {
           "legends",
         ]}
         axisBottom={{
-          legend: "Difficulty Threshold (Energy)",
+          legend: "(lower energy == more difficult)",
           legendOffset: 40,
           legendPosition: "middle",
+          tickValues: 5,
+          format: (v) => formatDifficultyTick(Number(v), k),
         }}
         axisLeft={{
           legend: "Probability (%)",

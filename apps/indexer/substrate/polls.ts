@@ -164,6 +164,7 @@ export class PollScheduler implements ConnectionStream {
       minSolutions: t.difficulty.minSolutions,
       nodeCount: t.nodeCount,
       edgeCount: t.edgeCount,
+      curveConstant: t.curveConstant,
     }));
     // Publish the default-topology hash to shared state every poll (independent
     // of the change-dedup below) so the block + difficulty writers always stamp
@@ -176,7 +177,7 @@ export class PollScheduler implements ConnectionStream {
     const hash = sorted
       .map(
         (t) =>
-          `${t.topologyHash}:${t.isDefault}:${t.difficultyEnergy}:${t.minDiversity}:${t.minSolutions}:${t.nodeCount}:${t.edgeCount}`,
+          `${t.topologyHash}:${t.isDefault}:${t.difficultyEnergy}:${t.minDiversity}:${t.minSolutions}:${t.nodeCount}:${t.edgeCount}:${t.curveConstant}`,
       )
       .join("|");
     if (hash === this.cache.mineableTopologies) return;
