@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { BlockRecord } from "@quip/shared/telemetry";
 
-import type { MineableTopologyInfo, QBlockInfo } from "../clients/substrate-client";
+import type { MineableTopologyInfo } from "../clients/substrate-client";
 import { newInMemoryAdapter } from "../core/test-helpers";
 import { backfillTopologyTags, type TopologyBackfillSource } from "./backfill-topology";
 
@@ -37,26 +37,15 @@ function block(num: string): BlockRecord {
   };
 }
 
-// Fake chain: a default topology + a per-block qblock topology map.
-function source(qblockTopologyByBlock: Record<string, string>): TopologyBackfillSource {
+// Fake chain: a default topology + historical DefaultTopology by block height.
+function source(defaultTopologyByBlock: Record<string, string>): TopologyBackfillSource {
   return {
     getMineableTopologies: async (): Promise<MineableTopologyInfo[]> => [
       { topologyHash: CUR, isDefault: true, difficulty: z(), nodeCount: 1, edgeCount: 1 },
       { topologyHash: OLD, isDefault: false, difficulty: z(), nodeCount: 1, edgeCount: 1 },
     ],
-    getQBlock: async (n: string): Promise<QBlockInfo | null> => {
-      const t = qblockTopologyByBlock[n];
-      if (!t) return null;
-      return {
-        miner: "5GPP",
-        energyMilli: -1,
-        reward: "1",
-        submittedAt: "0",
-        nonce: "1",
-        difficulty: z(),
-        topologyHash: t,
-      };
-    },
+    getDefaultTopologyAt: async (n: string): Promise<string | null> =>
+      defaultTopologyByBlock[n] ?? null,
   };
 }
 const z = () => ({ maxEnergyMilli: 0, minDiversityMilli: 0, minSolutions: 0 });
@@ -70,8 +59,8 @@ afterEach(async () => {
 });
 
 describe("backfillTopologyTags", () => {
-  it("stamps each legacy block with its qblock topology and adopts difficulty", async () => {
-    // Current-topology run 100-102; a prior-topology win at 99.
+  it("tags the current-topology run and stops at the last topology change", async () => {
+    // Current-topology run 100-102; a prior-topology win at 99 (the boundary).
     for (const n of ["99", "100", "101", "102"]) await db.insertBlock(block(n));
     await db.insertDifficultySnapshot({
       observedAtBlock: "100",
@@ -95,37 +84,45 @@ describe("backfillTopologyTags", () => {
       store: db,
     });
 
-    expect(summary.tagged).toBe(4);
-    expect(summary.currentTopologyBlocks).toBe(3);
+    expect(summary.tagged).toBe(3);
+    expect(summary.reachedBoundary).toBe(true);
     expect(summary.difficultyTagged).toBe(1); // only the row at/after block 100
 
-    // No NULL blocks remain; the three current blocks are in scope, the prior one is not.
-    expect(await db.getBlocksMissingTopology(10)).toHaveLength(0);
+    // 100-102 in scope; the prior-topology block 99 stays NULL (out of scope).
     const tagged = (await db.getRecentBlocks(10)).reduce<Record<string, string | null>>((m, b) => {
       m[b.substrateBlockNumber] = b.topologyHash;
       return m;
     }, {});
     expect(tagged["102"]).toBe(CUR);
-    expect(tagged["99"]).toBe(OLD);
+    expect(tagged["100"]).toBe(CUR);
+    expect(tagged["99"]).toBe(null);
+    expect((await db.getBlocksMissingTopology(10)).map((r) => r.substrateBlockNumber)).toEqual([
+      "99",
+    ]);
   });
 
   it("is a no-op when the chain exposes no default topology", async () => {
     await db.insertBlock(block("100"));
     const noDefault: TopologyBackfillSource = {
       getMineableTopologies: async () => [],
-      getQBlock: async () => null,
+      getDefaultTopologyAt: async () => null,
     };
     const summary = await backfillTopologyTags({ source: noDefault, store: db });
     expect(summary.tagged).toBe(0);
     expect(await db.getBlocksMissingTopology(10)).toHaveLength(1); // untouched
   });
 
-  it("leaves a block NULL when its qblock can't be read (retry next run)", async () => {
+  it("stops (without tagging) when historical state is unavailable", async () => {
     await db.insertBlock(block("100"));
-    const summary = await backfillTopologyTags({
-      source: source({}), // getQBlock returns null for every block
-      store: db,
-    });
+    const unreadable: TopologyBackfillSource = {
+      getMineableTopologies: async () => [
+        { topologyHash: CUR, isDefault: true, difficulty: z(), nodeCount: 1, edgeCount: 1 },
+      ],
+      getDefaultTopologyAt: async () => {
+        throw new Error("state already discarded");
+      },
+    };
+    const summary = await backfillTopologyTags({ source: unreadable, store: db });
     expect(summary.tagged).toBe(0);
     expect(await db.getBlocksMissingTopology(10)).toHaveLength(1);
   });

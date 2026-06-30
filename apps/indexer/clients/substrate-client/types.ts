@@ -147,12 +147,6 @@ export interface QBlockInfo {
   // salt_32bytes)), decimal-encoded. Replaces the v0.1 u64 nonce.
   nonce: string;
   difficulty: DifficultyInfo;
-  // H256 (0x hex) of the topology this qblock was won under, from the on-chain
-  // `QBlock.topology_hash`. The ground truth for tagging the block's analytics
-  // row — not "the default topology at index time", which can differ after a
-  // mid-connection switch. Optional only so fixtures focused on other fields can
-  // omit it; the real `getQBlock` extractor always sets it.
-  topologyHash?: string;
 }
 
 // One topology on the chain's mineable whitelist, with its current decayed
@@ -200,6 +194,13 @@ export interface SubstrateClient {
   // Best-effort topology counts. Returns null when no default topology is
   // registered on the chain (lib.rs:111).
   getTopology(): Promise<TopologyInfo | null>;
+
+  // H256 (0x hex) of the chain's `DefaultTopology` at `blockNumber`'s height,
+  // read from historical state. Under model A (single active topology) this is
+  // the topology a block at that height was won under — the source of truth for
+  // tagging legacy blocks, since the qblock itself doesn't carry it. Null when
+  // there was no default topology then, or the historical state is unavailable.
+  getDefaultTopologyAt(blockNumber: string): Promise<string | null>;
 
   // Storage queries (poll path). Each returns null/empty when the
   // corresponding storage item is absent on the connected chain —

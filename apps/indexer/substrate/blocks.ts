@@ -67,9 +67,6 @@ interface EnrichedBlock {
   nonce: string;
   miningTime: number;
   ownDifficulty: DifficultyInfo | null;
-  // The topology this qblock was won under (from the on-chain QBlock), or null
-  // when the qblock read failed / a pre-v0.2 chain has no per-block topology.
-  topologyHash: string | null;
 }
 
 async function enrichBlock(client: BlockSource, e: WinningBlock): Promise<EnrichedBlock> {
@@ -94,14 +91,7 @@ async function enrichBlock(client: BlockSource, e: WinningBlock): Promise<Enrich
   const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
   const miningTime = miningTimeBlocks * BABE_SLOT_DURATION_SEC;
 
-  return {
-    e,
-    winningProof,
-    nonce: e.nonce,
-    miningTime,
-    ownDifficulty: winSol?.difficulty ?? null,
-    topologyHash: winSol?.topologyHash || null,
-  };
+  return { e, winningProof, nonce: e.nonce, miningTime, ownDifficulty: winSol?.difficulty ?? null };
 }
 
 // `block` is null only in the scan seed, which is never emitted.
@@ -121,8 +111,9 @@ function buildBlockRecord(
   topology: TopologyInfo,
   enriched: EnrichedBlock,
   difficulty: DifficultyInfo,
+  topologyHash: string | null,
 ): BlockRecord {
-  const { e, winningProof, nonce, miningTime, topologyHash } = enriched;
+  const { e, winningProof, nonce, miningTime } = enriched;
   return {
     blockHash: e.blockHash,
     substrateBlockNumber: String(e.blockNumber),
@@ -182,7 +173,15 @@ export class BlockPipeline implements ConnectionStream {
             scan(threadDifficulty, this.seedScan(seedDifficulty)),
             concatMap(({ block, difficulty }) => {
               const enriched = block!; // scan only emits after a real block
-              return from(this.insertBlock(buildBlockRecord(topology, enriched, difficulty))).pipe(
+              // Under model A a winning block was mined against the chain's
+              // current default topology, published live by the chain-state poll
+              // (so a mid-connection switch re-tags new blocks immediately).
+              // Legacy NULL rows are filled in by the startup backfill from
+              // historical DefaultTopology.
+              const topologyHash = this.ctx.state.defaultTopologyHash;
+              return from(
+                this.insertBlock(buildBlockRecord(topology, enriched, difficulty, topologyHash)),
+              ).pipe(
                 catchError((err) => {
                   console.warn(
                     `[indexer/substrate] block #${enriched.e.blockNumber} writer failed:`,

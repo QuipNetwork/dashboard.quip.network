@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createAdapter } from "@quip/core/db";
+import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 import { DbChainStateReader } from "./core/chain-state";
 import { QuipClient } from "./clients/miner-client";
@@ -56,6 +57,75 @@ export async function runWorkers(specs: WorkerSpec[], parentSignal?: AbortSignal
   return failed ? 1 : 0;
 }
 
+// Abortable sleep — resolves early when `signal` fires so a shutdown isn't held
+// up by the retry delay.
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(t);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+// One-time topology-tag backfill, run in the background. Re-reads each legacy
+// NULL block's qblock and stamps the topology it was won under, so the API's
+// strict topology filter surfaces the current-topology history (rows predating
+// migration 0004 carry NULL and would otherwise be hidden). Idempotent (only
+// NULL rows remain to tag) and connection-resilient: it retries the connect
+// because the validator endpoint may not be reachable at process start. Uses
+// only runtime/storage reads (getQBlock, getMineableTopologies), so it works
+// even when extrinsic decoding is broken on the block path.
+const BACKFILL_CONNECT_TRIES = 12;
+const BACKFILL_RETRY_MS = 5000;
+
+async function runTopologyBackfill(
+  client: SubstrateClient,
+  db: DatabaseAdapter,
+  signal: AbortSignal,
+): Promise<void> {
+  let connected = false;
+  for (let attempt = 1; attempt <= BACKFILL_CONNECT_TRIES && !signal.aborted; attempt++) {
+    try {
+      await client.connect();
+      connected = true;
+      break;
+    } catch {
+      if (attempt < BACKFILL_CONNECT_TRIES) await sleep(BACKFILL_RETRY_MS, signal);
+    }
+  }
+  if (!connected) {
+    if (!signal.aborted) {
+      console.warn("[indexer] topology backfill: could not connect; a restart will retry");
+    }
+    return;
+  }
+  try {
+    if (signal.aborted) return;
+    const s = await backfillTopologyTags({ source: client, store: db });
+    if (s.tagged > 0 || s.capped) {
+      console.log(
+        `[indexer] topology backfill: tagged ${s.tagged} legacy blocks to the current topology ` +
+          `(${s.difficultyTagged} difficulty rows)` +
+          (s.reachedBoundary
+            ? " — reached the last topology change"
+            : s.capped
+              ? " — capped; older current-topology blocks remain for the next run"
+              : ""),
+      );
+    }
+  } catch (e) {
+    console.warn(`[indexer] topology backfill failed: ${e instanceof Error ? e.message : e}`);
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
+}
+
 async function main(): Promise<number> {
   const config = parseConfig();
   console.log(
@@ -102,30 +172,13 @@ async function main(): Promise<number> {
   const clientFactory = (url: string): SubstrateClient =>
     new PolkadotSubstrateClient(url, config.substrateRpcTimeoutMs);
 
-  // One-time topology-tag backfill: re-read each legacy NULL block's qblock and
-  // stamp the topology it was won under, so the API's strict topology filter
-  // surfaces the current-topology history instead of blanking every chart on
-  // the first deploy after migration 0004. Non-fatal and idempotent (only
-  // NULL-tagged rows remain to tag) — if it fails, the workers still start and a
-  // later restart retries. Blocks worker startup briefly; the substrate worker's
-  // gap backfill catches up any heads missed during it.
+  // Kick off the one-time topology-tag backfill in the BACKGROUND so it never
+  // delays worker startup, and let it retry the connect — at process start the
+  // validator endpoint is often not reachable yet (the workers race to connect
+  // too), and a single failed connect previously made the backfill skip itself,
+  // leaving legacy blocks NULL and hidden by the strict topology filter.
   if (config.validatorRpcUrls.length > 0) {
-    const bf = clientFactory(config.validatorRpcUrls[0]!);
-    try {
-      await bf.connect();
-      const s = await backfillTopologyTags({ source: bf, store: db });
-      if (s.tagged > 0 || s.capped) {
-        console.log(
-          `[indexer] topology backfill: tagged ${s.tagged}/${s.scanned} legacy blocks ` +
-            `(${s.currentTopologyBlocks} on current topology, ${s.difficultyTagged} difficulty rows)` +
-            (s.capped ? " — capped; older untagged blocks remain" : ""),
-        );
-      }
-    } catch (e) {
-      console.warn(`[indexer] topology backfill skipped: ${e instanceof Error ? e.message : e}`);
-    } finally {
-      await bf.disconnect().catch(() => {});
-    }
+    void runTopologyBackfill(clientFactory(config.validatorRpcUrls[0]!), db, processAc.signal);
   }
 
   // Tip is the only fatal worker — substrate/descriptor self-heal via their
