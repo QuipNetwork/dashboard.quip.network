@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { formatNumber } from "@/lib/format";
-import { shortAddress } from "@/lib/format-chain";
+import { formatEnergy, shortAddress } from "@/lib/format-chain";
 import { useTelemetryStore } from "@/store/telemetry-store";
 
 /**
@@ -42,7 +42,7 @@ export function MineableTopologiesPanel() {
                     <span className="ml-2 font-accent text-ink-subtle">— default</span>
                   )}
                 </td>
-                <td className="py-1 pr-4">{formatNumber(t.difficultyEnergy)}</td>
+                <td className="py-1 pr-4">{formatEnergy(t.difficultyEnergy)}</td>
                 <td className="py-1 pr-4">{formatNumber(t.minDiversity)}</td>
                 <td className="py-1 pr-4">{formatNumber(t.minSolutions)}</td>
                 <td className="py-1 pr-4">{formatNumber(t.nodeCount)}</td>

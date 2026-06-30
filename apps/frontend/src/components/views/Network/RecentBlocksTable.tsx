@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { formatDuration } from "@/lib/format";
-import { displayNodeName, formatBalance } from "@/lib/format-chain";
+import { displayNodeName, formatBalance, formatEnergy } from "@/lib/format-chain";
 import { useTelemetryClient } from "@/services/telemetry-client";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { computeChainHealth } from "@/lib/staleness";
@@ -197,10 +197,10 @@ export function RecentBlocksTable({
                     )}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-strong">
-                    {b.energy.toFixed(1)}
+                    {formatEnergy(b.energy)}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-body">
-                    {b.difficultyEnergy.toFixed(1)}
+                    {formatEnergy(b.difficultyEnergy)}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-body">
                     {formatDuration(b.miningTime * 1000)}

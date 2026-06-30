@@ -59,7 +59,7 @@ export function NodeIdentityModal({
     <Modal isOpen onClose={onClose} size="xl" ariaLabel={`${name} node identity`}>
       <Modal.Header>{name}</Modal.Header>
       <Modal.Body>
-        <p className="-mt-2 mb-3 break-all font-mono text-xs text-ink-subtle" title={accountId}>
+        <p className="mb-3 break-all font-mono text-xs text-ink-subtle" title={accountId}>
           {accountId}
         </p>
 

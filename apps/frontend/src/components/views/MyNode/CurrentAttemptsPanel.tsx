@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { formatDuration, formatNumber } from "@/lib/format";
+import { formatEnergy } from "@/lib/format-chain";
 import { ChartCard } from "@/components/layout/ChartCard";
 import type {
   CurrentDispatch,
@@ -128,7 +129,7 @@ export function CurrentAttemptsPanel({
                 <tr key={a.iter} className="border-b border-border last:border-0">
                   <td className="py-1.5 pr-4 text-ink-strong">{a.iter}</td>
                   <td className="py-1.5 pr-4 text-ink-strong">
-                    {(a.bestEnergyMilli / 1000).toFixed(3)}
+                    {formatEnergy(a.bestEnergyMilli / 1000)}
                   </td>
                   <td className="py-1.5 pr-4 text-ink-strong">
                     {diversityMilli !== null ? (diversityMilli / 1000).toFixed(3) : "—"}
