@@ -2,7 +2,7 @@ import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { OverlappingBarsLayer } from "@/components/charts/common/OverlappingBarsLayer";
-import { formatDifficultyTick, useDifficultyCurveK } from "@/lib/difficulty-curve";
+import { formatDifficultyTickShort, useDifficultyCurveK } from "@/lib/difficulty-curve";
 import type { HistogramData } from "@/lib/histogram";
 
 export interface EnergyDistributionChartProps {
@@ -38,7 +38,7 @@ export function EnergyDistributionChart({ data }: EnergyDistributionChartProps) 
           legendOffset: 40,
           legendPosition: "middle",
           tickRotation: -45,
-          format: (v) => formatDifficultyTick(Number(v), k),
+          format: (v) => formatDifficultyTickShort(Number(v), k),
         }}
         axisLeft={{
           legend: "Frequency / Unit",

@@ -10,11 +10,20 @@ export function energyToCurveMille(energy: number, k: number | null): number | n
   return Math.round((-energy * 1000) / k);
 }
 
-// Tick label: "747‰ (−14.5)" when K is known, else "−14.5".
+// Tick label: "747‰ (−14559)" when K is known, else "−14559". Energies are
+// large integers (units), so no decimal place.
 export function formatDifficultyTick(energy: number, k: number | null): string {
-  const e = energy.toFixed(1);
+  const e = String(Math.round(energy));
   const m = energyToCurveMille(energy, k);
   return m == null ? e : `${m}‰ (${e})`;
+}
+
+// Compact tick for dense axes (e.g. the histogram): just the per-mille
+// position, "747‰", or the rounded energy when K is unknown. The full energy
+// belongs in the tooltip there, since "‰ (energy)" is too wide to fit.
+export function formatDifficultyTickShort(energy: number, k: number | null): string {
+  const m = energyToCurveMille(energy, k);
+  return m == null ? String(Math.round(energy)) : `${m}‰`;
 }
 
 /**
