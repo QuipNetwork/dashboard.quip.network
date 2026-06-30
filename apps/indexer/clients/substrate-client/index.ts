@@ -470,7 +470,6 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       submittedAt: String(sol.submittedAt ?? sol.submitted_at ?? "0"),
       nonce,
       difficulty: decodeDifficulty(sol.difficulty),
-      topologyHash: String(sol.topologyHash ?? sol.topology_hash ?? ""),
     };
   }
 
@@ -768,6 +767,33 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       nodeCount: meta.nodes.length,
       edgeCount: meta.edges.length,
     };
+  }
+
+  async getDefaultTopologyAt(blockNumber: string): Promise<string | null> {
+    const api = this.requireApi();
+    const dt = api.query.quantumPow?.defaultTopology as
+      | { at?: (hash: string) => Promise<unknown> }
+      | undefined;
+    if (typeof dt?.at !== "function") return null;
+    let blockHash: string;
+    try {
+      const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
+      blockHash = hashCodec.toHex();
+    } catch {
+      return null;
+    }
+    if (/^0x0+$/.test(blockHash)) return null;
+    // `DefaultTopology.at(hash)` reads historical state; an archive/deep-pruning
+    // node serves it, a shallow-pruning one throws ("state already discarded").
+    let codec: unknown;
+    try {
+      codec = await dt.at(blockHash);
+    } catch {
+      return null;
+    }
+    const opt = codec as { isSome?: boolean; unwrap?: () => { toHex: () => string } };
+    if (!opt.isSome || !opt.unwrap) return null;
+    return opt.unwrap().toHex();
   }
 }
 

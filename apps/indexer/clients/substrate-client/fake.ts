@@ -42,6 +42,9 @@ export class FakeSubstrateClient implements SubstrateClient {
   public difficulty: DifficultyInfo | null = null;
   public lastProofBlockByHash = new Map<string, number>();
   public topology: TopologyInfo | null = null;
+  // Historical DefaultTopology by block-number string — tests populate the
+  // heights they exercise; absent keys read as null.
+  public defaultTopologyByBlock = new Map<string, string>();
   // Keyed by blockNumber string. Tests populate this for the block(s) they
   // emit via `emitBlock`; the worker reads it back through
   // `getQBlock(blockNumber)` to source per-block difficulty and
@@ -107,6 +110,9 @@ export class FakeSubstrateClient implements SubstrateClient {
   }
   async getTopology(): Promise<TopologyInfo | null> {
     return this.topology;
+  }
+  async getDefaultTopologyAt(blockNumber: string): Promise<string | null> {
+    return this.defaultTopologyByBlock.get(blockNumber) ?? null;
   }
   async getBabeEpoch(): Promise<BabeEpochInfo | null> {
     return this.babeEpoch;
