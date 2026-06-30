@@ -62,8 +62,7 @@ export function rowToChainHead(r: Row): ChainHead {
     finalizedBlockNumber: String(r.finalized_block_number),
     finalizedBlockHash: String(r.finalized_block_hash),
     finalityLag: num(r.finality_lag),
-    winningSolutionsCount:
-      r.winning_solutions_count == null ? null : num(r.winning_solutions_count),
+    qblockCount: r.winning_solutions_count == null ? null : num(r.winning_solutions_count),
     currentQBlockId: r.current_qblock_id == null ? null : String(r.current_qblock_id),
     currentQBlockParticipants:
       r.current_qblock_participants == null ? null : num(r.current_qblock_participants),

@@ -345,15 +345,15 @@ describe("decodeMinerRegistryDescriptor (V1 / V2 schema)", () => {
   });
 });
 
-describe("FakeSubstrateClient.getWinningSolution", () => {
+describe("FakeSubstrateClient.getQBlock", () => {
   test("returns null when no solution is programmed for the block", async () => {
     const c = new FakeSubstrateClient();
-    expect(await c.getWinningSolution("99")).toBeNull();
+    expect(await c.getQBlock("99")).toBeNull();
   });
 
   test("returns the programmed solution for a known block", async () => {
     const c = new FakeSubstrateClient();
-    c.winningSolutionsByBlock.set("77", {
+    c.qblocksByBlock.set("77", {
       miner: "5GPPxx",
       energyMilli: -2510,
       reward: "1000",
@@ -365,7 +365,7 @@ describe("FakeSubstrateClient.getWinningSolution", () => {
         minSolutions: 5,
       },
     });
-    const sol = await c.getWinningSolution("77");
+    const sol = await c.getQBlock("77");
     expect(sol?.nonce).toBe("12345");
     expect(sol?.difficulty.minSolutions).toBe(5);
   });

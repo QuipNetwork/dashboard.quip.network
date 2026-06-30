@@ -18,7 +18,7 @@ import type {
   SubstrateHead,
   TopologyInfo,
   UnsubFn,
-  WinningSolutionInfo,
+  QBlockInfo,
 } from "../clients/substrate-client";
 
 export interface ConnectionControl {
@@ -32,7 +32,7 @@ export interface HeadSource {
   subscribeFinalizedHeads(cb: (h: SubstrateHead) => void): Promise<UnsubFn>;
   getRuntimeVersion(): Promise<RuntimeVersionInfo>;
   getLastRuntimeUpgrade(): Promise<{ blockNumber: string } | null>;
-  getWinningSolutionsCount(): Promise<number | null>;
+  getQBlockCount(): Promise<number | null>;
   getQBlockParticipantCount(qblockId: string): Promise<number | null>;
 }
 
@@ -41,11 +41,11 @@ export interface BlockSource {
   getTopology(): Promise<TopologyInfo | null>;
   getDifficulty(): Promise<DifficultyInfo | null>;
   getLastProofBlockAt(blockHash: string): Promise<number>;
-  getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null>;
+  getQBlock(blockNumber: string): Promise<QBlockInfo | null>;
 }
 
 export interface BackfillSource {
-  getWinningBlockNumbers(): Promise<string[]>;
+  getQBlockNumbers(): Promise<string[]>;
   processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null>;
 }
 

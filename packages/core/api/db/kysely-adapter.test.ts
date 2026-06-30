@@ -43,7 +43,7 @@ const sampleHead = (overrides: Partial<ChainHead> = {}): ChainHead => ({
   finalizedBlockNumber: "190",
   finalizedBlockHash: "0xfinal",
   finalityLag: 10,
-  winningSolutionsCount: 5,
+  qblockCount: 5,
   currentQBlockId: "6",
   currentQBlockParticipants: 3,
   runtime: {

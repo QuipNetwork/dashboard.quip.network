@@ -125,10 +125,10 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
     // problem. Skip when the substrate worker hasn't written the count yet.
     const minerHardware = selfAddress ? hardwareByAccount.get(selfAddress) : undefined;
     const minerInternalId = minerHardware?.miners[0]?.id ?? null;
-    const winningSolutionsCount = chainHead?.winningSolutionsCount ?? null;
+    const qblockCount = chainHead?.qblockCount ?? null;
     const currentDispatch: CurrentDispatch | null =
-      selfAddress && minerInternalId && winningSolutionsCount !== null
-        ? await resolveCurrentDispatch(minerInternalId, winningSolutionsCount + 1)
+      selfAddress && minerInternalId && qblockCount !== null
+        ? await resolveCurrentDispatch(minerInternalId, qblockCount + 1)
         : null;
 
     // Project per-account registry descriptors into the legacy
@@ -176,11 +176,14 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
     });
 
     // Scope the block/difficulty surfaces to the chain's current default
-    // topology so every chart resets when the default topology changes —
-    // without destroying history (rows keep their topology_hash). Rows tagged
-    // with a prior topology (or NULL, i.e. written before tagging) fall out of
-    // scope. When the chain exposes no default topology (e.g. pre-v0.2), we
-    // don't filter at all, so those charts keep rendering everything.
+    // topology so every chart resets when the default topology changes — without
+    // destroying history (rows keep their topology_hash). Each block is stamped
+    // with the topology it was actually won under (from its qblock), and the
+    // indexer backfills legacy rows the same way, so a row is in scope only when
+    // its hash equals the current default. Rows tagged with a prior topology —
+    // or still NULL (the indexer hasn't backfilled them yet, or couldn't read
+    // their qblock) — fall out. When the chain exposes no default topology (e.g.
+    // pre-v0.2) we don't filter at all.
     const defaultTopologyHash = mineableTopologies.find((t) => t.isDefault)?.topologyHash ?? null;
     const scopedBlocks = defaultTopologyHash
       ? blocks.filter((b) => b.topologyHash === defaultTopologyHash)

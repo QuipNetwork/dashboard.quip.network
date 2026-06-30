@@ -74,13 +74,13 @@ export interface ChainHead {
   // `quantum_pow.QBlockCount` u64 (a single O(1) read; renamed from the
   // v0.1 `WinningSolutions` map length). This is the authoritative source
   // for the global "solution number": the in-flight problem every miner is
-  // grinding is `winningSolutionsCount + 1`. Null when the chain doesn't
+  // grinding is `qblockCount + 1`. Null when the chain doesn't
   // expose it yet or the substrate worker hasn't read it. Equals
   // `Σ chain_miners.proofsWon` when that table is complete, but sourced
   // straight from chain so it can't undercount.
-  winningSolutionsCount: number | null;
+  qblockCount: number | null;
   // The in-flight qblock id miners are currently racing — `QBlockCount + 1`
-  // (i.e. `winningSolutionsCount + 1`). Null when the count is unknown.
+  // (i.e. `qblockCount + 1`). Null when the count is unknown.
   currentQBlockId: string | null;
   // Number of miners that declared participation on `currentQBlockId` via
   // `MinerRegistry.participate` (from the `participant_count_by_qblock`

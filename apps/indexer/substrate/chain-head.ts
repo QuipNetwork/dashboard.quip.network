@@ -80,13 +80,12 @@ export class ChainHeadWriter implements ConnectionStream {
     const lastUpgrade = await client.getLastRuntimeUpgrade().catch(() => null);
     // The global solution_number bound; best-effort, null leaves the
     // mining-attempts catch-up to skip a tick.
-    const winningSolutionsCount = await client.getWinningSolutionsCount().catch(() => null);
+    const qblockCount = await client.getQBlockCount().catch(() => null);
     // In-flight qblock = QBlockCount + 1 (the problem miners are racing now);
     // its participant count comes from the MinerRegistry runtime API. Both
     // best-effort: a failed read leaves them null rather than poisoning the
     // chain_head write.
-    const currentQBlockId =
-      winningSolutionsCount !== null ? String(winningSolutionsCount + 1) : null;
+    const currentQBlockId = qblockCount !== null ? String(qblockCount + 1) : null;
     const currentQBlockParticipants =
       currentQBlockId !== null
         ? await client.getQBlockParticipantCount(currentQBlockId).catch(() => null)
@@ -107,7 +106,7 @@ export class ChainHeadWriter implements ConnectionStream {
       finalizedBlockNumber: finN,
       finalizedBlockHash: finalized.hash,
       finalityLag: lag,
-      winningSolutionsCount,
+      qblockCount,
       currentQBlockId,
       currentQBlockParticipants,
       runtime: {

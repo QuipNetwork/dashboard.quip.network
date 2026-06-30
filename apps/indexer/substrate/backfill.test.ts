@@ -52,7 +52,7 @@ describe("Backfill", () => {
 
     const processed: string[] = [];
     const client: BackfillSource = {
-      async getWinningBlockNumbers() {
+      async getQBlockNumbers() {
         return ["30", "10", "20"];
       },
       async processFinalizedBlock(n) {
@@ -76,7 +76,7 @@ describe("Backfill", () => {
   it("no-ops when the chain reports no winners", async () => {
     let processedCalls = 0;
     const client: BackfillSource = {
-      async getWinningBlockNumbers() {
+      async getQBlockNumbers() {
         return [];
       },
       async processFinalizedBlock(): Promise<BlockEvents | null> {

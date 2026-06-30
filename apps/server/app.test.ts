@@ -105,9 +105,9 @@ describe("server app", () => {
   });
 
   test("GET /api/telemetry scopes blocks to the chain's default topology", async () => {
-    // Three blocks: two tagged with the default topology, one with a prior
-    // topology. The route must return only the default-topology blocks so the
-    // charts reset when the default topology changes.
+    // Each block is stamped with the topology it was won under. Only blocks on
+    // the current default topology are in scope; a prior-topology block and a
+    // still-untagged (NULL, not yet backfilled) block both fall out.
     await db.insertBlock(
       makeBlock({ blockHash: "0xd1", substrateBlockNumber: "100", topologyHash: "0xDEFAULT" }),
     );
@@ -116,6 +116,9 @@ describe("server app", () => {
     );
     await db.insertBlock(
       makeBlock({ blockHash: "0xd2", substrateBlockNumber: "102", topologyHash: "0xDEFAULT" }),
+    );
+    await db.insertBlock(
+      makeBlock({ blockHash: "0xlegacy", substrateBlockNumber: "103", topologyHash: null }),
     );
     await db.setMineableTopologies([
       {
@@ -140,6 +143,7 @@ describe("server app", () => {
 
     const res = await app.fetch(new Request("http://test/api/telemetry"));
     const body = (await res.json()) as TelemetryResponse;
+    // Only the two default-topology blocks are in scope.
     expect(body.blocks.map((b) => b.blockHash).sort()).toEqual(["0xd1", "0xd2"]);
   });
 
@@ -213,7 +217,7 @@ describe("server app", () => {
       finalizedBlockNumber: "98",
       finalizedBlockHash: "0xdef",
       finalityLag: 2,
-      winningSolutionsCount: null,
+      qblockCount: null,
       currentQBlockId: null,
       currentQBlockParticipants: null,
       runtime: {
