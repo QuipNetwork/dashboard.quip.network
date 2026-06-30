@@ -295,4 +295,43 @@ describe("DescriptorWorker (finalized-head snapshot)", () => {
     expect(seenUrls).toEqual(["ws://a"]); // never rotated
     expect((await db.getAllNodeDescriptors()).map((r) => r.accountId)).toEqual(["5OK"]);
   });
+
+  it("escalates persistent live-connection scan failures from warn to error", async () => {
+    const state = new IndexerState(db);
+    state.observability.finalizedBlockHeight = "1";
+
+    // Live connection (isConnected stays true) but every scan throws — the
+    // schema-drift signature. The worker must warn for the first failures and
+    // escalate to console.error once they persist, instead of silently serving
+    // stale descriptors forever.
+    const clientFactory = (): FakeSubstrateClient => {
+      const c = new FakeSubstrateClient();
+      c.getMinerRegistryDescriptorsAt = async () => {
+        throw new Error("column block_hash does not exist");
+      };
+      return c;
+    };
+
+    const warns: string[] = [];
+    const errors: string[] = [];
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.warn = (...args: unknown[]) => void warns.push(String(args[0]));
+    console.error = (...args: unknown[]) => void errors.push(String(args[0]));
+    try {
+      const ac = new AbortController();
+      setTimeout(() => ac.abort(), 120);
+      await runDescriptorLoop(
+        { config: makeConfig(), db, state, urls: ["ws://a"], clientFactory, scanIntervalMs: 10 },
+        ac.signal,
+      );
+    } finally {
+      console.warn = origWarn;
+      console.error = origError;
+    }
+
+    // Failures 1–2 warn; the 3rd+ consecutive failure escalates to error.
+    expect(warns.filter((w) => w.includes("scan failed")).length).toBeGreaterThanOrEqual(1);
+    expect(errors.some((e) => e.includes("times in a row") && e.includes("STALE"))).toBe(true);
+  });
 });

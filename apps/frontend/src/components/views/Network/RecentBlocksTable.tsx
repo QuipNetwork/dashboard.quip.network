@@ -18,15 +18,24 @@ export interface NumberedBlock {
   solutionNumber: number;
 }
 
-export function filterRecentBlocks(rows: readonly NumberedBlock[], query: string): NumberedBlock[] {
+export function filterRecentBlocks(
+  rows: readonly NumberedBlock[],
+  query: string,
+  // Resolve the displayed rig name for a winner so search matches what the
+  // table actually shows (the winner cell renders the rig name, not the SS58).
+  nameOf?: (accountId: string) => string | undefined,
+): NumberedBlock[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...rows];
-  return rows.filter(
-    ({ block, solutionNumber }) =>
+  return rows.filter(({ block, solutionNumber }) => {
+    const name = nameOf?.(block.minerId);
+    return (
       block.minerId.toLowerCase().includes(q) ||
+      (name?.toLowerCase().includes(q) ?? false) ||
       block.substrateBlockNumber.toLowerCase().includes(q) ||
-      String(solutionNumber).includes(q),
-  );
+      String(solutionNumber).includes(q)
+    );
+  });
 }
 
 interface RecentBlocksTableProps {
@@ -108,7 +117,11 @@ export function RecentBlocksTable({
     block,
     solutionNumber: tipSolutionNumber - i,
   }));
-  const matched = filterRecentBlocks(numbered, query);
+  const matched = filterRecentBlocks(
+    numbered,
+    query,
+    (id) => descriptorsByAccount.get(id)?.descriptor.nodeName,
+  );
   const visible = matched.slice(0, pageSize);
   const hasMoreInMemory = pageSize < matched.length;
   const canFetchOlder = !query && !serverExhausted && blocks.length >= LIVE_WINDOW;

@@ -187,8 +187,9 @@ export class DescriptorWorker implements Worker {
       if (this.consecutiveFailures >= PERSISTENT_FAILURE_THRESHOLD) {
         console.error(
           `[indexer/descriptor] head ${head} scan has failed ${this.consecutiveFailures} times in a row: ${detail}. ` +
-            "The connection is live, so this is a write-side fault — most likely a node_descriptors schema drift. " +
-            "The registry is now serving STALE descriptors. Verify migrations applied (see migration 0004).",
+            "The connection is live, so this is a write-side fault (e.g. a node_descriptors schema " +
+            "drift, or a DB error). The registry is now serving STALE descriptors. Check the error " +
+            "above; if it is a missing/mismatched column, verify migrations applied (see migration 0004).",
         );
       } else {
         console.warn(`[indexer/descriptor] head ${head} scan failed: ${detail}`);

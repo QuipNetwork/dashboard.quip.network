@@ -190,7 +190,7 @@ const EMPTY: ComputeAvailability = {
   unlocatedCount: 0,
 };
 
-function countCpus(node: NodeInfo): number {
+export function countCpus(node: NodeInfo): number {
   // Prefer the operator-declared CPU utilization (chain-signed
   // `miners.cpu.numCpus`) — it reflects what the miner actually uses, not the
   // container's kernel view of host capacity (a `num_cpus=1` miner on a

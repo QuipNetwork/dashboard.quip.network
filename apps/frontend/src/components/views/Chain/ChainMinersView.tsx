@@ -135,7 +135,19 @@ export function ChainMinersTable() {
                       <tr
                         key={m.accountId}
                         onClick={() => setOpenAccountId(m.accountId)}
-                        className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-2"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setOpenAccountId(m.accountId);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`View node identity for ${displayNodeName(
+                          m.accountId,
+                          d?.descriptor.nodeName,
+                        )}`}
+                        className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-2 focus:bg-surface-2 focus:outline-none"
                       >
                         <td
                           className="px-4 py-2 text-ink-strong underline-offset-2 hover:underline"
