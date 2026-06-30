@@ -37,7 +37,7 @@ describe("substrate worker", () => {
     // polled snapshot. Wire shape is milli-encoded; the worker converts
     // to floats (energy/diversity) and integer units (min_solutions)
     // before BlockRecord insertion.
-    client.winningSolutionsByBlock.set("100", {
+    client.qblocksByBlock.set("100", {
       miner: "5GPP",
       energyMilli: -2510,
       reward: "1000",
@@ -298,9 +298,9 @@ describe("substrate worker", () => {
     const state = new IndexerState(db);
     await state.load();
     const client = new FakeSubstrateClient();
-    // Two WinningSolutions entries on chain → chain_head.winningSolutionsCount
+    // Two WinningSolutions entries on chain → chain_head.qblockCount
     // = 2 (the global solution_number bound; in-flight problem = 3).
-    client.winningSolutionsByBlock.set("40", {
+    client.qblocksByBlock.set("40", {
       miner: "5GPP",
       energyMilli: -2510,
       reward: "1000",
@@ -308,7 +308,7 @@ describe("substrate worker", () => {
       nonce: "1",
       difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
     });
-    client.winningSolutionsByBlock.set("80", {
+    client.qblocksByBlock.set("80", {
       miner: "5GPP",
       energyMilli: -2520,
       reward: "1000",
@@ -361,7 +361,7 @@ describe("substrate worker", () => {
     expect(head?.bestBlockNumber).toBe("100");
     expect(head?.bestBlockHash).toBe("0xab");
     expect(head?.finalityLag).toBe(0);
-    expect(head?.winningSolutionsCount).toBe(2);
+    expect(head?.qblockCount).toBe(2);
     expect(state.observability.lastSubstrateEventAt).toBe("2026-05-15T00:00:00.000Z");
     expect(state.observability.finalizedBlockHeight).toBe("100");
   });
@@ -989,7 +989,7 @@ describe("substrate worker", () => {
     await state.load();
     const client = new FakeSubstrateClient();
     client.topology = { nodeCount: 1, edgeCount: 0 };
-    client.winningSolutionsByBlock.set("10", {
+    client.qblocksByBlock.set("10", {
       miner: "5M",
       energyMilli: -100,
       reward: "0",
@@ -1098,7 +1098,7 @@ describe("substrate worker", () => {
     client.topology = { nodeCount: 7, edgeCount: 9 };
     // Chain reports block #200 as a winning solution and can serve its events,
     // but our local store is empty — the backfill should fetch and insert it.
-    client.winningSolutionsByBlock.set("200", {
+    client.qblocksByBlock.set("200", {
       miner: "5H",
       energyMilli: -300,
       reward: "5",
@@ -1259,7 +1259,7 @@ describe("substrate worker", () => {
     const client = new FakeSubstrateClient();
     client.topology = { nodeCount: 1, edgeCount: 0 };
     // Block 10 carries its own difficulty; block 11 has none → must inherit it.
-    client.winningSolutionsByBlock.set("10", {
+    client.qblocksByBlock.set("10", {
       miner: "5M",
       energyMilli: -100,
       reward: "0",
@@ -1335,7 +1335,7 @@ describe("substrate worker", () => {
     const client = new FakeSubstrateClient();
     client.topology = { nodeCount: 1, edgeCount: 0 };
     // Backfill catalogue read throws — must be contained, not tear down live.
-    client.getWinningBlockNumbers = async () => {
+    client.getQBlockNumbers = async () => {
       throw new Error("rpc down");
     };
 

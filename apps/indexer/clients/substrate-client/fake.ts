@@ -14,7 +14,7 @@ import type {
   SubstrateHead,
   TopologyInfo,
   UnsubFn,
-  WinningSolutionInfo,
+  QBlockInfo,
 } from "./types";
 
 /**
@@ -44,9 +44,9 @@ export class FakeSubstrateClient implements SubstrateClient {
   public topology: TopologyInfo | null = null;
   // Keyed by blockNumber string. Tests populate this for the block(s) they
   // emit via `emitBlock`; the worker reads it back through
-  // `getWinningSolution(blockNumber)` to source per-block difficulty and
+  // `getQBlock(blockNumber)` to source per-block difficulty and
   // nonce in BlockRecord construction.
-  public winningSolutionsByBlock = new Map<string, WinningSolutionInfo>();
+  public qblocksByBlock = new Map<string, QBlockInfo>();
   public runtimeVersion: RuntimeVersionInfo = {
     specName: "quip",
     specVersion: 101,
@@ -138,14 +138,14 @@ export class FakeSubstrateClient implements SubstrateClient {
   async getBlockHeader(blockNumber: string): Promise<SubstrateHead | null> {
     return this.headers.get(blockNumber) ?? null;
   }
-  async getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null> {
-    return this.winningSolutionsByBlock.get(blockNumber) ?? null;
+  async getQBlock(blockNumber: string): Promise<QBlockInfo | null> {
+    return this.qblocksByBlock.get(blockNumber) ?? null;
   }
-  async getWinningBlockNumbers(): Promise<string[]> {
-    return [...this.winningSolutionsByBlock.keys()];
+  async getQBlockNumbers(): Promise<string[]> {
+    return [...this.qblocksByBlock.keys()];
   }
-  async getWinningSolutionsCount(): Promise<number | null> {
-    return this.winningSolutionsByBlock.size;
+  async getQBlockCount(): Promise<number | null> {
+    return this.qblocksByBlock.size;
   }
   // Tests populate `historicalBlocks` (keyed by blockNumber string) for any
   // historical winning block the backfill loop should be able to fetch.

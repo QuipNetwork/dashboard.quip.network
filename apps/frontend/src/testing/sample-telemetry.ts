@@ -387,7 +387,7 @@ export function sampleTelemetry(): Partial<TelemetryState> {
       finalizedBlockNumber: "1039",
       finalizedBlockHash: "0xfinal",
       finalityLag: 3,
-      winningSolutionsCount: 1042,
+      qblockCount: 1042,
       currentQBlockId: "1043",
       currentQBlockParticipants: 4,
       runtime: {

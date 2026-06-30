@@ -33,7 +33,7 @@ export class Backfill {
   // older than the window as "missing" and re-backfill them on each reconnect.
   // A duplicate read is harmless either way — insertBlock is INSERT OR IGNORE.
   private async missing(): Promise<string[]> {
-    const winning = await this.client.getWinningBlockNumbers();
+    const winning = await this.client.getQBlockNumbers();
     if (winning.length === 0) return [];
     const existing = new Set(await this.ctx.db.getExistingBlockNumbers(winning));
     const missing = winning.filter((n) => !existing.has(n)).sort((a, b) => Number(a) - Number(b));

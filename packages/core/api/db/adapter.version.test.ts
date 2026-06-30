@@ -15,6 +15,9 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     "insertBlock",
     "getRecentBlocks",
     "getBlocksByMiner",
+    "getBlocksMissingTopology",
+    "setBlockTopology",
+    "backfillDifficultyTopology",
     "markBlockFinalized",
     // Self-identity (slim)
     "setSelfAddress",
@@ -54,5 +57,5 @@ test("DatabaseAdapter v13 surface: mining submission + checkpoint methods", () =
     "getMiningCheckpoint",
     "setMiningCheckpoint",
   ];
-  expect(required.length).toBe(38);
+  expect(required.length).toBe(41);
 });

@@ -84,12 +84,6 @@ export interface BlockEvents {
 export interface TopologyInfo {
   nodeCount: number;
   edgeCount: number;
-  // H256 (0x hex) of the chain's default topology, or "" when the chain
-  // exposes no default topology. Stamped onto each block so analytics can be
-  // scoped to (and reset with) the current default topology. Optional: it is
-  // an ephemeral read result (not a persisted record), and the block writer
-  // already coalesces an absent/empty hash to NULL.
-  topologyHash?: string;
 }
 
 export interface BabeEpochInfo {
@@ -144,7 +138,7 @@ export interface DifficultyInfo {
 // cleared (`difficulty`) AND the BLAKE3-derived nonce — meaning the worker
 // no longer has to walk extrinsics to recover the nonce and no longer has
 // to approximate the difficulty threshold from a separate poll.
-export interface WinningSolutionInfo {
+export interface QBlockInfo {
   miner: string;
   energyMilli: number;
   reward: string;
@@ -153,6 +147,12 @@ export interface WinningSolutionInfo {
   // salt_32bytes)), decimal-encoded. Replaces the v0.1 u64 nonce.
   nonce: string;
   difficulty: DifficultyInfo;
+  // H256 (0x hex) of the topology this qblock was won under, from the on-chain
+  // `QBlock.topology_hash`. The ground truth for tagging the block's analytics
+  // row — not "the default topology at index time", which can differ after a
+  // mid-connection switch. Optional only so fixtures focused on other fields can
+  // omit it; the real `getQBlock` extractor always sets it.
+  topologyHash?: string;
 }
 
 // One topology on the chain's mineable whitelist, with its current decayed
@@ -232,7 +232,7 @@ export interface SubstrateClient {
   // difficulty snapshot persisted by `pallet-quantum-pow::on_finalize`.
   // Null when the block had no winner OR the chain pre-dates v0.2 (no
   // `quantumPowApi` runtime trait registered).
-  getWinningSolution(blockNumber: string): Promise<WinningSolutionInfo | null>;
+  getQBlock(blockNumber: string): Promise<QBlockInfo | null>;
 
   // Lists the block numbers (as decimal strings) for which a
   // `quantum_pow.QBlocks` entry exists on chain (v0.2 renamed the v0.1
@@ -240,13 +240,13 @@ export interface SubstrateClient {
   // wins that fired before `subscribeBlockEvents` started receiving live
   // heads. Returns empty when the storage map is absent (pre-v0.2) or empty
   // (no wins yet).
-  getWinningBlockNumbers(): Promise<string[]>;
+  getQBlockNumbers(): Promise<string[]>;
 
   // Network-wide winning-qblock total. v0.2 exposes this directly as the
   // `quantum_pow.QBlockCount` u64 (single O(1) read); falls back to counting
   // `QBlocks` keys. The global in-flight problem id is this + 1. Null when
   // neither item is present (pre-v0.2).
-  getWinningSolutionsCount(): Promise<number | null>;
+  getQBlockCount(): Promise<number | null>;
 
   // Decode events, author, and timestamp for a specific finalized block,
   // returning the same shape `subscribeBlockEvents` delivers on a live head.

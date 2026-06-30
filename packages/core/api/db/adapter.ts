@@ -153,6 +153,29 @@ export interface DatabaseAdapter {
   getBlocksByMiner(minerId: string, limit: number): Promise<BlockRecord[]>;
 
   /**
+   * Topology-tag backfill support. Returns up to `limit` blocks whose
+   * `topology_hash` is NULL (rows that predate per-block topology tagging),
+   * newest first, so the indexer can re-read each block's qblock and stamp its
+   * true topology. `{ blockHash, substrateBlockNumber }` is all the backfill
+   * needs (PK + the chain block number to look up the qblock).
+   */
+  getBlocksMissingTopology(
+    limit: number,
+  ): Promise<Array<{ blockHash: string; substrateBlockNumber: string }>>;
+
+  /** Set one block's `topology_hash` (backfill writes, keyed on the PK). */
+  setBlockTopology(blockHash: string, topologyHash: string): Promise<void>;
+
+  /**
+   * Backfill `topology_hash` on still-untagged `difficulty_history` rows at or
+   * after `fromBlock` (the first block of the current default topology's run),
+   * stamping them with the current default `topologyHash`. Returns the row
+   * count updated. Rows before `fromBlock` belong to a prior topology and stay
+   * NULL (out of scope).
+   */
+  backfillDifficultyTopology(fromBlock: string, topologyHash: string): Promise<number>;
+
+  /**
    * Of the supplied substrate block numbers, return those already present in
    * `blocks`. Used by the startup/reconnect backfill to compute exactly which
    * on-chain winners are missing locally — a targeted membership test that
