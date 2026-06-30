@@ -2,7 +2,9 @@ import { useState } from "react";
 
 import clsx from "clsx";
 import { SearchInput } from "@/components/common/SearchInput";
+import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 import { SERIES_COLORS } from "@/lib/colors";
+import { displayNodeName } from "@/lib/format-chain";
 import { formatSeconds, formatNumber } from "@/lib/format";
 import { useMinerColors } from "@/store/miner-colors";
 import { filterLeaderboardEntries, type LeaderboardEntry } from "./use-leaderboard";
@@ -59,6 +61,7 @@ interface LeaderboardProps {
 
 export function Leaderboard({ data }: LeaderboardProps) {
   const [query, setQuery] = useState("");
+  const { open, nameOf, modal } = useNodeIdentityModal();
 
   if (data.length === 0) {
     return (
@@ -101,7 +104,17 @@ export function Leaderboard({ data }: LeaderboardProps) {
                 return (
                   <tr
                     key={entry.minerId}
-                    className="group border-t border-border transition-colors hover:bg-surface-2"
+                    onClick={() => open(entry.minerId)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        open(entry.minerId);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View node identity for ${displayNodeName(entry.minerId, nameOf(entry.minerId))}`}
+                    className="group cursor-pointer border-t border-border transition-colors hover:bg-surface-2 focus:bg-surface-2 focus:outline-none"
                   >
                     <td className="py-2 pl-1 pr-2">
                       <RankBadge rank={entry.rank} />
@@ -112,7 +125,9 @@ export function Leaderboard({ data }: LeaderboardProps) {
                           className="inline-block h-2.5 w-2.5 rounded-full"
                           style={{ backgroundColor: minerColor }}
                         />
-                        <span className="font-accent text-sm text-ink-strong">{entry.minerId}</span>
+                        <span className="font-accent text-sm text-ink-strong" title={entry.minerId}>
+                          {displayNodeName(entry.minerId, nameOf(entry.minerId))}
+                        </span>
                       </span>
                     </td>
                     <td className="py-2 pr-3">
@@ -146,6 +161,7 @@ export function Leaderboard({ data }: LeaderboardProps) {
           </table>
         )}
       </div>
+      {modal}
     </div>
   );
 }
