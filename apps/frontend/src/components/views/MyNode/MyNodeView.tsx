@@ -7,7 +7,7 @@ import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/te
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
 import { CurrentDifficultyCard } from "./CurrentDifficultyCard";
-import { LastSolutionCard } from "./LastSolutionCard";
+import { LastQBlockCard } from "./LastQBlockCard";
 import { MinerStatsPanel } from "./MinerStatsPanel";
 import { NeighborsList } from "./NeighborsList";
 import { RecentMiningPanel } from "./RecentMiningPanel";
@@ -91,7 +91,7 @@ export function MyNodeView() {
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
         <StatTile
-          label="Problems Won"
+          label="QBlocks Won"
           value={formatNumber(Number(blocksMined))}
           sublabel={
             chainMinerEntry
@@ -105,10 +105,10 @@ export function MyNodeView() {
           sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
         />
         <StatTile
-          label="Last Problem Won"
+          label="Last QBlock Won"
           value={
             lastWonBlock != null && lastWonProblemNumber != null
-              ? `Problem #${formatNumber(lastWonProblemNumber)}`
+              ? `QBlock #${formatNumber(lastWonProblemNumber)}`
               : "—"
           }
           sublabel={
@@ -120,7 +120,7 @@ export function MyNodeView() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <LastSolutionCard lastWonBlock={lastWonBlock} lastWonSubmission={lastWonSubmission} />
+        <LastQBlockCard lastWonBlock={lastWonBlock} lastWonSubmission={lastWonSubmission} />
         <CurrentDifficultyCard
           currentRequirements={currentRequirements}
           recentDifficulty={recentDifficulty}

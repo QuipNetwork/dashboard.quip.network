@@ -69,6 +69,13 @@ export interface DescriptorWorkerDeps {
 
 const SCAN_INTERVAL_MS_DEFAULT = 2000;
 
+// Consecutive live-connection scan failures before we stop treating them as
+// transient and escalate to a loud, actionable error. A schema drift (e.g. a
+// `node_descriptors` column mismatch) fails identically on every tick, so the
+// registry silently freezes on stale rows; this threshold turns that into an
+// unmistakable alarm instead of an endless stream of warnings.
+const PERSISTENT_FAILURE_THRESHOLD = 3;
+
 export class DescriptorWorker implements Worker {
   private readonly db: WorkerContext["db"];
   private readonly state: IndexerState;
@@ -76,6 +83,8 @@ export class DescriptorWorker implements Worker {
   private readonly clientFactory: (url: string) => DescriptorSource;
   private readonly now?: () => number;
   private readonly scanIntervalMs: number;
+  // Consecutive scan failures on a live connection (reset on any success).
+  private consecutiveFailures = 0;
 
   constructor(deps: DescriptorWorkerDeps) {
     this.db = deps.db;
@@ -164,12 +173,27 @@ export class DescriptorWorker implements Worker {
     if (head === null) return;
     try {
       await runDescriptorIteration(iterDeps, head);
+      this.consecutiveFailures = 0;
     } catch (e) {
       if (!client.isConnected()) throw e;
-      console.warn(
-        `[indexer/descriptor] head ${head} scan failed:`,
-        e instanceof Error ? e.message : e,
-      );
+      // A live connection but a failing iteration means the write side, not the
+      // socket, is broken. Count consecutive failures: the first few are logged
+      // as transient warnings, but a persistent run is almost always a schema
+      // drift (the registry then silently freezes on stale descriptors), so we
+      // escalate to an actionable error rather than keep serving stale data
+      // quietly.
+      this.consecutiveFailures += 1;
+      const detail = e instanceof Error ? e.message : String(e);
+      if (this.consecutiveFailures >= PERSISTENT_FAILURE_THRESHOLD) {
+        console.error(
+          `[indexer/descriptor] head ${head} scan has failed ${this.consecutiveFailures} times in a row: ${detail}. ` +
+            "The connection is live, so this is a write-side fault (e.g. a node_descriptors schema " +
+            "drift, or a DB error). The registry is now serving STALE descriptors. Check the error " +
+            "above; if it is a missing/mismatched column, verify migrations applied (see migration 0004).",
+        );
+      } else {
+        console.warn(`[indexer/descriptor] head ${head} scan failed: ${detail}`);
+      }
     }
   }
 }

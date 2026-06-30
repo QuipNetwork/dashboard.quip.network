@@ -88,7 +88,7 @@ export function Leaderboard({ data }: LeaderboardProps) {
                 <th className="pb-2 pl-1 pr-2">#</th>
                 <th className="pb-2 pr-3">Node</th>
                 <th className="pb-2 pr-3">Type</th>
-                <th className="pb-2 pr-3 text-right">Solutions</th>
+                <th className="pb-2 pr-3 text-right">QBlocks</th>
                 <th className="hidden pb-2 pr-3 text-right sm:table-cell">Avg Time</th>
                 <th className="hidden pb-2 pr-3 text-right md:table-cell">Best Energy</th>
                 <th className="w-28 pb-2 pr-1 sm:w-36">Share</th>

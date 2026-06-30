@@ -57,30 +57,25 @@ export function NetworkView() {
 
   return (
     <>
-      <ChartCard
-        title="Recent Solutions"
-        subtitle="Last 10 mined solutions on the current chain tip"
-      >
+      <ChartCard title="Recent QBlocks" subtitle="Last 10 mined qblocks on the current chain tip">
         <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
       </ChartCard>
 
-      <ChartCard title="Mining Leaderboard" subtitle="Top performing miners by solutions">
+      <ChartCard title="Mining Leaderboard" subtitle="Top performing miners by qblocks">
         <Leaderboard data={leaderboard} />
       </ChartCard>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard
-          title="Solutions Mined Over Time"
-          subtitle={
-            byType ? "Cumulative solutions per unit type" : "Cumulative solutions per miner"
-          }
+          title="QBlocks Mined Over Time"
+          subtitle={byType ? "Cumulative qblocks per unit type" : "Cumulative qblocks per miner"}
         >
           <BlocksOverTimeChart data={blocksOverTime} />
         </ChartCard>
 
         <ChartCard
-          title="Mining Time per Solution"
-          subtitle={byType ? "Time to solution by processor type" : "Time to solution by miner"}
+          title="Mining Time per QBlock"
+          subtitle={byType ? "Time to qblock by processor type" : "Time to qblock by miner"}
         >
           <MiningTimeChart data={miningTime} />
         </ChartCard>
@@ -114,7 +109,7 @@ export function NetworkView() {
         </ChartCard>
 
         <ChartCard
-          title="Time to Solution"
+          title="Time to QBlock"
           subtitle={
             byType
               ? "Normalised frequency per unit by mining time"
@@ -148,19 +143,19 @@ export function NetworkView() {
           title="Expected Mining Time by Difficulty"
           subtitle={
             byType
-              ? "Mean time to solution per difficulty band"
-              : "Mean time to solution per miner by difficulty"
+              ? "Mean time to qblock per difficulty band"
+              : "Mean time to qblock per miner by difficulty"
           }
         >
           <MiningTimeByDifficultyChart data={miningTimeByDifficulty} />
         </ChartCard>
 
         <ChartCard
-          title="Cumulative Solutions by Threshold"
+          title="Cumulative QBlocks by Threshold"
           subtitle={
             byType
-              ? "Solutions meeting energy threshold per type"
-              : "Solutions meeting energy threshold per miner"
+              ? "QBlocks meeting energy threshold per type"
+              : "QBlocks meeting energy threshold per miner"
           }
         >
           <CumulativeBlocksThresholdChart data={cumulativeBlocks} />

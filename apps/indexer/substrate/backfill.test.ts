@@ -33,6 +33,7 @@ const block = (n: string): BlockRecord => ({
   minDiversity: 0,
   minSolutions: 1,
   finalized: true,
+  topologyHash: null,
 });
 
 let db: DatabaseAdapter;

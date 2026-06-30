@@ -40,7 +40,7 @@ export function CurrentBlockIndicator() {
   return (
     <div className="mt-2 text-center font-accent text-xs text-ink-subtle">
       <p>
-        Mining Problem <span className="text-ink-strong">#{nextProblem}</span>
+        Mining QBlock <span className="text-ink-strong">#{nextProblem}</span>
         {participants != null && (
           <span className="text-ink-subtle">
             {" "}

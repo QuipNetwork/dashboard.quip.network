@@ -44,6 +44,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     difficultyEnergy: -110,
     minDiversity: 0.1,
     minSolutions: 1,
+    topologyHash: null,
     finalized: false,
     ...overrides,
   };
@@ -98,6 +99,7 @@ const MOCK_DIFFICULTY: DifficultyRecord = {
   minDiversity: 0.1,
   minSolutions: 1,
   observedAt: "2026-05-19T12:00:00Z",
+  topologyHash: null,
 };
 
 const MOCK_VALIDATOR: ValidatorAuthorshipRecord = {

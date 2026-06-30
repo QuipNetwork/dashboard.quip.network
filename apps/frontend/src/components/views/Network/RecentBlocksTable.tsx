@@ -1,31 +1,41 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { formatDuration } from "@/lib/format";
-import { formatBalance, shortAddress } from "@/lib/format-chain";
+import { displayNodeName, formatBalance } from "@/lib/format-chain";
 import { useTelemetryClient } from "@/services/telemetry-client";
+import { useTelemetryStore } from "@/store/telemetry-store";
 import { computeChainHealth } from "@/lib/staleness";
 import type { BlockRecord, IndexerObservability } from "@quip/shared/telemetry";
 import { FinalityBadge } from "@/components/blocks/FinalityBadge";
 import { SearchInput } from "@/components/common/SearchInput";
 import { HealthBanner } from "./HealthBanner";
-import { SolutionDetailsModal } from "./SolutionDetailsModal";
+import { QBlockDetailsModal } from "./QBlockDetailsModal";
 
 export interface NumberedBlock {
   block: BlockRecord;
   solutionNumber: number;
 }
 
-export function filterRecentBlocks(rows: readonly NumberedBlock[], query: string): NumberedBlock[] {
+export function filterRecentBlocks(
+  rows: readonly NumberedBlock[],
+  query: string,
+  // Resolve the displayed rig name for a winner so search matches what the
+  // table actually shows (the winner cell renders the rig name, not the SS58).
+  nameOf?: (accountId: string) => string | undefined,
+): NumberedBlock[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...rows];
-  return rows.filter(
-    ({ block, solutionNumber }) =>
+  return rows.filter(({ block, solutionNumber }) => {
+    const name = nameOf?.(block.minerId);
+    return (
       block.minerId.toLowerCase().includes(q) ||
+      (name?.toLowerCase().includes(q) ?? false) ||
       block.substrateBlockNumber.toLowerCase().includes(q) ||
-      String(solutionNumber).includes(q),
-  );
+      String(solutionNumber).includes(q)
+    );
+  });
 }
 
 interface RecentBlocksTableProps {
@@ -56,6 +66,13 @@ export function RecentBlocksTable({
   totalProofsWon,
 }: RecentBlocksTableProps) {
   const client = useTelemetryClient();
+  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
+  // Index descriptors by accountId so the winner cell can show the operator's
+  // rig name instead of a raw SS58. Built like ChainMinersView's join.
+  const descriptorsByAccount = useMemo(
+    () => new Map(nodeDescriptors.map((d) => [d.accountId, d])),
+    [nodeDescriptors],
+  );
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [query, setQuery] = useState<string>("");
   const [older, setOlder] = useState<BlockRecord[]>([]);
@@ -85,7 +102,7 @@ export function RecentBlocksTable({
       <>
         <HealthBanner health={health} />
         <p className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
-          No solutions yet
+          No qblocks yet
         </p>
       </>
     );
@@ -100,7 +117,11 @@ export function RecentBlocksTable({
     block,
     solutionNumber: tipSolutionNumber - i,
   }));
-  const matched = filterRecentBlocks(numbered, query);
+  const matched = filterRecentBlocks(
+    numbered,
+    query,
+    (id) => descriptorsByAccount.get(id)?.descriptor.nodeName,
+  );
   const visible = matched.slice(0, pageSize);
   const hasMoreInMemory = pageSize < matched.length;
   const canFetchOlder = !query && !serverExhausted && blocks.length >= LIVE_WINDOW;
@@ -134,23 +155,23 @@ export function RecentBlocksTable({
       <SearchInput
         value={query}
         onChange={setQuery}
-        placeholder="Search by winner, block, or solution #…"
+        placeholder="Search by winner, block, or qblock #…"
       />
       <div className="flex-1 overflow-auto">
         {visible.length === 0 ? (
           <p className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
-            No solutions match “{query}”
+            No qblocks match “{query}”
           </p>
         ) : (
           <table className="w-full font-accent text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-ink-subtle">
                 <th className="pb-2 pr-4">Block</th>
-                <th className="pb-2 pr-4">Solution#</th>
+                <th className="pb-2 pr-4">QBlock#</th>
                 <th className="pb-2 pr-4">Winner</th>
                 <th className="pb-2 pr-4 text-right">Energy</th>
                 <th className="pb-2 pr-4 text-right">Target Energy</th>
-                <th className="pb-2 pr-4 text-right">Time to Solution</th>
+                <th className="pb-2 pr-4 text-right">Time to QBlock</th>
                 <th className="pb-2 pr-4 text-right">Reward</th>
                 <th className="pb-2 text-right">When</th>
               </tr>
@@ -170,7 +191,10 @@ export function RecentBlocksTable({
                   </td>
                   <td className="py-2 pr-4 font-mono text-ink-body">#{solutionNumber}</td>
                   <td className="py-2 pr-4 text-ink-body" title={b.minerId}>
-                    {shortAddress(b.minerId, 22, 4)}
+                    {displayNodeName(
+                      b.minerId,
+                      descriptorsByAccount.get(b.minerId)?.descriptor.nodeName,
+                    )}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-strong">
                     {b.energy.toFixed(1)}
@@ -205,13 +229,13 @@ export function RecentBlocksTable({
                 ? "Loading…"
                 : hasMoreInMemory
                   ? `Load more (${remaining} remaining)`
-                  : "Load older solutions"}
+                  : "Load older qblocks"}
             </button>
           </div>
         )}
       </div>
       {selectedBlock && (
-        <SolutionDetailsModal
+        <QBlockDetailsModal
           block={selectedBlock.block}
           solutionNumber={selectedBlock.solutionNumber}
           onClose={() => setSelectedBlock(null)}

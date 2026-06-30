@@ -14,6 +14,14 @@ import type { IndexerObservability } from "@quip/shared/telemetry";
  * block source).
  */
 export class IndexerState {
+  // Latest observed default-topology hash (H256, 0x hex), or null when the
+  // chain exposes no default topology / it hasn't been read yet. Written by the
+  // chain-state poll and read by the block + difficulty writers so analytics are
+  // stamped with the CURRENT default topology — not a value primed once at
+  // connect time, which would mis-tag every block after a mid-connection
+  // topology change. Transient: re-derived on the next poll after a restart.
+  defaultTopologyHash: string | null = null;
+
   observability: IndexerObservability = {
     chainHeadFromNode: null,
     lastStatusFetchAt: new Date(0).toISOString(),

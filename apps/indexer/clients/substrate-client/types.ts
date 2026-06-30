@@ -84,6 +84,12 @@ export interface BlockEvents {
 export interface TopologyInfo {
   nodeCount: number;
   edgeCount: number;
+  // H256 (0x hex) of the chain's default topology, or "" when the chain
+  // exposes no default topology. Stamped onto each block so analytics can be
+  // scoped to (and reset with) the current default topology. Optional: it is
+  // an ephemeral read result (not a persisted record), and the block writer
+  // already coalesces an absent/empty hash to NULL.
+  topologyHash?: string;
 }
 
 export interface BabeEpochInfo {

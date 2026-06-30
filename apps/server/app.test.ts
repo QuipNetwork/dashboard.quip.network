@@ -28,6 +28,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     minDiversity: 0.2,
     minSolutions: 5,
     finalized: false,
+    topologyHash: null,
     ...overrides,
   };
 }
@@ -101,6 +102,45 @@ describe("server app", () => {
     // The PoW-epoch catalog stayed deleted in v10 — Global Epoch Selector
     // is incompatible with the chain-canonical model.
     expect("epochs" in body).toBe(false);
+  });
+
+  test("GET /api/telemetry scopes blocks to the chain's default topology", async () => {
+    // Three blocks: two tagged with the default topology, one with a prior
+    // topology. The route must return only the default-topology blocks so the
+    // charts reset when the default topology changes.
+    await db.insertBlock(
+      makeBlock({ blockHash: "0xd1", substrateBlockNumber: "100", topologyHash: "0xDEFAULT" }),
+    );
+    await db.insertBlock(
+      makeBlock({ blockHash: "0xold", substrateBlockNumber: "101", topologyHash: "0xPRIOR" }),
+    );
+    await db.insertBlock(
+      makeBlock({ blockHash: "0xd2", substrateBlockNumber: "102", topologyHash: "0xDEFAULT" }),
+    );
+    await db.setMineableTopologies([
+      {
+        topologyHash: "0xDEFAULT",
+        isDefault: true,
+        difficultyEnergy: -1,
+        minDiversity: 0,
+        minSolutions: 1,
+        nodeCount: 2,
+        edgeCount: 3,
+      },
+      {
+        topologyHash: "0xPRIOR",
+        isDefault: false,
+        difficultyEnergy: -1,
+        minDiversity: 0,
+        minSolutions: 1,
+        nodeCount: 2,
+        edgeCount: 3,
+      },
+    ]);
+
+    const res = await app.fetch(new Request("http://test/api/telemetry"));
+    const body = (await res.json()) as TelemetryResponse;
+    expect(body.blocks.map((b) => b.blockHash).sort()).toEqual(["0xd1", "0xd2"]);
   });
 
   test("GET /api/telemetry returns validators joined with the active BABE set", async () => {
@@ -212,6 +252,7 @@ describe("server app", () => {
       minDiversity: 0.5,
       minSolutions: 3,
       observedAt: "2026-05-15T00:00:00.000Z",
+      topologyHash: null,
     });
 
     const res = await app.fetch(new Request("http://test/api/telemetry"));

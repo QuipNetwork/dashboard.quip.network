@@ -6,28 +6,28 @@ import { formatBalance, formatNonce, shortAddress } from "./format-chain";
 
 describe("formatBalance", () => {
   test("renders whole-unit balances without trailing zeros", () => {
-    expect(formatBalance("1000000000000")).toBe("1 QUIP");
-    expect(formatBalance("7000000000000")).toBe("7 QUIP");
+    expect(formatBalance("1000000000000")).toBe("1 AGLS");
+    expect(formatBalance("7000000000000")).toBe("7 AGLS");
   });
 
   test("trims trailing zeros in the fractional segment", () => {
-    // 1.23 QUIP → 1230000000000 base units
-    expect(formatBalance("1230000000000")).toBe("1.23 QUIP");
+    // 1.23 AGLS → 1230000000000 base units
+    expect(formatBalance("1230000000000")).toBe("1.23 AGLS");
   });
 
   test("respects fractionDigits cap (default 4)", () => {
-    // 1.234567 QUIP → 1234567000000 base units. Default cap → "1.2345 QUIP".
-    expect(formatBalance("1234567000000")).toBe("1.2345 QUIP");
+    // 1.234567 AGLS → 1234567000000 base units. Default cap → "1.2345 AGLS".
+    expect(formatBalance("1234567000000")).toBe("1.2345 AGLS");
   });
 
   test("handles zero", () => {
-    expect(formatBalance("0")).toBe("0 QUIP");
+    expect(formatBalance("0")).toBe("0 AGLS");
   });
 
   test("handles values larger than Number.MAX_SAFE_INTEGER", () => {
-    // 10^18 base units = 1 million QUIP. JS Number can't represent
+    // 10^18 base units = 1 million AGLS. JS Number can't represent
     // 10^18 exactly; BigInt handles it cleanly.
-    expect(formatBalance("1000000000000000000")).toBe("1000000 QUIP");
+    expect(formatBalance("1000000000000000000")).toBe("1000000 AGLS");
   });
 
   test("returns '—' on malformed input", () => {
