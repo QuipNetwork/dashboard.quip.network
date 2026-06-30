@@ -9,7 +9,6 @@ import { StatTile } from "@/components/views/MyNode/StatTile";
 import { ChainMinersTable } from "@/components/views/Chain/ChainMinersView";
 import { DifficultyChart } from "@/components/views/Chain/DifficultyChart";
 import { HardwareBreakdown } from "./HardwareBreakdown";
-import { NodeIdentitiesPanel } from "./NodeIdentitiesPanel";
 import { NodeLeaderboard } from "./NodeLeaderboard";
 import { NodeLocationMap } from "./NodeLocationMap";
 import { useComputeAvailable } from "./use-compute-available";
@@ -190,8 +189,6 @@ export function ComputeAvailableView() {
       </ChartCard>
 
       <ChainMinersTable />
-
-      <NodeIdentitiesPanel />
 
       <DifficultyChart />
     </>

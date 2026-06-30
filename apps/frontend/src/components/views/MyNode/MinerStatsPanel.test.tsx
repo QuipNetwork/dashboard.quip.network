@@ -16,7 +16,7 @@ import { MinerStatsPanel } from "./MinerStatsPanel";
 // "Chain Acceptance" surfaces what the pallet actually accepted vs what the
 // miner submitted — chain-side metric, complements local "Submission Rate".
 const TILE_LABELS = [
-  "Problems Attempted",
+  "QBlocks Attempted",
   "Solutions Computed",
   "Submission Rate",
   "Avg Mining Time",
@@ -125,9 +125,9 @@ describe("MinerStatsPanel", () => {
     expect(tile?.textContent).toContain("25.00%");
   });
 
-  test("Problems Attempted reads from the lifetime counter, not contextsDispatched", () => {
+  test("QBlocks Attempted reads from the lifetime counter, not contextsDispatched", () => {
     render(makeStats({ contextsDispatched: 999 }), null, null, 42);
-    const tile = findTileByLabel("Problems Attempted");
+    const tile = findTileByLabel("QBlocks Attempted");
     expect(tile?.textContent).toContain("42");
     expect(tile?.textContent).not.toContain("999");
   });

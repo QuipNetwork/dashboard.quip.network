@@ -7,12 +7,12 @@
 /**
  * quip-protocol-rs uses 12 decimal places for the native token (standard
  * substrate convention). 1 UNIT = 10^12 base units, so a `deposit` of
- * "1000000000000" displays as "1 QUIP".
+ * "1000000000000" displays as "1 AGLS".
  *
  * Centralized so future decimal-change migrations only touch this constant.
  */
 const TOKEN_DECIMALS = 12;
-const TOKEN_SYMBOL = "QUIP";
+const TOKEN_SYMBOL = "AGLS";
 
 /**
  * Render a u128-as-string balance in human units. Uses BigInt internally so
@@ -50,6 +50,16 @@ export function formatBalance(raw: string, fractionDigits = 4): string {
 export function shortAddress(addr: string, head = 6, tail = 4): string {
   if (addr.length <= head + tail + 1) return addr;
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`;
+}
+
+/**
+ * Human label for a miner/node: prefer the operator's self-asserted rig
+ * name (from the node descriptor) and fall back to a shortened SS58 when no
+ * name is published. Callers should still set the full SS58 as a `title=`
+ * tooltip so the underlying account stays discoverable.
+ */
+export function displayNodeName(accountId: string, nodeName?: string): string {
+  return nodeName?.trim() || shortAddress(accountId);
 }
 
 /**

@@ -31,6 +31,7 @@ export interface BlocksTable {
   min_diversity: number;
   min_solutions: number;
   finalized: Bool;
+  topology_hash: string | null;
 }
 
 export interface MetaTable {
@@ -99,6 +100,7 @@ export interface DifficultyHistoryTable {
   min_diversity: number;
   min_solutions: number;
   observed_at: Iso;
+  topology_hash: string | null;
 }
 
 export interface ValidatorAuthorshipTable {

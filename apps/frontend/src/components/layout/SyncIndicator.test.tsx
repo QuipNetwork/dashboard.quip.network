@@ -32,6 +32,7 @@ function recentBlock(): BlockRecord {
     difficultyEnergy: -1,
     minDiversity: 0,
     minSolutions: 1,
+    topologyHash: null,
     finalized: false,
   };
 }

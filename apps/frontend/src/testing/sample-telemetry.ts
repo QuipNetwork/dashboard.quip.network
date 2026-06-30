@@ -160,6 +160,7 @@ function buildBlocks(nowSec: number): BlockRecord[] {
       difficultyEnergy: -15500,
       minDiversity: 0.1,
       minSolutions: 1,
+      topologyHash: null,
       finalized: i > 2,
     };
   });
@@ -320,6 +321,7 @@ function buildDifficulty(): DifficultyRecord[] {
     minDiversity: 0.1,
     minSolutions: 1,
     observedAt: new Date().toISOString(),
+    topologyHash: null,
   }));
 }
 

@@ -38,6 +38,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     difficultyEnergy: -110,
     minDiversity: 0.1,
     minSolutions: 1,
+    topologyHash: null,
     finalized: false,
     ...overrides,
   };
@@ -76,6 +77,7 @@ function makeDifficulty(overrides: Partial<DifficultyRecord> = {}): DifficultyRe
     minDiversity: 0.5,
     minSolutions: 5,
     observedAt: "2026-05-21T00:00:00Z",
+    topologyHash: null,
     ...overrides,
   };
 }

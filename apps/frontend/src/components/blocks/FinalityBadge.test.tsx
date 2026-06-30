@@ -29,6 +29,7 @@ function block(overrides: Partial<BlockRecord> = {}): BlockRecord {
     difficultyEnergy: 0,
     minDiversity: 0,
     minSolutions: 0,
+    topologyHash: null,
     finalized: false,
     ...overrides,
   };

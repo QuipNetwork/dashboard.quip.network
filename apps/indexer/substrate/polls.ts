@@ -19,6 +19,9 @@ interface PollCache {
   chainMiners: string | null;
   babeAuthorities: string | null;
   mineableTopologies: string | null;
+  // Latest observed default-topology hash, used to stamp difficulty snapshots
+  // so the chart scopes to (and resets with) the current default topology.
+  defaultTopologyHash: string | null;
 }
 
 export class PollScheduler implements ConnectionStream {
@@ -28,6 +31,7 @@ export class PollScheduler implements ConnectionStream {
     chainMiners: null,
     babeAuthorities: null,
     mineableTopologies: null,
+    defaultTopologyHash: null,
   };
 
   constructor(
@@ -96,6 +100,7 @@ export class PollScheduler implements ConnectionStream {
       minDiversity,
       minSolutions: info.minSolutions,
       observedAt: nowIso(this.ctx),
+      topologyHash: this.cache.defaultTopologyHash,
     });
   }
 
@@ -159,6 +164,10 @@ export class PollScheduler implements ConnectionStream {
       nodeCount: t.nodeCount,
       edgeCount: t.edgeCount,
     }));
+    // Track the default-topology hash every poll (independent of the
+    // change-dedup below) so difficulty snapshots can be stamped even on polls
+    // where the mineable set itself is unchanged.
+    this.cache.defaultTopologyHash = records.find((r) => r.isDefault)?.topologyHash ?? null;
     const sorted = [...records].sort((a, b) =>
       a.topologyHash < b.topologyHash ? -1 : a.topologyHash > b.topologyHash ? 1 : 0,
     );

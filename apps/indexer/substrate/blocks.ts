@@ -133,6 +133,9 @@ function buildBlockRecord(
     minDiversity: difficulty.minDiversityMilli / 1000,
     minSolutions: difficulty.minSolutions,
     finalized: true, // backfill + subscribe are both finalized-only
+    // Empty hash (no default topology) stores as NULL so the row is simply
+    // out of scope for the topology-filtered analytics, not mis-tagged.
+    topologyHash: topology.topologyHash || null,
   };
 }
 
@@ -200,7 +203,10 @@ export class BlockPipeline implements ConnectionStream {
   }> {
     const topology = await this.client.getTopology().catch(() => null);
     const seedDifficulty = await this.client.getDifficulty().catch(() => null);
-    return { topology: topology ?? { nodeCount: 0, edgeCount: 0 }, seedDifficulty };
+    return {
+      topology: topology ?? { nodeCount: 0, edgeCount: 0, topologyHash: "" },
+      seedDifficulty,
+    };
   }
 
   // Recorded for every authored block, winnerless heads included. The key is

@@ -29,6 +29,7 @@ function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId"
     difficultyEnergy: 0.4,
     minDiversity: 0.2,
     minSolutions: 1,
+    topologyHash: null,
     finalized: false,
     ...overrides,
   };

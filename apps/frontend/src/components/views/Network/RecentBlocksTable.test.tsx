@@ -38,6 +38,7 @@ function makeBlock(i: number, tsSec: number): BlockRecord {
     difficultyEnergy: -1,
     minDiversity: 0,
     minSolutions: 1,
+    topologyHash: null,
     finalized: false,
   };
 }
@@ -255,7 +256,7 @@ describe("RecentBlocksTable search", () => {
     typeSearch("nope");
 
     expect(container.querySelectorAll("tbody tr")).toHaveLength(0);
-    expect(container.textContent).toContain("No solutions match");
+    expect(container.textContent).toContain("No qblocks match");
   });
 });
 
@@ -301,7 +302,7 @@ describe("RecentBlocksTable server pagination", () => {
       });
     }
     expect(calls()).toBe(0);
-    expect(container.textContent).toContain("Load older solutions");
+    expect(container.textContent).toContain("Load older qblocks");
     expect(container.textContent).not.toContain("miner-500");
 
     // Next click escalates to the server and appends the older page.

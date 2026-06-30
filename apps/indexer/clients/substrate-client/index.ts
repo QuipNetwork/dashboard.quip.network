@@ -768,6 +768,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     return {
       nodeCount: meta.nodes.length,
       edgeCount: meta.edges.length,
+      topologyHash,
     };
   }
 }

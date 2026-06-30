@@ -51,6 +51,7 @@ export function rowToBlockRecord(r: Row): BlockRecord {
     minDiversity: num(r.min_diversity),
     minSolutions: num(r.min_solutions),
     finalized: Boolean(r.finalized),
+    topologyHash: r.topology_hash == null ? null : String(r.topology_hash),
   };
 }
 
@@ -112,6 +113,7 @@ export function rowToDifficulty(r: Row): DifficultyRecord {
     minDiversity: num(r.min_diversity),
     minSolutions: num(r.min_solutions),
     observedAt: iso(r.observed_at),
+    topologyHash: r.topology_hash == null ? null : String(r.topology_hash),
   };
 }
 
