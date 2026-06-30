@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 import { SERIES_COLORS } from "@/lib/colors";
+import { displayNodeName } from "@/lib/format-chain";
 import { formatNumber, formatSeconds } from "@/lib/format";
 import { useMinerColors } from "@/store/miner-colors";
 import type { LeaderboardEntry } from "@/components/charts/leaderboard/use-leaderboard";
@@ -11,6 +13,7 @@ interface NeighborsListProps {
 }
 
 export function NeighborsList({ self, neighbors }: NeighborsListProps) {
+  const { open, nameOf, modal } = useNodeIdentityModal();
   // Interleave self into the neighbor list at the right rank position so the
   // operator can see their row in context rather than scanning two panels.
   const combined = self ? mergeByRank([...neighbors, { ...self, isSelf: true }]) : neighbors;
@@ -44,7 +47,17 @@ export function NeighborsList({ self, neighbors }: NeighborsListProps) {
             return (
               <tr
                 key={entry.minerId}
-                className="border-t border-border transition-colors hover:bg-surface-2"
+                onClick={() => open(entry.minerId)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    open(entry.minerId);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`View node identity for ${displayNodeName(entry.minerId, nameOf(entry.minerId))}`}
+                className="cursor-pointer border-t border-border transition-colors hover:bg-surface-2 focus:bg-surface-2 focus:outline-none"
                 style={isSelf ? { background: `${typeColor}10` } : undefined}
               >
                 <td className="py-2 pl-1 pr-2 font-accent text-sm text-ink-strong">{entry.rank}</td>
@@ -54,8 +67,8 @@ export function NeighborsList({ self, neighbors }: NeighborsListProps) {
                       className="inline-block h-2.5 w-2.5 rounded-full"
                       style={{ backgroundColor: minerColor, boxShadow: `0 0 6px ${minerColor}66` }}
                     />
-                    <span className="font-accent text-sm text-ink-strong">
-                      {entry.minerId}
+                    <span className="font-accent text-sm text-ink-strong" title={entry.minerId}>
+                      {displayNodeName(entry.minerId, nameOf(entry.minerId))}
                       {isSelf && (
                         <span
                           className="ml-2 px-1.5 py-0.5 font-accent text-[9px] font-bold uppercase tracking-wider"
@@ -97,6 +110,7 @@ export function NeighborsList({ self, neighbors }: NeighborsListProps) {
           })}
         </tbody>
       </table>
+      {modal}
     </div>
   );
 }
