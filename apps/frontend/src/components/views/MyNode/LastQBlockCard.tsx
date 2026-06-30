@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { formatDuration, formatNumber } from "@/lib/format";
-import { formatBalance, formatNonce } from "@/lib/format-chain";
+import { formatBalance, formatEnergy, formatNonce } from "@/lib/format-chain";
 import type { BlockRecord, MiningSubmissionRecord } from "@quip/shared/telemetry";
 import { BlockDetailCard } from "./BlockDetailCard";
 
@@ -38,7 +38,7 @@ export function LastQBlockCard({
                 value:
                   lastWonSubmission != null ? formatNumber(lastWonSubmission.attemptCount) : "—",
               },
-              { label: "Energy", value: lastWonBlock.energy.toFixed(2) },
+              { label: "Energy", value: formatEnergy(lastWonBlock.energy) },
               { label: "Diversity", value: lastWonBlock.diversity.toFixed(3) },
               { label: "Solutions", value: formatNumber(lastWonBlock.numValidSolutions) },
               { label: "Reward", value: formatBalance(lastWonBlock.reward) },

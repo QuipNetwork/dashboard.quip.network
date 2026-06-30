@@ -15,6 +15,14 @@ const TOKEN_DECIMALS = 12;
 const TOKEN_SYMBOL = "AGLS";
 
 /**
+ * Render an energy value (units) for display. Energies are large integers in
+ * practice (e.g. -14559), so they're shown rounded with no decimal places.
+ */
+export function formatEnergy(energyUnits: number): string {
+  return String(Math.round(energyUnits));
+}
+
+/**
  * Render a u128-as-string balance in human units. Uses BigInt internally so
  * values that exceed Number.MAX_SAFE_INTEGER (≥ ~9 quadrillion base units)
  * round correctly.

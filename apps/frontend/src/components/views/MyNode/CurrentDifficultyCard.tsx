@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { formatNumber } from "@/lib/format";
+import { formatEnergy } from "@/lib/format-chain";
 import type { BlockRecord, ChainHead, DifficultyRecord } from "@quip/shared/telemetry";
 import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import type { CurrentRequirements } from "./use-my-node";
@@ -52,7 +53,7 @@ export function CurrentDifficultyCard({
   }
 
   const rows: DetailRow[] = [
-    { label: "Target Energy", value: `≤ ${currentRequirements.difficultyEnergy.toFixed(3)}` },
+    { label: "Target Energy", value: `≤ ${formatEnergy(currentRequirements.difficultyEnergy)}` },
     {
       label: "Min Diversity",
       value:
@@ -71,7 +72,7 @@ export function CurrentDifficultyCard({
       ? [{ label: "Decays Applied", value: formatNumber(decaysApplied) } satisfies DetailRow]
       : []),
     ...priorEnergies.map(
-      (p): DetailRow => ({ label: `Prior @ #${p.block}`, value: `≤ ${p.energy.toFixed(3)}` }),
+      (p): DetailRow => ({ label: `Prior @ #${p.block}`, value: `≤ ${formatEnergy(p.energy)}` }),
     ),
   ];
 
