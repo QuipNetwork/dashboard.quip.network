@@ -59,6 +59,32 @@ export interface IndexerObservability {
   modes?: Record<string, ModeBreakdown>;
 }
 
+/**
+ * On-demand live snapshot for a PEER node, returned by
+ * `GET /api/node/:accountId/live`. The server resolves the account's on-chain
+ * descriptor host and proxies the peer's `/api/v1/stats` + `/api/v1/status`
+ * (mirroring how the indexer polls the local miner for self). Because peers may
+ * be firewalled or offline, `reachable` is a first-class result, NOT an error:
+ * `reachable=false` means the proxy could not connect, and the UI renders a
+ * "node data unreachable" notice for the live sections while still showing the
+ * chain-derived ones.
+ */
+export interface NodeLiveData {
+  accountId: string;
+  // False when the peer's REST host could not be resolved or reached. When
+  // false, the data fields below are null/empty.
+  reachable: boolean;
+  // Latest /api/v1/stats counters; null when unreachable or unparseable.
+  minerStats: MinerStats | null;
+  // Per-backend breakdown from /api/v1/status; `{}` for single-process miners.
+  modes: Record<string, ModeBreakdown>;
+  // In-flight (or just-completed) dispatch for the current global problem;
+  // null when the peer exposes none or is unreachable.
+  currentDispatch: CurrentDispatch | null;
+  // ISO 8601 timestamp the server stamped this snapshot.
+  fetchedAt: string;
+}
+
 export interface TelemetryResponse {
   blocks: BlockRecord[];
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.

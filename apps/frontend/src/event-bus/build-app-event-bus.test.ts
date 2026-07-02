@@ -25,6 +25,7 @@ function fakeClient(response: Partial<TelemetryResponse> = {}): FakeClient {
       throw new Error("not used");
     },
     fetchBlocks: async () => [],
+    fetchNodeLive: () => new Promise<never>(() => {}),
   };
   return client;
 }

@@ -3,16 +3,24 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import type { MinerCategory } from "@quip/shared/telemetry";
 
 export type AggregationMode = "byType" | "byNode";
-export type ViewMode = "my-node" | "network" | "compute" | "chain";
+// "node" is the per-account detail page (reachable via the node modal's
+// "More info" link and the shareable ?node=<ss58> deep-link); it is not a
+// top-level tab in the header.
+export type ViewMode = "my-node" | "network" | "compute" | "chain" | "node";
 
 export interface UIState {
   viewMode: ViewMode;
   aggregationMode: AggregationMode;
   selectedTypes: MinerCategory[];
+  // The account whose detail page is shown when viewMode === "node". Null
+  // otherwise. Kept even when navigating away so the back button can restore it.
+  selectedNodeId: string | null;
 
   setViewMode: (mode: ViewMode) => void;
   setAggregationMode: (mode: AggregationMode) => void;
   toggleMinerType: (type: MinerCategory) => void;
+  // Open the detail page for an account (sets viewMode "node" + selectedNodeId).
+  openNode: (accountId: string) => void;
 }
 
 export const createUIStore = (): StoreApi<UIState> =>
@@ -20,8 +28,11 @@ export const createUIStore = (): StoreApi<UIState> =>
     viewMode: "my-node",
     aggregationMode: "byType",
     selectedTypes: ["CPU", "GPU", "QPU"],
+    selectedNodeId: null,
 
     setViewMode: (mode) => set({ viewMode: mode }),
+
+    openNode: (accountId) => set({ viewMode: "node", selectedNodeId: accountId }),
 
     setAggregationMode: (mode) => set({ aggregationMode: mode }),
 

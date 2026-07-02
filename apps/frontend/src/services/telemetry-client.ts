@@ -5,6 +5,7 @@ import { createContext, useContext } from "react";
 import type {
   BlockRecord,
   MiningAttemptsResponse,
+  NodeLiveData,
   TelemetryResponse,
 } from "@quip/shared/telemetry";
 
@@ -15,6 +16,13 @@ export interface TelemetryClient {
     signal?: AbortSignal,
   ): Promise<MiningAttemptsResponse>;
   fetchBlocks(limit: number, offset: number, signal?: AbortSignal): Promise<BlockRecord[]>;
+  // On-demand live snapshot for a peer node. `problem` is the current global
+  // solution number (for the in-flight dispatch probe), or null to skip it.
+  fetchNodeLive(
+    accountId: string,
+    problem: number | null,
+    signal?: AbortSignal,
+  ): Promise<NodeLiveData>;
 }
 
 export interface HttpTelemetryClientOptions {
@@ -66,6 +74,20 @@ export class HttpTelemetryClient implements TelemetryClient {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = (await res.json()) as { blocks: BlockRecord[] };
     return body.blocks;
+  }
+
+  async fetchNodeLive(
+    accountId: string,
+    problem: number | null,
+    signal?: AbortSignal,
+  ): Promise<NodeLiveData> {
+    const query = problem != null ? `?problem=${problem}` : "";
+    const res = await this.fetch(
+      `${this.baseUrl}/api/node/${encodeURIComponent(accountId)}/live${query}`,
+      signal ? { signal } : undefined,
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as NodeLiveData;
   }
 }
 

@@ -1,6 +1,7 @@
 import { useEventBus } from "@vaaas/rx-react/event-bus";
 import { useEffect } from "react";
 import { FetchTelemetry } from "./event-bus/fetch-telemetry";
+import { useNodeUrlSync } from "./lib/use-node-url-sync";
 import { Dashboard } from "./pages/Dashboard";
 
 // Dashboard auto-refresh cadence. Indexer polls upstream every 8s; 15s keeps
@@ -9,6 +10,7 @@ const POLL_MS = 15_000;
 
 export default function App() {
   const bus = useEventBus();
+  useNodeUrlSync();
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
