@@ -10,6 +10,7 @@
     "./db/pglite-support": "./api/db/pglite-support.ts",
     "./cache": "./cache.ts",
     "./miner-api": "./api/miner-api.ts",
+    "./miner-live": "./api/miner-live.ts",
     "./resolve-miner-rest": "./api/resolve-miner-rest.ts",
     "./test-helpers": "./test-helpers.ts"
   },
