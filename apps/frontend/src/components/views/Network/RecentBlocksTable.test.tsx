@@ -279,6 +279,7 @@ describe("RecentBlocksTable server pagination", () => {
         n += 1;
         return n === 1 ? page : [];
       },
+      fetchNodeLive: () => new Promise<never>(() => {}),
     };
     return { client, calls: () => n };
   }

@@ -18,6 +18,7 @@ const idleClient: TelemetryClient = {
     throw new Error("not used");
   },
   fetchBlocks: async () => [],
+  fetchNodeLive: () => new Promise<never>(() => {}),
 };
 
 function SelfAddress() {

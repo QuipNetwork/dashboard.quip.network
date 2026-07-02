@@ -187,6 +187,7 @@ function clientReturning(response: TelemetryResponse): FakeClient {
       throw new Error("not used");
     },
     fetchBlocks: async () => [],
+    fetchNodeLive: () => new Promise<never>(() => {}),
   };
   return client;
 }
@@ -202,6 +203,7 @@ function clientThrowing(error: Error): FakeClient {
       throw new Error("not used");
     },
     fetchBlocks: async () => [],
+    fetchNodeLive: () => new Promise<never>(() => {}),
   };
   return client;
 }

@@ -14,6 +14,7 @@ const idleClient: TelemetryClient = {
   fetchTelemetry: () => new Promise<never>(() => {}),
   fetchMiningAttempts: () => new Promise<never>(() => {}),
   fetchBlocks: () => new Promise<never>(() => {}),
+  fetchNodeLive: () => new Promise<never>(() => {}),
 };
 
 export interface TestServicesOverrides {

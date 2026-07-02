@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import { NodeIdentityModal } from "@/components/common/NodeIdentityModal";
 import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
 
 /**
  * Shared wiring for the reusable node-identity modal. Any table that lists
@@ -22,6 +23,7 @@ export function useNodeIdentityModal(): {
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodes = useTelemetryStore((s) => s.nodes);
+  const openNode = useUIStore((s) => s.openNode);
   const [openAccountId, setOpenAccountId] = useState<string | null>(null);
 
   const descriptorsByAccount = useMemo(
@@ -38,13 +40,18 @@ export function useNodeIdentityModal(): {
     const record = descriptorsByAccount.get(openAccountId);
     const node =
       miner?.telemetryNodeAddress != null ? nodes?.nodes[miner.telemetryNodeAddress] : undefined;
+    const account = openAccountId;
     modal = (
       <NodeIdentityModal
-        accountId={openAccountId}
+        accountId={account}
         record={record}
         miner={miner}
         node={node}
         onClose={() => setOpenAccountId(null)}
+        onMoreInfo={() => {
+          setOpenAccountId(null);
+          openNode(account);
+        }}
       />
     );
   }

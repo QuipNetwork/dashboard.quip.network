@@ -3,6 +3,7 @@ import { ChainView } from "@/components/views/Chain/ChainView";
 import { ComputeAvailableView } from "@/components/views/ComputeAvailable/ComputeAvailableView";
 import { MyNodeView } from "@/components/views/MyNode/MyNodeView";
 import { NetworkView } from "@/components/views/Network/NetworkView";
+import { NodeView } from "@/components/views/Node/NodeView";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 
@@ -26,6 +27,7 @@ export function Dashboard() {
               {viewMode === "network" && <NetworkView />}
               {viewMode === "compute" && <ComputeAvailableView />}
               {viewMode === "chain" && <ChainView />}
+              {viewMode === "node" && <NodeView />}
             </div>
           )}
         </main>

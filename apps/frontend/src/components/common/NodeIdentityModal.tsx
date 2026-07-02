@@ -23,12 +23,16 @@ export function NodeIdentityModal({
   miner,
   node,
   onClose,
+  onMoreInfo,
 }: {
   accountId: string;
   record?: NodeDescriptorRecord;
   miner?: ChainMinerRecord;
   node?: NodeInfo;
   onClose: () => void;
+  // When provided, renders a "More info" link that opens the full node page
+  // for this account (live stats, in-flight dispatch, leaderboard rank).
+  onMoreInfo?: () => void;
 }) {
   const d = record?.descriptor;
   const name = displayNodeName(accountId, d?.nodeName);
@@ -59,9 +63,19 @@ export function NodeIdentityModal({
     <Modal isOpen onClose={onClose} size="xl" ariaLabel={`${name} node identity`}>
       <Modal.Header>{name}</Modal.Header>
       <Modal.Body>
-        <p className="mb-3 break-all font-mono text-xs text-ink-subtle" title={accountId}>
+        <p className="mb-2 break-all font-mono text-xs text-ink-subtle" title={accountId}>
           {accountId}
         </p>
+
+        {onMoreInfo && (
+          <button
+            type="button"
+            onClick={onMoreInfo}
+            className="mb-3 cursor-pointer font-accent text-xs uppercase tracking-wider text-ink-strong underline-offset-2 hover:underline"
+          >
+            More info →
+          </button>
+        )}
 
         <div className="mb-4 flex flex-wrap gap-1 font-accent text-[10px] uppercase tracking-wider">
           {runtime?.quipVersion && <Badge label={`quip ${runtime.quipVersion}`} tone="info" />}

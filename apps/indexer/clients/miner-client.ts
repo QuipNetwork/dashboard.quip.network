@@ -4,6 +4,7 @@ import {
   MiningSubmissionNotFoundError,
   parseMiningAttemptsApiResponse,
 } from "@quip/core/miner-api";
+import { narrowMinerType, parseMinerStatsPayload, parseStatusModes } from "@quip/core/miner-live";
 import type {
   MinerCategory,
   MinerStats,
@@ -104,7 +105,7 @@ export class QuipClient implements MinerSource {
             type: narrowMinerType(m["type"]),
           }))
         : [],
-      modes: parseModes(data["modes"]),
+      modes: parseStatusModes(data["modes"]),
     };
   }
 
@@ -137,16 +138,7 @@ export class QuipClient implements MinerSource {
 
   async getStats(): Promise<MinerStats> {
     const data = await this.getJson<Record<string, unknown>>("/api/v1/stats");
-    const controller = (data["controller"] as Record<string, unknown>) ?? {};
-    return {
-      headsObserved: Number(controller["heads_observed"] ?? 0),
-      contextsDispatched: Number(controller["contexts_dispatched"] ?? 0),
-      resultsReceived: Number(controller["results_received"] ?? 0),
-      proofsSubmitted: Number(controller["proofs_submitted"] ?? 0),
-      staleDrops: Number(controller["stale_drops"] ?? 0),
-      submissionErrors: Number(controller["submission_errors"] ?? 0),
-      duplicateResultDrops: Number(controller["duplicate_result_drops"] ?? 0),
-    };
+    return parseMinerStatsPayload(data);
   }
 
   private async getJson<T>(path: string): Promise<T> {
@@ -165,46 +157,4 @@ export class QuipClient implements MinerSource {
     }
     return (parsed?.data ?? parsed) as T;
   }
-}
-
-function narrowMinerType(raw: unknown): MinerCategory {
-  const s = String(raw ?? "").toUpperCase();
-  if (s === "CPU" || s === "GPU" || s === "QPU") return s;
-  return "OTHER";
-}
-
-/**
- * Parse the `modes` field returned by /api/v1/status. Tolerates the
- * legacy shape where the miner doesn't emit `modes` (returns `{}`) and
- * the new aggregator shape `{<mode>: {controller: {...}, miners: [...]}}`.
- *
- * Missing / malformed counters default to 0 — the UI shows "no work
- * yet" rather than crashing on a fresh aggregator that hasn't accrued
- * data.
- */
-function parseModes(raw: unknown): Record<string, ModeBreakdown> {
-  if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, ModeBreakdown> = {};
-  for (const [mode, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!value || typeof value !== "object") continue;
-    const v = value as Record<string, unknown>;
-    const ctrl = (v["controller"] as Record<string, unknown>) ?? {};
-    const minersRaw = Array.isArray(v["miners"])
-      ? (v["miners"] as Array<Record<string, unknown>>)
-      : [];
-    out[mode] = {
-      headsObserved: Number(ctrl["heads_observed"] ?? 0),
-      contextsDispatched: Number(ctrl["contexts_dispatched"] ?? 0),
-      resultsReceived: Number(ctrl["results_received"] ?? 0),
-      proofsSubmitted: Number(ctrl["proofs_submitted"] ?? 0),
-      staleDrops: Number(ctrl["stale_drops"] ?? 0),
-      submissionErrors: Number(ctrl["submission_errors"] ?? 0),
-      duplicateResultDrops: Number(ctrl["duplicate_result_drops"] ?? 0),
-      miners: minersRaw.map((m) => ({
-        id: String(m["id"] ?? ""),
-        type: narrowMinerType(m["type"]),
-      })),
-    };
-  }
-  return out;
 }

@@ -1,5 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { NodeDescriptorRecord } from "@quip/shared/telemetry";
+
+/**
+ * Resolve the miner-REST base URL for a PEER node from its on-chain descriptor.
+ *
+ * Unlike {@link resolveSelfMinerRestUrl} (local-only, ignores descriptors),
+ * this is descriptor-driven on purpose: the only hosts we ever reach are the
+ * `publicHost:publicPort` values nodes themselves signed and published on
+ * chain, so the descriptor set doubles as the proxy allowlist — there is no
+ * user-supplied URL and therefore no SSRF surface.
+ *
+ * Scheme defaults to `http` (most self-hosted miners serve plain HTTP on a
+ * custom port); `https` is used when the advertised port is 443 or the host
+ * already carries an explicit scheme. Returns null when the descriptor is
+ * absent or advertises no host (the caller surfaces "node data unreachable").
+ */
+export function resolvePeerMinerRestUrl(descriptor: NodeDescriptorRecord | null): string | null {
+  const advertised = descriptor?.descriptor.publicHost?.trim();
+  if (!advertised) return null;
+  const port = descriptor?.descriptor.publicPort;
+
+  // Respect an explicit scheme on the host; otherwise infer from the port.
+  const schemeMatch = /^(https?):\/\//i.exec(advertised);
+  const scheme = schemeMatch ? schemeMatch[1]!.toLowerCase() : port === 443 ? "https" : "http";
+  const host = advertised.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  if (host.length === 0) return null;
+
+  return port ? `${scheme}://${host}:${port}` : `${scheme}://${host}`;
+}
+
 /**
  * Resolve the base URL the indexer / server should hit for the LOCAL
  * operator's miner-REST surface (`/api/v1/status`, `/api/v1/stats`,
