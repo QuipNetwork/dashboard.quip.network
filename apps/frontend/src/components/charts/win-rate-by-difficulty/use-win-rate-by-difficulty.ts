@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo } from "react";
+import { clipToDifficultyFloor } from "@/lib/difficulty-curve";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useFilteredBlocks } from "@/store/use-filtered-blocks";
@@ -30,7 +31,9 @@ export function useWinRateByDifficulty(): WinRateByDifficultyResult {
     const filtered = blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)));
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
-    const sorted = [...filtered].sort((a, b) => a.difficultyEnergy - b.difficultyEnergy);
+    // Start the axis where real data is: drop easy warmup targets before banding.
+    const inRegime = clipToDifficultyFloor(filtered);
+    const sorted = [...inRegime].sort((a, b) => a.difficultyEnergy - b.difficultyEnergy);
 
     // Remove outliers via IQR so extreme values don't blow up the x-axis
     const q1 = sorted[Math.floor(sorted.length * 0.25)]!.difficultyEnergy;

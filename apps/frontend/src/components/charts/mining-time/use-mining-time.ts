@@ -11,6 +11,13 @@ export interface MiningTimeSeries {
   data: Array<{ x: number; y: number }>;
 }
 
+// Only the most recent N qblocks are plotted. The x-axis is the raw
+// `substrateBlockNumber`, so without a window a few low-numbered backfilled
+// blocks stretch the domain to the whole chain and crush all real data into a
+// sliver on the right. Windowing to the recent tail zooms the axis onto the
+// span operators actually care about. Tunable.
+export const RECENT_QBLOCK_WINDOW = 100;
+
 export function useMiningTime(): MiningTimeSeries[] {
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
@@ -20,10 +27,14 @@ export function useMiningTime(): MiningTimeSeries[] {
 
   return useMemo(() => {
     const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
-    const filtered =
+    const typeFiltered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
         : blocks;
+    // `blocks` ships DESC (tip first), so the most recent qblocks are the head
+    // of the array. Slice before grouping so every series shares the same
+    // recent block-number window.
+    const filtered = typeFiltered.slice(0, RECENT_QBLOCK_WINDOW);
     const getKey = (b: (typeof blocks)[0]) =>
       mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
 

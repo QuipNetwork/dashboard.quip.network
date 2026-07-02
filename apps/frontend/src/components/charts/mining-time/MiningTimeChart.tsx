@@ -59,7 +59,11 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
           "legends",
         ]}
         axisBottom={{
-          legend: "Block Index",
+          // Large block numbers on a zoomed linear scale render fractional /
+          // scientific ticks by default — coerce to plain integers.
+          format: (v) => String(Math.round(Number(v))),
+          tickValues: 6,
+          legend: "Block # (most recent 100 qblocks)",
           legendOffset: 40,
           legendPosition: "middle",
         }}

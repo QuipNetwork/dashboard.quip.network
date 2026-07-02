@@ -20,7 +20,6 @@ import { useEnergyDistribution } from "@/components/charts/energy-distribution/u
 import { useTimeToSolution } from "@/components/charts/time-to-solution/use-time-to-solution";
 import { useEnergyCdf } from "@/components/charts/energy-cdf/use-energy-cdf";
 import { useWinRateByDifficulty } from "@/components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
-import { useMiningTimeByDifficulty } from "@/components/charts/mining-time-by-difficulty/use-mining-time-by-difficulty";
 import { useCumulativeBlocksThreshold } from "@/components/charts/cumulative-blocks-threshold/use-cumulative-blocks-threshold";
 import { useLeaderboard } from "@/components/charts/leaderboard/use-leaderboard";
 import { useTelemetryStore } from "@/store/telemetry-store";
@@ -51,7 +50,6 @@ export function NetworkView() {
   const timeToSolution = useTimeToSolution();
   const energyCdf = useEnergyCdf();
   const winRate = useWinRateByDifficulty();
-  const miningTimeByDifficulty = useMiningTimeByDifficulty();
   const cumulativeBlocks = useCumulativeBlocksThreshold();
   const leaderboard = useLeaderboard();
 
@@ -140,14 +138,10 @@ export function NetworkView() {
         )}
 
         <ChartCard
-          title="Expected Mining Time by Difficulty"
-          subtitle={
-            byType
-              ? "Mean time to qblock per difficulty band"
-              : "Mean time to qblock per miner by difficulty"
-          }
+          title="Mining Cost by Difficulty"
+          subtitle="Expected qblocks (or time) to reach a target, from the energy distribution"
         >
-          <MiningTimeByDifficultyChart data={miningTimeByDifficulty} />
+          <MiningTimeByDifficultyChart />
         </ChartCard>
 
         <ChartCard

@@ -5,6 +5,24 @@
 
 import { useTelemetryStore } from "@/store/telemetry-store";
 
+// The by-difficulty charts (mining time, win rate) only have meaningful data
+// once targets reach the hard regime. Easier "warmup" targets that kick off
+// mining arrive in bulk while difficulty ramps up, so they survive IQR outlier
+// removal and stretch the axis into a long, sparse, misleading tail. Clip the
+// easy end of those charts here so the axis starts where real data is. Tunable.
+export const DIFFICULTY_DATA_FLOOR_ENERGY = -14_000;
+
+/**
+ * Drop blocks whose target is easier (less negative) than the data floor, so
+ * the difficulty axis starts where meaningful data exists. Returns the input
+ * unchanged when nothing reaches the floor, so a fresh/easy chain still renders
+ * whatever data it has instead of an empty chart.
+ */
+export function clipToDifficultyFloor<T extends { difficultyEnergy: number }>(blocks: T[]): T[] {
+  const hard = blocks.filter((b) => b.difficultyEnergy <= DIFFICULTY_DATA_FLOOR_ENERGY);
+  return hard.length > 0 ? hard : blocks;
+}
+
 export function energyToCurveMille(energy: number, k: number | null): number | null {
   if (k == null || !(k > 0)) return null;
   return Math.round((-energy * 1000) / k);
@@ -16,14 +34,6 @@ export function formatDifficultyTick(energy: number, k: number | null): string {
   const e = String(Math.round(energy));
   const m = energyToCurveMille(energy, k);
   return m == null ? e : `${m}‰ (${e})`;
-}
-
-// Compact tick for dense axes (e.g. the histogram): just the per-mille
-// position, "747‰", or the rounded energy when K is unknown. The full energy
-// belongs in the tooltip there, since "‰ (energy)" is too wide to fit.
-export function formatDifficultyTickShort(energy: number, k: number | null): string {
-  const m = energyToCurveMille(energy, k);
-  return m == null ? String(Math.round(energy)) : `${m}‰`;
 }
 
 /**

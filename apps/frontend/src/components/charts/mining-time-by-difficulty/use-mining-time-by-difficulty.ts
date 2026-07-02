@@ -1,96 +1,104 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo } from "react";
-import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
+import { clipToDifficultyFloor } from "@/lib/difficulty-curve";
+import { displayNodeName } from "@/lib/format-chain";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useFilteredBlocks } from "@/store/use-filtered-blocks";
-import { useUIStore } from "@/store/ui-store";
+import { bestNodeId, buildAttemptsCurve, meanEventInterval } from "./mining-cost-model";
 
-export interface MiningTimeByDifficultySeries {
+export type CostUnits = "time" | "attempts";
+export type CostScope = "all" | "best";
+
+export interface MiningCostOptions {
+  units: CostUnits;
+  scope: CostScope;
+}
+
+export interface MiningCostSeries {
   id: string;
   data: Array<{ x: number; y: number }>;
 }
 
 export interface MiningTimeByDifficultyResult {
-  series: MiningTimeByDifficultySeries[];
+  series: MiningCostSeries[];
   xMin: number;
   xMax: number;
+  units: CostUnits;
+  // Human-readable reason the chart is empty (insufficient data), else null.
+  note: string | null;
 }
 
-const NUM_BANDS = 12;
+const NUM_POINTS = 50;
+// Below this, the empirical CDF is too coarse to estimate a curve from.
+const MIN_OBSERVATIONS = 3;
+// IQR axis-trimming only kicks in with enough points to have stable quartiles;
+// small (e.g. best-node) sets are kept intact.
+const IQR_MIN = 8;
 
-export function useMiningTimeByDifficulty(): MiningTimeByDifficultyResult {
+function empty(units: CostUnits, note: string | null): MiningTimeByDifficultyResult {
+  return { series: [], xMin: 0, xMax: 0, units, note };
+}
+
+// Trim achieved-energy outliers via the 1.5·IQR fence so a single freak deep
+// solution doesn't stretch the axis. Mirrors the energy-cdf sibling. No-op
+// below IQR_MIN points.
+function trimEnergyOutliers<T extends { energy: number }>(blocks: T[]): T[] {
+  if (blocks.length < IQR_MIN) return blocks;
+  const sorted = blocks.map((b) => b.energy).sort((a, b) => a - b);
+  const q1 = sorted[Math.floor(sorted.length * 0.25)]!;
+  const q3 = sorted[Math.floor(sorted.length * 0.75)]!;
+  const iqr = q3 - q1;
+  const lower = q1 - 1.5 * iqr;
+  const upper = q3 + 1.5 * iqr;
+  return blocks.filter((b) => b.energy >= lower && b.energy <= upper);
+}
+
+/**
+ * Probability/rate model for "Mining Cost by Difficulty". See
+ * {@link ./mining-cost-model} for the math. Renders one curve, scoped to the
+ * whole network or the single highest-winning node, in either expected-attempts
+ * or calibrated-time units. Honors the global `selectedTypes` filter via
+ * {@link useFilteredBlocks}; the chart no longer breaks out per-type series.
+ */
+export function useMiningTimeByDifficulty(opts: MiningCostOptions): MiningTimeByDifficultyResult {
+  const { units, scope } = opts;
   const blocks = useFilteredBlocks();
-  const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
-  const selectedTypes = useUIStore((s) => s.selectedTypes);
-  const mode = useUIStore((s) => s.aggregationMode);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
-    const filtered =
-      mode === "byType"
-        ? blocks.filter(
-            (b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)) && b.miningTime > 0,
-          )
-        : blocks.filter((b) => b.miningTime > 0);
-    if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
+    // Drop easy warmup targets so the axis starts where real data is.
+    const floored = clipToDifficultyFloor(blocks);
+    if (floored.length < MIN_OBSERVATIONS) return empty(units, "Not enough qblocks yet");
 
-    const getKey = (b: (typeof blocks)[0]) =>
-      mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
-
-    const sorted = [...filtered].sort((a, b) => a.difficultyEnergy - b.difficultyEnergy);
-
-    // Remove outliers via IQR
-    const q1 = sorted[Math.floor(sorted.length * 0.25)]!.difficultyEnergy;
-    const q3 = sorted[Math.floor(sorted.length * 0.75)]!.difficultyEnergy;
-    const iqr = q3 - q1;
-    const lower = q1 - 1.5 * iqr;
-    const upper = q3 + 1.5 * iqr;
-    const cleaned = sorted.filter(
-      (b) => b.difficultyEnergy >= lower && b.difficultyEnergy <= upper,
-    );
-    if (cleaned.length === 0) return { series: [], xMin: 0, xMax: 0 };
-
-    const allKeys = mode === "byType" ? [...selectedTypes] : [...new Set(cleaned.map(getKey))];
-
-    const bandSize = Math.max(1, Math.floor(cleaned.length / NUM_BANDS));
-
-    const series: Record<string, Array<{ x: number; y: number }>> = {};
-    for (const k of allKeys) series[k] = [];
-
-    for (let i = 0; i < cleaned.length; i += bandSize) {
-      const band = cleaned.slice(i, Math.min(i + bandSize, cleaned.length));
-      if (band.length === 0) continue;
-
-      const midpoint = Math.round(
-        band.reduce((sum, b) => sum + b.difficultyEnergy, 0) / band.length,
-      );
-
-      const sums: Record<string, number> = {};
-      const counts: Record<string, number> = {};
-
-      for (const b of band) {
-        const key = getKey(b);
-        sums[key] = (sums[key] ?? 0) + b.miningTime;
-        counts[key] = (counts[key] ?? 0) + 1;
-      }
-
-      for (const k of allKeys) {
-        const count = counts[k] ?? 0;
-        if (count > 0) {
-          series[k]!.push({ x: midpoint, y: Math.round(sums[k]! / count) });
-        }
-      }
+    let scoped = floored;
+    let label = "All Nodes";
+    if (scope === "best") {
+      const id = bestNodeId(floored);
+      if (id == null) return empty(units, "No qblocks yet");
+      scoped = floored.filter((b) => b.minerId === id);
+      const name = nodeDescriptors.find((d) => d.accountId === id)?.descriptor.nodeName;
+      label = displayNodeName(id, name);
+    }
+    if (scoped.length < MIN_OBSERVATIONS) {
+      return empty(units, `Best node has only ${scoped.length} qblocks — not enough to estimate`);
     }
 
-    const result = allKeys
-      .filter((k) => series[k]!.length > 0)
-      .map((k) => ({ id: k, data: series[k]! }));
+    const cleaned = trimEnergyOutliers(scoped);
+    const curve = buildAttemptsCurve(
+      cleaned.map((b) => b.energy),
+      NUM_POINTS,
+    );
+    if (curve.points.length === 0) return empty(units, "No qblocks yet");
 
-    const xMin = cleaned[0]!.difficultyEnergy;
-    const xMax = cleaned[cleaned.length - 1]!.difficultyEnergy;
+    let scale = 1; // attempts mode
+    if (units === "time") {
+      const t = meanEventInterval(cleaned.map((b) => b.timestamp));
+      if (t == null) return empty(units, "Need ≥2 events for a time estimate");
+      scale = t; // seconds per mining event
+    }
 
-    return { series: result, xMin: Math.floor(xMin), xMax: Math.ceil(xMax) };
-  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
+    const data = curve.points.map((p) => ({ x: p.x, y: p.attempts * scale }));
+    return { series: [{ id: label, data }], xMin: curve.xMin, xMax: curve.xMax, units, note: null };
+  }, [blocks, nodeDescriptors, units, scope]);
 }
