@@ -2,7 +2,6 @@ import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { OverlappingBarsLayer } from "@/components/charts/common/OverlappingBarsLayer";
-import { formatDifficultyTickShort, useDifficultyCurveK } from "@/lib/difficulty-curve";
 import type { HistogramData } from "@/lib/histogram";
 
 export interface EnergyDistributionChartProps {
@@ -10,7 +9,6 @@ export interface EnergyDistributionChartProps {
 }
 
 export function EnergyDistributionChart({ data }: EnergyDistributionChartProps) {
-  const k = useDifficultyCurveK();
   if (data.data.length === 0) return null;
 
   // Bins are built ascending (most-negative first). The energy axis reads
@@ -34,11 +32,13 @@ export function EnergyDistributionChart({ data }: EnergyDistributionChartProps) 
         enableGridY={true}
         layers={["grid", "axes", OverlappingBarsLayer, "markers", "legends"]}
         axisBottom={{
-          legend: "(lower energy == more difficult)",
+          // Show the difficulty energy itself (rounded), not a per-mille
+          // position. Bins are already energy lower-bounds.
+          legend: "Difficulty energy (lower == more difficult)",
           legendOffset: 40,
           legendPosition: "middle",
           tickRotation: -45,
-          format: (v) => formatDifficultyTickShort(Number(v), k),
+          format: (v) => String(Math.round(Number(v))),
         }}
         axisLeft={{
           legend: "Frequency / Unit",

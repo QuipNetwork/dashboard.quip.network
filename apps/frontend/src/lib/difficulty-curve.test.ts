@@ -2,11 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import {
-  energyToCurveMille,
-  formatDifficultyTick,
-  formatDifficultyTickShort,
-} from "./difficulty-curve";
+import { energyToCurveMille, formatDifficultyTick } from "./difficulty-curve";
 
 const K = 19493; // live default-topology constant
 
@@ -22,10 +18,5 @@ describe("difficulty-curve formatters", () => {
     // rounds, never shows .0
     expect(formatDifficultyTick(-14559.6, K)).toContain("(-14560)");
     expect(formatDifficultyTick(-14559, null)).toBe("-14559");
-  });
-
-  it("compact form is just the per-mille (energy belongs in the tooltip)", () => {
-    expect(formatDifficultyTickShort(-14559, K)).toBe(`${energyToCurveMille(-14559, K)}‰`);
-    expect(formatDifficultyTickShort(-14559, null)).toBe("-14559");
   });
 });
