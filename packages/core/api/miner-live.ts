@@ -9,9 +9,12 @@
 import type { MinerCategory, MinerStats, ModeBreakdown } from "@quip/shared/telemetry";
 
 function narrowMinerType(raw: unknown): MinerCategory {
-  const s = String(raw ?? "").toUpperCase();
-  if (s === "CPU" || s === "GPU" || s === "QPU") return s;
-  return "OTHER";
+  // The miner reports backend-qualified type strings — "GPU-MPS" (metal),
+  // "GPU-LOCAL:0" (cuda), "GPU-T4" (modal), "GPU-CUDA-Gibbs" — so match on
+  // the category prefix, not the whole string. The \b keeps prefix
+  // look-alikes ("GPUX") out of the known categories.
+  const m = /^(CPU|GPU|QPU)\b/.exec(String(raw ?? "").toUpperCase());
+  return m ? (m[1] as MinerCategory) : "OTHER";
 }
 
 /** Decode `/api/v1/stats`'s `controller` sub-object into {@link MinerStats}. */

@@ -2,7 +2,37 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parseMinerStatsPayload, parseStatusModes, parseStatusPrimaryMinerId } from "./miner-live";
+import {
+  narrowMinerType,
+  parseMinerStatsPayload,
+  parseStatusModes,
+  parseStatusPrimaryMinerId,
+} from "./miner-live";
+
+describe("narrowMinerType", () => {
+  test("maps bare categories case-insensitively", () => {
+    expect(narrowMinerType("CPU")).toBe("CPU");
+    expect(narrowMinerType("cpu")).toBe("CPU");
+    expect(narrowMinerType("QPU")).toBe("QPU");
+  });
+
+  test("maps backend-qualified types to their category prefix", () => {
+    // The upstream miner reports one type string per backend
+    // (quip-protocol shared/miner_worker.py `miner_type`).
+    expect(narrowMinerType("GPU-MPS")).toBe("GPU"); // metal
+    expect(narrowMinerType("GPU-LOCAL:0")).toBe("GPU"); // cuda
+    expect(narrowMinerType("GPU-T4")).toBe("GPU"); // modal
+    expect(narrowMinerType("GPU-CUDA-Gibbs")).toBe("GPU"); // cuda-gibbs
+    expect(narrowMinerType("gpu-mps")).toBe("GPU");
+  });
+
+  test("unknown kinds and prefix look-alikes fall to OTHER", () => {
+    expect(narrowMinerType("GPUX")).toBe("OTHER");
+    expect(narrowMinerType("FPGA")).toBe("OTHER");
+    expect(narrowMinerType(undefined)).toBe("OTHER");
+    expect(narrowMinerType("")).toBe("OTHER");
+  });
+});
 
 describe("parseMinerStatsPayload", () => {
   test("reads controller counters from a /api/v1/stats payload", () => {
