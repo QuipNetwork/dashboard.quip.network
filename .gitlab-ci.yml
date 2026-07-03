@@ -1,9 +1,10 @@
 # GitLab CI/CD for Quip Dashboard
 #
 # Triggers:
-#   - merge_request_event  →  test + build (SHA-tagged only, for verification)
-#   - push to main       →  build + publish (:latest)
-#   - push to v0.2         →  build + publish (:v0.2)   # rolling v0.2 line
+#   - merge_request_event  →  test
+#   - push to any branch   →  test (no image build/publish — merging into
+#                             main/v0.2 must NOT roll the floating tags the
+#                             deployed stacks pull; releases are cut by tagging)
 #   - git tag vX.Y.Z       →  build + publish (:latest, :vX.Y, :<tag>)
 #   - git tag vX.Y.Z-<pre> →  build + publish (:vX.Y, :<tag>)   # no :latest
 #                             (pre-release tags are hyphenated SemVer, e.g.
@@ -20,7 +21,8 @@ variables:
   KANIKO_IMAGE: gcr.io/kaniko-project/executor:v1.23.2-debug
 
 # ---------------------------------------------------------------------------
-# Tests (branches + MRs — main/tags skip straight to build)
+# Tests (branches + MRs — tags skip straight to build; the tagged commit is a
+# branch head that already passed this job)
 # ---------------------------------------------------------------------------
 
 test:
@@ -34,8 +36,6 @@ test:
     - bun test
   rules:
     - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == "main"
       when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
@@ -84,10 +84,7 @@ build-image-amd64:
       --ignore-path=/lib
 
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 build-image-arm64:
   stage: build
@@ -112,10 +109,7 @@ build-image-arm64:
       --destination $IMAGE:$CI_COMMIT_SHA-$ARCH
       $KANIKO_EXTRA
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 # ---------------------------------------------------------------------------
 # Manifest list — combine the two per-arch images under the canonical tags.
@@ -132,32 +126,20 @@ manifest:
     - build-image-amd64
     - build-image-arm64
   script:
-    # Tag pipelines leave CI_COMMIT_BRANCH unset and branch pipelines leave
-    # CI_COMMIT_TAG unset — default each to empty so the checks are safe.
     - |
-      TARGETS="$IMAGE:$CI_COMMIT_SHA"
-      if [ "${CI_COMMIT_BRANCH:-}" = "main" ]; then
+      # Immutable tags first: the exact SHA and the exact release tag
+      # (e.g. v0.2.1-rc18).
+      TARGETS="$IMAGE:$CI_COMMIT_SHA $IMAGE:$CI_COMMIT_TAG"
+      # Floating minor-line tag the deployed stacks pull: v0.2.1-rc18 -> v0.2.
+      # Format-agnostic, so a hyphenated pre-release resolves to the same
+      # series as a stable tag.
+      MINOR="$(printf '%s' "$CI_COMMIT_TAG" | sed -E 's/^(v[0-9]+\.[0-9]+).*/\1/')"
+      if [ "$MINOR" != "$CI_COMMIT_TAG" ]; then
+        TARGETS="$TARGETS $IMAGE:$MINOR"
+      fi
+      # :latest only for stable releases — never for rc/alpha/beta pre-releases.
+      if printf '%s' "$CI_COMMIT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
         TARGETS="$TARGETS $IMAGE:latest"
-      fi
-      if [ "${CI_COMMIT_BRANCH:-}" = "v0.2" ]; then
-        # The active v0.2 line: each branch push rolls the floating :v0.2 tag
-        # that the stack pulls. A release tag (vX.Y.Z<pre>) later re-pins :v0.2
-        # and adds the immutable :<tag>.
-        TARGETS="$TARGETS $IMAGE:v0.2"
-      fi
-      if [ -n "${CI_COMMIT_TAG:-}" ]; then
-        # Immutable, exact-version tag (e.g. v0.2.1-rc18).
-        TARGETS="$TARGETS $IMAGE:$CI_COMMIT_TAG"
-        # Floating minor-line tag: v0.2.1-rc18 -> v0.2. Format-agnostic, so a
-        # hyphenated pre-release resolves to the same series as a stable tag.
-        MINOR="$(printf '%s' "$CI_COMMIT_TAG" | sed -E 's/^(v[0-9]+\.[0-9]+).*/\1/')"
-        if [ "$MINOR" != "$CI_COMMIT_TAG" ]; then
-          TARGETS="$TARGETS $IMAGE:$MINOR"
-        fi
-        # :latest only for stable releases — never for rc/alpha/beta pre-releases.
-        if printf '%s' "$CI_COMMIT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-          TARGETS="$TARGETS $IMAGE:latest"
-        fi
       fi
       for T in $TARGETS; do
         manifest-tool \
@@ -168,7 +150,4 @@ manifest:
           --target "$T"
       done
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
