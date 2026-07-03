@@ -57,6 +57,46 @@ export interface IndexerObservability {
   // Optional so persisted v16 observability rows + existing test
   // fixtures parse cleanly; consumers default to `{}` when reading.
   modes?: Record<string, ModeBreakdown>;
+  // Pipeline-indexer backfill progress (spec §11), refreshed by the
+  // reconciler. Optional: absent on pre-redesign rows and until the first
+  // reconcile tick. `gapBlocks` counts only failed/pending-retry blocks —
+  // never the non-winner numbers inside enumerated winner ranges — so a
+  // healthy fully-backfilled deployment reads 0 for every plugin.
+  indexer?: IndexerBackfillProgress;
+}
+
+/**
+ * `GET /api/difficulty-history?since=<iso>` (spec §10.5): the in-window
+ * difficulty rows ascending by `observedAt`, plus one anchor row strictly
+ * before the cutoff so short windows inside a stable-difficulty stretch
+ * still render the prevailing step instead of an empty chart.
+ */
+export interface DifficultyHistoryResponse {
+  since: string; // ISO 8601, echoed from the query
+  anchor: DifficultyRecord | null;
+  rows: DifficultyRecord[];
+}
+
+/** Spec §11: per-plugin coverage summary surfaced through /api/telemetry. */
+export interface IndexerBackfillProgress {
+  // Scheduler queue depth: tip bucket + both backfill lanes.
+  backfillQueueDepth: number;
+  coverage: Record<
+    string,
+    {
+      low: string | null; // u64 as string; null before the first covered block
+      high: string | null;
+      gapBlocks: number;
+      prunedFloor: string | null;
+      // Shallowest block whose enrichment reads degraded under pruning
+      // (winners plugin, spec §8 cases 1-2). Null elsewhere.
+      topologyEnrichmentFloor: string | null;
+      generation: number;
+    }
+  >;
+  // First block with own difficulty — the "All Time" range start
+  // (measured ≈ 394,362 on the live chain, spec §10.2).
+  difficultyDataStartBlock: string | null;
 }
 
 /**

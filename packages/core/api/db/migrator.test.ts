@@ -112,6 +112,7 @@ describe("migrator (postgres)", () => {
       minSolutions: 1,
       observedAt: "2026-01-01T00:00:00.000Z",
       topologyHash: null,
+      source: "poll",
     });
     await adapter.recordValidatorAuthorship("5GPP", "199", 1700000000, true);
     await adapter.insertMiningSubmission({
@@ -172,13 +173,18 @@ describe("migrator (postgres)", () => {
         descriptor jsonb NOT NULL,
         observed_at timestamptz NOT NULL
       )`.execute(kysely);
-    // Un-record 0004 so the next migrateToLatest re-applies just it.
-    await sql`DELETE FROM kysely_migration WHERE name = '0004_reconcile_descriptors_topology_tags'`.execute(
+    // Un-record 0004 so the next migrateToLatest re-applies it. Kysely
+    // requires the executed ledger to stay a prefix of the registry order, so
+    // everything after 0004 must be un-recorded (and re-applied) too.
+    await sql`DELETE FROM kysely_migration WHERE name >= '0004_reconcile_descriptors_topology_tags'`.execute(
       kysely,
     );
 
     const { applied } = await migrateToLatest(mk);
-    expect(applied).toEqual(["0004_reconcile_descriptors_topology_tags"]);
+    expect(applied).toEqual([
+      "0004_reconcile_descriptors_topology_tags",
+      "0005_authorship_blocks_difficulty_source",
+    ]);
 
     // The canonical schema is back: a descriptor upsert (block_hash +
     // extrinsic_index) now succeeds where it previously threw.

@@ -52,9 +52,9 @@ export function RecentMiningPanel({
               <tr className="border-b border-border text-left text-ink-subtle">
                 <th
                   className="py-2 pr-4"
-                  title="Global chain solution_number (quip-protocol MR !105) — the winning-solution ordinal the miner works, durable across restarts. Distinct from the substrate block height where a win landed (the 'Block' column)."
+                  title="The chain QBlock ID (qblock_id from the BlockWinner event) — the global 1-based ordinal of this winning solution, matching the network-wide QBlock numbering. Distinct from the substrate block height where the win landed (the 'Block' column)."
                 >
-                  Sol&nbsp;#
+                  QBlock#
                 </th>
                 <th
                   className="py-2 pr-4"
@@ -158,13 +158,12 @@ export function RecentMiningPanel({
 }
 
 /**
- * "Sol #" = the global chain solution_number (quip-protocol MR !105): the
- * winning-solution ordinal the miner keys its directories on. This is
- * distinct from the substrate block height where a win landed — that's the
- * separate "Block" column. Local rows carry the miner's solution_number
- * directly; chain-only synthetic rows derive it as the block's rank among
- * all wins (see use-my-node). Em-dash only for the sentinel-zero case (a
- * synthetic row whose block fell outside the loaded list).
+ * "QBlock#" = the global chain QBlock ID for this winning solution. Distinct
+ * from the substrate block height where the win landed — that's the separate
+ * "Block" column. Local rows carry the miner's solution_number directly;
+ * chain-only synthetic rows use the block's chain `qblockId` (see use-my-node),
+ * so both sources share one numbering. Em-dash only for the sentinel-zero case
+ * (a synthetic row whose block carries no positive qblockId).
  */
 function solDisplay(s: MiningSubmissionRecord): ReactNode {
   if (s.solutionNumber > 0) return `#${formatNumber(s.solutionNumber)}`;

@@ -65,7 +65,6 @@ The dashboard projects only the fields it can display today:
 - `publicHost`
 - `publicPort`
 - `rpcEndpoints`
-- `autoMine`
 - `logLevel`
 - `miners`
 

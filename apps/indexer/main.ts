@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createAdapter } from "@quip/core/db";
-import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
 import { DbChainStateReader } from "./core/chain-state";
 import { QuipClient } from "./clients/miner-client";
 import { parseConfig } from "./core/config";
-import { DescriptorWorker } from "./descriptor";
 import { IndexerState } from "./core/state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./clients/substrate-client";
+import { buildRegistry } from "./pipeline/plugin";
+import { formatIndexables, runReindex } from "./pipeline/reindex";
 import { SubstrateWorker } from "./substrate";
-import { backfillTopologyTags } from "./substrate/backfill-topology";
 import { TipWorker } from "./tip";
 import type { Worker } from "./core/worker";
 
@@ -57,75 +56,6 @@ export async function runWorkers(specs: WorkerSpec[], parentSignal?: AbortSignal
   return failed ? 1 : 0;
 }
 
-// Abortable sleep — resolves early when `signal` fires so a shutdown isn't held
-// up by the retry delay.
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(t);
-        resolve();
-      },
-      { once: true },
-    );
-  });
-}
-
-// One-time topology-tag backfill, run in the background. Re-reads each legacy
-// NULL block's qblock and stamps the topology it was won under, so the API's
-// strict topology filter surfaces the current-topology history (rows predating
-// migration 0004 carry NULL and would otherwise be hidden). Idempotent (only
-// NULL rows remain to tag) and connection-resilient: it retries the connect
-// because the validator endpoint may not be reachable at process start. Uses
-// only runtime/storage reads (getQBlock, getMineableTopologies), so it works
-// even when extrinsic decoding is broken on the block path.
-const BACKFILL_CONNECT_TRIES = 12;
-const BACKFILL_RETRY_MS = 5000;
-
-async function runTopologyBackfill(
-  client: SubstrateClient,
-  db: DatabaseAdapter,
-  signal: AbortSignal,
-): Promise<void> {
-  let connected = false;
-  for (let attempt = 1; attempt <= BACKFILL_CONNECT_TRIES && !signal.aborted; attempt++) {
-    try {
-      await client.connect();
-      connected = true;
-      break;
-    } catch {
-      if (attempt < BACKFILL_CONNECT_TRIES) await sleep(BACKFILL_RETRY_MS, signal);
-    }
-  }
-  if (!connected) {
-    if (!signal.aborted) {
-      console.warn("[indexer] topology backfill: could not connect; a restart will retry");
-    }
-    return;
-  }
-  try {
-    if (signal.aborted) return;
-    const s = await backfillTopologyTags({ source: client, store: db });
-    if (s.tagged > 0 || s.capped) {
-      console.log(
-        `[indexer] topology backfill: tagged ${s.tagged} legacy blocks to the current topology ` +
-          `(${s.difficultyTagged} difficulty rows)` +
-          (s.reachedBoundary
-            ? " — reached the last topology change"
-            : s.capped
-              ? " — capped; older current-topology blocks remain for the next run"
-              : ""),
-      );
-    }
-  } catch (e) {
-    console.warn(`[indexer] topology backfill failed: ${e instanceof Error ? e.message : e}`);
-  } finally {
-    await client.disconnect().catch(() => {});
-  }
-}
-
 async function main(): Promise<number> {
   const config = parseConfig();
   console.log(
@@ -153,6 +83,17 @@ async function main(): Promise<number> {
     }
   }
 
+  // Operator modes (spec §8) — both resolve before any worker starts.
+  const registry = buildRegistry(config, { now: Date.now });
+  if (config.listIndexables) {
+    console.log(await formatIndexables(db, registry));
+    await db.disconnect();
+    return 0;
+  }
+  if (config.reindex !== null) {
+    await runReindex(db, registry, config.reindex);
+  }
+
   const state = new IndexerState(db);
   await state.load();
 
@@ -166,23 +107,18 @@ async function main(): Promise<number> {
 
   // Substrate client factory: each connect attempt builds a fresh client
   // pointed at one of the configured RPC URLs (rotated by the worker's
-  // outer reconnect loop). One shared client per worker (substrate +
-  // descriptor) keeps the connect lifecycle independent — descriptor
-  // failures don't drop substrate, and vice versa.
+  // outer reconnect loop).
   const clientFactory = (url: string): SubstrateClient =>
     new PolkadotSubstrateClient(url, config.substrateRpcTimeoutMs);
 
-  // Kick off the one-time topology-tag backfill in the BACKGROUND so it never
-  // delays worker startup, and let it retry the connect — at process start the
-  // validator endpoint is often not reachable yet (the workers race to connect
-  // too), and a single failed connect previously made the backfill skip itself,
-  // leaving legacy blocks NULL and hidden by the strict topology filter.
-  if (config.validatorRpcUrls.length > 0) {
-    void runTopologyBackfill(clientFactory(config.validatorRpcUrls[0]!), db, processAc.signal);
-  }
-
-  // Tip is the only fatal worker — substrate/descriptor self-heal via their
-  // own reconnect loops, so their failures don't yank the whole indexer.
+  // R1's one process, R7's fatal split: tip is the only fatal worker (an
+  // unreachable miner API is a deploy error the operator must see); the
+  // substrate worker self-heals via its reconnect loop. Descriptor scans,
+  // chain polls, block indexing, and historical backfill all run inside the
+  // substrate worker's pipeline registry (spec §3) — the old descriptor
+  // worker and one-shot topology backfill are absorbed by the
+  // node-descriptors snapshot plugin and the winners plugin's per-block
+  // topology stamping.
   const specs: WorkerSpec[] = [
     {
       name: "tip",
@@ -199,17 +135,6 @@ async function main(): Promise<number> {
       name: "substrate",
       fatal: false,
       worker: new SubstrateWorker({
-        config,
-        db,
-        state,
-        urls: config.validatorRpcUrls,
-        clientFactory,
-      }),
-    },
-    {
-      name: "descriptor",
-      fatal: false,
-      worker: new DescriptorWorker({
         config,
         db,
         state,

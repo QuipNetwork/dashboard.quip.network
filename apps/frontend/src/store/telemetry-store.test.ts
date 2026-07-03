@@ -100,6 +100,7 @@ const MOCK_DIFFICULTY: DifficultyRecord = {
   minSolutions: 1,
   observedAt: "2026-05-19T12:00:00Z",
   topologyHash: null,
+  source: "poll",
 };
 
 const MOCK_VALIDATOR: ValidatorAuthorshipRecord = {
@@ -188,6 +189,7 @@ function clientReturning(response: TelemetryResponse): FakeClient {
     },
     fetchBlocks: async () => [],
     fetchNodeLive: () => new Promise<never>(() => {}),
+    fetchDifficultyHistory: () => new Promise<never>(() => {}),
   };
   return client;
 }
@@ -204,6 +206,7 @@ function clientThrowing(error: Error): FakeClient {
     },
     fetchBlocks: async () => [],
     fetchNodeLive: () => new Promise<never>(() => {}),
+    fetchDifficultyHistory: () => new Promise<never>(() => {}),
   };
   return client;
 }

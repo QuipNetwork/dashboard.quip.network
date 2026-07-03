@@ -46,6 +46,9 @@ import type {
 
 export * from "./types";
 export { FakeSubstrateClient } from "./fake";
+export { StatePrunedError, isStateDiscardedError } from "./errors";
+
+import { isStateDiscardedError, mapPruned } from "./errors";
 
 // quip-protocol-rs replaces stock `MultiSignature` with `HybridTxSignature`
 // (a plain `{public: [u8;1344], signature: [u8;2484]}` struct — see
@@ -526,11 +529,37 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     // v0.2 renamed the winning-solution storage: WinningSolutions → QBlocks
     // (StorageMap keyed by substrate block number). Capability check covers
     // pre-v0.2 chains where neither item exists.
-    if (!api.query.quantumPow?.qBlocks?.entries) return [];
-    const entries = (await api.query.quantumPow.qBlocks.entries()) as unknown as Array<
-      [{ args: Array<{ toString: () => string }> }, unknown]
-    >;
-    return entries.map(([key]) => key.args[0]!.toString());
+    const qBlocks = api.query.quantumPow?.qBlocks;
+    if (!qBlocks) return [];
+    // Paged KEYS, not entries(): entries fetches every WinningSolution value
+    // just to discard it — O(total winners × value size) of RPC payload that
+    // the reconciler would pay hourly (spec §5). Keys are a few hundred KB.
+    type PagedKey = { args: Array<{ toString: () => string }>; toHex: () => string };
+    const keysPaged = (
+      qBlocks as unknown as {
+        keysPaged?: (opts: {
+          args: unknown[];
+          pageSize: number;
+          startKey?: string;
+        }) => Promise<PagedKey[]>;
+      }
+    ).keysPaged;
+    if (typeof keysPaged !== "function") {
+      // Very old polkadot.js fallback — keys() is still values-free.
+      if (!qBlocks.keys) return [];
+      const keys = (await qBlocks.keys()) as unknown as PagedKey[];
+      return keys.map((k) => k.args[0]!.toString());
+    }
+    const out: string[] = [];
+    let startKey: string | undefined;
+    for (;;) {
+      const page = await keysPaged.call(qBlocks, { args: [], pageSize: 1000, startKey });
+      if (page.length === 0) break;
+      for (const k of page) out.push(k.args[0]!.toString());
+      startKey = page[page.length - 1]!.toHex();
+      if (page.length < 1000) break;
+    }
+    return out;
   }
 
   async getQBlockCount(): Promise<number | null> {
@@ -586,10 +615,13 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     if (!api.derive.chain?.getBlock) {
       throw new Error("[substrate-client] api.derive.chain.getBlock is unavailable");
     }
+    // Tier-2 reads (state at the historical hash): pruned nodes surface
+    // "state already discarded" here — typed so the dispatcher can ratchet
+    // per-plugin pruned floors instead of gap-retrying forever (spec §8.3).
     const [signedBlockExt, timestampAtBlock] = await Promise.all([
       api.derive.chain.getBlock(blockHash),
       timestampAt(blockHash),
-    ]);
+    ]).catch(mapPruned);
     const author = signedBlockExt.author ? signedBlockExt.author.toString() : null;
 
     type EventRecord = {
@@ -645,8 +677,14 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     // Verified storage item: quip-protocol-rs/pallets/quantum-pow/src/lib.rs:129
     // LastProofBlock: StorageValue<_, BlockNumberFor<T>, ValueQuery> → u32/u64.
     if (!api.query.quantumPow?.lastProofBlock) return 0;
-    const codec = await api.query.quantumPow.lastProofBlock.at(blockHash);
-    return Number(codec.toString());
+    try {
+      const codec = await api.query.quantumPow.lastProofBlock.at(blockHash);
+      return Number(codec.toString());
+    } catch (err) {
+      // Tier-2 read: the parent is one block deeper than the block itself,
+      // so this can hit pruned state at the boundary (spec §8.2).
+      mapPruned(err);
+    }
   }
 
   async getMinerRegistryDescriptorsAt(
@@ -799,10 +837,14 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     if (/^0x0+$/.test(blockHash)) return null;
     // `DefaultTopology.at(hash)` reads historical state; an archive/deep-pruning
     // node serves it, a shallow-pruning one throws ("state already discarded").
+    // Contract (spec §8): pruned state surfaces as a typed StatePrunedError so
+    // only THAT case moves the enrichment floor; legitimately-absent values
+    // (pre-topology eras) and transient decode failures stay null.
     let codec: unknown;
     try {
       codec = await dt.at(blockHash);
-    } catch {
+    } catch (err) {
+      if (isStateDiscardedError(err)) mapPruned(err);
       return null;
     }
     const opt = codec as { isSome?: boolean; unwrap?: () => { toHex: () => string } };
@@ -958,7 +1000,6 @@ export function decodeMinerRegistryDescriptor(
   const publicHost = stringFromBytesOption(field(raw, "publicHost", "public_host"));
   const publicPort = numberFromOption(field(raw, "publicPort", "public_port"));
   const rpcEndpoints = stringArrayFromBytes(field(raw, "rpcEndpoints", "rpc_endpoints"));
-  const autoMine = booleanFromUnknown(field(raw, "autoMine", "auto_mine"));
   const logLevel = enumVariant(field(raw, "logLevel", "log_level"));
   const miners = normalizeRegistryMiners(field(raw, "miners"));
   const runtime = mapRuntime(field(raw, "runtime"));
@@ -971,7 +1012,6 @@ export function decodeMinerRegistryDescriptor(
     ...(publicHost !== undefined ? { publicHost } : {}),
     ...(publicPort !== undefined ? { publicPort } : {}),
     ...(rpcEndpoints !== undefined ? { rpcEndpoints } : {}),
-    ...(autoMine !== undefined ? { autoMine } : {}),
     ...(logLevel !== undefined ? { logLevel } : {}),
     ...(runtime !== undefined ? { runtime } : {}),
     ...(miners !== undefined ? { miners } : {}),

@@ -78,6 +78,7 @@ function makeDifficulty(overrides: Partial<DifficultyRecord> = {}): DifficultyRe
     minSolutions: 5,
     observedAt: "2026-05-21T00:00:00Z",
     topologyHash: null,
+    source: "poll",
     ...overrides,
   };
 }
@@ -397,14 +398,20 @@ describe("useMyNode", () => {
 
   // ---- lastWonProblemNumber ----------------------------------------------
 
-  it("lastWonProblemNumber = chain-wide 1-based ASC position of latest self-win", () => {
-    // blocks DESC by substrateBlockNumber; ours is the third newest of 5
-    // total, so problem # = 5 - 2 = 3 (chain-wide).
+  it("lastWonProblemNumber = the chain qblockId of the latest self-win", () => {
+    // The authoritative global qblock number comes from the block's chain
+    // qblockId — NOT its position in the loaded window (which breaks once
+    // history exceeds the 500-row window).
     useTelemetryStore.setState({
       blocks: [
         makeBlock({ blockHash: "0x5", substrateBlockNumber: "500", minerId: "5GBob" }),
         makeBlock({ blockHash: "0x4", substrateBlockNumber: "400", minerId: "5GBob" }),
-        makeBlock({ blockHash: "0xMINE", substrateBlockNumber: "300", minerId: "5GAlice" }),
+        makeBlock({
+          blockHash: "0xMINE",
+          substrateBlockNumber: "300",
+          minerId: "5GAlice",
+          qblockId: "3407",
+        }),
         makeBlock({ blockHash: "0x2", substrateBlockNumber: "200", minerId: "5GBob" }),
         makeBlock({ blockHash: "0x1", substrateBlockNumber: "100", minerId: "5GBob" }),
       ],
@@ -413,7 +420,7 @@ describe("useMyNode", () => {
       indexer: null,
     });
 
-    expect(renderHook().current?.lastWonProblemNumber).toBe(3);
+    expect(renderHook().current?.lastWonProblemNumber).toBe(3407);
   });
 
   it("lastWonProblemNumber null when self has no chain wins yet", () => {
@@ -440,6 +447,7 @@ describe("useMyNode", () => {
           timestamp: 1_700_000_200,
           energy: -150.5,
           numValidSolutions: 8,
+          qblockId: "3410",
         }),
         makeBlock({
           blockHash: "0xother",
@@ -453,6 +461,7 @@ describe("useMyNode", () => {
           minerId: "5GAlice",
           timestamp: 1_700_000_100,
           energy: -140.25,
+          qblockId: "3405",
         }),
       ],
       selfAddress: "5GAlice",
@@ -468,11 +477,11 @@ describe("useMyNode", () => {
     expect(rows[0]?.chainBlockNumber).toBe("200");
     expect(rows[0]?.energyMilli).toBe(-150500);
     expect(rows[0]?.numValid).toBe(8);
-    // Sol # = the block's rank among all 3 winning blocks (DESC: #200 is
-    // newest → solution 3; #150 → 2; #100 → 1). NOT the block height.
-    expect(rows[0]?.solutionNumber).toBe(3);
+    // QBlock# = the block's authoritative chain qblockId, so it matches what
+    // local mining_submissions rows report (not a window-relative position).
+    expect(rows[0]?.solutionNumber).toBe(3410);
     expect(rows[1]?.chainBlockNumber).toBe("100");
-    expect(rows[1]?.solutionNumber).toBe(1);
+    expect(rows[1]?.solutionNumber).toBe(3405);
   });
 
   it("recentSubmissions de-dupes chain-only rows against existing local rows by chainBlockNumber", () => {
@@ -482,7 +491,12 @@ describe("useMyNode", () => {
     useTelemetryStore.setState({
       blocks: [
         makeBlock({ blockHash: "0xb", substrateBlockNumber: "200", minerId: "5GAlice" }),
-        makeBlock({ blockHash: "0xa", substrateBlockNumber: "100", minerId: "5GAlice" }),
+        makeBlock({
+          blockHash: "0xa",
+          substrateBlockNumber: "100",
+          minerId: "5GAlice",
+          qblockId: "3399",
+        }),
       ],
       selfAddress: "5GAlice",
       chainMiners: [],
@@ -514,15 +528,14 @@ describe("useMyNode", () => {
     const rows = renderHook().current?.recentSubmissions ?? [];
     expect(rows).toHaveLength(2);
     // The local row keeps its own solutionNumber (42) + attemptCount; the
-    // synthetic row for #100 derives its solution_number from rank among
-    // the 2 winning blocks (#100 is oldest → solution 1).
+    // synthetic row for #100 uses that block's chain qblockId (3399).
     const local = rows.find((r) => r.chainBlockNumber === "200");
     const synth = rows.find((r) => r.chainBlockNumber === "100");
     expect(local?.chainOnly).toBeUndefined();
     expect(local?.attemptCount).toBe(33);
     expect(local?.solutionNumber).toBe(42);
     expect(synth?.chainOnly).toBe(true);
-    expect(synth?.solutionNumber).toBe(1);
+    expect(synth?.solutionNumber).toBe(3399);
   });
 
   // ---- effective (chain-floored) counters --------------------------------

@@ -19,6 +19,8 @@ export function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfi
     substrateBabePollSec: 30,
     substrateChainPollSec: 300,
     operatorAccount: null,
+    reindex: null,
+    listIndexables: false,
     ...overrides,
   };
 }

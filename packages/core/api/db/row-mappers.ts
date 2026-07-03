@@ -113,6 +113,7 @@ export function rowToDifficulty(r: Row): DifficultyRecord {
     minSolutions: num(r.min_solutions),
     observedAt: iso(r.observed_at),
     topologyHash: r.topology_hash == null ? null : String(r.topology_hash),
+    source: r.source === "block" ? "block" : "poll",
   };
 }
 

@@ -279,7 +279,6 @@ describe("decodeMinerRegistryDescriptor (V1 / V2 schema)", () => {
       schemaVersion: 1,
       nodeName: hex("alpha"),
       updatedAt: 4500,
-      autoMine: true,
     });
     expect(decoded?.updatedAt).toBe("4500");
     expect(decoded?.descriptor.nodeName).toBe("alpha");

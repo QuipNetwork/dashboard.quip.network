@@ -11,10 +11,14 @@ export function QBlockDetailsModal({
   block,
   solutionNumber,
   onClose,
+  onWinnerMoreInfo,
 }: {
   block: BlockRecord;
   solutionNumber: number;
   onClose: () => void;
+  // When provided, renders a "More info" link beside the winner that opens the
+  // full node detail page for the winning account (live stats, rank, dispatch).
+  onWinnerMoreInfo?: () => void;
 }) {
   const completedAt = new Date(block.timestamp * 1000).toISOString();
 
@@ -27,12 +31,21 @@ export function QBlockDetailsModal({
           {block.finalized ? "· finalized" : "· best (unfinalized)"}
         </p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 font-accent text-sm">
-          <Row
-            label="Winner"
-            value={shortAddress(block.minerId, 8, 6)}
-            mono
-            title={block.minerId}
-          />
+          <div className="col-span-2">
+            <dt className="text-[10px] uppercase tracking-wider text-ink-subtle">Winner</dt>
+            <dd className="break-all font-mono text-xs tabular-nums text-ink-strong">
+              <span title={block.minerId}>{shortAddress(block.minerId, 8, 6)}</span>
+              {onWinnerMoreInfo && (
+                <button
+                  type="button"
+                  onClick={onWinnerMoreInfo}
+                  className="ml-3 cursor-pointer font-accent text-[10px] uppercase tracking-wider text-ink-strong underline-offset-2 hover:underline"
+                >
+                  More info →
+                </button>
+              )}
+            </dd>
+          </div>
           <Row label="Energy" value={formatEnergy(block.energy)} />
           <Row label="Target Energy" value={formatEnergy(block.difficultyEnergy)} />
           <Row label="Diversity" value={block.diversity.toFixed(3)} />
