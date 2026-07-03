@@ -11,6 +11,8 @@ import { computeChainHealth } from "@/lib/staleness";
 import type { BlockRecord, IndexerObservability } from "@quip/shared/telemetry";
 import { FinalityBadge } from "@/components/blocks/FinalityBadge";
 import { SearchInput } from "@/components/common/SearchInput";
+import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
+import { useTableSort, type SortAccessors } from "@/lib/table-sort";
 import { HealthBanner } from "./HealthBanner";
 import { QBlockDetailsModal } from "./QBlockDetailsModal";
 
@@ -18,6 +20,16 @@ export interface NumberedBlock {
   block: BlockRecord;
   solutionNumber: number;
 }
+
+type RecentBlocksSortColumn =
+  | "block"
+  | "qblock"
+  | "winner"
+  | "energy"
+  | "targetEnergy"
+  | "miningTime"
+  | "reward"
+  | "when";
 
 export function filterRecentBlocks(
   rows: readonly NumberedBlock[],
@@ -99,17 +111,6 @@ export function RecentBlocksTable({
     indexer,
   });
 
-  if (blocks.length === 0) {
-    return (
-      <>
-        <HealthBanner health={health} />
-        <p className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
-          No qblocks yet
-        </p>
-      </>
-    );
-  }
-
   // blocks is DESC by substrateBlockNumber, so blocks[0] is the most recent
   // winning solution. Solution numbering walks down from totalProofsWon —
   // computed from the full-list index so search doesn't perturb it.
@@ -124,7 +125,41 @@ export function RecentBlocksTable({
     query,
     (id) => descriptorsByAccount.get(id)?.descriptor.nodeName,
   );
-  const visible = matched.slice(0, pageSize);
+  // Every column sorts by what its cell displays; sorting applies to the
+  // loaded window (live 500 + any fetched older pages) before pagination.
+  const sortAccessors = useMemo<SortAccessors<NumberedBlock, RecentBlocksSortColumn>>(
+    () => ({
+      block: (r) => BigInt(r.block.substrateBlockNumber),
+      qblock: (r) => r.solutionNumber,
+      winner: (r) =>
+        displayNodeName(
+          r.block.minerId,
+          descriptorsByAccount.get(r.block.minerId)?.descriptor.nodeName,
+        ),
+      energy: (r) => r.block.energy,
+      targetEnergy: (r) => r.block.difficultyEnergy,
+      miningTime: (r) => r.block.miningTime,
+      reward: (r) => BigInt(r.block.reward),
+      when: (r) => r.block.timestamp,
+    }),
+    [descriptorsByAccount],
+  );
+  const { sorted, sort, onSort } = useTableSort(matched, sortAccessors, {
+    column: "qblock",
+    direction: "desc",
+  });
+  const visible = sorted.slice(0, pageSize);
+
+  if (blocks.length === 0) {
+    return (
+      <>
+        <HealthBanner health={health} />
+        <p className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
+          No qblocks yet
+        </p>
+      </>
+    );
+  }
   const hasMoreInMemory = pageSize < matched.length;
   const canFetchOlder = !query && !serverExhausted && blocks.length >= LIVE_WINDOW;
   const canLoadMore = hasMoreInMemory || canFetchOlder;
@@ -168,14 +203,67 @@ export function RecentBlocksTable({
           <table className="w-full font-accent text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-ink-subtle">
-                <th className="pb-2 pr-4">Block</th>
-                <th className="pb-2 pr-4">QBlock#</th>
-                <th className="pb-2 pr-4">Winner</th>
-                <th className="pb-2 pr-4 text-right">Energy</th>
-                <th className="pb-2 pr-4 text-right">Target Energy</th>
-                <th className="pb-2 pr-4 text-right">Time to QBlock</th>
-                <th className="pb-2 pr-4 text-right">Reward</th>
-                <th className="pb-2 text-right">When</th>
+                <SortableHeaderCell
+                  label="Block"
+                  column="block"
+                  sort={sort}
+                  onClick={onSort}
+                  className="pb-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="QBlock#"
+                  column="qblock"
+                  sort={sort}
+                  onClick={onSort}
+                  className="pb-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Winner"
+                  column="winner"
+                  sort={sort}
+                  onClick={onSort}
+                  className="pb-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Energy"
+                  column="energy"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="pb-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Target Energy"
+                  column="targetEnergy"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="pb-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Time to QBlock"
+                  column="miningTime"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="pb-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Reward"
+                  column="reward"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="pb-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="When"
+                  column="when"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="pb-2"
+                />
               </tr>
             </thead>
             <tbody>

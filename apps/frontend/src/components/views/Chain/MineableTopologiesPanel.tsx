@@ -2,7 +2,27 @@
 
 import { formatNumber } from "@/lib/format";
 import { formatEnergy, shortAddress } from "@/lib/format-chain";
+import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
+import { useTableSort, type SortAccessors } from "@/lib/table-sort";
 import { useTelemetryStore } from "@/store/telemetry-store";
+import type { MineableTopologyRecord } from "@quip/shared/telemetry";
+
+type TopologySortColumn =
+  | "topology"
+  | "difficultyEnergy"
+  | "minDiversity"
+  | "minSolutions"
+  | "nodes"
+  | "edges";
+
+const SORT_ACCESSORS: SortAccessors<MineableTopologyRecord, TopologySortColumn> = {
+  topology: (t) => t.topologyHash,
+  difficultyEnergy: (t) => t.difficultyEnergy,
+  minDiversity: (t) => t.minDiversity,
+  minSolutions: (t) => t.minSolutions,
+  nodes: (t) => t.nodeCount,
+  edges: (t) => t.edgeCount,
+};
 
 /**
  * Per-topology difficulty for the chain's mineable whitelist. v0.2 keys
@@ -15,6 +35,9 @@ import { useTelemetryStore } from "@/store/telemetry-store";
  */
 export function MineableTopologiesPanel() {
   const topologies = useTelemetryStore((s) => s.mineableTopologies);
+  // Natural order (chain whitelist, default topology flagged inline) until a
+  // header is clicked.
+  const { sorted, sort, onSort } = useTableSort(topologies, SORT_ACCESSORS, null);
   if (topologies.length === 0) return null;
   return (
     <details className="mt-6 border border-border bg-white px-4 py-3" open>
@@ -25,16 +48,52 @@ export function MineableTopologiesPanel() {
         <table className="w-full font-mono text-xs text-ink-strong">
           <thead>
             <tr className="text-left font-accent text-ink-subtle">
-              <th className="py-1 pr-4">Topology</th>
-              <th className="py-1 pr-4">Difficulty Energy</th>
-              <th className="py-1 pr-4">Min Diversity</th>
-              <th className="py-1 pr-4">Min Solutions</th>
-              <th className="py-1 pr-4">Nodes</th>
-              <th className="py-1 pr-4">Edges</th>
+              <SortableHeaderCell
+                label="Topology"
+                column="topology"
+                sort={sort}
+                onClick={onSort}
+                className="py-1 pr-4"
+              />
+              <SortableHeaderCell
+                label="Difficulty Energy"
+                column="difficultyEnergy"
+                sort={sort}
+                onClick={onSort}
+                className="py-1 pr-4"
+              />
+              <SortableHeaderCell
+                label="Min Diversity"
+                column="minDiversity"
+                sort={sort}
+                onClick={onSort}
+                className="py-1 pr-4"
+              />
+              <SortableHeaderCell
+                label="Min Solutions"
+                column="minSolutions"
+                sort={sort}
+                onClick={onSort}
+                className="py-1 pr-4"
+              />
+              <SortableHeaderCell
+                label="Nodes"
+                column="nodes"
+                sort={sort}
+                onClick={onSort}
+                className="py-1 pr-4"
+              />
+              <SortableHeaderCell
+                label="Edges"
+                column="edges"
+                sort={sort}
+                onClick={onSort}
+                className="py-1 pr-4"
+              />
             </tr>
           </thead>
           <tbody>
-            {topologies.map((t) => (
+            {sorted.map((t) => (
               <tr key={t.topologyHash} className="border-t border-border">
                 <td className="py-1 pr-4">
                   {shortAddress(t.topologyHash)}
