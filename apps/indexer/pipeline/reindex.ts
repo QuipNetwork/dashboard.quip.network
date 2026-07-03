@@ -50,7 +50,10 @@ export async function runReindex(
 }
 
 /** One line per registered indexable — the --list-indexables output. */
-export async function formatIndexables(db: DatabaseAdapter, registry: Indexable[]): Promise<string> {
+export async function formatIndexables(
+  db: DatabaseAdapter,
+  registry: Indexable[],
+): Promise<string> {
   const lines: string[] = [];
   for (const p of registry) {
     if (isBlockIndexable(p)) {
@@ -71,7 +74,9 @@ export async function formatIndexables(db: DatabaseAdapter, registry: Indexable[
           summary = "coverage: (malformed — will re-walk)";
         }
       }
-      lines.push(`block     ${p.name.padEnd(18)} domain=${p.domain.padEnd(13)} gen=${gen} ${summary}`);
+      lines.push(
+        `block     ${p.name.padEnd(18)} domain=${p.domain.padEnd(13)} gen=${gen} ${summary}`,
+      );
     } else {
       lines.push(`snapshot  ${p.name.padEnd(18)} driver=${p.driver ?? "scheduler"}`);
     }

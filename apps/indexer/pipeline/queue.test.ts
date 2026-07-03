@@ -21,7 +21,8 @@ function makeQueue(opts: { lastEventAtMs?: number | null; rate?: number } = {}):
 
 function pullBlock(q: QueueCore, now: number): number {
   const r = q.tryPull(now);
-  if (r === "empty" || !("block" in (r as WorkItem))) throw new Error(`expected item, got ${JSON.stringify(r)}`);
+  if (r === "empty" || !("block" in (r as WorkItem)))
+    throw new Error(`expected item, got ${JSON.stringify(r)}`);
   return (r as WorkItem).block;
 }
 

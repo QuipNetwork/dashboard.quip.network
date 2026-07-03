@@ -140,7 +140,17 @@ async function makeRig(
     rng: () => 0.5,
   });
   const sub = dispatcher.stream().subscribe({ error: () => {} });
-  return { db, state, queue, wake$, walker, store, dispatcher, reconciler, stop: () => sub.unsubscribe() };
+  return {
+    db,
+    state,
+    queue,
+    wake$,
+    walker,
+    store,
+    dispatcher,
+    reconciler,
+    stop: () => sub.unsubscribe(),
+  };
 }
 
 async function settle(rig: Rig, ms = 300): Promise<void> {
@@ -166,12 +176,14 @@ describe("dispatcher end-to-end (boot reconcile → converged coverage)", () => 
       await settle(rig, 3_000);
 
       // Rows: 2 winner blocks, 2 difficulty rows, 11 authorship blocks.
-      expect((await db.getRecentBlocks(50)).map((b) => b.substrateBlockNumber).sort()).toEqual(
-        ["103", "108"],
-      );
-      expect((await db.getRecentDifficulty(50)).map((r) => r.observedAtBlock).sort()).toEqual(
-        ["103", "108"],
-      );
+      expect((await db.getRecentBlocks(50)).map((b) => b.substrateBlockNumber).sort()).toEqual([
+        "103",
+        "108",
+      ]);
+      expect((await db.getRecentDifficulty(50)).map((r) => r.observedAtBlock).sort()).toEqual([
+        "103",
+        "108",
+      ]);
       // authorship.startBlock() = 0 and the fake chain synthesizes events
       // for every height, so the dense walk reaches genesis: blocks 0..HEAD.
       const [author] = await db.getValidatorAuthorship();

@@ -109,15 +109,15 @@ Scale today: ~527k substrate blocks, ~3.8k winner blocks. Average win interval:
 
 New directory `apps/indexer/pipeline/`:
 
-| file | contents |
-|---|---|
-| `coverage.ts` | pure interval algebra: coverage value type, union/subtract, item- and range-completion folds, invariants |
-| `plugin.ts` | L3 interfaces **including `BlockContext`**, `buildRegistry(cfg)` |
-| `queue.ts` | `QueueCore` — pure, clock-injected priority queue (tip bucket + two backfill lanes) |
-| `producers.ts` | `TipEnqueuer`, `BackfillWalker`, `Reconciler` (L1 `ConnectionStream`s) |
-| `dispatch.ts` | queue driver + `DispatcherStream`, coverage flusher (L2); imports `BlockContext` from `plugin.ts` |
-| `snapshots.ts` | snapshot scheduler `ConnectionStream` (generalizes `PollScheduler`) |
-| `plugins/*.ts` | one file per indexable (L3) |
+| file           | contents                                                                                                 |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| `coverage.ts`  | pure interval algebra: coverage value type, union/subtract, item- and range-completion folds, invariants |
+| `plugin.ts`    | L3 interfaces **including `BlockContext`**, `buildRegistry(cfg)`                                         |
+| `queue.ts`     | `QueueCore` — pure, clock-injected priority queue (tip bucket + two backfill lanes)                      |
+| `producers.ts` | `TipEnqueuer`, `BackfillWalker`, `Reconciler` (L1 `ConnectionStream`s)                                   |
+| `dispatch.ts`  | queue driver + `DispatcherStream`, coverage flusher (L2); imports `BlockContext` from `plugin.ts`        |
+| `snapshots.ts` | snapshot scheduler `ConnectionStream` (generalizes `PollScheduler`)                                      |
+| `plugins/*.ts` | one file per indexable (L3)                                                                              |
 
 Deleted: `substrate/backfill.ts` (logic absorbed into the reconciler cross-check),
 `substrate/backfill-topology.ts` (replaced by per-block topology stamping in the `winners`
@@ -187,9 +187,9 @@ export type BlockDomain = "every-block" | "winner-blocks";
 export interface BlockContext {
   readonly number: number;
   readonly source: "tip" | "backfill";
-  readonly events: BlockEvents;                        // one processFinalizedBlock() call
-  readonly qblock: () => Promise<QBlockInfo | null>;   // memoized
-  readonly lastProofBlockAtParent: () => Promise<number>;   // memoized
+  readonly events: BlockEvents; // one processFinalizedBlock() call
+  readonly qblock: () => Promise<QBlockInfo | null>; // memoized
+  readonly lastProofBlockAtParent: () => Promise<number>; // memoized
   readonly defaultTopologyAt: () => Promise<string | null>; // memoized; §6, §8
   /** Current topology node/edge counts, primed once per connection with a
    *  {nodeCount: 0, edgeCount: 0} fallback — exactly today's prime()
@@ -198,7 +198,7 @@ export interface BlockContext {
 }
 
 export interface BlockIndexable {
-  readonly name: string;                    // meta-key suffix, --reindex target
+  readonly name: string; // meta-key suffix, --reindex target
   readonly kind: "block";
   readonly domain: BlockDomain;
   /** Genesis floor for this indexable (usually 0). Called once per connection. */
@@ -211,7 +211,7 @@ export interface BlockIndexable {
 
 export interface SnapshotIndexable {
   readonly name: string;
-  readonly kind: "snapshot";                // R9: current-state, no history
+  readonly kind: "snapshot"; // R9: current-state, no history
   /** Which loop drives poll(). "scheduler" (default) = SnapshotScheduler timer;
    *  "tip-worker" = descriptor-only entry, driven by the fatal TipWorker (§4.1). */
   readonly driver?: "scheduler" | "tip-worker";
@@ -252,16 +252,16 @@ documented no-op — tip data re-accumulates from the live miner, and `resetMini
 
 ### Registry mapping (every existing indexable)
 
-| plugin | kind / domain | ports logic from | notes |
-|---|---|---|---|
-| `winners` | block / winner-blocks | `blocks.ts` enrich + `insertBlock` (`blocks.ts:88-94,243-244`) | `topologyHash` from `ctx.defaultTopologyAt()` per block — replaces both `state.defaultTopologyHash` live stamping for backfill and the one-shot `backfill-topology.ts`; `num_nodes`/`num_edges` from `ctx.topology()`; pre-v0.2 difficulty triple = `ZERO_DIFFICULTY` (§10.2) |
-| `difficulty` | block / winner-blocks | `blocks.ts` difficulty scan → row-per-winner-block | writes `difficulty_history` rows with `source = 'block'` (§9.3, §10) |
-| `authorship` | block / every-block | `blocks.ts` authorship branch | row-per-(validator, block) insert into new table; §9 |
-| `chain-state` | snapshot | `polls.ts` `pollChainState` (`polls.ts:109-150`) | miners + mineable topologies; MUST keep publishing `state.defaultTopologyHash` every poll (`polls.ts:173`) — `ctx.defaultTopologyAt()`'s tip fallback depends on it |
-| `babe-epoch` | snapshot | `polls.ts` `pollBabeEpoch` (`polls.ts:55-59`) | unchanged body |
-| `difficulty-current` | snapshot | `polls.ts` `pollDifficulty` (`polls.ts:81-91`) | keeps writing tip snapshots, now with `source = 'poll'`; coexists with the `difficulty` block plugin (§10.4); `dropState` is a documented no-op (§8) |
-| `node-descriptors` | snapshot | `descriptor/iteration.ts` `scanHead` | keeps `DESCRIPTOR_CHECKPOINT_KEY` monotonic checkpoint (`kysely-adapter.ts:698-702`) |
-| `miner-local` (self miner stats, heartbeat, submissions) | snapshot, driver `tip-worker` | `tip/` | descriptor-only entry; driven by the fatal `TipWorker` (§4.1) |
+| plugin                                                   | kind / domain                 | ports logic from                                               | notes                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `winners`                                                | block / winner-blocks         | `blocks.ts` enrich + `insertBlock` (`blocks.ts:88-94,243-244`) | `topologyHash` from `ctx.defaultTopologyAt()` per block — replaces both `state.defaultTopologyHash` live stamping for backfill and the one-shot `backfill-topology.ts`; `num_nodes`/`num_edges` from `ctx.topology()`; pre-v0.2 difficulty triple = `ZERO_DIFFICULTY` (§10.2) |
+| `difficulty`                                             | block / winner-blocks         | `blocks.ts` difficulty scan → row-per-winner-block             | writes `difficulty_history` rows with `source = 'block'` (§9.3, §10)                                                                                                                                                                                                          |
+| `authorship`                                             | block / every-block           | `blocks.ts` authorship branch                                  | row-per-(validator, block) insert into new table; §9                                                                                                                                                                                                                          |
+| `chain-state`                                            | snapshot                      | `polls.ts` `pollChainState` (`polls.ts:109-150`)               | miners + mineable topologies; MUST keep publishing `state.defaultTopologyHash` every poll (`polls.ts:173`) — `ctx.defaultTopologyAt()`'s tip fallback depends on it                                                                                                           |
+| `babe-epoch`                                             | snapshot                      | `polls.ts` `pollBabeEpoch` (`polls.ts:55-59`)                  | unchanged body                                                                                                                                                                                                                                                                |
+| `difficulty-current`                                     | snapshot                      | `polls.ts` `pollDifficulty` (`polls.ts:81-91`)                 | keeps writing tip snapshots, now with `source = 'poll'`; coexists with the `difficulty` block plugin (§10.4); `dropState` is a documented no-op (§8)                                                                                                                          |
+| `node-descriptors`                                       | snapshot                      | `descriptor/iteration.ts` `scanHead`                           | keeps `DESCRIPTOR_CHECKPOINT_KEY` monotonic checkpoint (`kysely-adapter.ts:698-702`)                                                                                                                                                                                          |
+| `miner-local` (self miner stats, heartbeat, submissions) | snapshot, driver `tip-worker` | `tip/`                                                         | descriptor-only entry; driven by the fatal `TipWorker` (§4.1)                                                                                                                                                                                                                 |
 
 Existing `exhaustMap` cadences (`polls.ts:43-52`, `descriptor/worker.ts:159-160`) become each
 snapshot plugin's `intervalSec`.
@@ -271,12 +271,12 @@ snapshot plugin's `intervalSec`.
 ### Work items and QueueCore (`pipeline/queue.ts`)
 
 ```ts
-type BackfillLane = "W" | "D";   // W = winner enumeration, D = dense walk
+type BackfillLane = "W" | "D"; // W = winner enumeration, D = dense walk
 
 interface WorkItem {
   readonly block: number;
-  source: "tip" | "backfill";    // promotion may upgrade backfill → tip (below)
-  lane: BackfillLane | null;     // null for tip items
+  source: "tip" | "backfill"; // promotion may upgrade backfill → tip (below)
+  lane: BackfillLane | null; // null for tip items
   /** Plugins that still need this block, pre-computed by the producer (never
    *  re-derived per plugin per block in the dispatcher). */
   pending: Set<string>;
@@ -324,17 +324,17 @@ tip-quiet — retry then); or `"empty"`. A thin driver observable in `dispatch.t
 tested core is the shipped core:
 
 ```ts
-const wake$ = new Subject<void>();        // producers: queue.enqueue(item); wake$.next()
+const wake$ = new Subject<void>(); // producers: queue.enqueue(item); wake$.next()
 const item$ = wake$.pipe(
   startWith(undefined),
-  switchMap(() => drain()),               // pull until "empty", honoring retryAtMs
+  switchMap(() => drain()), // pull until "empty", honoring retryAtMs
 );
 // drain(): tryPull(now) → WorkItem  → emit, pull again
 //                       → {retryAtMs} → timer(retryAtMs − now), pull again
 //                       → "empty"     → complete (sleep until next wake$)
 const [tip$, backfill$] = partition(item$, (i) => i.source === "tip");
 merge(
-  tip$.pipe(concatMap(process)),                          // strict order at the tip
+  tip$.pipe(concatMap(process)), // strict order at the tip
   backfill$.pipe(mergeMap(process, backfillConcurrency)), // = 4, order-free (§6)
 );
 ```
@@ -466,8 +466,16 @@ Per block plugin, two rows in the existing `meta` KV table (R7's cursor idiom; `
 - `indexer.coverage.<name>` — JSON:
 
 ```json
-{ "v": 1, "gen": 1, "start": 0, "low": 481203, "high": 527441,
-  "gaps": [[490000, 490000]], "prunedFloor": null, "updatedAt": "2026-07-02T…" }
+{
+  "v": 1,
+  "gen": 1,
+  "start": 0,
+  "low": 481203,
+  "high": 527441,
+  "gaps": [[490000, 490000]],
+  "prunedFloor": null,
+  "updatedAt": "2026-07-02T…"
+}
 ```
 
 Covered set = `[low, high] \ gaps`. A block enters the covered set in exactly two ways, both
@@ -496,7 +504,7 @@ every coverage flush goes through a new adapter method
 `indexer.generation.<name>` still equals the stamped `gen`. A stale in-flight flush from
 pre-drop work can therefore never resurrect dropped coverage.
 
-**Boot + periodic reconciliation**: the boot algorithm *is* the reconciler's leading tick; the
+**Boot + periodic reconciliation**: the boot algorithm _is_ the reconciler's leading tick; the
 periodic tick re-runs it forever (R3).
 
 **`--once`** (existing flag, `core/config.ts:124,156`) — the full exit path, stated as the
@@ -514,7 +522,7 @@ deliberate lifecycle change it is:
   `ChainHeadWriter`);
 - `SubstrateWorker.run()` treats the resulting clean stream completion as terminal — no code
   change needed: `retry({delay})` only intercepts errors, and `firstValueFrom(run$ …
-  defaultIfEmpty)` resolves on completion (`worker.ts:110-115`).
+defaultIfEmpty)` resolves on completion (`worker.ts:110-115`).
 
 Process exit still additionally requires the tip worker's own `--once` single iteration to
 complete (`tip/worker.ts:53-56`); `runWorkers` returns when all workers settle
@@ -534,15 +542,15 @@ today (`polls.ts:150-185`), and `node-descriptors` keeps its existing monotonic
   1. increment `indexer.generation.<name>`;
   2. `setMeta("indexer.coverage.<name>", null)` — delete coverage;
   3. `plugin.dropState(db)` — delete its rows.
-  The order is deliberate crash-safety: a crash between any two steps leaves at worst **extra
-  rows with no coverage claiming them** — harmless, because the idempotent re-walk overwrites
-  them. (The reverse order — rows dropped first — would on crash leave coverage claiming rows
-  that no longer exist, a silently-covered permanent gap.) Then run normally: the boot reconcile
-  sees empty coverage and re-walks from `startBlock()` to head (R4). For winner-domain plugins
-  "re-walk from genesis" means from the earliest block present in the `qBlocks` map — if the
-  v0.2 storage rename (`WinningSolutions` → `QBlocks`, `index.ts:526-529`) did not migrate
-  pre-upgrade entries, that is the v0.2 upgrade block, and step 0 (§15) measures which it is.
-  Per-plugin `dropState` scope:
+     The order is deliberate crash-safety: a crash between any two steps leaves at worst **extra
+     rows with no coverage claiming them** — harmless, because the idempotent re-walk overwrites
+     them. (The reverse order — rows dropped first — would on crash leave coverage claiming rows
+     that no longer exist, a silently-covered permanent gap.) Then run normally: the boot reconcile
+     sees empty coverage and re-walks from `startBlock()` to head (R4). For winner-domain plugins
+     "re-walk from genesis" means from the earliest block present in the `qBlocks` map — if the
+     v0.2 storage rename (`WinningSolutions` → `QBlocks`, `index.ts:526-529`) did not migrate
+     pre-upgrade entries, that is the v0.2 upgrade block, and step 0 (§15) measures which it is.
+     Per-plugin `dropState` scope:
   - `winners`: delete `blocks` rows.
   - `difficulty`: delete `difficulty_history` rows `WHERE source = 'block'` **only** (§9.3).
     Poll-snapshot rows — including the pre-v0.2 era's only difficulty data — are never dropped;
@@ -555,7 +563,7 @@ today (`polls.ts:150-185`), and `node-descriptors` keeps its existing monotonic
     arbitrary head heights with wall-clock times) and the next poll writes forward regardless,
     so deletion serves no reindex purpose.
   - `miner-local`: documented no-op (§4.1).
-  `--reindex` on a scheduler-driven snapshot plugin runs `dropState` only (next poll refills).
+    `--reindex` on a scheduler-driven snapshot plugin runs `dropState` only (next poll refills).
 - **`--list-indexables`** — print the registry: each plugin's name, kind, domain, driver, and
   for block plugins the parsed coverage row (`low`/`high`/gap count/`prunedFloor`/`gen`), then
   exit. Operator affordance pairing with `--reindex`.
@@ -568,7 +576,7 @@ failure mode already documented at `index.ts:800-801`) to a typed `StatePrunedEr
 are classified in two tiers:
 
 - **Tier 1 — pruning-immune reads**: `getQBlockNumbers()`/paged key enumeration and
-  `getQBlock()` are storage/runtime reads at the *current* head (`index.ts:451-457,524-534`);
+  `getQBlock()` are storage/runtime reads at the _current_ head (`index.ts:451-457,524-534`);
   they work at any depth. Block hashes and headers survive pruning.
 - **Tier 2 — depth-sensitive reads**: historical state at an old block hash —
   `processFinalizedBlock`/`decodeFinalizedBlock` (which perform `timestamp.now.at(blockHash)`
@@ -685,6 +693,7 @@ One migration: `packages/core/migrations/0005_unified_indexer.ts`.
      over the new table per telemetry snapshot rebuild (1s TTL,
      `apps/server/routes/telemetry.ts:36,95`) — served by `idx_vab_validator_winner`, bounded,
      and only until cutover.
+
    - **Cutover**: the reconciler sets the meta key `indexer.authorship.cutover` when **all** of:
      the `authorship` coverage has `gaps = ∅`; `low ≤ max(startBlock, prunedFloor)`;
      `high ≥` the head fetched via RPC at the check (§5); and, per validator present in the old
@@ -715,6 +724,7 @@ One migration: `packages/core/migrations/0005_unified_indexer.ts`.
      The full aggregate satisfies the R10 shape (`adapter.ts:305-313`): `count(*)` →
      `blocksAuthored`, `count(*) filter (where had_winner)` → `blocksAuthoredWithPow`,
      `max(block_number)` → `lastAuthoredBlock`, its timestamp → `lastAuthoredAt`.
+
    - The previously planned migration 0006 (drop the old table) is **cancelled**: the table's
      existing schema is exactly the summary shape, so the repurpose needs no second migration.
      The recompute is a derived-cache refresh, not a dual-write shim — there is still exactly
@@ -733,7 +743,7 @@ One migration: `packages/core/migrations/0005_unified_indexer.ts`.
    `difficulty-current` poll keeps today's `ON CONFLICT (observed_at_block) DO NOTHING`
    (`kysely-adapter.ts:502`); the `difficulty` block plugin writes with **block-wins
    precedence** — `ON CONFLICT (observed_at_block) DO UPDATE SET difficulty_energy = …,
-   observed_at = …, source = 'block' WHERE difficulty_history.source = 'poll'`. A poll row can
+observed_at = …, source = 'block' WHERE difficulty_history.source = 'poll'`. A poll row can
    land at a winner number (the poll stamps the finalized head, `polls.ts:84`, and difficulty
    changes exactly at winner retargets — plus every pre-migration row backfills as `'poll'`),
    and without precedence such a row would permanently block the `source = 'block'` insert:
@@ -785,6 +795,7 @@ it does **not** make the walk pruning-immune; see §8 and item 6 below.)
    `difficultyDataStartBlock = 394,362`, the winner walk and R4's "genesis" for winner-domain
    plugins start there, expected lane-W volume ≈ 3.9k blocks, and `prunedFloor` is expected to
    rest at the walk start on this deployment.
+
 3. **Two series, one table — the semantics stated explicitly.** The block-derived series is the
    **mined-against** difficulty: each winner row records the difficulty the win was solved
    against (`sol.difficulty` from the qblock), i.e. the pre-retarget value, timestamped at the
@@ -887,11 +898,11 @@ Honest accounting — `processFinalizedBlock` is not one RPC, and `api.derive.ch
 fans out internally (block body + events-at-hash + session/validators-at-hash for author
 resolution ≈ 3 calls). Per-block sub-RPC budget:
 
-| item | sub-RPCs |
-|---|---|
-| any block (`BlockContext.events`): `getBlockHash` + `getHeader` + derive fan-out (~3) + `timestamp.now.at` | ~6 |
+| item                                                                                                                                                                                    | sub-RPCs               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| any block (`BlockContext.events`): `getBlockHash` + `getHeader` + derive fan-out (~3) + `timestamp.now.at`                                                                              | ~6                     |
 | winner block extras: nonce `getQBlock` inside the decode (`index.ts:625`) + memoized `ctx.qblock()` + `lastProofBlockAtParent` + amortized `defaultTopologyAt` (`getBlockHash` + `.at`) | +3–4 → **~9–10 total** |
-| non-winner block (authorship only; winner plugins already range-covered) | ~6 total |
+| non-winner block (authorship only; winner plugins already range-covered)                                                                                                                | ~6 total               |
 
 At `backfillBlocksPerSec = 5` **per lane** (flag + env per `config.ts:115` pattern):
 
@@ -983,71 +994,71 @@ Integration:
    `state_getRuntimeVersion(at hash)` for the spec-version transition (archive node, ~20
    probes). Record the reachable winner depth and the expected `difficultyDataStartBlock` in
    the deploy notes; this fixes the real meaning of R4's "re-walk from genesis" for
-   winner-domain plugins (§8, §10.2) and the expected "All Time" range start. *Gate: numbers
-   recorded; §10.2 expectations confirmed or corrected before step 4.*
+   winner-domain plugins (§8, §10.2) and the expected "All Time" range start. _Gate: numbers
+   recorded; §10.2 expectations confirmed or corrected before step 4._
 1. `pipeline/coverage.ts` (item + range completion) + property tests, including winner-domain
-   convergence. *Gate: fast-check suite green.*
+   convergence. _Gate: fast-check suite green._
 2. `pipeline/plugin.ts` interfaces — including `BlockContext` (§4) — + `buildRegistry`
-   skeleton. *Gate: typecheck.* (Self-contained: steps 2 and 4 no longer depend on
+   skeleton. _Gate: typecheck._ (Self-contained: steps 2 and 4 no longer depend on
    `dispatch.ts`.)
 3. Migration `0005` + adapter changes: `validator_authorship_blocks` insert behind the
    unchanged `recordValidatorAuthorship` signature; the authorship union read, cutover check,
    and summary recompute; `difficulty_history.source` column + record plumbing;
-   `setCoverageIfGeneration`; `getDifficultyAnchorBefore`. *Gate: pglite migration + adapter
-   tests, including run-twice-one-row, union/cutover, and source-scoped delete.*
+   `setCoverageIfGeneration`; `getDifficultyAnchorBefore`. _Gate: pglite migration + adapter
+   tests, including run-twice-one-row, union/cutover, and source-scoped delete._
 4. Port logic into plugins (`winners`, `difficulty`, `authorship`, four scheduler snapshots +
    the `miner-local` descriptor entry) — bodies are moves from
-   `blocks.ts`/`polls.ts`/`descriptor/iteration.ts`, not rewrites. *Gate: pglite plugin tests
+   `blocks.ts`/`polls.ts`/`descriptor/iteration.ts`, not rewrites. _Gate: pglite plugin tests
    prove rows byte-identical to the ones the old paths write for the same **post-v0.2**
    inputs; for pre-v0.2 winner inputs (whose old-path values were order- and seed-dependent),
    assert the decided values instead — `ZERO_DIFFICULTY` blocks-row triple, no
-   `difficulty_history` row (§10.2).*
+   `difficulty_history` row (§10.2)._
 5. `queue.ts` (lanes, promotion), driver, `producers.ts` (walker range-completion tracking,
    reconciler head fetch via the new ports method), `dispatch.ts` + unit/integration tests.
-   *Gate: tip preemption, lane ordering, promotion, isolation, crash-replay, and
-   range-completion convergence tests green.*
+   _Gate: tip preemption, lane ordering, promotion, isolation, crash-replay, and
+   range-completion convergence tests green._
 6. `StatePrunedError` mapping + `getDefaultTopologyAt` pruned-vs-absent contract change +
    paged key enumeration (`keysPaged`) in the substrate client + `FakeSubstrateClient`
-   extensions + R5 tests (including the boundary `lastProofBlockAtParent` case). *Gate:
-   two-tier degradation tests green.*
+   extensions + R5 tests (including the boundary `lastProofBlockAtParent` case). _Gate:
+   two-tier degradation tests green._
 7. Swap `SubstrateWorker.connection()` stream list + the `--once` `takeUntil(done$)` (§3, §7);
    rewire `main.ts` to `[tip, substrate]`; delete `blocks.ts`, `backfill.ts`,
    `backfill-topology.ts`, `descriptor/worker.ts` and the `runTopologyBackfill` hook
-   (`main.ts:180-182`). *Gate: worker reconnect tests + full indexer test suite green.*
+   (`main.ts:180-182`). _Gate: worker reconnect tests + full indexer test suite green._
 8. **R10 certification**: server contract/snapshot tests over pre-redesign `/api/telemetry`
-   fixtures (§12), including the authorship union shape. *Gate: fixtures validate; this gate
-   blocks merging the step-7 swap.*
+   fixtures (§12), including the authorship union shape. _Gate: fixtures validate; this gate
+   blocks merging the step-7 swap._
 9. `--reindex` (generation-first order, §8), `--list-indexables` flags + generation plumbing.
-   *Gate: reindex e2e test (generation bump → coverage clear → drop → re-walk → identical
+   _Gate: reindex e2e test (generation bump → coverage clear → drop → re-walk → identical
    rows) plus a crash-between-steps test (kill after coverage clear, before dropState → rerun
-   heals via idempotent re-walk).*
+   heals via idempotent re-walk)._
 10. Observability fields + `parseIndexerObservability` extension + parse tests + server
     `indexer` telemetry field (additive) + `getDifficultyAnchorBefore` wired into the task-#24
-    endpoint contract (§10.5). *Gate: R10 tests still green with the new field present; parse
-    round-trip green.*
-11. End-to-end `--once` run (§14). *Gate: clean exit with full coverage — winner-domain
-    included — on the seeded chain.*
+    endpoint contract (§10.5). _Gate: R10 tests still green with the new field present; parse
+    round-trip green._
+11. End-to-end `--once` run (§14). _Gate: clean exit with full coverage — winner-domain
+    included — on the seeded chain._
 
 R10 holds throughout: steps 3–5 prove row-compatibility before step 7 changes any behavior, and
 step 8 is a hard gate on the swap.
 
 ## 16. Risks & mitigations
 
-| risk | mitigation |
-|---|---|
-| Coverage ledger drifts from actual rows (bug, manual DB surgery) | per-plugin DB-truth checks at boot + hourly: winners exact diff (paged keys vs `blocks` rows), difficulty exact diff (winner numbers vs `source='block'` rows, pre-v0.2 excluded), authorship chunk sampling with re-enqueue + suppression (§5) |
-| Crash between row write and coverage flush | all writes idempotent (incl. authorship after §9); ≤100-block replay is a no-op |
-| Stale in-flight coverage write after `--reindex` from another process | generation stamp + `setCoverageIfGeneration` conditional write (§7) |
-| Crash mid-`--reindex` | generation + coverage cleared **before** dropState; a crash leaves only extra uncovered rows, healed by the idempotent re-walk (§8) |
-| Authorship values freeze or regress mid-rollout | per-validator union read (GREATEST of old counter / new count) during the walk; cutover gated on `newCount ≥ oldCount` per validator + zero gaps + head reached; post-cutover summary cache recomputed transactionally (§9.2) |
-| Authorship read cost grows with the new table | summary cache keeps `/api/telemetry` reads O(#validators); covering + block indexes bound the recompute and sample checks; growth budget stated (~5.3M rows/yr) (§9) |
-| Backfill starves tip handling on the shared socket | structural queue priority + per-lane token buckets with tip exemption + 750ms tip-quiet gate + tip promotion rule (§5) |
-| Pruned node halts backfill or corrupts coverage | per-plugin `prunedFloor`; never marked covered when unindexed; boundary enrichments degrade in place (topology null, miningTime 0); boot re-probe deepens history on archive rotation. Honest limit: all three block plugins floor at the same depth — the qblock-only fallback below the floor is documented but deferred (§8) |
-| Pre-v0.2 difficulty fallback bakes wrong values under unordered walk | skipped entirely in `difficulty_history`; blocks rows get the stated `ZERO_DIFFICULTY` sentinel; range start measured in step 0 and reported (§10.2, §15) |
-| Winner-derived series misread as live difficulty | semantics stated: mined-against values, ~14-min average lag, intra-win changes visible only in the live-polled era; `source` column separates the series (§10.3–4) |
-| Short range-selector windows render empty | window-anchor row from `getDifficultyAnchorBefore` in the task-#24 endpoint (§10.5) |
-| One poisoned block wedges a plugin | per-plugin catch → own gap list (also inside range-completed chunks); siblings advance; drift log keeps it visible; poisoned gaps block authorship cutover rather than undercounting (§6, §9.2) |
-| One-pass rewrite breaks the working live indexer | `SubstrateWorker.run()` kept verbatim; swap confined to `connection()` stream contents plus the stated `--once` `takeUntil`; plugin bodies are moves; step-8 contract gate before the swap merges (§3, §15) |
-| Reconciler cost grows with total winner count | enumeration is paged keys only, at boot + hourly; 15-minute ticks run the RPC-free solver; cost band stated (§5, §13) |
-| Concept count (queue + lanes + coverage + producers) burdens future maintainers | each piece is a small pure class with its own test file; `--list-indexables` and the observability field expose runtime state; this spec is the map |
-| Dense walk load on shared validators | 5 blk/s per lane (~30 RPC/s dense steady-state, ~45–50 RPC/s for the ~13-minute lane-W drain, ≤~80 RPC/s combined peak), config knobs, tip-quiet gate (§13) |
+| risk                                                                            | mitigation                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Coverage ledger drifts from actual rows (bug, manual DB surgery)                | per-plugin DB-truth checks at boot + hourly: winners exact diff (paged keys vs `blocks` rows), difficulty exact diff (winner numbers vs `source='block'` rows, pre-v0.2 excluded), authorship chunk sampling with re-enqueue + suppression (§5)                                                                                 |
+| Crash between row write and coverage flush                                      | all writes idempotent (incl. authorship after §9); ≤100-block replay is a no-op                                                                                                                                                                                                                                                 |
+| Stale in-flight coverage write after `--reindex` from another process           | generation stamp + `setCoverageIfGeneration` conditional write (§7)                                                                                                                                                                                                                                                             |
+| Crash mid-`--reindex`                                                           | generation + coverage cleared **before** dropState; a crash leaves only extra uncovered rows, healed by the idempotent re-walk (§8)                                                                                                                                                                                             |
+| Authorship values freeze or regress mid-rollout                                 | per-validator union read (GREATEST of old counter / new count) during the walk; cutover gated on `newCount ≥ oldCount` per validator + zero gaps + head reached; post-cutover summary cache recomputed transactionally (§9.2)                                                                                                   |
+| Authorship read cost grows with the new table                                   | summary cache keeps `/api/telemetry` reads O(#validators); covering + block indexes bound the recompute and sample checks; growth budget stated (~5.3M rows/yr) (§9)                                                                                                                                                            |
+| Backfill starves tip handling on the shared socket                              | structural queue priority + per-lane token buckets with tip exemption + 750ms tip-quiet gate + tip promotion rule (§5)                                                                                                                                                                                                          |
+| Pruned node halts backfill or corrupts coverage                                 | per-plugin `prunedFloor`; never marked covered when unindexed; boundary enrichments degrade in place (topology null, miningTime 0); boot re-probe deepens history on archive rotation. Honest limit: all three block plugins floor at the same depth — the qblock-only fallback below the floor is documented but deferred (§8) |
+| Pre-v0.2 difficulty fallback bakes wrong values under unordered walk            | skipped entirely in `difficulty_history`; blocks rows get the stated `ZERO_DIFFICULTY` sentinel; range start measured in step 0 and reported (§10.2, §15)                                                                                                                                                                       |
+| Winner-derived series misread as live difficulty                                | semantics stated: mined-against values, ~14-min average lag, intra-win changes visible only in the live-polled era; `source` column separates the series (§10.3–4)                                                                                                                                                              |
+| Short range-selector windows render empty                                       | window-anchor row from `getDifficultyAnchorBefore` in the task-#24 endpoint (§10.5)                                                                                                                                                                                                                                             |
+| One poisoned block wedges a plugin                                              | per-plugin catch → own gap list (also inside range-completed chunks); siblings advance; drift log keeps it visible; poisoned gaps block authorship cutover rather than undercounting (§6, §9.2)                                                                                                                                 |
+| One-pass rewrite breaks the working live indexer                                | `SubstrateWorker.run()` kept verbatim; swap confined to `connection()` stream contents plus the stated `--once` `takeUntil`; plugin bodies are moves; step-8 contract gate before the swap merges (§3, §15)                                                                                                                     |
+| Reconciler cost grows with total winner count                                   | enumeration is paged keys only, at boot + hourly; 15-minute ticks run the RPC-free solver; cost band stated (§5, §13)                                                                                                                                                                                                           |
+| Concept count (queue + lanes + coverage + producers) burdens future maintainers | each piece is a small pure class with its own test file; `--list-indexables` and the observability field expose runtime state; this spec is the map                                                                                                                                                                             |
+| Dense walk load on shared validators                                            | 5 blk/s per lane (~30 RPC/s dense steady-state, ~45–50 RPC/s for the ~13-minute lane-W drain, ≤~80 RPC/s combined peak), config knobs, tip-quiet gate (§13)                                                                                                                                                                     |

@@ -122,11 +122,15 @@ describe("coverage solver — uncovered()", () => {
 
   test("isComplete(head) iff uncovered(head) is empty", () => {
     fc.assert(
-      fc.property(fc.array(arbRange, { maxLength: 10 }), fc.integer({ min: 0, max: 140 }), (ranges, head) => {
-        let cov = emptyCoverage(1, 0);
-        for (const [a, b] of ranges) cov = coverRange(cov, a, b);
-        expect(isComplete(cov, head)).toBe(uncovered(cov, head).length === 0);
-      }),
+      fc.property(
+        fc.array(arbRange, { maxLength: 10 }),
+        fc.integer({ min: 0, max: 140 }),
+        (ranges, head) => {
+          let cov = emptyCoverage(1, 0);
+          for (const [a, b] of ranges) cov = coverRange(cov, a, b);
+          expect(isComplete(cov, head)).toBe(uncovered(cov, head).length === 0);
+        },
+      ),
     );
   });
 });
@@ -163,15 +167,18 @@ describe("winner-domain convergence (spec §7 property)", () => {
 describe("prunedFloor", () => {
   test("raisePrunedFloor is a ratchet (never lowers)", () => {
     fc.assert(
-      fc.property(fc.array(fc.integer({ min: 0, max: 100 }), { minLength: 1, maxLength: 12 }), (floors) => {
-        let cov = emptyCoverage(1, 0);
-        let best = -Infinity;
-        for (const f of floors) {
-          cov = raisePrunedFloor(cov, f);
-          best = Math.max(best, f);
-          expect(cov.prunedFloor).toBe(best);
-        }
-      }),
+      fc.property(
+        fc.array(fc.integer({ min: 0, max: 100 }), { minLength: 1, maxLength: 12 }),
+        (floors) => {
+          let cov = emptyCoverage(1, 0);
+          let best = -Infinity;
+          for (const f of floors) {
+            cov = raisePrunedFloor(cov, f);
+            best = Math.max(best, f);
+            expect(cov.prunedFloor).toBe(best);
+          }
+        },
+      ),
     );
   });
 
@@ -198,7 +205,9 @@ describe("serialization", () => {
       fc.property(fc.array(arbRange, { maxLength: 10 }), (ranges) => {
         let cov = emptyCoverage(3, 7);
         for (const [a, b] of ranges) cov = coverRange(cov, a, b);
-        const parsed = parseCoverage(JSON.parse(serializeCoverage(cov, "2026-07-02T00:00:00.000Z")));
+        const parsed = parseCoverage(
+          JSON.parse(serializeCoverage(cov, "2026-07-02T00:00:00.000Z")),
+        );
         expect(parsed).not.toBeNull();
         expect(coveredSet(parsed!)).toEqual(coveredSet(cov));
         expect(parsed!.gen).toBe(3);
@@ -215,7 +224,15 @@ describe("serialization", () => {
       parseCoverage({ v: 1, gen: 1, start: 0, low: 5, high: 3, gaps: [], prunedFloor: null }),
     ).toBeNull();
     expect(
-      parseCoverage({ v: 1, gen: 1, start: 0, low: 0, high: 10, gaps: [[12, 14]], prunedFloor: null }),
+      parseCoverage({
+        v: 1,
+        gen: 1,
+        start: 0,
+        low: 0,
+        high: 10,
+        gaps: [[12, 14]],
+        prunedFloor: null,
+      }),
     ).toBeNull();
   });
 });

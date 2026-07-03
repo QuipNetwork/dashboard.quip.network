@@ -505,9 +505,7 @@ export class Reconciler implements ConnectionStream {
       this.authorshipChunkMissCounts.set(key, misses);
       if (misses > 2) {
         this.suppressedAuthorshipChunks.add(key);
-        console.warn(
-          `[indexer] authorship chunk ${key} short (authorless blocks?); suppressing`,
-        );
+        console.warn(`[indexer] authorship chunk ${key} short (authorless blocks?); suppressing`);
         continue;
       }
       clean = false;
@@ -537,9 +535,7 @@ export class Reconciler implements ConnectionStream {
         gapBlocks: cov.gaps.reduce((sum, [a, b]) => sum + (b - a + 1), 0),
         prunedFloor: cov.prunedFloor === null ? null : String(cov.prunedFloor),
         topologyEnrichmentFloor:
-          plugin.name === "winners" && enrichmentFloor !== null
-            ? String(enrichmentFloor)
-            : null,
+          plugin.name === "winners" && enrichmentFloor !== null ? String(enrichmentFloor) : null,
         generation: cov.gen,
       };
     }

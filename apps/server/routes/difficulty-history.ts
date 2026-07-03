@@ -16,10 +16,7 @@ export function registerDifficultyHistoryRoute(app: Hono, db: DatabaseAdapter): 
   app.get("/api/difficulty-history", async (c) => {
     const since = c.req.query("since");
     if (!since || Number.isNaN(Date.parse(since))) {
-      return c.json(
-        { error: "query parameter `since` must be an ISO 8601 timestamp" },
-        400,
-      );
+      return c.json({ error: "query parameter `since` must be an ISO 8601 timestamp" }, 400);
     }
     const [rows, anchor] = await Promise.all([
       db.getDifficultySince(since),

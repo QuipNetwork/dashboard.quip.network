@@ -70,8 +70,7 @@ export function winnersPlugin(): BlockIndexable {
       ]);
       // LastProofBlock is read at the PARENT hash: on_finalize updates it
       // in-block, so the parent's value is the prior tip.
-      const miningTimeBlocks =
-        lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
+      const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
       const miningTime = miningTimeBlocks * BABE_SLOT_DURATION_SEC;
       // Post-v0.2 the qblock carries the mined-against difficulty; pre-v0.2
       // winners get the stated sentinel (spec §10.2).

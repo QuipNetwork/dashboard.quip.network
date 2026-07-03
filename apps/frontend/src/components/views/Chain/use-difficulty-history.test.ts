@@ -94,9 +94,7 @@ describe("buildSeriesPoints", () => {
   });
 
   test("no data at all → empty", () => {
-    expect(
-      buildSeriesPoints({ since, anchor: null, rows: [] }, NOW),
-    ).toEqual([]);
+    expect(buildSeriesPoints({ since, anchor: null, rows: [] }, NOW)).toEqual([]);
   });
 });
 
@@ -146,7 +144,10 @@ describe("useDifficultyHistory", () => {
     const services = createTestServices({ client });
     act(() => {
       root.render(
-        createElement(ServicesProvider, { ...services, children: createElement(Probe, { r: range }) }),
+        createElement(ServicesProvider, {
+          ...services,
+          children: createElement(Probe, { r: range }),
+        }),
       );
     });
     return result;

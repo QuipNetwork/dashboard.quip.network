@@ -210,7 +210,10 @@ export class DispatcherStream implements ConnectionStream {
       // unordered completion is safe for backfill — coverage is order-free.
       tip$.pipe(concatMap((i) => from(this.process(i)))),
       backfill$.pipe(
-        mergeMap((i) => from(this.process(i)), this.deps.backfillConcurrency ?? BACKFILL_CONCURRENCY),
+        mergeMap(
+          (i) => from(this.process(i)),
+          this.deps.backfillConcurrency ?? BACKFILL_CONCURRENCY,
+        ),
       ),
       timer(flushMs, flushMs).pipe(concatMap(() => from(this.deps.store.flush()))),
     ).pipe(ignoreElements());
@@ -261,7 +264,8 @@ export class DispatcherStream implements ConnectionStream {
       // indexing what is visible beats holding history hostage to one
       // enrichment. The shallowest degraded block is reported.
       const degradeEnrichment = (n: number): void => {
-        this.enrichmentFloor = this.enrichmentFloor === null ? n : Math.max(this.enrichmentFloor, n);
+        this.enrichmentFloor =
+          this.enrichmentFloor === null ? n : Math.max(this.enrichmentFloor, n);
       };
 
       let qblockMemo: Promise<QBlockInfo | null> | null = null;
@@ -271,8 +275,7 @@ export class DispatcherStream implements ConnectionStream {
         number: block,
         source: item.source,
         events,
-        qblock: () =>
-          (qblockMemo ??= deps.client.getQBlock(String(block)).catch(() => null)),
+        qblock: () => (qblockMemo ??= deps.client.getQBlock(String(block)).catch(() => null)),
         lastProofBlockAtParent: () =>
           (lastProofMemo ??= deps.client.getLastProofBlockAt(events.parentHash).catch((err) => {
             if (err instanceof StatePrunedError) {
