@@ -123,3 +123,23 @@ describe("HttpTelemetryClient.fetchBlocks", () => {
     await expect(client.fetchBlocks(10, 0)).rejects.toThrow("HTTP 500");
   });
 });
+
+describe("HttpTelemetryClient.fetchMinerWins", () => {
+  it("requests /api/miner-wins and returns the parsed body", async () => {
+    const rows = [{ minerId: "5A", wins: 2, bestEnergy: -2, avgMiningTime: 10, lastWonAt: 1 }];
+    const { fetch, calls } = fakeFetch(() => json({ rows }));
+    const client = new HttpTelemetryClient({ fetch });
+
+    const out = await client.fetchMinerWins();
+
+    expect(calls[0]?.url).toBe("/api/miner-wins");
+    expect(out.rows).toEqual(rows);
+  });
+
+  it("throws `HTTP <status>` on a non-2xx response", async () => {
+    const { fetch } = fakeFetch(() => new Response("nope", { status: 502 }));
+    const client = new HttpTelemetryClient({ fetch });
+
+    await expect(client.fetchMinerWins()).rejects.toThrow("HTTP 502");
+  });
+});

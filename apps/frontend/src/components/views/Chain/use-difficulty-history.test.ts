@@ -120,6 +120,7 @@ describe("useDifficultyHistory", () => {
       fetchMiningAttempts: () => new Promise<never>(() => {}),
       fetchBlocks: () => new Promise<never>(() => {}),
       fetchNodeLive: () => new Promise<never>(() => {}),
+      fetchMinerWins: () => new Promise<never>(() => {}),
       fetchDifficultyHistory: async (sinceIso: string) => {
         calls.push(sinceIso);
         return {

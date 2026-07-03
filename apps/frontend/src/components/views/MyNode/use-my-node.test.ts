@@ -11,6 +11,7 @@ import type {
   DifficultyRecord,
   IndexerObservability,
   MinerStats,
+  MinerWinsRow,
 } from "@quip/shared/telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
 
@@ -97,13 +98,17 @@ function makeIndexer(overrides: Partial<IndexerObservability> = {}): IndexerObse
   };
 }
 
+function makeWins(minerId: string, count: number): MinerWinsRow {
+  return { minerId, wins: count, bestEnergy: -1, avgMiningTime: 10, lastWonAt: 1_700_000_000 };
+}
+
 // ---- Render harness ----------------------------------------------------
 
-function renderHook(): { current: MyNodeStats | null } {
+function renderHook(minerWins: MinerWinsRow[] = []): { current: MyNodeStats | null } {
   const result: { current: MyNodeStats | null } = { current: null };
 
   function Probe(): null {
-    result.current = useMyNode();
+    result.current = useMyNode(minerWins);
     return null;
   }
 
@@ -182,7 +187,10 @@ describe("useMyNode", () => {
     expect(out.current?.minerStats).toBeNull();
   });
 
-  it("returns chainMinerEntry + blocksMined from proofsWon when self is registered on-chain", () => {
+  it("blocksMined is the chain's lifetime proofs_won, even when the indexed dataset trails", () => {
+    // Chain says 7; the indexer has only decoded 5 winning blocks so far
+    // (pre-spec-108 backfill). The tile shows the chain-authoritative 7 —
+    // matching rewards and the leaderboard's ranking counter.
     const miner = makeChainMiner({ accountId: "5GAlice", proofsWon: "7" });
     useTelemetryStore.setState({
       blocks: [],
@@ -191,38 +199,39 @@ describe("useMyNode", () => {
       indexer: null,
     });
 
-    const out = renderHook();
+    const out = renderHook([makeWins("5GAlice", 5), makeWins("5GBob", 9)]);
     expect(out.current?.chainMinerEntry).toEqual(miner);
     expect(out.current?.blocksMined).toBe("7");
   });
 
-  it("blocksMined trails chain when local has fresh win not yet in chain_miners poll", () => {
-    // Indexer captured a winning block before the chain_miners poll
-    // refreshed: local count is 1 but chain_miners.proofsWon is still 0.
-    // We deliberately trail chain's authoritative count rather than max(),
-    // because the previous max() behavior over-counted on stale local DBs
-    // across chain rebuilds. The tile will catch up on the next
-    // chain_miners poll (default 6s) — small enough to prefer correctness.
-    useTelemetryStore.setState({
-      blocks: [makeBlock({ blockHash: "0xa", minerId: "5GAlice" })],
-      selfAddress: "5GAlice",
-      chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsWon: "0" })],
-      indexer: null,
-    });
-    expect(renderHook().current?.blocksMined).toBe("0");
-  });
-
-  it("blocksMined falls back to chain count when chain reports more than local", () => {
-    // Indexer just started and hasn't backfilled historical wins yet, but
-    // chain_miners.proofsWon already reflects them. Tile should show 7,
-    // not 0, even though the local blocks table is empty for self.
+  it("computes self rank and rank-adjacent neighbors from chain proofs_won", () => {
     useTelemetryStore.setState({
       blocks: [],
       selfAddress: "5GAlice",
-      chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsWon: "7" })],
+      // Ranks: 5GBig=1, 5GMid=2, 5GAlice=3, 5GSmall=4, 5GTiny=5, 5GFar=6.
+      chainMiners: [
+        makeChainMiner({ accountId: "5GBig", proofsWon: "50" }),
+        makeChainMiner({ accountId: "5GMid", proofsWon: "20" }),
+        makeChainMiner({ accountId: "5GAlice", proofsWon: "10" }),
+        makeChainMiner({ accountId: "5GSmall", proofsWon: "5" }),
+        makeChainMiner({ accountId: "5GTiny", proofsWon: "2" }),
+        makeChainMiner({ accountId: "5GFar", proofsWon: "1" }),
+      ],
       indexer: null,
     });
-    expect(renderHook().current?.blocksMined).toBe("7");
+    const out = renderHook([makeWins("5GAlice", 10)]);
+    expect(out.current?.self?.rank).toBe(3);
+    expect(out.current?.self?.blockCount).toBe(10);
+    // Metrics join: only Alice has indexed wins; others show null metrics.
+    expect(out.current?.self?.avgMiningTime).toBe(10);
+    expect(out.current?.neighbors.find((n) => n.minerId === "5GBig")?.avgMiningTime).toBeNull();
+    // ±2 ranks around self, self excluded — 5GFar (rank 6) is outside.
+    expect(out.current?.neighbors.map((n) => n.minerId)).toEqual([
+      "5GBig",
+      "5GMid",
+      "5GSmall",
+      "5GTiny",
+    ]);
   });
 
   it("ignores chainMiners rows whose accountId doesn't match self", () => {

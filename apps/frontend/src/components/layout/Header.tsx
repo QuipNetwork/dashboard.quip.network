@@ -34,9 +34,19 @@ export function Header() {
     (s) => s.chainMiners.length > 0 || s.babeAuthorities.length > 0 || s.chainHead !== null,
   );
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
+  // Operator-published rig name for the connected miner, when its on-chain
+  // descriptor has landed. Primitive selector so zustand's equality check
+  // stays cheap.
+  const selfName = useTelemetryStore(
+    (s) =>
+      (s.selfAddress
+        ? s.nodeDescriptors.find((d) => d.accountId === s.selfAddress)?.descriptor.nodeName
+        : null) ?? null,
+  );
 
   const showAggregation = viewMode === "network" || viewMode === "compute";
-  const showTypeFilters = viewMode === "network" && aggregationMode === "byType";
+  // The chips filter the per-type chart series, which live on Compute.
+  const showTypeFilters = viewMode === "compute" && aggregationMode === "byType";
 
   // Chain tab is hidden when the substrate worker is unconfigured (or
   // hasn't produced any data yet). Once any of chain_head / chainMiners
@@ -117,6 +127,7 @@ export function Header() {
             <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
               Connected Miner
             </p>
+            {selfName && <p className="font-accent text-xs text-ink-strong">{selfName}</p>}
             <p className="font-mono text-xs text-ink-strong">{shortAddress(selfAddress)}</p>
           </div>
         ) : (
@@ -124,7 +135,7 @@ export function Header() {
         )}
       </div>
 
-      {/* Secondary row: per-type filters (Network + By Type only) */}
+      {/* Secondary row: per-type filters (Compute + By Type only) */}
       {showTypeFilters && (
         <div className="mt-3 flex flex-wrap justify-center gap-2 border-t border-border pt-3 sm:justify-start">
           {TYPES.map((type) => {

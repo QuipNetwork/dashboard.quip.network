@@ -42,9 +42,16 @@ describe("Dashboard page with sample telemetry", () => {
 
   it("renders the Network view populated", () => {
     renderDashboard("network");
+    expect(container.textContent).toContain("Node Locations");
+    expect(container.textContent).toContain("On-chain miners");
+    expect(container.textContent).toContain("QPU");
+  });
+
+  it("renders the Compute view populated", () => {
+    renderDashboard("compute");
     expect(container.querySelector('[data-qa="chart-blocks-over-time"]')).not.toBeNull();
     expect(container.textContent).toContain("Mining Leaderboard");
-    expect(container.textContent).toContain("QPU");
+    expect(container.textContent).toContain("Recent QBlocks");
   });
 
   it("renders the Chain view populated", () => {

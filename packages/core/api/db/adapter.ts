@@ -11,6 +11,7 @@ import type {
   MineableTopologyRecord,
   MinerHardwareRecord,
   MinerStats,
+  MinerWinsRow,
   MiningSubmissionRecord,
   ModeBreakdown,
   NodeDescriptorRecord,
@@ -195,6 +196,13 @@ export interface DatabaseAdapter {
    * time on the server.
    */
   getBlocksByMiner(minerId: string, limit: number): Promise<BlockRecord[]>;
+
+  /**
+   * All-time per-miner win aggregates (`GROUP BY miner_id` over `blocks`),
+   * wins descending. The single dataset behind every "qblocks won" surface —
+   * see `MinerWinsRow` for the coverage caveat vs the on-chain counter.
+   */
+  getMinerWins(): Promise<MinerWinsRow[]>;
 
   /**
    * Topology-tag backfill support. Returns up to `limit` blocks whose

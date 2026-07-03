@@ -84,13 +84,14 @@ beforeEach(() => {
     loading: true,
     error: null,
   });
-  // Smoke test asserts against the Network view's chart grid; the default
-  // viewMode is "my-node" which doesn't render those charts. With the v0.3
-  // transitional category model, blocks with no chain-miner row resolve to
-  // "OTHER" — include it in selectedTypes so the byType-keyed charts have
-  // data to render in the absence of per-miner hardware.
+  // Smoke test asserts against the Compute view's chart grid (the mining
+  // analytics moved there — docs/ui-layout.md); the default viewMode is
+  // "my-node" which doesn't render those charts. With the v0.3 transitional
+  // category model, blocks with no chain-miner row resolve to "OTHER" —
+  // include it in selectedTypes so the byType-keyed charts have data to
+  // render in the absence of per-miner hardware.
   useUIStore.setState({
-    viewMode: "network",
+    viewMode: "compute",
     selectedTypes: ["CPU", "GPU", "QPU", "OTHER"],
   });
 });
@@ -101,10 +102,14 @@ afterEach(() => {
 });
 
 describe("App smoke test", () => {
-  test("renders the network view's chart grid after fetching telemetry", async () => {
-    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((() => {
+  test("renders the compute view's chart grid after fetching telemetry", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(((input: unknown) => {
+      // Route by URL: the app now fetches /api/miner-wins alongside
+      // /api/telemetry, and each expects its own response shape.
+      const url = String(input);
+      const body = url.endsWith("/api/miner-wins") ? { rows: [] } : MOCK_RESPONSE;
       return Promise.resolve(
-        new Response(JSON.stringify(MOCK_RESPONSE), {
+        new Response(JSON.stringify(body), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
