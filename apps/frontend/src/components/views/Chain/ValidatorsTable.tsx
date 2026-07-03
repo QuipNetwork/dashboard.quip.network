@@ -4,7 +4,8 @@ import clsx from "clsx";
 
 import { shortAddress } from "@/lib/format-chain";
 import type { ValidatorAuthorshipRecord } from "@quip/shared/telemetry";
-import { useValidatorSort, type SortColumn, type SortState } from "./use-validator-sort";
+import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
+import { useValidatorSort } from "./use-validator-sort";
 
 function formatLastAuthored(
   v: ValidatorAuthorshipRecord,
@@ -16,32 +17,6 @@ function formatLastAuthored(
   const ageSec = Math.max(0, Math.floor((serverNowMs - Date.parse(v.lastAuthoredAt)) / 1000));
   const ageLabel = ageSec < 60 ? `${ageSec}s ago` : `${Math.floor(ageSec / 60)}m ago`;
   return { text: `${ageLabel} · #${v.lastAuthoredBlock}`, dim: false };
-}
-
-interface HeaderCellProps {
-  label: string;
-  column: SortColumn;
-  sort: SortState;
-  onClick: (column: SortColumn) => void;
-  align?: "left" | "right";
-}
-
-function HeaderCell({ label, column, sort, onClick, align = "left" }: HeaderCellProps) {
-  const active = sort.column === column;
-  const indicator = active ? (sort.direction === "asc" ? " ▲" : " ▼") : "";
-  return (
-    <th
-      className={clsx(
-        "cursor-pointer px-4 py-2 select-none hover:text-ink-strong",
-        align === "right" && "text-right",
-        active && "text-ink-strong",
-      )}
-      onClick={() => onClick(column)}
-    >
-      {label}
-      {indicator}
-    </th>
-  );
 }
 
 export function ValidatorsTable({
@@ -68,23 +43,23 @@ export function ValidatorsTable({
         <table className="w-full font-accent text-sm">
           <thead className="text-left text-xs uppercase tracking-wider text-ink-subtle">
             <tr className="border-b border-border">
-              <HeaderCell label="Account" column="account" sort={sort} onClick={onSort} />
-              <HeaderCell
+              <SortableHeaderCell label="Account" column="account" sort={sort} onClick={onSort} />
+              <SortableHeaderCell
                 label="Blocks Authored"
                 column="blocksAuthored"
                 sort={sort}
                 onClick={onSort}
                 align="right"
               />
-              <HeaderCell
+              <SortableHeaderCell
                 label="With PoW"
                 column="blocksAuthoredWithPow"
                 sort={sort}
                 onClick={onSort}
                 align="right"
               />
-              <HeaderCell label="Online" column="online" sort={sort} onClick={onSort} />
-              <HeaderCell
+              <SortableHeaderCell label="Online" column="online" sort={sort} onClick={onSort} />
+              <SortableHeaderCell
                 label="Last Authored"
                 column="lastAuthored"
                 sort={sort}

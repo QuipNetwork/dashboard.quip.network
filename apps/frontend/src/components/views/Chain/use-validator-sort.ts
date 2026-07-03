@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useMemo, useState } from "react";
-
 import type { ValidatorAuthorshipRecord } from "@quip/shared/telemetry";
+import { useTableSort, type SortAccessors } from "@/lib/table-sort";
 
 export type SortColumn =
   | "account"
@@ -10,48 +9,16 @@ export type SortColumn =
   | "blocksAuthoredWithPow"
   | "online"
   | "lastAuthored";
-export type SortDirection = "asc" | "desc";
 
-export interface SortState {
-  column: SortColumn;
-  direction: SortDirection;
-}
-
-export function sortValidators(
-  rows: ValidatorAuthorshipRecord[],
-  sort: SortState,
-): ValidatorAuthorshipRecord[] {
-  const dir = sort.direction === "asc" ? 1 : -1;
-  const copy = [...rows];
-  copy.sort((a, b) => {
-    switch (sort.column) {
-      case "account":
-        return dir * a.accountId.localeCompare(b.accountId);
-      case "blocksAuthored":
-        return dir * (a.blocksAuthored - b.blocksAuthored);
-      case "blocksAuthoredWithPow":
-        return dir * (a.blocksAuthoredWithPow - b.blocksAuthoredWithPow);
-      case "online":
-        return dir * (Number(a.online) - Number(b.online));
-      case "lastAuthored": {
-        // Nulls sort last regardless of direction.
-        const aMs = a.lastAuthoredAt ? Date.parse(a.lastAuthoredAt) : -Infinity;
-        const bMs = b.lastAuthoredAt ? Date.parse(b.lastAuthoredAt) : -Infinity;
-        return dir * (aMs - bMs);
-      }
-    }
-  });
-  return copy;
-}
+const ACCESSORS: SortAccessors<ValidatorAuthorshipRecord, SortColumn> = {
+  account: (v) => v.accountId,
+  blocksAuthored: (v) => v.blocksAuthored,
+  blocksAuthoredWithPow: (v) => v.blocksAuthoredWithPow,
+  online: (v) => Number(v.online),
+  // Null (never authored) sorts last regardless of direction.
+  lastAuthored: (v) => (v.lastAuthoredAt ? Date.parse(v.lastAuthoredAt) : null),
+};
 
 export function useValidatorSort(validators: ValidatorAuthorshipRecord[]) {
-  const [sort, setSort] = useState<SortState>({ column: "blocksAuthored", direction: "desc" });
-  const sorted = useMemo(() => sortValidators(validators, sort), [validators, sort]);
-  const onSort = (column: SortColumn) =>
-    setSort((prev) =>
-      prev.column === column
-        ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
-        : { column, direction: "desc" },
-    );
-  return { sorted, sort, onSort };
+  return useTableSort(validators, ACCESSORS, { column: "blocksAuthored", direction: "desc" });
 }

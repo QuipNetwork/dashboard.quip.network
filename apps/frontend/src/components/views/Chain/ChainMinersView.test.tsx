@@ -66,6 +66,89 @@ describe("filterChainMiners", () => {
   });
 });
 
+describe("ChainMinersTable sorting", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  function renderWith(miners: ChainMinerRecord[], descriptors: NodeDescriptorRecord[]) {
+    const services = createTestServices({
+      telemetry: { chainMiners: miners, nodeDescriptors: descriptors },
+    });
+    act(() => {
+      root.render(
+        <ServicesProvider {...services}>
+          <ChainMinersTable />
+        </ServicesProvider>,
+      );
+    });
+  }
+
+  function firstColumn(): string[] {
+    return Array.from(container.querySelectorAll("tbody tr td:first-child")).map(
+      (td) => td.textContent ?? "",
+    );
+  }
+
+  function header(label: RegExp): HTMLTableCellElement {
+    const th = Array.from(container.querySelectorAll("th")).find((h) =>
+      label.test(h.textContent ?? ""),
+    );
+    if (!th) throw new Error(`no header matching ${label}`);
+    return th;
+  }
+
+  // Participation falls back to the descriptor's blockTimestamp when the
+  // account has no won block in the rolling window.
+  function stampedDescriptor(accountId: string, name: string, ts: number): NodeDescriptorRecord {
+    return {
+      accountId,
+      blockTimestamp: ts,
+      descriptor: { nodeName: name },
+    } as unknown as NodeDescriptorRecord;
+  }
+
+  const SORT_MINERS = [
+    miner("5Never"),
+    { ...miner("5Old"), deposit: "900" },
+    { ...miner("5New"), deposit: "100" },
+  ];
+  const SORT_DESCRIPTORS = [
+    stampedDescriptor("5Old", "old-rig", 100),
+    stampedDescriptor("5New", "new-rig", 200),
+  ];
+
+  it("defaults to last participation, most recent first, never-seen last", () => {
+    renderWith(SORT_MINERS, SORT_DESCRIPTORS);
+    expect(firstColumn()).toEqual(["new-rig", "old-rig", "5Never"]);
+    expect(header(/Last participation/i).getAttribute("aria-sort")).toBe("descending");
+  });
+
+  it("toggles direction when the active column is clicked again", () => {
+    renderWith(SORT_MINERS, SORT_DESCRIPTORS);
+    act(() => header(/Last participation/i).click());
+    expect(header(/Last participation/i).getAttribute("aria-sort")).toBe("ascending");
+    expect(firstColumn()).toEqual(["old-rig", "new-rig", "5Never"]);
+  });
+
+  it("sorts by another column on click, descending first", () => {
+    renderWith(SORT_MINERS, SORT_DESCRIPTORS);
+    act(() => header(/Deposit/i).click());
+    expect(header(/Deposit/i).getAttribute("aria-sort")).toBe("descending");
+    expect(firstColumn()).toEqual(["old-rig", "new-rig", "5Never"]);
+  });
+});
+
 describe("ChainMinersTable node identity modal", () => {
   let container: HTMLDivElement;
   let root: Root;

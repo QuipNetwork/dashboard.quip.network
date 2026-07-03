@@ -7,7 +7,9 @@ import { formatDuration } from "@/lib/format";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import type { ChainMinerRecord, NodeDescriptorRecord } from "@quip/shared/telemetry";
 import { SearchInput } from "@/components/common/SearchInput";
+import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
 import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
+import { useChainMinerSort, type MinerSortKeys } from "./use-chain-miner-sort";
 
 export function filterChainMiners(
   miners: readonly ChainMinerRecord[],
@@ -65,15 +67,29 @@ export function ChainMinersTable() {
     return map;
   }, [blocks]);
 
+  // Per-account lookups shared by the sorter and the cells, so clicking a
+  // header orders by exactly what the column displays. Participation =
+  // most recent win, else the descriptor's last-update timestamp.
+  const sortKeys = useMemo<MinerSortKeys>(
+    () => ({
+      nameFor: (accountId) =>
+        displayNodeName(accountId, descriptorsByAccount.get(accountId)?.descriptor.nodeName),
+      versionFor: (accountId) =>
+        descriptorsByAccount.get(accountId)?.descriptor.runtime?.quipVersion ?? null,
+      participationTsFor: (accountId) =>
+        lastWonByAccount.get(accountId) ??
+        descriptorsByAccount.get(accountId)?.blockTimestamp ??
+        null,
+    }),
+    [descriptorsByAccount, lastWonByAccount],
+  );
+
   const filtered = filterChainMiners(chainMiners, descriptorsByAccount, query);
+  const { sorted, sort, onSort } = useChainMinerSort(filtered, sortKeys);
   const now = Date.now();
 
-  // Relative "last participation": most recent win, else the descriptor's
-  // last-update timestamp, else nothing.
   const participationLabel = (m: ChainMinerRecord): string => {
-    const won = lastWonByAccount.get(m.accountId);
-    const fallback = descriptorsByAccount.get(m.accountId)?.blockTimestamp;
-    const tsSec = won ?? fallback;
+    const tsSec = sortKeys.participationTsFor(m.accountId);
     if (tsSec == null) return "—";
     return `${formatDuration(now - tsSec * 1000)} ago`;
   };
@@ -85,9 +101,9 @@ export function ChainMinersTable() {
           On-chain miners ({chainMiners.length})
         </h2>
         <p className="mt-1 font-accent text-xs text-ink-subtle">
-          From <code>quantum_pow.Miners</code> storage. Sorted by lifetime rewards. Identity columns
-          (rig name, version) joined from <code>MinerRegistry.NodeDescriptors</code>. Click a row
-          for full node identity.
+          From <code>quantum_pow.Miners</code> storage. Click a column header to sort. Identity
+          columns (rig name, version) joined from <code>MinerRegistry.NodeDescriptors</code>. Click
+          a row for full node identity.
         </p>
       </header>
       {chainMiners.length === 0 ? (
@@ -112,17 +128,52 @@ export function ChainMinersTable() {
               <table className="w-full font-accent text-sm">
                 <thead className="sticky top-0 bg-white text-left text-xs uppercase tracking-wider text-ink-subtle">
                   <tr className="border-b border-border">
-                    <th className="px-4 py-2">Miner</th>
-                    <th className="px-4 py-2">Version</th>
-                    <th className="px-4 py-2 text-right">Deposit</th>
-                    <th className="px-4 py-2 text-right">Proofs Submitted</th>
-                    <th className="px-4 py-2 text-right">Proofs Won</th>
-                    <th className="px-4 py-2 text-right">Rewards</th>
-                    <th className="px-4 py-2 text-right">Last participation</th>
+                    <SortableHeaderCell label="Miner" column="miner" sort={sort} onClick={onSort} />
+                    <SortableHeaderCell
+                      label="Version"
+                      column="version"
+                      sort={sort}
+                      onClick={onSort}
+                    />
+                    <SortableHeaderCell
+                      label="Deposit"
+                      column="deposit"
+                      sort={sort}
+                      onClick={onSort}
+                      align="right"
+                    />
+                    <SortableHeaderCell
+                      label="Proofs Submitted"
+                      column="proofsSubmitted"
+                      sort={sort}
+                      onClick={onSort}
+                      align="right"
+                    />
+                    <SortableHeaderCell
+                      label="Proofs Won"
+                      column="proofsWon"
+                      sort={sort}
+                      onClick={onSort}
+                      align="right"
+                    />
+                    <SortableHeaderCell
+                      label="Rewards"
+                      column="rewards"
+                      sort={sort}
+                      onClick={onSort}
+                      align="right"
+                    />
+                    <SortableHeaderCell
+                      label="Last participation"
+                      column="lastParticipation"
+                      sort={sort}
+                      onClick={onSort}
+                      align="right"
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((m) => {
+                  {sorted.map((m) => {
                     const d = descriptorsByAccount.get(m.accountId);
                     return (
                       <tr

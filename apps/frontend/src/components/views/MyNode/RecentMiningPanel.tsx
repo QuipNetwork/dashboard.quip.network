@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { formatDuration, formatNumber } from "@/lib/format";
 import { ChartCard } from "@/components/layout/ChartCard";
+import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
+import { useTableSort, type SortAccessors } from "@/lib/table-sort";
 import type { MiningSubmissionRecord } from "@quip/shared/telemetry";
 import { MiningAttemptsModal } from "./MiningAttemptsModal";
 import { OutcomeBadge } from "./mining-badges";
 import { tsNsToMs } from "./mining-shared";
+
+type MiningSortColumn =
+  | "qblock"
+  | "backend"
+  | "bestEnergy"
+  | "diversity"
+  | "solutions"
+  | "attempts"
+  | "outcome"
+  | "block"
+  | "age";
 
 const RECENT_SUBMISSIONS_VISIBLE = 20;
 
@@ -36,7 +49,33 @@ export function RecentMiningPanel({
   nowMs: number;
 }) {
   const [openSolutionNumber, setOpenSolutionNumber] = useState<number | null>(null);
+  // Window first, then sort: the panel's contract is "the last N
+  // submissions" — sorting rearranges that window, it doesn't widen it.
   const shown = submissions.slice(0, RECENT_SUBMISSIONS_VISIBLE);
+  // Sentinel/absent values (chain-only rows without attempts logs, qblock id
+  // 0, unparseable timestamps) return null and sort last in any direction —
+  // matching the em-dashes their cells render.
+  const sortAccessors = useMemo<SortAccessors<MiningSubmissionRecord, MiningSortColumn>>(
+    () => ({
+      qblock: (s) => (s.solutionNumber > 0 ? s.solutionNumber : null),
+      backend: (s) => (s.minerType ? s.minerType : null),
+      bestEnergy: (s) => s.bestEnergyMilli,
+      diversity: (s) => s.diversityMilli,
+      solutions: (s) => s.numValid,
+      attempts: (s) => (s.chainOnly === true ? null : s.attemptCount),
+      outcome: (s) => s.outcome,
+      block: (s) => (s.chainBlockNumber ? BigInt(s.chainBlockNumber) : null),
+      age: (s) => {
+        const tsMs = tsNsToMs(s.tsNs);
+        return tsMs === null ? null : nowMs - tsMs;
+      },
+    }),
+    [nowMs],
+  );
+  const { sorted, sort, onSort } = useTableSort(shown, sortAccessors, {
+    column: "qblock",
+    direction: "desc",
+  });
   if (shown.length === 0) return null;
 
   return (
@@ -50,34 +89,76 @@ export function RecentMiningPanel({
           <table className="w-full font-accent text-xs tabular-nums">
             <thead>
               <tr className="border-b border-border text-left text-ink-subtle">
-                <th
+                <SortableHeaderCell
+                  label="QBlock#"
+                  column="qblock"
+                  sort={sort}
+                  onClick={onSort}
                   className="py-2 pr-4"
                   title="The chain QBlock ID (qblock_id from the BlockWinner event) — the global 1-based ordinal of this winning solution, matching the network-wide QBlock numbering. Distinct from the substrate block height where the win landed (the 'Block' column)."
-                >
-                  QBlock#
-                </th>
-                <th
+                />
+                <SortableHeaderCell
+                  label="Backend"
+                  column="backend"
+                  sort={sort}
+                  onClick={onSort}
                   className="py-2 pr-4"
                   title="Backend that produced this submission (CPU / CUDA / METAL / MODAL / QPU). Multi-backend rigs run one quip-miner process per active config group; this column shows which one won."
-                >
-                  Backend
-                </th>
-                <th className="py-2 pr-4">Best Energy</th>
-                <th className="py-2 pr-4">Diversity</th>
-                <th
+                />
+                <SortableHeaderCell
+                  label="Best Energy"
+                  column="bestEnergy"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Diversity"
+                  column="diversity"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Solutions"
+                  column="solutions"
+                  sort={sort}
+                  onClick={onSort}
                   className="py-2 pr-4"
                   title="Submission-level num_valid (quip-protocol MR !105) — count of unique samples meeting the energy threshold at submit time, i.e. the count the chain accepts (≥ min_solutions below max_energy). Falls back to the submitted iteration's solution_meta.n_unique_total (sampler productivity) for pre-!105 miners; 0 when the miner publishes no count anywhere."
-                >
-                  Solutions
-                </th>
-                <th className="py-2 pr-4">Attempts</th>
-                <th className="py-2 pr-4">Outcome</th>
-                <th className="py-2 pr-4">Block</th>
-                <th className="py-2">Age</th>
+                />
+                <SortableHeaderCell
+                  label="Attempts"
+                  column="attempts"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Outcome"
+                  column="outcome"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Block"
+                  column="block"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Age"
+                  column="age"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2"
+                />
               </tr>
             </thead>
             <tbody>
-              {shown.map((s, idx) => {
+              {sorted.map((s, idx) => {
                 const ageMs = ageFromTsNs(s.tsNs, nowMs);
                 const isChainOnly = s.chainOnly === true;
                 // Chain-only rows have no real solutionNumber (sentinel 0)

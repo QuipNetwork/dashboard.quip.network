@@ -1,13 +1,24 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import clsx from "clsx";
 import { SearchInput } from "@/components/common/SearchInput";
+import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
 import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 import { SERIES_COLORS } from "@/lib/colors";
 import { displayNodeName, formatEnergy } from "@/lib/format-chain";
 import { formatSeconds, formatNumber } from "@/lib/format";
+import { useTableSort, type SortAccessors } from "@/lib/table-sort";
 import { useMinerColors } from "@/store/miner-colors";
 import { filterLeaderboardEntries, type LeaderboardEntry } from "./use-leaderboard";
+
+type LeaderboardSortColumn =
+  | "rank"
+  | "node"
+  | "type"
+  | "qblocks"
+  | "avgTime"
+  | "bestEnergy"
+  | "share";
 
 const RANK_STYLES: Record<number, string> = {
   1: "from-yellow-400 to-amber-500 text-black shadow-[0_0_12px_rgba(251,191,36,0.4)]",
@@ -63,6 +74,24 @@ export function Leaderboard({ data }: LeaderboardProps) {
   const [query, setQuery] = useState("");
   const { open, nameOf, modal } = useNodeIdentityModal();
 
+  const sortAccessors = useMemo<SortAccessors<LeaderboardEntry, LeaderboardSortColumn>>(
+    () => ({
+      rank: (e) => e.rank,
+      node: (e) => displayNodeName(e.minerId, nameOf(e.minerId)),
+      type: (e) => e.minerCategory,
+      qblocks: (e) => e.blockCount,
+      avgTime: (e) => e.avgMiningTime,
+      bestEnergy: (e) => e.bestEnergy,
+      share: (e) => e.share,
+    }),
+    [nameOf],
+  );
+  const filtered = filterLeaderboardEntries(data, query);
+  const { sorted, sort, onSort } = useTableSort(filtered, sortAccessors, {
+    column: "rank",
+    direction: "asc",
+  });
+
   if (data.length === 0) {
     return (
       <div className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
@@ -70,8 +99,6 @@ export function Leaderboard({ data }: LeaderboardProps) {
       </div>
     );
   }
-
-  const filtered = filterLeaderboardEntries(data, query);
 
   return (
     <div className="flex h-full flex-col gap-2">
@@ -88,17 +115,62 @@ export function Leaderboard({ data }: LeaderboardProps) {
           <table className="w-full">
             <thead>
               <tr className="sticky top-0 bg-surface-1/80 text-left font-accent text-[10px] uppercase tracking-wider text-ink-subtle backdrop-blur-sm">
-                <th className="pb-2 pl-1 pr-2">#</th>
-                <th className="pb-2 pr-3">Node</th>
-                <th className="pb-2 pr-3">Type</th>
-                <th className="pb-2 pr-3 text-right">QBlocks</th>
-                <th className="hidden pb-2 pr-3 text-right sm:table-cell">Avg Time</th>
-                <th className="hidden pb-2 pr-3 text-right md:table-cell">Best Energy</th>
-                <th className="w-28 pb-2 pr-1 sm:w-36">Share</th>
+                <SortableHeaderCell
+                  label="#"
+                  column="rank"
+                  sort={sort}
+                  onClick={onSort}
+                  className="pb-2 pl-1 pr-2"
+                />
+                <SortableHeaderCell
+                  label="Node"
+                  column="node"
+                  sort={sort}
+                  onClick={onSort}
+                  className="pb-2 pr-3"
+                />
+                <SortableHeaderCell
+                  label="Type"
+                  column="type"
+                  sort={sort}
+                  onClick={onSort}
+                  className="pb-2 pr-3"
+                />
+                <SortableHeaderCell
+                  label="QBlocks"
+                  column="qblocks"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="pb-2 pr-3"
+                />
+                <SortableHeaderCell
+                  label="Avg Time"
+                  column="avgTime"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="hidden pb-2 pr-3 sm:table-cell"
+                />
+                <SortableHeaderCell
+                  label="Best Energy"
+                  column="bestEnergy"
+                  sort={sort}
+                  onClick={onSort}
+                  align="right"
+                  className="hidden pb-2 pr-3 md:table-cell"
+                />
+                <SortableHeaderCell
+                  label="Share"
+                  column="share"
+                  sort={sort}
+                  onClick={onSort}
+                  className="w-28 pb-2 pr-1 sm:w-36"
+                />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((entry) => {
+              {sorted.map((entry) => {
                 const typeColor = SERIES_COLORS[entry.minerCategory];
                 const minerColor = useMinerColors.getState().getColor(entry.minerId);
                 return (
