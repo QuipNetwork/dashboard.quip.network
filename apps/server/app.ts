@@ -8,6 +8,7 @@ import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import { registerBlocksRoute } from "./routes/blocks";
 import { registerDifficultyHistoryRoute } from "./routes/difficulty-history";
 import { registerHealthRoute } from "./routes/health";
+import { registerMinerWinsRoute } from "./routes/miner-wins";
 import { registerMiningAttemptsRoute } from "./routes/mining-attempts";
 import { registerNodeLiveRoute } from "./routes/node-live";
 import { registerTelemetryRoute } from "./routes/telemetry";
@@ -58,6 +59,7 @@ export function createApp(options: CreateAppOptions): Hono {
   registerTelemetryRoute(app, { db, validatorRpcUrls, now, cacheTtlMs: telemetryCacheTtlMs });
   registerBlocksRoute(app, db);
   registerDifficultyHistoryRoute(app, db);
+  registerMinerWinsRoute(app, db);
   registerMiningAttemptsRoute(app, validatorRpcUrls);
   registerNodeLiveRoute(app, { db, now: now ? () => new Date(now()) : undefined });
   registerHealthRoute(app, db);

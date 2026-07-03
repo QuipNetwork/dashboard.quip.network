@@ -40,6 +40,7 @@ function clientWith(responder: () => Promise<MiningAttemptsResponse>): Telemetry
     fetchBlocks: () => new Promise<never>(() => {}),
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
+    fetchMinerWins: () => new Promise<never>(() => {}),
   };
 }
 

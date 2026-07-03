@@ -20,6 +20,7 @@ const idleClient: TelemetryClient = {
   fetchBlocks: async () => [],
   fetchNodeLive: () => new Promise<never>(() => {}),
   fetchDifficultyHistory: () => new Promise<never>(() => {}),
+  fetchMinerWins: () => new Promise<never>(() => {}),
 };
 
 function SelfAddress() {

@@ -1,160 +1,121 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { ChartCard } from "@/components/layout/ChartCard";
-import { BlocksOverTimeChart } from "@/components/charts/blocks-over-time/BlocksOverTimeChart";
-import { MiningTimeChart } from "@/components/charts/mining-time/MiningTimeChart";
-import { ComputeUsedChart } from "@/components/charts/compute-used/ComputeUsedChart";
-import { ActiveNodesChart } from "@/components/charts/active-nodes/ActiveNodesChart";
-import { EnergyDistributionChart } from "@/components/charts/energy-distribution/EnergyDistributionChart";
-import { TimeToSolutionChart } from "@/components/charts/time-to-solution/TimeToSolutionChart";
-import { EnergyCdfChart } from "@/components/charts/energy-cdf/EnergyCdfChart";
-import { WinRateByDifficultyChart } from "@/components/charts/win-rate-by-difficulty/WinRateByDifficultyChart";
-import { MiningTimeByDifficultyChart } from "@/components/charts/mining-time-by-difficulty/MiningTimeByDifficultyChart";
-import { CumulativeBlocksThresholdChart } from "@/components/charts/cumulative-blocks-threshold/CumulativeBlocksThresholdChart";
-import { Leaderboard } from "@/components/charts/leaderboard/Leaderboard";
-import { useBlocksOverTime } from "@/components/charts/blocks-over-time/use-blocks-over-time";
-import { useMiningTime } from "@/components/charts/mining-time/use-mining-time";
-import { useComputeUsed } from "@/components/charts/compute-used/use-compute-used";
-import { useActiveNodes } from "@/components/charts/active-nodes/use-active-nodes";
-import { useEnergyDistribution } from "@/components/charts/energy-distribution/use-energy-distribution";
-import { useTimeToSolution } from "@/components/charts/time-to-solution/use-time-to-solution";
-import { useEnergyCdf } from "@/components/charts/energy-cdf/use-energy-cdf";
-import { useWinRateByDifficulty } from "@/components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
-import { useCumulativeBlocksThreshold } from "@/components/charts/cumulative-blocks-threshold/use-cumulative-blocks-threshold";
-import { useLeaderboard } from "@/components/charts/leaderboard/use-leaderboard";
-import { useTelemetryStore } from "@/store/telemetry-store";
+import { SERIES_COLORS } from "@/lib/colors";
+import { formatNumber } from "@/lib/format";
 import { useUIStore } from "@/store/ui-store";
-import { winningSolutionsSolved } from "@/lib/chain-solutions";
-import { RecentBlocksTable } from "./RecentBlocksTable";
+import { StatTile } from "@/components/views/MyNode/StatTile";
+import { ChainMinersTable } from "@/components/views/Chain/ChainMinersView";
+import { HardwareBreakdown } from "@/components/views/ComputeAvailable/HardwareBreakdown";
+import { NodeLeaderboard } from "@/components/views/ComputeAvailable/NodeLeaderboard";
+import { NodeLocationMap } from "@/components/views/ComputeAvailable/NodeLocationMap";
+import { useComputeAvailable } from "@/components/views/ComputeAvailable/use-compute-available";
 
+/**
+ * Network tab — the node inventory: where the network's nodes are, what
+ * hardware they run, and who's registered on chain. Mining/qblock analytics
+ * live under Compute (see docs/ui-layout.md).
+ */
 export function NetworkView() {
-  const byType = useUIStore((s) => s.aggregationMode) === "byType";
-  // v0.3 substrate worker is the sole writer — all blocks in the store are
-  // canonical-by-construction (finalized substrate blocks only). The store
-  // ships DESC by substrate_block_number, which is the order the table wants.
-  const blocks = useTelemetryStore((s) => s.blocks);
-  const indexer = useTelemetryStore((s) => s.indexer);
-  const chainMiners = useTelemetryStore((s) => s.chainMiners);
-  const chainHead = useTelemetryStore((s) => s.chainHead);
-  // Chain-wide lifetime PoW solution count = LatestQBlockId, sourced from
-  // chain via chain_head (falling back to summing per-miner proofs_won until
-  // chain_head lands). u64, but values up to 2^53 fit
-  // Number safely, covering any realistic chain lifetime.
-  const totalProofsWon = winningSolutionsSolved(chainHead, chainMiners);
-
-  const blocksOverTime = useBlocksOverTime();
-  const miningTime = useMiningTime();
-  const computeUsed = useComputeUsed();
-  const activeNodes = useActiveNodes();
-  const energyDistribution = useEnergyDistribution();
-  const timeToSolution = useTimeToSolution();
-  const energyCdf = useEnergyCdf();
-  const winRate = useWinRateByDifficulty();
-  const cumulativeBlocks = useCumulativeBlocksThreshold();
-  const leaderboard = useLeaderboard();
+  const compute = useComputeAvailable();
+  const byNode = useUIStore((s) => s.aggregationMode) === "byNode";
 
   return (
     <>
-      <ChartCard title="Recent QBlocks" subtitle="Last 10 mined qblocks on the current chain tip">
-        <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
+      <ChartCard
+        title="Node Locations"
+        subtitle={`${compute.locatedNodes.length} of ${compute.totalNodes} nodes geo-located via publicHost`}
+        bodyClassName="h-[440px]"
+      >
+        <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
       </ChartCard>
 
-      <ChartCard title="Mining Leaderboard" subtitle="Top performing miners by qblocks">
-        <Leaderboard data={leaderboard} />
-      </ChartCard>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ChartCard
-          title="QBlocks Mined Over Time"
-          subtitle={byType ? "Cumulative qblocks per unit type" : "Cumulative qblocks per miner"}
-        >
-          <BlocksOverTimeChart data={blocksOverTime} />
-        </ChartCard>
-
-        <ChartCard
-          title="Mining Time per QBlock"
-          subtitle={byType ? "Time to qblock by processor type" : "Time to qblock by miner"}
-        >
-          <MiningTimeChart data={miningTime} />
-        </ChartCard>
-
-        <ChartCard
-          title="Total Compute Used"
-          subtitle={
-            byType
-              ? "Wall-clock for CPU/GPU · D-Wave anneal+readout time for QPU"
-              : "Wall-clock (CPU/GPU) or D-Wave qpu_access_time (QPU) per miner"
-          }
-        >
-          <ComputeUsedChart data={computeUsed} />
-        </ChartCard>
-
-        {byType && (
-          <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
-            <ActiveNodesChart data={activeNodes} />
-          </ChartCard>
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+        {byNode ? (
+          <>
+            <StatTile
+              label="Total Nodes"
+              value={formatNumber(compute.totalNodes)}
+              sublabel="Unique nodes reporting"
+            />
+            <StatTile
+              label="Top Node"
+              value={compute.topNode ? `${compute.topNode.tflops.toFixed(1)} TFLOPS` : "—"}
+              sublabel={compute.topNode?.nodeName ?? "No data"}
+              accent={SERIES_COLORS.GPU}
+            />
+            <StatTile
+              label="Median Node"
+              value={`${compute.medianNodeTflops.toFixed(1)} TFLOPS`}
+              sublabel="Per-node p50"
+            />
+            <StatTile
+              label="Est. PFLOPS"
+              value={compute.totalPetaflops.toFixed(2)}
+              sublabel={`Across ${compute.totalNodes} nodes`}
+            />
+          </>
+        ) : (
+          <>
+            <StatTile
+              label="Total CPUs"
+              value={formatNumber(compute.totalCpus)}
+              sublabel="Utilized CPUs across network"
+              accent={SERIES_COLORS.CPU}
+            />
+            <StatTile
+              label="Total GPUs"
+              value={formatNumber(compute.totalGpus)}
+              sublabel="Devices across network"
+              accent={SERIES_COLORS.GPU}
+            />
+            <StatTile
+              label="Total QPUs"
+              value={formatNumber(compute.totalQpus)}
+              sublabel="Active quantum miners"
+              accent={SERIES_COLORS.QPU}
+            />
+            <StatTile
+              label="Est. PFLOPS"
+              value={compute.totalPetaflops.toFixed(2)}
+              sublabel={`Across ${compute.totalNodes} nodes`}
+            />
+          </>
         )}
-
-        <ChartCard
-          title="Energy Distribution"
-          subtitle={
-            byType
-              ? "Normalised frequency per unit by energy"
-              : "Normalised frequency per miner by energy"
-          }
-        >
-          <EnergyDistributionChart data={energyDistribution} />
-        </ChartCard>
-
-        <ChartCard
-          title="Time to QBlock"
-          subtitle={
-            byType
-              ? "Normalised frequency per unit by mining time"
-              : "Normalised frequency per miner by mining time"
-          }
-        >
-          <TimeToSolutionChart data={timeToSolution} />
-        </ChartCard>
-
-        <ChartCard
-          title="Probability of Meeting Difficulty"
-          subtitle={
-            byType
-              ? "Empirical CDF of achieved energy by threshold"
-              : "Empirical CDF per miner by threshold"
-          }
-        >
-          <EnergyCdfChart data={energyCdf} />
-        </ChartCard>
-
-        {byType && (
-          <ChartCard
-            title="Win Rate by Difficulty"
-            subtitle="Mining race win rate per processor type"
-          >
-            <WinRateByDifficultyChart data={winRate} />
-          </ChartCard>
-        )}
-
-        <ChartCard
-          title="Mining Cost by Difficulty"
-          subtitle="Expected qblocks (or time) to reach a target, from the energy distribution"
-        >
-          <MiningTimeByDifficultyChart />
-        </ChartCard>
-
-        <ChartCard
-          title="Cumulative QBlocks by Threshold"
-          subtitle={
-            byType
-              ? "QBlocks meeting energy threshold per type"
-              : "QBlocks meeting energy threshold per miner"
-          }
-        >
-          <CumulativeBlocksThresholdChart data={cumulativeBlocks} />
-        </ChartCard>
       </div>
+
+      <ChainMinersTable />
+
+      {byNode ? (
+        <div className="border border-border bg-white p-5">
+          <div className="mb-4">
+            <h2 className="font-heading text-lg text-ink-strong">Node Compute Contribution</h2>
+            <p className="font-accent text-xs text-ink-subtle">
+              Theoretical FP32 TFLOPS per node — {compute.perNodeTflops.length} nodes, sorted by
+              contribution
+            </p>
+          </div>
+          <NodeLeaderboard nodes={compute.perNodeTflops} accent="#67E347" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ChartCard title="CPU Model Breakdown" subtitle="Logical CPU populations on the network">
+            <HardwareBreakdown
+              data={compute.cpuModels}
+              accent={SERIES_COLORS.CPU}
+              emptyLabel="No CPU model data reported"
+            />
+          </ChartCard>
+
+          <ChartCard title="GPU Model Breakdown" subtitle="Devices by model across all nodes">
+            <HardwareBreakdown
+              data={compute.gpuModels}
+              accent={SERIES_COLORS.GPU}
+              emptyLabel="No GPU devices reported"
+            />
+          </ChartCard>
+        </div>
+      )}
     </>
   );
 }

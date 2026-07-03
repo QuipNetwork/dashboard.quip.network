@@ -7,6 +7,7 @@ import type {
   BlockRecord,
   ChainMinerRecord,
   MinerStats,
+  MinerWinsRow,
   MiningSubmissionRecord,
   ModeBreakdown,
 } from "@quip/shared/telemetry";
@@ -39,7 +40,9 @@ export interface MyNodeStats {
   // returns the 500 most recent, so accuracy degrades past problem
   // #500 — fine for current chain depths).
   lastWonProblemNumber: number | null;
-  // Total blocks won by self (from chain_miners.proofsWon, u64 string-safe).
+  // Total qblocks won by self — the chain-authoritative lifetime
+  // `proofs_won` counter (u64 string-safe), the same number the leaderboard
+  // and rank-neighbor rows rank by and the rewards line reflects.
   blocksMined: string;
   // Merged Recent Performance feed: local `mining_submissions` rows
   // (full fidelity — solutionNumber, attemptCount, outcome) plus
@@ -89,7 +92,12 @@ export function qblockNumber(block: { qblockId: string }): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function useMyNode(): MyNodeStats {
+/**
+ * `minerWins` is the shared `/api/miner-wins` dataset (from `useMinerWins()`
+ * at the view level — injected rather than fetched here so the hook stays a
+ * pure store-derived computation and tests don't need a network seam).
+ */
+export function useMyNode(minerWins: readonly MinerWinsRow[] = []): MyNodeStats {
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
@@ -129,20 +137,9 @@ export function useMyNode(): MyNodeStats {
       selfBlocks.length > 0
         ? selfBlocks.reduce((sum, b) => sum + b.miningTime, 0) / selfBlocks.length
         : null;
-    // Chain-authoritative `proofs_won` for this account. Previously the
-    // dashboard returned `max(localWinCount, chainProofsWon)` to absorb
-    // poll-lag between the live substrate sub and chain_miners poll —
-    // but local rows survive chain rebuilds via INSERT OR IGNORE on
-    // substrate_block_number, so a stale local DB (e.g. across a
-    // `make localdev` teardown that didn't wipe `./data/telemetry.*.db`)
-    // would overstate wins by the count of prior-chain entries. Chain's
-    // `proofs_won` is updated synchronously in `on_finalize`, so the
-    // poll-lag window is bounded by the indexer's chain_miners poll
-    // cadence (default 6s) — small enough to prefer correctness over
-    // freshness. Follow-up: indexer should detect genesis-hash change
-    // and wipe stale tables.
-    const chainWins = Number(chainMinerEntry?.proofsWon ?? "0");
-    const blocksMined = String(chainWins);
+    // Chain-authoritative lifetime wins — the same counter the leaderboard
+    // ranks by, so the tile always matches the ranked tables and rewards.
+    const blocksMined = chainMinerEntry?.proofsWon ?? "0";
     const liveDifficulty = recentDifficulty[0] ?? null;
     const currentRequirements: CurrentRequirements | null = liveDifficulty
       ? {
@@ -242,10 +239,11 @@ export function useMyNode(): MyNodeStats {
       : null;
     const effectiveProblemsAttempted = Math.max(selfProblemsAttempted, chainProofsSubmitted);
 
-    // Network-wide unfiltered leaderboard for rank-neighbor lookup. We
-    // deliberately ignore the UI store's `selectedTypes` filter here —
-    // the operator's rank in the network is not category-scoped.
-    const leaderboard = computeLeaderboard(blocks, chainMiners, undefined, nodeDescriptors);
+    // Network-wide unfiltered leaderboard for rank-neighbor lookup, ranked
+    // by chain proofs_won with metrics joined from /api/miner-wins. We
+    // deliberately ignore the UI store's `selectedTypes` filter here — the
+    // operator's rank in the network is not category-scoped.
+    const leaderboard = computeLeaderboard(chainMiners, minerWins, undefined, nodeDescriptors);
     const self = selfAddress ? (leaderboard.find((e) => e.minerId === selfAddress) ?? null) : null;
     const neighbors =
       self != null
@@ -277,6 +275,7 @@ export function useMyNode(): MyNodeStats {
     chainMiners,
     nodeDescriptors,
     blocks,
+    minerWins,
     indexer,
     tipBlock,
     recentDifficulty,

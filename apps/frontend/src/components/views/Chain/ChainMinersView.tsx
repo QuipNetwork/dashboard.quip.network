@@ -35,9 +35,9 @@ export function filterChainMiners(
  * may include nodes that never submitted a successful proof.
  *
  * Lives here for historical reasons (extracted from the original
- * `ChainMinersView` wrapper); embedded by `ComputeAvailableView` since
- * v0.3. The Chain tab itself now renders the validator-centric
- * `ChainView` from `./ChainView`.
+ * `ChainMinersView` wrapper); embedded by `NetworkView` (the node
+ * inventory tab — see docs/ui-layout.md). The Chain tab itself renders
+ * the validator-centric `ChainView` from `./ChainView`.
  */
 export function ChainMinersTable() {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);

@@ -37,6 +37,7 @@ function clientReturning(impl: TelemetryClient["fetchNodeLive"]): TelemetryClien
     fetchBlocks: () => new Promise<never>(() => {}),
     fetchNodeLive: impl,
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
+    fetchMinerWins: () => new Promise<never>(() => {}),
   };
 }
 

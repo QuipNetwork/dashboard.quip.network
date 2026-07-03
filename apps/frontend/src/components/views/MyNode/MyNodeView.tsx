@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
-import { formatBalance, shortAddress } from "@/lib/format-chain";
+import { displayNodeName, formatBalance } from "@/lib/format-chain";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { useMinerWins } from "@/services/use-miner-wins";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
 import { CurrentDifficultyCard } from "./CurrentDifficultyCard";
@@ -15,13 +16,25 @@ import { StatTile } from "./StatTile";
 import { useMyNode } from "./use-my-node";
 
 export function MyNodeView() {
-  const stats = useMyNode();
+  // Shared /api/miner-wins dataset — the same table the leaderboard and
+  // rank-neighbor rows count from, injected so every "qblocks won" figure
+  // on this page agrees with them.
+  const minerWins = useMinerWins();
+  const stats = useMyNode(minerWins.rows);
   const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
   const chainHead = useTelemetryStore((s) => s.chainHead);
   const tipBlock = useTelemetryStore(selectTipBlock);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
+  // Rig name from the self descriptor; falls back to the short address
+  // inside displayNodeName when no descriptor has landed.
+  const selfNodeName = useTelemetryStore(
+    (s) =>
+      (s.selfAddress
+        ? s.nodeDescriptors.find((d) => d.accountId === s.selfAddress)?.descriptor.nodeName
+        : null) ?? null,
+  );
   const indexer = useTelemetryStore((s) => s.indexer);
   const serverNowMs = useTelemetryStore(selectServerNowMs);
   // Age of the most recent /api/v1/status poll, anchored on the
@@ -79,7 +92,9 @@ export function MyNodeView() {
           <p className="font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
             Connected Node
           </p>
-          <h2 className="font-heading text-2xl text-ink-strong">{shortAddress(selfAddress)}</h2>
+          <h2 className="font-heading text-2xl text-ink-strong">
+            {displayNodeName(selfAddress, selfNodeName ?? undefined)}
+          </h2>
           <p className="mt-1 font-accent text-xs text-ink-body">{selfAddress}</p>
         </div>
         {chainMinerEntry && (

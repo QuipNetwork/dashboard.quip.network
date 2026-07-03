@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import type {
   BlockRecord,
   ChainMinerRecord,
+  MinerWinsRow,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
 } from "@quip/shared/telemetry";
@@ -28,7 +29,8 @@ export interface NodeStats {
   descriptor: NodeDescriptorRecord | null;
   lastWonBlock: BlockRecord | null;
   lastWonProblemNumber: number | null;
-  // Chain-authoritative lifetime wins (proofsWon), u64 string-safe.
+  // Chain-authoritative lifetime wins (proofsWon, u64 string-safe) — the
+  // same counter the leaderboard ranks by.
   blocksMined: string;
   avgMiningTimeSec: number | null;
   currentRequirements: CurrentRequirements | null;
@@ -42,7 +44,12 @@ export interface NodeStats {
 // Mirror useMyNode's rank-neighbor window (2 above + 2 below + self).
 const NEIGHBOR_WINDOW = 2;
 
-export function useNode(accountId: string): NodeStats {
+/**
+ * `minerWins` is the shared `/api/miner-wins` dataset (from `useMinerWins()`
+ * at the view level — injected, like {@link useMyNode}, so the hook stays a
+ * pure store-derived computation).
+ */
+export function useNode(accountId: string, minerWins: readonly MinerWinsRow[] = []): NodeStats {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const blocks = useTelemetryStore((s) => s.blocks);
@@ -65,7 +72,7 @@ export function useNode(accountId: string): NodeStats {
         ? nodeBlocks.reduce((sum, b) => sum + b.miningTime, 0) / nodeBlocks.length
         : null;
 
-    const blocksMined = String(Number(chainMinerEntry?.proofsWon ?? "0"));
+    const blocksMined = chainMinerEntry?.proofsWon ?? "0";
 
     const liveDifficulty = recentDifficulty[0] ?? null;
     const currentRequirements: CurrentRequirements | null = liveDifficulty
@@ -107,7 +114,7 @@ export function useNode(accountId: string): NodeStats {
       chainOnly: true,
     }));
 
-    const leaderboard = computeLeaderboard(blocks, chainMiners, undefined, nodeDescriptors);
+    const leaderboard = computeLeaderboard(chainMiners, minerWins, undefined, nodeDescriptors);
     const self = leaderboard.find((e) => e.minerId === accountId) ?? null;
     const neighbors =
       self != null
@@ -132,5 +139,5 @@ export function useNode(accountId: string): NodeStats {
       self,
       neighbors,
     };
-  }, [accountId, chainMiners, nodeDescriptors, blocks, tipBlock, recentDifficulty]);
+  }, [accountId, chainMiners, nodeDescriptors, blocks, minerWins, tipBlock, recentDifficulty]);
 }

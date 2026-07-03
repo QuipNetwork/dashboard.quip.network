@@ -8,6 +8,7 @@ import type {
   ChainMinerRecord,
   DifficultyRecord,
   MineableTopologyRecord,
+  MinerWinsRow,
   ValidatorAuthorshipRecord,
 } from "./chain";
 import type {
@@ -75,6 +76,15 @@ export interface DifficultyHistoryResponse {
   since: string; // ISO 8601, echoed from the query
   anchor: DifficultyRecord | null;
   rows: DifficultyRecord[];
+}
+
+/**
+ * `GET /api/miner-wins`: all-time per-miner win aggregates from the indexed
+ * `blocks` table, wins descending. One shared dataset for every "qblocks
+ * won" surface in the UI.
+ */
+export interface MinerWinsResponse {
+  rows: MinerWinsRow[];
 }
 
 /** Spec §11: per-plugin coverage summary surfaced through /api/telemetry. */
