@@ -201,6 +201,11 @@ export interface DifficultyRecord {
   // BlockRecord.topologyHash so the difficulty chart scopes to (and resets
   // with) the current default topology.
   topologyHash: string | null;
+  // Which writer produced the row: 'block' = the mined-against difficulty
+  // derived from a winner block (backfillable history); 'poll' = a live
+  // current-difficulty snapshot at the finalized head. Block rows win
+  // conflicts at the same block number; poll rows never overwrite them.
+  source: "block" | "poll";
 }
 
 /**

@@ -88,6 +88,7 @@ describe("useNode", () => {
           substrateBlockNumber: "102",
           minerId: "5GBob",
           energy: -14_600,
+          qblockId: "3464",
         }),
         makeBlock({ blockHash: "0xa1", substrateBlockNumber: "101", minerId: "5GAlice" }),
         makeBlock({
@@ -95,6 +96,7 @@ describe("useNode", () => {
           substrateBlockNumber: "100",
           minerId: "5GBob",
           energy: -14_550,
+          qblockId: "3450",
         }),
       ],
       chainMiners: [makeChainMiner("5GBob", "2"), makeChainMiner("5GAlice", "1")],
@@ -105,6 +107,10 @@ describe("useNode", () => {
     expect(bob.lastWonBlock?.blockHash).toBe("0xb2"); // most recent Bob win
     expect(bob.recentSubmissions).toHaveLength(2); // both Bob wins synthesized
     expect(bob.recentSubmissions.every((s) => s.chainOnly)).toBe(true);
+    // QBlock# uses the chain qblockId, not a window-relative position.
+    expect(bob.recentSubmissions.map((s) => s.solutionNumber).sort((a, b) => a - b)).toEqual([
+      3450, 3464,
+    ]);
   });
 
   test("locates the account's leaderboard rank and neighbors", () => {

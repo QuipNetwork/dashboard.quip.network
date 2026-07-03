@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 
+import { ServicesProvider } from "@/services/services-provider";
+import { createTestServices, type TestServices } from "@/testing/services";
 import type { ChainMinerRecord, NodeDescriptorRecord } from "@quip/shared/telemetry";
-import { filterChainMiners } from "./ChainMinersView";
+import { ChainMinersTable, filterChainMiners } from "./ChainMinersView";
 
 function miner(accountId: string): ChainMinerRecord {
   return {
@@ -59,5 +63,65 @@ describe("filterChainMiners", () => {
 
   it("returns nothing when nothing matches", () => {
     expect(filterChainMiners(MINERS, DESCRIPTORS, "zzz")).toHaveLength(0);
+  });
+});
+
+describe("ChainMinersTable node identity modal", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let services: TestServices;
+
+  function moreInfoButton(): HTMLButtonElement | null {
+    return (
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        /more info/i.test(b.textContent ?? ""),
+      ) ?? null
+    );
+  }
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    services = createTestServices({
+      telemetry: {
+        chainMiners: [miner("5Alpha")],
+        nodeDescriptors: [descriptor("5Alpha", "alpha-rig", "0.3.1")],
+      },
+    });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  function renderTable() {
+    act(() => {
+      root.render(
+        <ServicesProvider {...services}>
+          <ChainMinersTable />
+        </ServicesProvider>,
+      );
+    });
+  }
+
+  it("opens the identity modal with a More info link that navigates to the node page", () => {
+    renderTable();
+
+    // No modal until a row is clicked.
+    expect(moreInfoButton()).toBeNull();
+
+    const row = container.querySelector<HTMLTableRowElement>("tbody tr");
+    expect(row).not.toBeNull();
+    act(() => row?.click());
+
+    const link = moreInfoButton();
+    expect(link).not.toBeNull();
+
+    act(() => link?.click());
+
+    expect(services.uiStore.getState().viewMode).toBe("node");
+    expect(services.uiStore.getState().selectedNodeId).toBe("5Alpha");
   });
 });

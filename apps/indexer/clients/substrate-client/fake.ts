@@ -17,6 +17,8 @@ import type {
   QBlockInfo,
 } from "./types";
 
+import { StatePrunedError } from "./errors";
+
 /**
  * Programmable in-memory implementation for unit tests. Tests configure
  * the public fields (e.g. `babeEpoch`, `chainMiners`) and trigger
@@ -108,10 +110,16 @@ export class FakeSubstrateClient implements SubstrateClient {
   async getLastProofBlockAt(blockHash: string): Promise<number> {
     return this.lastProofBlockByHash.get(blockHash) ?? 0;
   }
+  // Tests set this directly (or it tracks the highest emitted finalized head).
+  public finalizedHead = "0";
+  async getFinalizedHead(): Promise<string> {
+    return this.finalizedHead;
+  }
   async getTopology(): Promise<TopologyInfo | null> {
     return this.topology;
   }
   async getDefaultTopologyAt(blockNumber: string): Promise<string | null> {
+    this.throwIfPruned(blockNumber);
     return this.defaultTopologyByBlock.get(blockNumber) ?? null;
   }
   async getBabeEpoch(): Promise<BabeEpochInfo | null> {
@@ -156,7 +164,19 @@ export class FakeSubstrateClient implements SubstrateClient {
   // Tests populate `historicalBlocks` (keyed by blockNumber string) for any
   // historical winning block the backfill loop should be able to fetch.
   public historicalBlocks = new Map<string, BlockEvents>();
+  // R5 knob (spec §8): tier-2 reads below this height throw StatePrunedError,
+  // simulating a shallow-pruning node. Null = archive (default).
+  public prunedBelowBlock: number | null = null;
+  pruneBelow(n: number | null): void {
+    this.prunedBelowBlock = n;
+  }
+  private throwIfPruned(blockNumber: string): void {
+    if (this.prunedBelowBlock !== null && Number(blockNumber) < this.prunedBelowBlock) {
+      throw new StatePrunedError(`state already discarded for block ${blockNumber}`);
+    }
+  }
   async processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null> {
+    this.throwIfPruned(blockNumber);
     return this.historicalBlocks.get(blockNumber) ?? null;
   }
   // Tests populate `minerRegistryDescriptorsByBlock` (keyed by scan block)

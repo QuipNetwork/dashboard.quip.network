@@ -92,12 +92,15 @@ const DATA_TABLES = [
   "chain_miners",
   "difficulty_history",
   "validator_authorship",
+  "validator_authorship_blocks",
   "node_descriptors",
   "mining_submissions",
 ];
 
 export interface PgliteHarness {
   adapter: KyselyAdapter;
+  /** Raw Kysely handle for test-only seeding (e.g. legacy-table fixtures). */
+  db: Kysely<DB>;
   /** Truncate all data tables (keeps the migrated schema + ledger). */
   reset(): Promise<void>;
   close(): Promise<void>;
@@ -122,6 +125,7 @@ export async function createPgliteHarness(
   await adapter.migrate();
   return {
     adapter,
+    db,
     reset: async () => {
       await pg.query(`TRUNCATE ${DATA_TABLES.join(", ")} RESTART IDENTITY CASCADE`);
     },

@@ -7,7 +7,7 @@ import { formatDuration } from "@/lib/format";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import type { ChainMinerRecord, NodeDescriptorRecord } from "@quip/shared/telemetry";
 import { SearchInput } from "@/components/common/SearchInput";
-import { NodeIdentityModal } from "@/components/common/NodeIdentityModal";
+import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 
 export function filterChainMiners(
   miners: readonly ChainMinerRecord[],
@@ -41,9 +41,11 @@ export function ChainMinersTable() {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const blocks = useTelemetryStore((s) => s.blocks);
-  const nodes = useTelemetryStore((s) => s.nodes);
   const [query, setQuery] = useState("");
-  const [openAccountId, setOpenAccountId] = useState<string | null>(null);
+  // Shared identity dialog: resolves the descriptor/miner/live node for an
+  // account and wires the "More info →" link to the node detail page. Same
+  // wiring the Leaderboard and NeighborsList use.
+  const { open, modal } = useNodeIdentityModal();
 
   // Index descriptors by accountId so the per-row join is O(1). useMemo
   // keeps the map stable across renders that don't change descriptors.
@@ -75,15 +77,6 @@ export function ChainMinersTable() {
     if (tsSec == null) return "—";
     return `${formatDuration(now - tsSec * 1000)} ago`;
   };
-
-  const openMiner = openAccountId
-    ? chainMiners.find((m) => m.accountId === openAccountId)
-    : undefined;
-  const openRecord = openAccountId ? descriptorsByAccount.get(openAccountId) : undefined;
-  const openNode =
-    openMiner?.telemetryNodeAddress != null
-      ? nodes?.nodes[openMiner.telemetryNodeAddress]
-      : undefined;
 
   return (
     <div className="border border-border bg-white">
@@ -134,11 +127,11 @@ export function ChainMinersTable() {
                     return (
                       <tr
                         key={m.accountId}
-                        onClick={() => setOpenAccountId(m.accountId)}
+                        onClick={() => open(m.accountId)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            setOpenAccountId(m.accountId);
+                            open(m.accountId);
                           }
                         }}
                         role="button"
@@ -178,15 +171,7 @@ export function ChainMinersTable() {
           )}
         </>
       )}
-      {openAccountId && (
-        <NodeIdentityModal
-          accountId={openAccountId}
-          record={openRecord}
-          miner={openMiner}
-          node={openNode}
-          onClose={() => setOpenAccountId(null)}
-        />
-      )}
+      {modal}
     </div>
   );
 }

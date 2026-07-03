@@ -201,7 +201,6 @@ function buildNodeDescriptors(nowSec: number): NodeDescriptorRecord[] {
       descriptorVersion: 1,
       nodeName: m.name,
       publicHost: `${m.nodeId}.quip.network`,
-      autoMine: true,
       runtime: { quipVersion: m.quipVersion, inDocker: true },
       miners: Object.fromEntries(
         [[`${m.nodeId}-${m.type}-1`, { kind: m.type, minerId: `${m.nodeId}-${m.type}-1` }]].concat(
@@ -231,7 +230,6 @@ function buildNodes(nowSec: number): NodesSnapshot {
       lastHeartbeat: nowSec - 12,
       nodeName: m.name,
       publicHost: `${m.nodeId}.quip.network`,
-      autoMine: true,
       runtime: { quipVersion: m.quipVersion, inDocker: true },
       systemInfo: {
         os: { system: "Linux", release: "6.8.0", machine: "x86_64" },
@@ -322,6 +320,7 @@ function buildDifficulty(): DifficultyRecord[] {
     minSolutions: 1,
     observedAt: new Date().toISOString(),
     topologyHash: null,
+    source: "poll" as const,
   }));
 }
 

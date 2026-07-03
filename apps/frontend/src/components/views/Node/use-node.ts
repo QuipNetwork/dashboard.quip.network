@@ -12,7 +12,7 @@ import {
   computeLeaderboard,
   type LeaderboardEntry,
 } from "@/components/charts/leaderboard/use-leaderboard";
-import { type CurrentRequirements } from "@/components/views/MyNode/use-my-node";
+import { qblockNumber, type CurrentRequirements } from "@/components/views/MyNode/use-my-node";
 import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 
 /**
@@ -55,18 +55,10 @@ export function useNode(accountId: string): NodeStats {
     const nodeBlocks = blocks.filter((b) => b.minerId === accountId);
     const lastWonBlock = nodeBlocks[0] ?? null;
 
-    // 1-based ASC "problem number" mapping, identical to useMyNode's so the
-    // "Sol #" numbering matches the rest of the dashboard.
-    const problemNumberByBlock = new Map<string, number>();
-    blocks.forEach((b, i) => {
-      if (!problemNumberByBlock.has(b.substrateBlockNumber)) {
-        problemNumberByBlock.set(b.substrateBlockNumber, blocks.length - i);
-      }
-    });
-    const lastWonProblemNumber =
-      lastWonBlock != null
-        ? (problemNumberByBlock.get(lastWonBlock.substrateBlockNumber) ?? null)
-        : null;
+    // Global qblock/solution number = the chain-authoritative qblockId, so the
+    // "Sol #" numbering matches local mining_submissions and the rest of the
+    // dashboard (not a window-relative position).
+    const lastWonProblemNumber = lastWonBlock != null ? qblockNumber(lastWonBlock) : null;
 
     const avgMiningTimeSec =
       nodeBlocks.length > 0
@@ -94,7 +86,7 @@ export function useNode(accountId: string): NodeStats {
     // performance feed available for a peer.
     const minerType = chainMinerEntry?.hardware?.primaryType ?? "";
     const recentSubmissions: MiningSubmissionRecord[] = nodeBlocks.map((b) => ({
-      solutionNumber: problemNumberByBlock.get(b.substrateBlockNumber) ?? 0,
+      solutionNumber: qblockNumber(b) ?? 0,
       minerId: b.minerId,
       minerType,
       tsNs: String(BigInt(b.timestamp) * 1_000_000_000n),

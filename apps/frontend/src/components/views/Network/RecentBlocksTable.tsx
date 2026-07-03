@@ -6,6 +6,7 @@ import { formatDuration } from "@/lib/format";
 import { displayNodeName, formatBalance, formatEnergy } from "@/lib/format-chain";
 import { useTelemetryClient } from "@/services/telemetry-client";
 import { useTelemetryStore } from "@/store/telemetry-store";
+import { useUIStore } from "@/store/ui-store";
 import { computeChainHealth } from "@/lib/staleness";
 import type { BlockRecord, IndexerObservability } from "@quip/shared/telemetry";
 import { FinalityBadge } from "@/components/blocks/FinalityBadge";
@@ -66,6 +67,7 @@ export function RecentBlocksTable({
   totalProofsWon,
 }: RecentBlocksTableProps) {
   const client = useTelemetryClient();
+  const openNode = useUIStore((s) => s.openNode);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   // Index descriptors by accountId so the winner cell can show the operator's
   // rig name instead of a raw SS58. Built like ChainMinersView's join.
@@ -239,6 +241,10 @@ export function RecentBlocksTable({
           block={selectedBlock.block}
           solutionNumber={selectedBlock.solutionNumber}
           onClose={() => setSelectedBlock(null)}
+          onWinnerMoreInfo={() => {
+            setSelectedBlock(null);
+            openNode(selectedBlock.block.minerId);
+          }}
         />
       )}
     </div>

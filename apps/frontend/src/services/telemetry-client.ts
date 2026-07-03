@@ -4,6 +4,7 @@ import { createContext, useContext } from "react";
 
 import type {
   BlockRecord,
+  DifficultyHistoryResponse,
   MiningAttemptsResponse,
   NodeLiveData,
   TelemetryResponse,
@@ -23,6 +24,12 @@ export interface TelemetryClient {
     problem: number | null,
     signal?: AbortSignal,
   ): Promise<NodeLiveData>;
+  // Range-windowed difficulty history: rows at/after `sinceIso` plus the
+  // anchor row before it (spec §10.5). Feeds the price-panel range selector.
+  fetchDifficultyHistory(
+    sinceIso: string,
+    signal?: AbortSignal,
+  ): Promise<DifficultyHistoryResponse>;
 }
 
 export interface HttpTelemetryClientOptions {
@@ -74,6 +81,18 @@ export class HttpTelemetryClient implements TelemetryClient {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = (await res.json()) as { blocks: BlockRecord[] };
     return body.blocks;
+  }
+
+  async fetchDifficultyHistory(
+    sinceIso: string,
+    signal?: AbortSignal,
+  ): Promise<DifficultyHistoryResponse> {
+    const res = await this.fetch(
+      `${this.baseUrl}/api/difficulty-history?since=${encodeURIComponent(sinceIso)}`,
+      signal ? { signal } : undefined,
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as DifficultyHistoryResponse;
   }
 
   async fetchNodeLive(

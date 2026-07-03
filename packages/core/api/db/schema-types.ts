@@ -101,6 +101,18 @@ export interface DifficultyHistoryTable {
   min_solutions: number;
   observed_at: Iso;
   topology_hash: string | null;
+  // 'block' = derived from a winner block by the difficulty plugin;
+  // 'poll' = live head snapshot (and every pre-0005 row via the default).
+  source: string;
+}
+
+// Row-per-(validator, block) authorship facts (migration 0005). The
+// `validator_authorship` counter table above it is the derived summary cache.
+export interface ValidatorAuthorshipBlocksTable {
+  validator: string;
+  block_number: Big;
+  timestamp: Iso;
+  had_winner: Bool;
 }
 
 export interface ValidatorAuthorshipTable {
@@ -153,6 +165,7 @@ export interface DB {
   chain_miners: ChainMinersTable;
   difficulty_history: DifficultyHistoryTable;
   validator_authorship: ValidatorAuthorshipTable;
+  validator_authorship_blocks: ValidatorAuthorshipBlocksTable;
   node_descriptors: NodeDescriptorsTable;
   mining_submissions: MiningSubmissionsTable;
 }

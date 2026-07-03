@@ -259,6 +259,7 @@ describe("server app", () => {
       minSolutions: 3,
       observedAt: "2026-05-15T00:00:00.000Z",
       topologyHash: null,
+      source: "poll",
     });
 
     const res = await app.fetch(new Request("http://test/api/telemetry"));

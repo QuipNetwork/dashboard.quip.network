@@ -280,6 +280,7 @@ describe("RecentBlocksTable server pagination", () => {
         return n === 1 ? page : [];
       },
       fetchNodeLive: () => new Promise<never>(() => {}),
+      fetchDifficultyHistory: () => new Promise<never>(() => {}),
     };
     return { client, calls: () => n };
   }
