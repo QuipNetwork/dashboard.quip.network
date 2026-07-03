@@ -304,7 +304,6 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
         nodeName: d.nodeName,
         publicHost: d.publicHost,
         publicPort: d.publicPort,
-        autoMine: d.autoMine,
         logLevel: d.logLevel,
         runtime: d.runtime,
         miners: d.miners,

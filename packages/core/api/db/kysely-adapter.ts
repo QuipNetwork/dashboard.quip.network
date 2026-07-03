@@ -43,6 +43,10 @@ const SELF_ADDRESS_KEY = "self_address";
 const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
 const MINEABLE_TOPOLOGIES_KEY = "mineable_topologies";
 const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
+// Pipeline coverage cursors + authorship cutover flag (spec §7 / §9.2).
+const AUTHORSHIP_CUTOVER_KEY = "indexer.authorship.cutover";
+const coverageKey = (name: string): string => `indexer.coverage.${name}`;
+const generationKey = (name: string): string => `indexer.generation.${name}`;
 
 function miningCheckpointKey(minerId: string): string {
   return `${MINING_CHECKPOINT_KEY_PREFIX}${minerId}`;
@@ -489,18 +493,125 @@ export class KyselyAdapter implements DatabaseAdapter {
   }
 
   async insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void> {
-    await this.requireDb()
-      .insertInto("difficulty_history")
-      .values({
-        observed_at_block: snapshot.observedAtBlock,
-        difficulty_energy: snapshot.difficultyEnergy,
-        min_diversity: snapshot.minDiversity,
-        min_solutions: snapshot.minSolutions,
-        observed_at: snapshot.observedAt,
-        topology_hash: snapshot.topologyHash,
-      })
-      .onConflict((oc) => oc.column("observed_at_block").doNothing())
-      .execute();
+    const values = {
+      observed_at_block: snapshot.observedAtBlock,
+      difficulty_energy: snapshot.difficultyEnergy,
+      min_diversity: snapshot.minDiversity,
+      min_solutions: snapshot.minSolutions,
+      observed_at: snapshot.observedAt,
+      topology_hash: snapshot.topologyHash,
+      source: snapshot.source,
+    };
+    const insert = this.requireDb().insertInto("difficulty_history").values(values);
+    if (snapshot.source === "block") {
+      // Block-wins precedence (spec §9.3): a poll row can occupy a winner
+      // number (the poll stamps the finalized head, which is sometimes the
+      // winner block itself; every pre-0005 row is 'poll'). Converting it
+      // keeps winner numbers deterministically owned by the block series —
+      // required for the drift check and `--reindex difficulty` to converge.
+      // Still idempotent: a second run sees source='block' and no-ops.
+      await insert
+        .onConflict((oc) =>
+          oc
+            .column("observed_at_block")
+            .doUpdateSet({
+              difficulty_energy: sql`excluded.difficulty_energy`,
+              min_diversity: sql`excluded.min_diversity`,
+              min_solutions: sql`excluded.min_solutions`,
+              observed_at: sql`excluded.observed_at`,
+              topology_hash: sql`excluded.topology_hash`,
+              source: sql`excluded.source`,
+            })
+            .where(sql<boolean>`difficulty_history.source = 'poll'`),
+        )
+        .execute();
+      return;
+    }
+    // Poll rows never overwrite anything — first-writer-wins vs other polls,
+    // always-loses vs block rows.
+    await insert.onConflict((oc) => oc.column("observed_at_block").doNothing()).execute();
+  }
+
+  async deleteDifficultyHistoryBySource(source: "block" | "poll"): Promise<number> {
+    const res = await this.requireDb()
+      .deleteFrom("difficulty_history")
+      .where("source", "=", source)
+      .executeTakeFirst();
+    return Number(res.numDeletedRows ?? 0);
+  }
+
+  async getDifficultyAnchorBefore(sinceIso: string): Promise<DifficultyRecord | null> {
+    // Strictly before: a row exactly AT the cutoff belongs to the window
+    // query (`getDifficultySince` is >= inclusive), so the anchor never
+    // duplicates it (spec §10.5).
+    const row = await this.requireDb()
+      .selectFrom("difficulty_history")
+      .selectAll()
+      .where("observed_at", "<", sinceIso)
+      .orderBy("observed_at", "desc")
+      .limit(1)
+      .executeTakeFirst();
+    return row ? rowToDifficulty(row) : null;
+  }
+
+  // --- Pipeline coverage cursors (spec §7) ---
+
+  async getCoverage(name: string): Promise<string | null> {
+    return this.getMeta(coverageKey(name));
+  }
+
+  async clearCoverage(name: string): Promise<void> {
+    await this.requireDb().deleteFrom("meta").where("key", "=", coverageKey(name)).execute();
+  }
+
+  async getIndexerGeneration(name: string): Promise<number> {
+    const raw = await this.getMeta(generationKey(name));
+    const n = raw === null ? NaN : Number(raw);
+    return Number.isInteger(n) && n >= 1 ? n : 1;
+  }
+
+  async bumpIndexerGeneration(name: string): Promise<number> {
+    return this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        const row = await trx
+          .selectFrom("meta")
+          .select("value")
+          .where("key", "=", generationKey(name))
+          .executeTakeFirst();
+        const current =
+          row?.value != null && Number.isInteger(Number(row.value)) ? Number(row.value) : 1;
+        const next = current + 1;
+        await trx
+          .insertInto("meta")
+          .values({ key: generationKey(name), value: String(next) })
+          .onConflict((oc) => oc.column("key").doUpdateSet({ value: sql`excluded.value` }))
+          .execute();
+        return next;
+      });
+  }
+
+  async setCoverageIfGeneration(name: string, gen: number, json: string): Promise<boolean> {
+    // Conditional flush: a stale in-flight write stamped with a pre-reindex
+    // generation can never resurrect dropped coverage (spec §7).
+    return this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        const row = await trx
+          .selectFrom("meta")
+          .select("value")
+          .where("key", "=", generationKey(name))
+          .executeTakeFirst();
+        const current =
+          row?.value != null && Number.isInteger(Number(row.value)) ? Number(row.value) : 1;
+        if (current !== gen) return false;
+        await trx
+          .insertInto("meta")
+          .values({ key: coverageKey(name), value: json })
+          .onConflict((oc) => oc.column("key").doUpdateSet({ value: sql`excluded.value` }))
+          .execute();
+        return true;
+      });
   }
 
   async getRecentDifficulty(limit: number): Promise<DifficultyRecord[]> {
@@ -509,6 +620,16 @@ export class KyselyAdapter implements DatabaseAdapter {
       .selectAll()
       .orderBy("observed_at", "desc")
       .limit(limit)
+      .execute();
+    return rows.map(rowToDifficulty);
+  }
+
+  async getDifficultySince(sinceIso: string): Promise<DifficultyRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("difficulty_history")
+      .selectAll()
+      .where("observed_at", ">=", sinceIso)
+      .orderBy("observed_at", "asc")
       .execute();
     return rows.map(rowToDifficulty);
   }
@@ -581,26 +702,52 @@ export class KyselyAdapter implements DatabaseAdapter {
     blockTimestamp: number,
     hasPow: boolean,
   ): Promise<void> {
-    const powDelta = hasPow ? 1 : 0;
-    const lastAuthoredAt = new Date(blockTimestamp * 1000).toISOString();
+    // Row-per-(validator, block): idempotent under crash replays, reconnect
+    // replays, and reconciler re-visits — the old `blocks_authored + 1`
+    // counter double-counted on every one of those paths (spec §9.1).
     await this.requireDb()
-      .insertInto("validator_authorship")
+      .insertInto("validator_authorship_blocks")
       .values({
-        account_id: accountId,
-        blocks_authored: 1,
-        blocks_authored_with_pow: powDelta,
-        last_authored_block: blockNumber,
-        last_authored_at: lastAuthoredAt,
+        validator: accountId,
+        block_number: blockNumber,
+        timestamp: new Date(blockTimestamp * 1000).toISOString(),
+        had_winner: hasPow,
       })
-      .onConflict((oc) =>
-        oc.column("account_id").doUpdateSet({
-          blocks_authored: sql`validator_authorship.blocks_authored + 1`,
-          blocks_authored_with_pow: sql`validator_authorship.blocks_authored_with_pow + ${powDelta}`,
-          last_authored_block: sql`excluded.last_authored_block`,
-          last_authored_at: sql`excluded.last_authored_at`,
-        }),
-      )
+      .onConflict((oc) => oc.columns(["validator", "block_number"]).doNothing())
       .execute();
+  }
+
+  /** Per-validator aggregate over the row-per-block table. */
+  private newAuthorshipAggregate(): Promise<
+    Array<{
+      validator: string;
+      cnt: string | number | bigint;
+      pow_cnt: string | number | bigint;
+      last_block: string | number | null;
+      last_at: string | Date | null;
+    }>
+  > {
+    return this.requireDb()
+      .selectFrom("validator_authorship_blocks")
+      .select((eb) => [
+        "validator",
+        eb.fn.countAll().as("cnt"),
+        sql<string>`count(*) filter (where had_winner)`.as("pow_cnt"),
+        eb.fn.max("block_number").as("last_block"),
+        // timestamps are monotone with block numbers, so max(timestamp) is
+        // the max-block row's timestamp (spec §9.2).
+        eb.fn.max("timestamp").as("last_at"),
+      ])
+      .groupBy("validator")
+      .execute() as Promise<
+      Array<{
+        validator: string;
+        cnt: string | number | bigint;
+        pow_cnt: string | number | bigint;
+        last_block: string | number | null;
+        last_at: string | Date | null;
+      }>
+    >;
   }
 
   async getValidatorAuthorship(): Promise<
@@ -612,12 +759,163 @@ export class KyselyAdapter implements DatabaseAdapter {
       lastAuthoredAt: string;
     }>
   > {
+    // Post-cutover: the counter table is the derived summary cache, kept
+    // fresh by recomputeAuthorshipSummary — O(#validators), exactly today's
+    // read (spec §9.2).
+    const summaryRead = async () => {
+      const rows = await this.requireDb()
+        .selectFrom("validator_authorship")
+        .selectAll()
+        .orderBy("blocks_authored", "desc")
+        .execute();
+      return rows.map(rowToValidatorAuthorship);
+    };
+    if ((await this.getMeta(AUTHORSHIP_CUTOVER_KEY)) === "1") return summaryRead();
+
+    // During the walk: per-validator union of the frozen legacy counters and
+    // the live aggregate — values never stale (tip lands in the new table
+    // immediately) and never regress (legacy floors the counts).
+    const [legacy, fresh] = await Promise.all([
+      this.requireDb().selectFrom("validator_authorship").selectAll().execute(),
+      this.newAuthorshipAggregate(),
+    ]);
+    const merged = new Map<
+      string,
+      {
+        accountId: string;
+        blocksAuthored: number;
+        blocksAuthoredWithPow: number;
+        lastAuthoredBlock: string;
+        lastAuthoredAt: string;
+      }
+    >();
+    for (const r of legacy) merged.set(String(r.account_id), rowToValidatorAuthorship(r));
+    for (const n of fresh) {
+      const cnt = Number(n.cnt);
+      const powCnt = Number(n.pow_cnt);
+      const lastBlock = n.last_block === null ? "0" : String(n.last_block);
+      const lastAt = n.last_at instanceof Date ? n.last_at.toISOString() : String(n.last_at ?? "");
+      const old = merged.get(n.validator);
+      if (!old) {
+        merged.set(n.validator, {
+          accountId: n.validator,
+          blocksAuthored: cnt,
+          blocksAuthoredWithPow: powCnt,
+          lastAuthoredBlock: lastBlock,
+          lastAuthoredAt: lastAt,
+        });
+        continue;
+      }
+      const newerSide = Number(lastBlock) >= Number(old.lastAuthoredBlock);
+      merged.set(n.validator, {
+        accountId: n.validator,
+        blocksAuthored: Math.max(old.blocksAuthored, cnt),
+        blocksAuthoredWithPow: Math.max(old.blocksAuthoredWithPow, powCnt),
+        lastAuthoredBlock: newerSide ? lastBlock : old.lastAuthoredBlock,
+        lastAuthoredAt: newerSide ? lastAt : old.lastAuthoredAt,
+      });
+    }
+    return [...merged.values()].sort((a, b) => b.blocksAuthored - a.blocksAuthored);
+  }
+
+  async recomputeAuthorshipSummary(): Promise<void> {
+    // Full idempotent recompute (never increment) of the summary cache from
+    // the row-per-block source of truth (spec §9.2).
+    await sql`
+      insert into validator_authorship
+        (account_id, blocks_authored, blocks_authored_with_pow, last_authored_block, last_authored_at)
+      select validator, count(*), count(*) filter (where had_winner),
+             max(block_number), max("timestamp")
+      from validator_authorship_blocks
+      group by validator
+      on conflict (account_id) do update set
+        blocks_authored = excluded.blocks_authored,
+        blocks_authored_with_pow = excluded.blocks_authored_with_pow,
+        last_authored_block = excluded.last_authored_block,
+        last_authored_at = excluded.last_authored_at
+    `.execute(this.requireDb());
+  }
+
+  async resetAuthorshipHistory(): Promise<void> {
+    await this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        await trx.deleteFrom("validator_authorship_blocks").execute();
+        await trx.deleteFrom("meta").where("key", "=", AUTHORSHIP_CUTOVER_KEY).execute();
+      });
+  }
+
+  async deleteAllBlocks(): Promise<number> {
+    const res = await this.requireDb().deleteFrom("blocks").executeTakeFirst();
+    return Number(res.numDeletedRows ?? 0);
+  }
+
+  async isAuthorshipCutover(): Promise<boolean> {
+    return (await this.getMeta(AUTHORSHIP_CUTOVER_KEY)) === "1";
+  }
+
+  async getExistingDifficultyBlockNumbers(blockNumbers: string[]): Promise<string[]> {
+    if (blockNumbers.length === 0) return [];
     const rows = await this.requireDb()
-      .selectFrom("validator_authorship")
-      .selectAll()
-      .orderBy("blocks_authored", "desc")
+      .selectFrom("difficulty_history")
+      .select("observed_at_block")
+      .where("observed_at_block", "in", blockNumbers)
+      .where("source", "=", "block")
       .execute();
-    return rows.map(rowToValidatorAuthorship);
+    return rows.map((r) => String(r.observed_at_block));
+  }
+
+  async countAuthorshipBlocksInRange(fromBlock: string, toBlock: string): Promise<number> {
+    const row = await this.requireDb()
+      .selectFrom("validator_authorship_blocks")
+      .select((eb) => eb.fn.countAll().as("cnt"))
+      .where("block_number", ">=", fromBlock)
+      .where("block_number", "<=", toBlock)
+      .executeTakeFirst();
+    return Number(row?.cnt ?? 0);
+  }
+
+  async tryAuthorshipCutover(): Promise<boolean> {
+    if ((await this.getMeta(AUTHORSHIP_CUTOVER_KEY)) === "1") return true;
+
+    // Per-validator count gate: values can only jump up at the flip, never
+    // regress. On pruned deployments where the walk can't reach the legacy
+    // totals, this simply never fires and the union read stays (spec §9.2).
+    const [legacy, fresh] = await Promise.all([
+      this.requireDb()
+        .selectFrom("validator_authorship")
+        .select(["account_id", "blocks_authored"])
+        .execute(),
+      this.newAuthorshipAggregate(),
+    ]);
+    const freshCnt = new Map(fresh.map((n) => [n.validator, Number(n.cnt)]));
+    for (const o of legacy) {
+      if ((freshCnt.get(String(o.account_id)) ?? 0) < Number(o.blocks_authored)) return false;
+    }
+
+    await this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        await sql`
+          insert into validator_authorship
+            (account_id, blocks_authored, blocks_authored_with_pow, last_authored_block, last_authored_at)
+          select validator, count(*), count(*) filter (where had_winner),
+                 max(block_number), max("timestamp")
+          from validator_authorship_blocks
+          group by validator
+          on conflict (account_id) do update set
+            blocks_authored = excluded.blocks_authored,
+            blocks_authored_with_pow = excluded.blocks_authored_with_pow,
+            last_authored_block = excluded.last_authored_block,
+            last_authored_at = excluded.last_authored_at
+        `.execute(trx);
+        await trx
+          .insertInto("meta")
+          .values({ key: AUTHORSHIP_CUTOVER_KEY, value: "1" })
+          .onConflict((oc) => oc.column("key").doUpdateSet({ value: sql`excluded.value` }))
+          .execute();
+      });
+    return true;
   }
 
   // --- Node descriptors ---

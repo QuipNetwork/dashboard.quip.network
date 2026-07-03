@@ -89,7 +89,6 @@ export interface NodeInfo {
   nodeName?: string;
   publicHost?: string;
   publicPort?: number;
-  autoMine?: boolean;
   logLevel?: string;
   runtime?: NodeRuntime;
   miners?: Record<string, NodeMinerEntry>;
@@ -120,7 +119,6 @@ export interface NodeDescriptor {
   publicHost?: string;
   publicPort?: number;
   rpcEndpoints?: string[];
-  autoMine?: boolean;
   logLevel?: string;
   runtime?: NodeRuntime;
   miners?: Record<string, NodeMinerEntry>;

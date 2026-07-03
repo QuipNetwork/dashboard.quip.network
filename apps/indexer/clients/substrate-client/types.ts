@@ -194,6 +194,11 @@ export interface SubstrateClient {
   // ValueQuery default — see lib.rs:129).
   getLastProofBlockAt(blockHash: string): Promise<number>;
 
+  // Current finalized head number via RPC (chain.getFinalizedHead +
+  // getHeader). The reconciler's per-tick head source — never the persisted
+  // observability value, which is stale after downtime (spec §5).
+  getFinalizedHead(): Promise<string>;
+
   // Best-effort topology counts. Returns null when no default topology is
   // registered on the chain (lib.rs:111).
   getTopology(): Promise<TopologyInfo | null>;

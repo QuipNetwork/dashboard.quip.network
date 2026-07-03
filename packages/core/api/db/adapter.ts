@@ -60,6 +60,50 @@ export function parseIndexerObservability(raw: string): IndexerObservability | n
     selfIdentified: typeof p.selfIdentified === "boolean" ? p.selfIdentified : undefined,
     minerStats: parseMinerStats(p.minerStats),
     modes: parseModeBreakdownMap(p.modes),
+    indexer: parseIndexerProgress(p.indexer),
+  };
+}
+
+/**
+ * Best-effort parse of the optional pipeline backfill-progress sub-object
+ * (spec §11). Tolerant of absence (pre-redesign rows) and of malformed
+ * payloads — both degrade to undefined, mirroring the `modes?` handling.
+ */
+function parseIndexerProgress(raw: unknown): IndexerObservability["indexer"] | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const p = raw as Record<string, unknown>;
+  if (typeof p.backfillQueueDepth !== "number") return undefined;
+  if (!p.coverage || typeof p.coverage !== "object") return undefined;
+  const isNullableStr = (v: unknown): v is string | null => v === null || typeof v === "string";
+  if (!isNullableStr(p.difficultyDataStartBlock ?? null)) return undefined;
+
+  const coverage: NonNullable<IndexerObservability["indexer"]>["coverage"] = {};
+  for (const [name, entry] of Object.entries(p.coverage as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") return undefined;
+    const e = entry as Record<string, unknown>;
+    if (
+      !isNullableStr(e.low) ||
+      !isNullableStr(e.high) ||
+      typeof e.gapBlocks !== "number" ||
+      !isNullableStr(e.prunedFloor) ||
+      !isNullableStr(e.topologyEnrichmentFloor) ||
+      typeof e.generation !== "number"
+    ) {
+      return undefined;
+    }
+    coverage[name] = {
+      low: e.low,
+      high: e.high,
+      gapBlocks: e.gapBlocks,
+      prunedFloor: e.prunedFloor,
+      topologyEnrichmentFloor: e.topologyEnrichmentFloor,
+      generation: e.generation,
+    };
+  }
+  return {
+    backfillQueueDepth: p.backfillQueueDepth,
+    coverage,
+    difficultyDataStartBlock: (p.difficultyDataStartBlock ?? null) as string | null,
   };
 }
 
@@ -242,6 +286,35 @@ export interface DatabaseAdapter {
   // workers see the same boundary block.
   insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void>;
   getRecentDifficulty(limit: number): Promise<DifficultyRecord[]>;
+  // Difficulty snapshots at/after an ISO cutoff, ordered oldest-first for
+  // direct left-to-right charting. Feeds the range-windowed difficulty panel.
+  getDifficultySince(sinceIso: string): Promise<DifficultyRecord[]>;
+  /**
+   * The newest snapshot strictly before `sinceIso` — the window anchor: a
+   * range shorter than the current stable-difficulty stretch still renders
+   * the prevailing step instead of an empty chart (spec §10.5). Strictly
+   * before, because a row exactly at the cutoff is already in the
+   * `getDifficultySince` window.
+   */
+  getDifficultyAnchorBefore(sinceIso: string): Promise<DifficultyRecord | null>;
+  /**
+   * Delete one writer's rows (R4 `--reindex difficulty` drops only 'block'
+   * rows; 'poll' snapshots are not re-derivable and are never dropped by
+   * reindex). Returns the deleted row count.
+   */
+  deleteDifficultyHistoryBySource(source: "block" | "poll"): Promise<number>;
+
+  // --- Pipeline coverage cursors (spec §7) ---
+  // Per-indexable coverage JSON + generation counter in the meta KV. The
+  // generation-guarded flush is what makes `--reindex` safe against a stale
+  // in-flight coverage write from pre-drop work.
+  getCoverage(name: string): Promise<string | null>;
+  clearCoverage(name: string): Promise<void>;
+  getIndexerGeneration(name: string): Promise<number>;
+  /** Increment the generation (reindex step 1); returns the new value. */
+  bumpIndexerGeneration(name: string): Promise<number>;
+  /** Write coverage only when the stamped generation is still current. */
+  setCoverageIfGeneration(name: string, gen: number, json: string): Promise<boolean>;
 
   // Current per-topology difficulty snapshot for the chain's mineable
   // whitelist (`quantum_pow` runtime APIs). Current-state, not history:
@@ -281,11 +354,10 @@ export interface DatabaseAdapter {
   // won a PoW reward" without a separate join.
 
   /**
-   * Increment authorship counters for `accountId` by 1; also increment the
-   * PoW counter by 1 when `hasPow=true`. Updates `last_authored_block` and
-   * `last_authored_at` to reflect the most recent observed head. Idempotency
-   * is at the caller — the worker should only fire this once per finalized
-   * head it sees.
+   * Record that `accountId` authored `blockNumber` (`hasPow=true` when the
+   * head also carried a `quantumPow.BlockWinner` event). Row-per-(validator,
+   * block) insert, idempotent at the row level — crash replays, reconnect
+   * replays, and reconciler re-visits are no-ops (spec §9.1).
    */
   recordValidatorAuthorship(
     accountId: string,
@@ -296,8 +368,11 @@ export interface DatabaseAdapter {
 
   /**
    * Bulk read for the server's `/api/telemetry` join against the active
-   * BABE authority set. Sorted DESC by `blocksAuthored` so the most active
-   * authors are surfaced first. `lastAuthoredAt` is ISO 8601.
+   * BABE authority set. Sorted DESC by `blocksAuthored`; `lastAuthoredAt`
+   * is ISO 8601. Before the authorship cutover this serves the per-validator
+   * union of the frozen legacy counters and the live row-per-block aggregate
+   * (never stale, never regressing); after cutover it reads the summary
+   * cache kept fresh by `recomputeAuthorshipSummary` (spec §9.2).
    */
   getValidatorAuthorship(): Promise<
     Array<{
@@ -308,6 +383,50 @@ export interface DatabaseAdapter {
       lastAuthoredAt: string;
     }>
   >;
+
+  /**
+   * Flip reads to the summary cache once every legacy validator's new-table
+   * count has caught up (`newCount >= oldCount` per validator — values only
+   * jump up at the flip). Recomputes the summary and sets the cutover flag
+   * in one transaction. Returns whether the cutover is in effect; safe to
+   * call repeatedly. The reconciler calls this only when the authorship
+   * coverage conditions hold (gaps = ∅, low/high reached; spec §9.2).
+   */
+  tryAuthorshipCutover(): Promise<boolean>;
+
+  /**
+   * Idempotent full recompute (never increment) of the `validator_authorship`
+   * summary cache from `validator_authorship_blocks`. Called on coverage
+   * flushes after cutover (spec §9.2).
+   */
+  recomputeAuthorshipSummary(): Promise<void>;
+
+  /**
+   * R4 `--reindex authorship`: delete the row-per-block facts and clear the
+   * cutover flag so reads fall back to the union (the summary table keeps
+   * its last values as the union's frozen side — values never regress
+   * during the re-walk; spec §8). Coverage/generation are the runner's job.
+   */
+  resetAuthorshipHistory(): Promise<void>;
+
+  /** Whether the authorship cutover flag is set (cheap meta read). */
+  isAuthorshipCutover(): Promise<boolean>;
+
+  /**
+   * Which of `blockNumbers` already carry a winner-derived ('block') row —
+   * the difficulty drift cross-check's existence probe (spec §5). Indexed
+   * `IN` on the primary key; the `source` filter applies after the lookup.
+   */
+  getExistingDifficultyBlockNumbers(blockNumbers: string[]): Promise<string[]>;
+
+  /**
+   * Authorship rows inside `[fromBlock, toBlock]` — the reconciler's
+   * per-chunk sample check (spec §5), served by the block_number index.
+   */
+  countAuthorshipBlocksInRange(fromBlock: string, toBlock: string): Promise<number>;
+
+  /** R4 `--reindex winners`: delete all `blocks` rows. Returns the count. */
+  deleteAllBlocks(): Promise<number>;
 
   // --- Node descriptors (v11) ---
   // Per-account chain-signed identity records — one row per AccountId,

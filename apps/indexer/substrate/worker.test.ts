@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
-import { FakeSubstrateClient } from "../clients/substrate-client";
+import { FakeSubstrateClient, type BlockEvents } from "../clients/substrate-client";
 import { IndexerState } from "../core/state";
 import { SubstrateWorker, type SubstrateWorkerDeps } from "./worker";
 import { makeConfig, newInMemoryAdapter } from "../core/test-helpers";
@@ -15,6 +15,21 @@ const runSubstrateLoop = (deps: SubstrateWorkerDeps, signal: AbortSignal): Promi
   new SubstrateWorker(deps).run(signal);
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// Drive one block through the pipeline the way the chain does: the fake can
+// serve its data via processFinalizedBlock, and the TipEnqueuer sees its
+// finalized head (the pipeline subscribes to HEADS and fetches block data —
+// it no longer consumes subscribeBlockEvents).
+function serveBlock(client: FakeSubstrateClient, e: BlockEvents): void {
+  client.historicalBlocks.set(String(e.blockNumber), e);
+  client.emitFinalized({
+    number: String(e.blockNumber),
+    hash: e.blockHash,
+    parentHash: e.parentHash,
+    extrinsicsRoot: "0x",
+    stateRoot: "0x",
+  });
+}
 
 let db: DatabaseAdapter;
 
@@ -27,7 +42,7 @@ afterEach(async () => {
 });
 
 describe("substrate worker", () => {
-  test("substrate worker inserts complete BlockRecord on subscribeBlockEvents fire", async () => {
+  test("substrate worker inserts complete BlockRecord on a finalized head", async () => {
     const state = new IndexerState(db);
     await state.load();
     const client = new FakeSubstrateClient();
@@ -67,11 +82,10 @@ describe("substrate worker", () => {
       },
       ac.signal,
     );
-    // Give the worker time to complete `client.connect()` and register
-    // its subscriptions before we emit. Without this, `emitBlock` can
-    // fire before `subscribeBlockEvents` has registered its callback.
+    // Give the worker time to complete `client.connect()` and register its
+    // head subscription before we serve the block.
     await wait(50);
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 100,
       blockHash: "0xsub",
       parentHash: "0xsub99",
@@ -125,7 +139,7 @@ describe("substrate worker", () => {
     expect(state.observability.lastSubstrateEventAt).toBe("2026-05-19T00:00:00.000Z");
   });
 
-  test("subscribeBlockEvents skips insert when nonce is null", async () => {
+  test("skips insert when nonce is null", async () => {
     const state = new IndexerState(db);
     await state.load();
     const client = new FakeSubstrateClient();
@@ -150,7 +164,7 @@ describe("substrate worker", () => {
     // Winner + matching ProofAccepted, but BlockEvents arrived with
     // nonce: null (runtime returned no WinningSolution for this block)
     // — skip rather than collide with nonce "0" as a no-info sentinel.
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 77,
       blockHash: "0xnononce",
       parentHash: "0xprev",
@@ -182,7 +196,7 @@ describe("substrate worker", () => {
     expect(blocks).toHaveLength(0);
   });
 
-  test("subscribeBlockEvents skips insert when winner has no matching ProofAccepted", async () => {
+  test("skips insert when winner has no matching ProofAccepted", async () => {
     const state = new IndexerState(db);
     await state.load();
     const client = new FakeSubstrateClient();
@@ -206,7 +220,7 @@ describe("substrate worker", () => {
     await wait(50);
     // Winner's (miner, energyMilli) doesn't match any ProofAccepted. The
     // worker logs and skips — no block row should appear.
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 42,
       blockHash: "0xnomatch",
       parentHash: "0xprev",
@@ -261,7 +275,7 @@ describe("substrate worker", () => {
       ac.signal,
     );
     await wait(50);
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 5,
       blockHash: "0xfirst",
       parentHash: "0xgenesis",
@@ -665,7 +679,7 @@ describe("substrate worker", () => {
     await wait(50);
     // Three finalized heads from two distinct authors: 5Auth1 wins one PoW
     // and authors a winnerless head; 5Auth2 authors a winning block.
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 10,
       blockHash: "0xa",
       parentHash: "0x0",
@@ -689,7 +703,7 @@ describe("substrate worker", () => {
       ],
       nonce: "1",
     });
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 11,
       blockHash: "0xb",
       parentHash: "0xa",
@@ -699,7 +713,7 @@ describe("substrate worker", () => {
       proofs: [],
       nonce: null,
     });
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 12,
       blockHash: "0xc",
       parentHash: "0xb",
@@ -760,7 +774,7 @@ describe("substrate worker", () => {
       ac.signal,
     );
     await wait(50);
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 50,
       blockHash: "0xnowin",
       parentHash: "0xprev",
@@ -805,7 +819,7 @@ describe("substrate worker", () => {
       ac.signal,
     );
     await wait(50);
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 99,
       blockHash: "0xnoauth",
       parentHash: "0xprev",
@@ -1035,9 +1049,9 @@ describe("substrate worker", () => {
     // replay shape (a reconnect re-subscribes, or the fire-and-forget
     // backfill re-routes a block the live sub already wrote). The dedup Set
     // collapses the second delivery once the first has been recorded.
-    client.emitBlock(block);
+    serveBlock(client, block);
     await wait(50);
-    client.emitBlock(block);
+    serveBlock(client, block);
     await wait(100);
     ac.abort();
     await loop;
@@ -1076,7 +1090,7 @@ describe("substrate worker", () => {
 
     // Subscriptions were torn down in the finally block, so an event that
     // arrives after shutdown reaches no callback and writes nothing.
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 999,
       blockHash: "0xlate",
       parentHash: "0xprev",
@@ -1124,6 +1138,10 @@ describe("substrate worker", () => {
       nonce: "9",
     });
     client.lastProofBlockByHash.set("0xc7", 198);
+    // The reconciler's boot tick solves against the fetched finalized head;
+    // the walker's lane-W enumeration then pulls block 200 — no live
+    // subscription event needed.
+    client.finalizedHead = "200";
 
     const ac = new AbortController();
     const loop = runSubstrateLoop(
@@ -1137,7 +1155,9 @@ describe("substrate worker", () => {
       },
       ac.signal,
     );
-    await wait(150);
+    // The connect stamp starts the 750ms tip-quiet window, which holds all
+    // backfill pulls — wait it out plus dispatch time.
+    await wait(1200);
     ac.abort();
     await loop;
 
@@ -1193,7 +1213,7 @@ describe("substrate worker", () => {
     expect(state.observability.chainConnected).toBe(true);
 
     // The fresh connection's pipeline works: a block on the new client inserts.
-    clients[1]!.emitBlock({
+    serveBlock(clients[1]!, {
       blockNumber: 7,
       blockHash: "0x7",
       parentHash: "0x6",
@@ -1253,12 +1273,15 @@ describe("substrate worker", () => {
     expect(Date.now() - abortedAt).toBeLessThan(500);
   });
 
-  test("difficulty carries forward to a winning block with no winning-solution snapshot", async () => {
+  test("a winner with no winning-solution snapshot writes the ZERO_DIFFICULTY sentinel", async () => {
+    // Spec §10.2 policy change: the old prior-block `scan` inheritance was
+    // order-dependent (wrong values under an unordered backfill walk), so a
+    // qblock-less (pre-v0.2) winner now writes the stated 0/0/0 sentinel.
     const state = new IndexerState(db);
     await state.load();
     const client = new FakeSubstrateClient();
     client.topology = { nodeCount: 1, edgeCount: 0 };
-    // Block 10 carries its own difficulty; block 11 has none → must inherit it.
+    // Block 10 carries its own difficulty; block 11 has none.
     client.qblocksByBlock.set("10", {
       miner: "5M",
       energyMilli: -100,
@@ -1281,7 +1304,7 @@ describe("substrate worker", () => {
       ac.signal,
     );
     await wait(50);
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 10,
       blockHash: "0x10",
       parentHash: "0x9",
@@ -1299,7 +1322,7 @@ describe("substrate worker", () => {
       nonce: "1",
     });
     await wait(40);
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 11,
       blockHash: "0x11",
       parentHash: "0x10",
@@ -1321,12 +1344,15 @@ describe("substrate worker", () => {
     await loop;
 
     const blocks = await db.getRecentBlocks(10, 0);
+    const b10 = blocks.find((b) => b.substrateBlockNumber === "10");
+    expect(b10?.difficultyEnergy).toBeCloseTo(-5, 5); // own qblock difficulty
     const b11 = blocks.find((b) => b.substrateBlockNumber === "11");
     expect(b11).toBeDefined();
-    // No own snapshot → difficulty inherited from block 10 via the scan.
-    expect(b11?.difficultyEnergy).toBeCloseTo(-5, 5);
-    expect(b11?.minDiversity).toBeCloseTo(0.3, 5);
-    expect(b11?.minSolutions).toBe(7);
+    // No own snapshot → the decided ZERO_DIFFICULTY sentinel, never an
+    // order-dependent guess.
+    expect(b11?.difficultyEnergy).toBe(0);
+    expect(b11?.minDiversity).toBe(0);
+    expect(b11?.minSolutions).toBe(0);
   });
 
   test("a backfill error does not kill the live connection", async () => {
@@ -1352,7 +1378,7 @@ describe("substrate worker", () => {
       ac.signal,
     );
     await wait(50);
-    client.emitBlock({
+    serveBlock(client, {
       blockNumber: 5,
       blockHash: "0x5",
       parentHash: "0x4",

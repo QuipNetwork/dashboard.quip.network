@@ -380,6 +380,7 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
           minSolutions: 1,
           observedAt: "2026-01-01T00:00:00.000Z",
           topologyHash: null,
+          source: "poll",
         });
         await db.insertDifficultySnapshot({
           observedAtBlock: "100",
@@ -388,10 +389,31 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
           minSolutions: 1,
           observedAt: "2026-01-02T00:00:00.000Z",
           topologyHash: null,
+          source: "poll",
         });
         const rows = await db.getRecentDifficulty(10);
         expect(rows).toHaveLength(1);
         expect(rows[0]?.difficultyEnergy).toBe(-1);
+      });
+
+      it("getDifficultySince returns rows at/after the cutoff, oldest-first", async () => {
+        const snap = (block: string, energy: number, observedAt: string) => ({
+          observedAtBlock: block,
+          difficultyEnergy: energy,
+          minDiversity: 0,
+          minSolutions: 1,
+          observedAt,
+          topologyHash: null,
+          source: "poll" as const,
+        });
+        await db.insertDifficultySnapshot(snap("10", -10, "2026-01-01T00:00:00.000Z"));
+        await db.insertDifficultySnapshot(snap("20", -20, "2026-01-02T00:00:00.000Z"));
+        await db.insertDifficultySnapshot(snap("30", -30, "2026-01-03T00:00:00.000Z"));
+
+        const since = await db.getDifficultySince("2026-01-02T00:00:00.000Z");
+        // Cutoff is inclusive; results ascend by observed_at so the chart draws
+        // left-to-right without a client-side reverse.
+        expect(since.map((r) => r.difficultyEnergy)).toEqual([-20, -30]);
       });
     });
 
@@ -404,8 +426,22 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
       });
     });
 
-    describe("validator authorship", () => {
-      it("increments counters, PoW only when hasPow", async () => {
+    describe("validator authorship (row-per-block, spec §9)", () => {
+      // Seed the legacy counter table directly — the write path no longer
+      // touches it, but the union read floors by it until cutover.
+      const seedLegacy = (accountId: string, authored: number, pow: number, lastBlock: string) =>
+        harness.db
+          .insertInto("validator_authorship")
+          .values({
+            account_id: accountId,
+            blocks_authored: String(authored),
+            blocks_authored_with_pow: String(pow),
+            last_authored_block: lastBlock,
+            last_authored_at: "2026-01-01T00:00:00.000Z",
+          })
+          .execute();
+
+      it("counts blocks and PoW wins via the new table", async () => {
         await db.recordValidatorAuthorship("5A", "10", 1700000000, false);
         await db.recordValidatorAuthorship("5A", "11", 1700000060, true);
         const [a] = await db.getValidatorAuthorship();
@@ -413,6 +449,153 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         expect(a?.blocksAuthoredWithPow).toBe(1);
         expect(a?.lastAuthoredBlock).toBe("11");
         expect(a?.lastAuthoredAt).toBe(new Date(1700000060 * 1000).toISOString());
+      });
+
+      it("replaying the same (validator, block) never double-counts", async () => {
+        await db.recordValidatorAuthorship("5A", "10", 1700000000, true);
+        await db.recordValidatorAuthorship("5A", "10", 1700000000, true);
+        const [a] = await db.getValidatorAuthorship();
+        expect(a?.blocksAuthored).toBe(1);
+        expect(a?.blocksAuthoredWithPow).toBe(1);
+      });
+
+      it("union read floors by frozen legacy counters until the walk overtakes", async () => {
+        await seedLegacy("5A", 5, 2, "9");
+        await db.recordValidatorAuthorship("5A", "11", 1700000060, true);
+        const [a] = await db.getValidatorAuthorship();
+        expect(a?.blocksAuthored).toBe(5); // GREATEST(legacy 5, new 1)
+        expect(a?.blocksAuthoredWithPow).toBe(2); // GREATEST(legacy 2, new 1)
+        expect(a?.lastAuthoredBlock).toBe("11"); // last-authored from the newer side
+        expect(a?.lastAuthoredAt).toBe(new Date(1700000060 * 1000).toISOString());
+      });
+
+      it("legacy-only validators stay visible in the union", async () => {
+        await seedLegacy("5B", 3, 0, "7");
+        await db.recordValidatorAuthorship("5A", "11", 1700000060, false);
+        const rows = await db.getValidatorAuthorship();
+        expect(rows.map((r) => r.accountId).sort()).toEqual(["5A", "5B"]);
+        const b = rows.find((r) => r.accountId === "5B");
+        expect(b?.blocksAuthored).toBe(3);
+        expect(b?.lastAuthoredBlock).toBe("7");
+      });
+
+      it("tryAuthorshipCutover refuses while any validator's new count trails the legacy count", async () => {
+        await seedLegacy("5A", 5, 2, "9");
+        await db.recordValidatorAuthorship("5A", "11", 1700000060, true); // 1 < 5
+        expect(await db.tryAuthorshipCutover()).toBe(false);
+        // still union-served: legacy floor holds
+        const [a] = await db.getValidatorAuthorship();
+        expect(a?.blocksAuthored).toBe(5);
+      });
+
+      it("tryAuthorshipCutover flips once counts catch up and recomputes the summary", async () => {
+        await seedLegacy("5A", 2, 1, "9");
+        await db.recordValidatorAuthorship("5A", "10", 1700000000, true);
+        await db.recordValidatorAuthorship("5A", "11", 1700000060, false);
+        expect(await db.tryAuthorshipCutover()).toBe(true);
+        // summary cache now equals the new-table aggregate
+        const [a] = await db.getValidatorAuthorship();
+        expect(a?.blocksAuthored).toBe(2);
+        expect(a?.blocksAuthoredWithPow).toBe(1);
+        expect(a?.lastAuthoredBlock).toBe("11");
+        // idempotent: second call stays true
+        expect(await db.tryAuthorshipCutover()).toBe(true);
+      });
+
+      it("recomputeAuthorshipSummary refreshes the cache after new rows land", async () => {
+        await db.recordValidatorAuthorship("5A", "10", 1700000000, false);
+        expect(await db.tryAuthorshipCutover()).toBe(true);
+        await db.recordValidatorAuthorship("5A", "11", 1700000060, true);
+        await db.recomputeAuthorshipSummary();
+        const [a] = await db.getValidatorAuthorship();
+        expect(a?.blocksAuthored).toBe(2);
+        expect(a?.blocksAuthoredWithPow).toBe(1);
+        expect(a?.lastAuthoredBlock).toBe("11");
+      });
+    });
+
+    describe("difficulty source & precedence (spec §9.3)", () => {
+      const snap = (
+        block: string,
+        energy: number,
+        source: "block" | "poll",
+        observedAt = "2026-01-02T00:00:00.000Z",
+      ) => ({
+        observedAtBlock: block,
+        difficultyEnergy: energy,
+        minDiversity: 0,
+        minSolutions: 1,
+        observedAt,
+        topologyHash: null,
+        source,
+      });
+
+      it("block write converts an occupying poll row (block-wins) and stays idempotent", async () => {
+        await db.insertDifficultySnapshot(snap("100", -10, "poll"));
+        await db.insertDifficultySnapshot(snap("100", -20, "block", "2026-01-03T00:00:00.000Z"));
+        let rows = await db.getRecentDifficulty(10);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.difficultyEnergy).toBe(-20);
+        expect(rows[0]?.source).toBe("block");
+        // replay is a no-op (WHERE source='poll' guard fails)
+        await db.insertDifficultySnapshot(snap("100", -30, "block"));
+        rows = await db.getRecentDifficulty(10);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.difficultyEnergy).toBe(-20);
+      });
+
+      it("poll write never overwrites a block row", async () => {
+        await db.insertDifficultySnapshot(snap("100", -20, "block"));
+        await db.insertDifficultySnapshot(snap("100", -10, "poll"));
+        const rows = await db.getRecentDifficulty(10);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.difficultyEnergy).toBe(-20);
+        expect(rows[0]?.source).toBe("block");
+      });
+
+      it("deleteDifficultyHistoryBySource('block') leaves poll rows intact", async () => {
+        await db.insertDifficultySnapshot(snap("100", -10, "poll", "2026-01-02T00:00:00.000Z"));
+        await db.insertDifficultySnapshot(snap("200", -20, "block", "2026-01-03T00:00:00.000Z"));
+        const deleted = await db.deleteDifficultyHistoryBySource("block");
+        expect(deleted).toBe(1);
+        const rows = await db.getRecentDifficulty(10);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.observedAtBlock).toBe("100");
+        expect(rows[0]?.source).toBe("poll");
+      });
+
+      it("getDifficultyAnchorBefore returns the newest row strictly before the cutoff", async () => {
+        await db.insertDifficultySnapshot(snap("10", -10, "poll", "2026-01-01T00:00:00.000Z"));
+        await db.insertDifficultySnapshot(snap("20", -20, "poll", "2026-01-02T00:00:00.000Z"));
+        await db.insertDifficultySnapshot(snap("30", -30, "poll", "2026-01-03T00:00:00.000Z"));
+        const anchor = await db.getDifficultyAnchorBefore("2026-01-03T00:00:00.000Z");
+        expect(anchor?.observedAtBlock).toBe("20"); // strictly before — row AT the cutoff is in-window
+        expect(await db.getDifficultyAnchorBefore("2026-01-01T00:00:00.000Z")).toBeNull();
+      });
+    });
+
+    describe("coverage generation guard (spec §7)", () => {
+      it("writes only when the stamped generation matches", async () => {
+        // default generation is 1 when never bumped
+        expect(await db.getIndexerGeneration("difficulty")).toBe(1);
+        expect(await db.setCoverageIfGeneration("difficulty", 1, `{"v":1}`)).toBe(true);
+        expect(await db.getCoverage("difficulty")).toBe(`{"v":1}`);
+
+        expect(await db.bumpIndexerGeneration("difficulty")).toBe(2);
+        // stale in-flight flush from generation 1 is dropped
+        expect(await db.setCoverageIfGeneration("difficulty", 1, `{"v":1,"stale":true}`)).toBe(
+          false,
+        );
+        expect(await db.getCoverage("difficulty")).toBe(`{"v":1}`);
+        // current-generation flush lands
+        expect(await db.setCoverageIfGeneration("difficulty", 2, `{"v":1,"gen":2}`)).toBe(true);
+        expect(await db.getCoverage("difficulty")).toBe(`{"v":1,"gen":2}`);
+      });
+
+      it("clearCoverage removes the coverage row for a fresh re-walk", async () => {
+        await db.setCoverageIfGeneration("winners", 1, `{"v":1}`);
+        await db.clearCoverage("winners");
+        expect(await db.getCoverage("winners")).toBeNull();
       });
     });
 

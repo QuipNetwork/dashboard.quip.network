@@ -72,4 +72,47 @@ describe("parseIndexerObservability (v6)", () => {
     const bad = { ...sample, bestBlockHeight: 999 };
     expect(parseIndexerObservability(JSON.stringify(bad))).toBeNull();
   });
+
+  test("round-trips the optional `indexer` backfill-progress field (spec §11)", () => {
+    const withIndexer = {
+      ...sample,
+      indexer: {
+        backfillQueueDepth: 3,
+        coverage: {
+          winners: {
+            low: "394362",
+            high: "530752",
+            gapBlocks: 0,
+            prunedFloor: null,
+            topologyEnrichmentFloor: null,
+            generation: 1,
+          },
+          authorship: {
+            low: "100000",
+            high: "530752",
+            gapBlocks: 2,
+            prunedFloor: "99999",
+            topologyEnrichmentFloor: null,
+            generation: 2,
+          },
+        },
+        difficultyDataStartBlock: "394362",
+      },
+    };
+    const parsed = parseIndexerObservability(JSON.stringify(withIndexer));
+    expect(parsed?.indexer).toEqual(withIndexer.indexer);
+  });
+
+  test("tolerates absence of `indexer` (pre-redesign rows)", () => {
+    const parsed = parseIndexerObservability(JSON.stringify(sample));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.indexer).toBeUndefined();
+  });
+
+  test("malformed `indexer` degrades to undefined, not full rejection", () => {
+    const malformed = { ...sample, indexer: { backfillQueueDepth: "nope" } };
+    const parsed = parseIndexerObservability(JSON.stringify(malformed));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.indexer).toBeUndefined();
+  });
 });

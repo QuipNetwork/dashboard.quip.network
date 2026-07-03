@@ -19,7 +19,7 @@ export function SubmissionDetails({ envelope }: { envelope: MiningAttemptsRespon
           mono
           title={submission.minerId}
         />
-        <Row label="Solution #" value={formatNumber(submission.solutionNumber)} />
+        <Row label="QBlock#" value={formatNumber(submission.solutionNumber)} />
         {submission.powSequence !== null && (
           <Row label="PoW Seq" value={formatNumber(submission.powSequence)} />
         )}

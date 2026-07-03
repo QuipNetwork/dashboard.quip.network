@@ -14,6 +14,7 @@ import type {
   ChainMinerInfo,
   DifficultyInfo,
   MineableTopologyInfo,
+  MinerRegistryDescriptorRecord,
   RuntimeVersionInfo,
   SubstrateHead,
   TopologyInfo,
@@ -34,6 +35,10 @@ export interface HeadSource {
   getLastRuntimeUpgrade(): Promise<{ blockNumber: string } | null>;
   getQBlockCount(): Promise<number | null>;
   getQBlockParticipantCount(qblockId: string): Promise<number | null>;
+  // Current finalized head number via RPC — the reconciler's per-tick head
+  // source (never the persisted observability value, which is stale after
+  // downtime; spec §5).
+  getFinalizedHead(): Promise<string>;
 }
 
 export interface BlockSource {
@@ -42,6 +47,9 @@ export interface BlockSource {
   getDifficulty(): Promise<DifficultyInfo | null>;
   getLastProofBlockAt(blockHash: string): Promise<number>;
   getQBlock(blockNumber: string): Promise<QBlockInfo | null>;
+  // Historical default topology for backfill items' topology stamping
+  // (tip items resolve live via state.defaultTopologyHash; spec §6).
+  getDefaultTopologyAt(blockNumber: string): Promise<string | null>;
 }
 
 export interface BackfillSource {
@@ -57,13 +65,22 @@ export interface PollSource {
   getMineableTopologies(): Promise<MineableTopologyInfo[]>;
 }
 
+// Finalized-state registry snapshots (the node-descriptors plugin's only
+// chain call — same slice `descriptor/iteration.ts` declares locally).
+export interface DescriptorSource {
+  getMinerRegistryDescriptorsAt(
+    blockNumber: string,
+  ): Promise<MinerRegistryDescriptorRecord[] | null>;
+}
+
 // Distinct name from `sources.ChainSource` (the full SubstrateClient alias) so
 // the two don't collide.
 export type ChainClient = ConnectionControl &
   HeadSource &
   BlockSource &
   BackfillSource &
-  PollSource;
+  PollSource &
+  DescriptorSource;
 
 // A per-connection side-effect stream the worker merges without knowing which
 // is which (OCP — a new stream is one array entry, no edit to the worker).

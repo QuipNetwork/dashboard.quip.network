@@ -43,7 +43,6 @@ export function NodeIdentityModal({
   const miners = d?.miners ?? node?.miners;
   const minerEntries = miners ? Object.values(miners) : [];
   const gpus = systemInfo?.gpus ?? [];
-  const autoMine = d?.autoMine ?? node?.autoMine;
   const publicHost = d?.publicHost ?? node?.publicHost;
   const publicPort = d?.publicPort ?? node?.publicPort;
 
@@ -80,7 +79,6 @@ export function NodeIdentityModal({
         <div className="mb-4 flex flex-wrap gap-1 font-accent text-[10px] uppercase tracking-wider">
           {runtime?.quipVersion && <Badge label={`quip ${runtime.quipVersion}`} tone="info" />}
           {runtime?.inDocker && <Badge label="docker" tone="muted" />}
-          {autoMine && <Badge label="auto-mine" tone="success" />}
           {record == null && <Badge label="no descriptor" tone="muted" />}
         </div>
 

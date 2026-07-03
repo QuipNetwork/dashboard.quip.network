@@ -40,6 +40,14 @@ export interface IndexerConfig {
   // simply to make startup deterministic. Ignored once the DB already
   // has a selfAddress cached.
   operatorAccount: string | null;
+
+  // --- Pipeline modes (spec §8) ---
+  // R4 drop-state/reindex: null = not requested; [] = every indexable;
+  // ["winners", ...] = the named ones. Runs generation bump → coverage
+  // clear → dropState before the workers start, then indexes normally.
+  reindex: string[] | null;
+  // Print the plugin registry (name, kind, domain, driver, coverage) and exit.
+  listIndexables: boolean;
 }
 
 const DEFAULTS = {
@@ -219,6 +227,22 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     process.env.QUIP_OPERATOR_ACCOUNT;
   const operatorAccount = parseOperatorAccount(operatorAccountRaw);
 
+  // --reindex           → every indexable ([])
+  // --reindex=a,b / --reindex a,b → the named ones
+  const reindexFlag = takeFlag(argv, "--reindex");
+  const reindex =
+    reindexFlag === undefined
+      ? null
+      : typeof reindexFlag === "string"
+        ? reindexFlag
+            .split(",")
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0)
+        : [];
+
+  const listFlag = takeFlag(argv, "--list-indexables");
+  const listIndexables = listFlag === true || listFlag === "true" || listFlag === "1";
+
   return {
     validatorRpcUrls,
     pollIntervalSec,
@@ -231,6 +255,8 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     substrateBabePollSec,
     substrateChainPollSec,
     operatorAccount,
+    reindex,
+    listIndexables,
   };
 }
 
