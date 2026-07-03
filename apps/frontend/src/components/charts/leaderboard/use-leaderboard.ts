@@ -2,13 +2,13 @@
 
 import { useMemo } from "react";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
+import { useMinerWins } from "@/services/use-miner-wins";
 import { useTelemetryStore } from "@/store/telemetry-store";
-import { useFilteredBlocks } from "@/store/use-filtered-blocks";
 import { useUIStore } from "@/store/ui-store";
 import type {
-  BlockRecord,
   ChainMinerRecord,
   MinerCategory,
+  MinerWinsRow,
   NodeDescriptorRecord,
 } from "@quip/shared/telemetry";
 
@@ -16,13 +16,17 @@ export interface LeaderboardEntry {
   rank: number;
   minerId: string;
   minerCategory: MinerCategory;
+  // Chain-authoritative lifetime wins (`quantum_pow.Miners.proofs_won`).
   blockCount: number;
-  /** Share of total blocks as 0–1 */
+  /** Share of total wins (within the filtered set) as 0–1 */
   share: number;
-  /** Average mining time in seconds */
-  avgMiningTime: number;
-  /** Best (lowest) energy achieved */
-  bestEnergy: number;
+  /**
+   * Average mining time in seconds over the miner's INDEXED wins — null when
+   * none of this miner's winning blocks have been decoded locally yet.
+   */
+  avgMiningTime: number | null;
+  /** Best (lowest) energy across the miner's indexed wins; null as above. */
+  bestEnergy: number | null;
 }
 
 export interface LeaderboardFilter {
@@ -30,62 +34,57 @@ export interface LeaderboardFilter {
 }
 
 /**
- * Pure leaderboard computation. Extracted so views that need a canonical
- * ranking (e.g. "My Node" showing the operator their network-wide rank) can
- * reuse the exact same logic without being coupled to the UI store's filter.
+ * Pure leaderboard computation. Rank, win count, and share come from the
+ * chain-authoritative `proofs_won` counter (chainMiners) — the same number
+ * the rewards line and the On-chain miners table show, so every surface
+ * agrees. The indexed `/api/miner-wins` dataset only supplies the quality
+ * metrics the chain doesn't store (avg mining time, best energy); those are
+ * null for miners whose wins the indexer hasn't decoded yet (pre-spec-108
+ * backfill). Zero-win miners are excluded — it's a leaderboard of winners.
+ *
+ * Extracted so views that need a canonical ranking (e.g. "My Node" showing
+ * the operator their network-wide rank) can reuse the exact same logic
+ * without being coupled to the UI store's filter.
  *
  * v0.3: categories come from a `chainMiners` lookup (every miner currently
  * resolves to "OTHER" until per-miner hardware lands; see lib/miner-category).
  */
 export function computeLeaderboard(
-  blocks: readonly BlockRecord[],
   chainMiners: readonly ChainMinerRecord[],
+  minerWins: readonly MinerWinsRow[],
   filter?: LeaderboardFilter,
   nodeDescriptors: readonly NodeDescriptorRecord[] = [],
 ): LeaderboardEntry[] {
   const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
-  const stats = new Map<
-    string,
-    {
-      minerCategory: MinerCategory;
-      blockCount: number;
-      totalMiningTime: number;
-      bestEnergy: number;
-    }
-  >();
+  const metricsByMiner = new Map(minerWins.map((w) => [w.minerId, w]));
 
-  for (const block of blocks) {
-    const minerCategory = categoryFor(block.minerId, catIndex);
-    if (filter?.categories && !filter.categories.has(minerCategory)) continue;
+  const included = chainMiners
+    .map((m) => ({
+      m,
+      wins: Number(m.proofsWon),
+      minerCategory: categoryFor(m.accountId, catIndex),
+    }))
+    .filter(({ wins }) => wins > 0)
+    .filter(({ minerCategory }) => !filter?.categories || filter.categories.has(minerCategory));
 
-    const existing = stats.get(block.minerId);
-    if (existing) {
-      existing.blockCount++;
-      existing.totalMiningTime += block.miningTime;
-      existing.bestEnergy = Math.min(existing.bestEnergy, block.energy);
-    } else {
-      stats.set(block.minerId, {
+  // Share is of the *included* total: in byType mode the bars answer "who
+  // wins among the selected categories".
+  const totalWins = included.reduce((sum, { wins }) => sum + wins, 0);
+
+  return included
+    .sort((a, b) => b.wins - a.wins)
+    .map(({ m, wins, minerCategory }, i) => {
+      const metrics = metricsByMiner.get(m.accountId);
+      return {
+        rank: i + 1,
+        minerId: m.accountId,
         minerCategory,
-        blockCount: 1,
-        totalMiningTime: block.miningTime,
-        bestEnergy: block.energy,
-      });
-    }
-  }
-
-  const totalBlocks = [...stats.values()].reduce((sum, s) => sum + s.blockCount, 0);
-
-  return [...stats.entries()]
-    .sort((a, b) => b[1].blockCount - a[1].blockCount)
-    .map(([minerId, s], i) => ({
-      rank: i + 1,
-      minerId,
-      minerCategory: s.minerCategory,
-      blockCount: s.blockCount,
-      share: totalBlocks > 0 ? s.blockCount / totalBlocks : 0,
-      avgMiningTime: s.totalMiningTime / s.blockCount,
-      bestEnergy: s.bestEnergy,
-    }));
+        blockCount: wins,
+        share: totalWins > 0 ? wins / totalWins : 0,
+        avgMiningTime: metrics?.avgMiningTime ?? null,
+        bestEnergy: metrics?.bestEnergy ?? null,
+      };
+    });
 }
 
 export function filterLeaderboardEntries(
@@ -100,7 +99,7 @@ export function filterLeaderboardEntries(
 }
 
 export function useLeaderboard(): LeaderboardEntry[] {
-  const blocks = useFilteredBlocks();
+  const { rows } = useMinerWins();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
@@ -109,11 +108,11 @@ export function useLeaderboard(): LeaderboardEntry[] {
   return useMemo(
     () =>
       computeLeaderboard(
-        blocks,
         chainMiners,
+        rows,
         mode === "byType" ? { categories: new Set(selectedTypes) } : undefined,
         nodeDescriptors,
       ),
-    [blocks, chainMiners, nodeDescriptors, selectedTypes, mode],
+    [rows, chainMiners, nodeDescriptors, selectedTypes, mode],
   );
 }

@@ -99,11 +99,13 @@ export function NeighborsList({ self, neighbors }: NeighborsListProps) {
                 <td className="py-2 pr-3 text-right font-heading text-sm text-ink-strong">
                   {formatNumber(entry.blockCount)}
                 </td>
+                {/* Metrics come from indexed wins; miners whose wins the
+                    indexer hasn't decoded yet (backfill) have none. */}
                 <td className="hidden py-2 pr-3 text-right font-accent text-xs text-ink-subtle sm:table-cell">
-                  {formatSeconds(entry.avgMiningTime)}
+                  {entry.avgMiningTime != null ? formatSeconds(entry.avgMiningTime) : "—"}
                 </td>
                 <td className="hidden py-2 pr-3 text-right font-accent text-xs text-ink-subtle md:table-cell">
-                  {formatEnergy(entry.bestEnergy)}
+                  {entry.bestEnergy != null ? formatEnergy(entry.bestEnergy) : "—"}
                 </td>
               </tr>
             );

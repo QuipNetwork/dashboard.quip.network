@@ -190,6 +190,7 @@ function clientReturning(response: TelemetryResponse): FakeClient {
     fetchBlocks: async () => [],
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
+    fetchMinerWins: () => new Promise<never>(() => {}),
   };
   return client;
 }
@@ -207,6 +208,7 @@ function clientThrowing(error: Error): FakeClient {
     fetchBlocks: async () => [],
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
+    fetchMinerWins: () => new Promise<never>(() => {}),
   };
   return client;
 }

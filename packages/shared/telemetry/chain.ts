@@ -209,6 +209,30 @@ export interface DifficultyRecord {
 }
 
 /**
+ * Per-miner win aggregate over the indexed `blocks` table — the canonical
+ * dataset behind every "qblocks won" figure in the UI (leaderboard,
+ * rank-adjacent miners, miner info panes), so they all agree by
+ * construction. Computed in SQL (`GROUP BY miner_id`), served by
+ * `GET /api/miner-wins`.
+ *
+ * Counts only winner blocks the indexer decoded and stored: on a deployment
+ * whose backfill hasn't reached the chain's genesis (or where pre-spec-108
+ * winners are still undecodable), `wins` lags the on-chain lifetime
+ * `ChainMinerRecord.proofsWon` counter — that counter remains the
+ * authoritative lifetime figure and is labeled as such where shown.
+ */
+export interface MinerWinsRow {
+  minerId: string;
+  wins: number;
+  // Best (lowest) energy across the miner's stored wins.
+  bestEnergy: number;
+  // Mean mining time in seconds across the miner's stored wins.
+  avgMiningTime: number;
+  // Unix seconds of the miner's most recent stored win (blocks.timestamp).
+  lastWonAt: number;
+}
+
+/**
  * Per-validator authorship payload joined against the active BABE authority
  * set. Each row corresponds to one BABE authority for the current session;
  * the server fills `blocksAuthored` / `blocksAuthoredWithPow` from the

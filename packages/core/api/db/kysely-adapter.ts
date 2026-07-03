@@ -14,6 +14,7 @@ import type {
   IndexerObservability,
   MineableTopologyRecord,
   MinerHardwareRecord,
+  MinerWinsRow,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
 } from "@quip/shared/telemetry";
@@ -180,6 +181,30 @@ export class KyselyAdapter implements DatabaseAdapter {
       .limit(limit)
       .execute();
     return rows.map(rowToBlockRecord);
+  }
+
+  async getMinerWins(): Promise<MinerWinsRow[]> {
+    // Postgres returns COUNT as a bigint string and AVG as numeric-string;
+    // pglite may return numbers. Number() normalises both drivers.
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .select(({ fn }) => [
+        "miner_id",
+        fn.countAll().as("wins"),
+        fn.min("energy").as("best_energy"),
+        fn.avg("mining_time").as("avg_mining_time"),
+        fn.max("timestamp").as("last_won_at"),
+      ])
+      .groupBy("miner_id")
+      .orderBy("wins", "desc")
+      .execute();
+    return rows.map((r) => ({
+      minerId: String(r.miner_id),
+      wins: Number(r.wins),
+      bestEnergy: Number(r.best_energy),
+      avgMiningTime: Number(r.avg_mining_time),
+      lastWonAt: Number(r.last_won_at),
+    }));
   }
 
   async getBlocksMissingTopology(

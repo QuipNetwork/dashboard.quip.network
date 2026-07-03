@@ -10,12 +10,19 @@ import type { TelemetryClient } from "@/services/telemetry-client";
 import { createTelemetryStore, type TelemetryState } from "@/store/telemetry-store";
 import { createUIStore, type UIState } from "@/store/ui-store";
 
-const idleClient: TelemetryClient = {
+/**
+ * A TelemetryClient whose every method hangs forever. Exported for tests
+ * that drive state through the global stores and render bare components:
+ * fetch hooks (e.g. `useMinerWins`) fall back to the real HTTP client when
+ * no provider is mounted, which fires real fetches and act() warnings.
+ */
+export const idleTelemetryClient: TelemetryClient = {
   fetchTelemetry: () => new Promise<never>(() => {}),
   fetchMiningAttempts: () => new Promise<never>(() => {}),
   fetchBlocks: () => new Promise<never>(() => {}),
   fetchNodeLive: () => new Promise<never>(() => {}),
   fetchDifficultyHistory: () => new Promise<never>(() => {}),
+  fetchMinerWins: () => new Promise<never>(() => {}),
 };
 
 export interface TestServicesOverrides {
@@ -32,7 +39,7 @@ export interface TestServices {
 }
 
 export function createTestServices(overrides: TestServicesOverrides = {}): TestServices {
-  const client = overrides.client ?? idleClient;
+  const client = overrides.client ?? idleTelemetryClient;
   const telemetryStore = createTelemetryStore({ client });
   if (overrides.telemetry) telemetryStore.setState(overrides.telemetry);
   const uiStore = createUIStore();

@@ -168,6 +168,50 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         expect(await db.getExistingBlockNumbers([])).toEqual([]);
       });
 
+      it("getMinerWins aggregates per miner: count, best energy, avg time, last win", async () => {
+        // Miner 5A: two wins; 5B: one win. Aggregates must reflect exactly
+        // what the rows say — the leaderboard sorts and displays these as-is.
+        await db.insertBlock(
+          sampleBlock({
+            blockHash: "0xa1",
+            substrateBlockNumber: "1",
+            minerId: "5A",
+            energy: -1.0,
+            miningTime: 10,
+            timestamp: 1700000000,
+          }),
+        );
+        await db.insertBlock(
+          sampleBlock({
+            blockHash: "0xa2",
+            substrateBlockNumber: "3",
+            minerId: "5A",
+            energy: -2.5,
+            miningTime: 20,
+            timestamp: 1700000200,
+          }),
+        );
+        await db.insertBlock(
+          sampleBlock({
+            blockHash: "0xb1",
+            substrateBlockNumber: "2",
+            minerId: "5B",
+            energy: -0.5,
+            miningTime: 7,
+            timestamp: 1700000100,
+          }),
+        );
+        const rows = await db.getMinerWins();
+        expect(rows).toEqual([
+          { minerId: "5A", wins: 2, bestEnergy: -2.5, avgMiningTime: 15, lastWonAt: 1700000200 },
+          { minerId: "5B", wins: 1, bestEnergy: -0.5, avgMiningTime: 7, lastWonAt: 1700000100 },
+        ]);
+      });
+
+      it("getMinerWins returns [] on an empty blocks table", async () => {
+        expect(await db.getMinerWins()).toEqual([]);
+      });
+
       it("getExistingBlockNumbers handles a lookup larger than the bind-parameter ceiling", async () => {
         // Seed a handful of real blocks, then ask about 70k numbers (> the
         // 65535 single-statement ceiling) — the adapter must chunk the IN-list.

@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { BlockRecord, ChainMinerRecord } from "@quip/shared/telemetry";
+import type { BlockRecord, ChainMinerRecord, MinerWinsRow } from "@quip/shared/telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
 
 import { useNode, type NodeStats } from "./use-node";
@@ -48,10 +48,14 @@ function makeChainMiner(accountId: string, proofsWon: string): ChainMinerRecord 
   };
 }
 
-function renderHook(accountId: string): { current: NodeStats } {
+function makeWins(minerId: string, count: number): MinerWinsRow {
+  return { minerId, wins: count, bestEnergy: -1, avgMiningTime: 10, lastWonAt: 1_700_000_000 };
+}
+
+function renderHook(accountId: string, minerWins: MinerWinsRow[] = []): { current: NodeStats } {
   const result = { current: {} as NodeStats };
   function Probe(): null {
-    result.current = useNode(accountId);
+    result.current = useNode(accountId, minerWins);
     return null;
   }
   act(() => root.render(createElement(Probe)));
@@ -102,8 +106,8 @@ describe("useNode", () => {
       chainMiners: [makeChainMiner("5GBob", "2"), makeChainMiner("5GAlice", "1")],
     });
 
-    const bob = renderHook("5GBob").current;
-    expect(bob.blocksMined).toBe("2");
+    const bob = renderHook("5GBob", [makeWins("5GBob", 2), makeWins("5GAlice", 1)]).current;
+    expect(bob.blocksMined).toBe("2"); // chain-authoritative proofs_won
     expect(bob.lastWonBlock?.blockHash).toBe("0xb2"); // most recent Bob win
     expect(bob.recentSubmissions).toHaveLength(2); // both Bob wins synthesized
     expect(bob.recentSubmissions.every((s) => s.chainOnly)).toBe(true);
@@ -123,8 +127,9 @@ describe("useNode", () => {
       chainMiners: [makeChainMiner("5GBob", "2"), makeChainMiner("5GAlice", "1")],
     });
 
-    const alice = renderHook("5GAlice").current;
+    const alice = renderHook("5GAlice", [makeWins("5GBob", 2), makeWins("5GAlice", 1)]).current;
     expect(alice.self?.minerId).toBe("5GAlice");
+    expect(alice.self?.rank).toBe(2); // ranked by chain proofs_won
     expect(alice.neighbors.some((n) => n.minerId === "5GBob")).toBe(true);
   });
 

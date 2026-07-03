@@ -124,8 +124,13 @@ export function NodeIdentityModal({
             <>
               <Row label="Deposit" value={formatBalance(miner.deposit)} />
               <Row label="Rewards" value={formatBalance(miner.rewardsEarned)} />
-              <Row label="Proofs Submitted" value={miner.proofsSubmitted} />
-              <Row label="Proofs Won" value={miner.proofsWon} />
+              {/* Lifetime chain counters from `quantum_pow.Miners` storage —
+                  deliberately labeled so they aren't read as the indexed
+                  all-time counts the leaderboard/rank tables show (those
+                  come from /api/miner-wins and can trail the chain while
+                  backfill is incomplete). */}
+              <Row label="Proofs Submitted (lifetime)" value={miner.proofsSubmitted} />
+              <Row label="Proofs Won (lifetime)" value={miner.proofsWon} />
             </>
           )}
         </dl>

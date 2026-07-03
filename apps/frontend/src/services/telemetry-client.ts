@@ -5,6 +5,7 @@ import { createContext, useContext } from "react";
 import type {
   BlockRecord,
   DifficultyHistoryResponse,
+  MinerWinsResponse,
   MiningAttemptsResponse,
   NodeLiveData,
   TelemetryResponse,
@@ -30,6 +31,9 @@ export interface TelemetryClient {
     sinceIso: string,
     signal?: AbortSignal,
   ): Promise<DifficultyHistoryResponse>;
+  // All-time per-miner win aggregates from the indexed blocks table — the
+  // shared dataset behind every "qblocks won" surface (see MinerWinsRow).
+  fetchMinerWins(signal?: AbortSignal): Promise<MinerWinsResponse>;
 }
 
 export interface HttpTelemetryClientOptions {
@@ -93,6 +97,12 @@ export class HttpTelemetryClient implements TelemetryClient {
     );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as DifficultyHistoryResponse;
+  }
+
+  async fetchMinerWins(signal?: AbortSignal): Promise<MinerWinsResponse> {
+    const res = await this.fetch(`${this.baseUrl}/api/miner-wins`, signal ? { signal } : undefined);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as MinerWinsResponse;
   }
 
   async fetchNodeLive(
