@@ -162,10 +162,7 @@ describe("winners plugin", () => {
   });
 
   test("deviceAccessTimeUs 0 (present but unreported) keeps the derived value", async () => {
-    await winnersPlugin().onBlock(
-      makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 0 }) }),
-      db,
-    );
+    await winnersPlugin().onBlock(makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 0 }) }), db);
     const [b] = await db.getRecentBlocks(10);
     expect(b?.miningTime).toBe(60); // (500000 - 499990) blocks × 6s
   });

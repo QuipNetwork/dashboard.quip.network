@@ -28,11 +28,13 @@
 ### Task 1: Extract `deviceAccessTimeUs` into `QBlockInfo` via a testable mapper
 
 **Files:**
+
 - Modify: `apps/indexer/clients/substrate-client/types.ts` (`QBlockInfo`, ~line 141)
 - Modify: `apps/indexer/clients/substrate-client/index.ts` (`getQBlock`, ~lines 454-492)
 - Test: `apps/indexer/clients/substrate-client/client.test.ts` (beside the `decodeBlockWinnerEventData` tests)
 
 **Interfaces:**
+
 - Consumes: the raw `sol` record `getQBlock` already builds (`toJSON()`-coerced solution struct).
 - Produces: `QBlockInfo.deviceAccessTimeUs: number | null`; exported pure function `qblockInfoFromSolution(sol: Record<string, unknown>, nonce: string): QBlockInfo` — Task 2's fixtures set the field directly on `QBlockInfo`.
 
@@ -85,13 +87,13 @@ Expected: FAIL — `qblockInfoFromSolution` is not exported.
 In `apps/indexer/clients/substrate-client/types.ts` (~line 149), after `difficulty`:
 
 ```typescript
-  // Spec-111 trailing QBlock field: miner-reported compute time for the
-  // winning proof, in microseconds — D-Wave QPU access time for QPU wins,
-  // wall clock for CPU/GPU. Self-reported (consensus never reads it).
-  // `null` when the chain pre-dates runtime 111 (field absent from the
-  // runtime API); `0` when present but unreported. Consumers must treat
-  // both as "no report" and fall back to derived block spacing.
-  deviceAccessTimeUs: number | null;
+// Spec-111 trailing QBlock field: miner-reported compute time for the
+// winning proof, in microseconds — D-Wave QPU access time for QPU wins,
+// wall clock for CPU/GPU. Self-reported (consensus never reads it).
+// `null` when the chain pre-dates runtime 111 (field absent from the
+// runtime API); `0` when present but unreported. Consumers must treat
+// both as "no report" and fall back to derived block spacing.
+deviceAccessTimeUs: number | null;
 ```
 
 - [ ] **Step 4: Extract the mapper and wire it into `getQBlock`**
@@ -105,10 +107,7 @@ In `apps/indexer/clients/substrate-client/index.ts`, move the `return { miner: �
  * the spec-111 `device_access_time_us` tail) can be unit-tested without a
  * live chain.
  */
-export function qblockInfoFromSolution(
-  sol: Record<string, unknown>,
-  nonce: string,
-): QBlockInfo {
+export function qblockInfoFromSolution(sol: Record<string, unknown>, nonce: string): QBlockInfo {
   const rawDevice = sol.deviceAccessTimeUs ?? sol.device_access_time_us;
   const device = Number(rawDevice);
   return {
@@ -144,10 +143,12 @@ git commit -m "feat(indexer): extract spec-111 deviceAccessTimeUs into QBlockInf
 ### Task 2: Winners plugin prefers the reported compute time
 
 **Files:**
+
 - Modify: `apps/indexer/pipeline/plugins/winners.ts` (~lines 71-89)
 - Test: `apps/indexer/pipeline/plugins/plugins.test.ts` (`makeQBlock` ~line 55; winners describe block ~line 97)
 
 **Interfaces:**
+
 - Consumes: `QBlockInfo.deviceAccessTimeUs` from Task 1.
 - Produces: `BlockRecord.miningTime` = reported seconds when truthy, else derived block-spacing (unchanged formula).
 
@@ -162,23 +163,20 @@ In `plugins.test.ts`, first make `makeQBlock` explicit about the default so ever
 (added to the object literal in `makeQBlock`, before `...overrides`). Then add to the winners describe block:
 
 ```typescript
-  it("spec-111 reported compute time replaces the derived wall clock", async () => {
-    await winnersPlugin().onBlock(
-      makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 45_500_000 }) }),
-      db,
-    );
-    const [b] = await db.getRecentBlocks(10);
-    expect(b?.miningTime).toBe(45.5); // µs → float seconds, not floored
-  });
+it("spec-111 reported compute time replaces the derived wall clock", async () => {
+  await winnersPlugin().onBlock(
+    makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 45_500_000 }) }),
+    db,
+  );
+  const [b] = await db.getRecentBlocks(10);
+  expect(b?.miningTime).toBe(45.5); // µs → float seconds, not floored
+});
 
-  it("deviceAccessTimeUs 0 (present but unreported) keeps the derived value", async () => {
-    await winnersPlugin().onBlock(
-      makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 0 }) }),
-      db,
-    );
-    const [b] = await db.getRecentBlocks(10);
-    expect(b?.miningTime).toBe(60); // (500000 - 499990) blocks × 6s
-  });
+it("deviceAccessTimeUs 0 (present but unreported) keeps the derived value", async () => {
+  await winnersPlugin().onBlock(makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 0 }) }), db);
+  const [b] = await db.getRecentBlocks(10);
+  expect(b?.miningTime).toBe(60); // (500000 - 499990) blocks × 6s
+});
 ```
 
 (The existing `qblock: null` and `lastProof: 0` tests already pin the pre-111 and no-anchor fallbacks.)
@@ -193,17 +191,17 @@ Expected: the new 45.5 test FAILS (writes 60); everything else passes.
 Replace the miningTime computation (~lines 71-74):
 
 ```typescript
-      // LastProofBlock is read at the PARENT hash: on_finalize updates it
-      // in-block, so the parent's value is the prior tip.
-      const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
-      // Spec-111 qblocks carry the winner's self-reported compute time
-      // (QPU access time for QPU wins, wall clock for CPU/GPU), in µs.
-      // Prefer it — the derived block-spacing wall clock below remains
-      // recomputable from chain data by anyone, so nothing is lost.
-      // Falsy (null = pre-111, 0 = unreported) falls back to the spacing.
-      const miningTime = qblock?.deviceAccessTimeUs
-        ? qblock.deviceAccessTimeUs / 1_000_000
-        : miningTimeBlocks * BABE_SLOT_DURATION_SEC;
+// LastProofBlock is read at the PARENT hash: on_finalize updates it
+// in-block, so the parent's value is the prior tip.
+const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
+// Spec-111 qblocks carry the winner's self-reported compute time
+// (QPU access time for QPU wins, wall clock for CPU/GPU), in µs.
+// Prefer it — the derived block-spacing wall clock below remains
+// recomputable from chain data by anyone, so nothing is lost.
+// Falsy (null = pre-111, 0 = unreported) falls back to the spacing.
+const miningTime = qblock?.deviceAccessTimeUs
+  ? qblock.deviceAccessTimeUs / 1_000_000
+  : miningTimeBlocks * BABE_SLOT_DURATION_SEC;
 ```
 
 - [ ] **Step 4: Run the tests**
@@ -223,6 +221,7 @@ git commit -m "feat(indexer): use reported device compute time as block mining_t
 ### Task 3: Semantics docs + gate + MR
 
 **Files:**
+
 - Modify: `packages/shared/telemetry/chain.ts` (`BlockRecord.miningTime` ~line 26; `MiningHistoryRow.miningTime` comment ~line 249)
 - Modify: `docs/DATABASE_SCHEMA.md` (`blocks.mining_time` row, ~line 56)
 - Verification + MR.
@@ -234,20 +233,20 @@ git commit -m "feat(indexer): use reported device compute time as block mining_t
 `packages/shared/telemetry/chain.ts` — `BlockRecord.miningTime` gains a comment (currently bare `miningTime: number;`):
 
 ```typescript
-  // Seconds of compute behind the winning proof. Spec-111+ blocks carry the
-  // winner's self-reported device_access_time_us (QPU access time for QPU
-  // wins, wall clock for CPU/GPU), converted µs → s. Pre-111 blocks and
-  // unreported (0) wins fall back to derived block spacing
-  // ((win − last proof) × slot seconds) — which stays recomputable from
-  // chain data either way.
-  miningTime: number;
+// Seconds of compute behind the winning proof. Spec-111+ blocks carry the
+// winner's self-reported device_access_time_us (QPU access time for QPU
+// wins, wall clock for CPU/GPU), converted µs → s. Pre-111 blocks and
+// unreported (0) wins fall back to derived block spacing
+// ((win − last proof) × slot seconds) — which stays recomputable from
+// chain data either way.
+miningTime: number;
 ```
 
 `MiningHistoryRow.miningTime` comment (~line 249) — replace `// Seconds the winning proof took to mine.` with:
 
 ```typescript
-  // Seconds of compute behind the winning proof (see BlockRecord.miningTime:
-  // reported device time on spec-111+ wins, derived block spacing otherwise).
+// Seconds of compute behind the winning proof (see BlockRecord.miningTime:
+// reported device time on spec-111+ wins, derived block spacing otherwise).
 ```
 
 `docs/DATABASE_SCHEMA.md` `blocks.mining_time` row — replace the description `Seconds spent mining this block.` with:

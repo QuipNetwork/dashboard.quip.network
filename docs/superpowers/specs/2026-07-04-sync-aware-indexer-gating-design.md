@@ -6,7 +6,7 @@
 ## Problem
 
 The indexer starts its full pipeline the moment the WebSocket connects. A
-validator doing *major sync* is already saturating its own I/O importing
+validator doing _major sync_ is already saturating its own I/O importing
 blocks; the indexer's backfill dispatch (2 lanes × `backfillBlocksPerSec`,
 `BACKFILL_CONCURRENCY` parallel `getBlock` calls), reconciler cross-checks,
 and snapshot scans compete for the same node resources and stall its
