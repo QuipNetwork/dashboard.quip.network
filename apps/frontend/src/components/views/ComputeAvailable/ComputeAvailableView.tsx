@@ -2,6 +2,7 @@
 
 import { ChartCard } from "@/components/layout/ChartCard";
 import { SERIES_COLORS } from "@/lib/colors";
+import { decaysApplied } from "@/lib/decays";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { formatEnergy } from "@/lib/format-chain";
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
@@ -65,20 +66,13 @@ export function ComputeAvailableView() {
           minSolutions: compute.lastBlock.minSolutions,
         }
       : null);
-  // Number of difficulty-decay steps applied since the last winning proof.
-  // Matches quip-protocol-rs `apply_decay` (pallets/quantum-pow/src/
-  // difficulty.rs:261): one step per `QuantumPowEpochLength = 100` blocks
-  // past `LastProofBlock`. Same hard-coded constant as `CurrentBlockIndicator`.
-  const QUANTUM_POW_EPOCH_LENGTH = 100;
-  const finalizedNum =
-    chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
-  const lastProofBlockNum = compute.lastBlock
-    ? Number(compute.lastBlock.substrateBlockNumber)
-    : null;
-  const decaysApplied =
-    finalizedNum != null && lastProofBlockNum != null
-      ? Math.max(0, Math.floor((finalizedNum - lastProofBlockNum) / QUANTUM_POW_EPOCH_LENGTH))
-      : null;
+  // Number of difficulty-decay steps applied since the last winning proof,
+  // anchored on the BEST head (see lib/decays.ts for why finality lag made
+  // the old finalized-anchored count misleading).
+  const decays = decaysApplied(
+    chainHead,
+    compute.lastBlock ? compute.lastBlock.substrateBlockNumber : null,
+  );
 
   const blocksOverTime = useBlocksOverTime();
   const computeUsed = useComputeUsed();
@@ -130,7 +124,7 @@ export function ComputeAvailableView() {
           }
           sublabel={
             currentDifficulty != null
-              ? `${decaysApplied != null ? `${decaysApplied} ${decaysApplied === 1 ? "decay" : "decays"} · ` : ""}min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
+              ? `${decays != null ? `${decays} ${decays === 1 ? "decay" : "decays"} · ` : ""}min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
               : "Awaiting first difficulty poll"
           }
           accent={SERIES_COLORS.CPU}

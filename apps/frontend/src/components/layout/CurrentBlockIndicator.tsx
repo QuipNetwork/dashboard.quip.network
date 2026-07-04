@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
+import { blocksSinceLastProof, decaysApplied } from "@/lib/decays";
 import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 
 export function CurrentBlockIndicator() {
@@ -18,21 +19,13 @@ export function CurrentBlockIndicator() {
   // `quantum_pow.Miners[*].proofs_won` until chain_head lands).
   const tipNum = Number(tip.substrateBlockNumber);
   const nextProblem = winningSolutionsSolved(chainHead, chainMiners) + 1;
-  // Substrate blocks elapsed since the last winning PoW solution. Derived
-  // from chain_head.finalizedBlockNumber (the canonical "where the chain
-  // is now") minus the tip-of-winning-blocks substrate height. Hidden when
-  // chain_head isn't observed yet (substrate worker not connected).
-  const finalizedNum =
-    chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
-  const blocksSinceWin = finalizedNum != null ? Math.max(0, finalizedNum - tipNum) : null;
-  // Number of difficulty-decay steps applied since the last winning proof.
-  // quip-protocol-rs `apply_decay` triggers every `EpochLength` blocks past
-  // `LastProofBlock` (see pallets/quantum-pow/src/difficulty.rs:261). Hard-
-  // coded to match `QuantumPowEpochLength = 100` on spec 101; pipe through
-  // telemetry if/when the constant ever varies per chain.
-  const QUANTUM_POW_EPOCH_LENGTH = 100;
-  const decaysApplied =
-    blocksSinceWin != null ? Math.floor(blocksSinceWin / QUANTUM_POW_EPOCH_LENGTH) : null;
+  // Substrate blocks elapsed since the last winning PoW solution, and the
+  // decay steps that implies — both anchored on the BEST head (see
+  // lib/decays.ts: the runtime decays with the executing chain, and the old
+  // finalized-anchored count undercounted whenever finality lagged). Hidden
+  // when chain_head isn't observed yet (substrate worker not connected).
+  const blocksSinceWin = blocksSinceLastProof(chainHead, tip.substrateBlockNumber);
+  const decays = decaysApplied(chainHead, tip.substrateBlockNumber);
   // Number of miners that declared participation on the in-flight qblock via
   // `MinerRegistry.participate`, sourced from chain. Null when the runtime API
   // is absent (pre-v0.2) or the substrate worker hasn't read it yet.
@@ -53,10 +46,10 @@ export function CurrentBlockIndicator() {
         {blocksSinceWin != null && (
           <span className="text-ink-subtle"> · {blocksSinceWin} blocks since</span>
         )}
-        {decaysApplied != null && decaysApplied > 0 && (
+        {decays != null && decays > 0 && (
           <span className="text-ink-subtle">
             {" "}
-            · {decaysApplied} {decaysApplied === 1 ? "decay" : "decays"}
+            · {decays} {decays === 1 ? "decay" : "decays"}
           </span>
         )}
       </p>

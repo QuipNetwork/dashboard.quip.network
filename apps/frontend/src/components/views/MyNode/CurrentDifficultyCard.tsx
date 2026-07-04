@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { decaysApplied } from "@/lib/decays";
 import { formatNumber } from "@/lib/format";
 import { formatEnergy } from "@/lib/format-chain";
 import type { BlockRecord, ChainHead, DifficultyRecord } from "@quip/shared/telemetry";
 import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import type { CurrentRequirements } from "./use-my-node";
 
-// One decay step per EpochLength blocks past LastProofBlock — matches the
-// pallet's apply_decay on spec 101 (QuantumPowEpochLength = 100).
-const QUANTUM_POW_EPOCH_LENGTH = 100;
 const PRIOR_ENERGY_ROWS = 3;
 
 export function CurrentDifficultyCard({
@@ -33,13 +31,10 @@ export function CurrentDifficultyCard({
 
   const notEnforced = <span className="text-ink-subtle italic">not enforced</span>;
 
-  const finalizedNum =
-    chainHead && chainHead.finalizedBlockNumber ? Number(chainHead.finalizedBlockNumber) : null;
-  const lastProofBlockNum = tipBlock ? Number(tipBlock.substrateBlockNumber) : null;
-  const decaysApplied =
-    finalizedNum != null && lastProofBlockNum != null
-      ? Math.max(0, Math.floor((finalizedNum - lastProofBlockNum) / QUANTUM_POW_EPOCH_LENGTH))
-      : null;
+  // Anchored on the BEST head (see lib/decays.ts): during the 2026-07-04
+  // outage finality stalled and the old finalized-anchored count showed
+  // "Decays Applied: 0" while the live target had already decayed.
+  const decays = decaysApplied(chainHead, tipBlock ? tipBlock.substrateBlockNumber : null);
 
   const priorEnergies: Array<{ block: string; energy: number }> = [];
   if (recentDifficulty.length > 1) {
@@ -68,8 +63,8 @@ export function CurrentDifficultyCard({
           ? formatNumber(currentRequirements.minSolutions)
           : notEnforced,
     },
-    ...(decaysApplied != null
-      ? [{ label: "Decays Applied", value: formatNumber(decaysApplied) } satisfies DetailRow]
+    ...(decays != null
+      ? [{ label: "Decays Applied", value: formatNumber(decays) } satisfies DetailRow]
       : []),
     ...priorEnergies.map(
       (p): DetailRow => ({ label: `Prior @ #${p.block}`, value: `≤ ${formatEnergy(p.energy)}` }),
