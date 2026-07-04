@@ -28,11 +28,13 @@
 ### Task 1: Observability fields — `nodeSyncing` + sync progress
 
 **Files:**
+
 - Modify: `packages/shared/telemetry/response.ts` (inside `IndexerObservability`, after the `chainConnected` field, ~line 47)
 - Modify: `apps/indexer/core/state.ts` (initial observability object + `load()`)
 - Test: `apps/indexer/core/state.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `IndexerObservability.nodeSyncing?: boolean`, `IndexerObservability.nodeSyncCurrentBlock?: string | null`, `IndexerObservability.nodeSyncHighestBlock?: string | null`. Task 3's SyncGate writes them; Task 8's frontend reads them.
 
@@ -101,14 +103,14 @@ In `apps/indexer/core/state.ts`, add to the initial `observability` object liter
 And in `load()`, extend the reset spread:
 
 ```ts
-      this.observability = {
-        ...prior,
-        chainConnected: false,
-        selfIdentified: false,
-        nodeSyncing: false,
-        nodeSyncCurrentBlock: null,
-        nodeSyncHighestBlock: null,
-      };
+this.observability = {
+  ...prior,
+  chainConnected: false,
+  selfIdentified: false,
+  nodeSyncing: false,
+  nodeSyncCurrentBlock: null,
+  nodeSyncHighestBlock: null,
+};
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -130,12 +132,14 @@ git commit -m "feat(telemetry): add node sync-state fields to IndexerObservabili
 ### Task 2: `getSyncState()` across the client surface
 
 **Files:**
+
 - Modify: `apps/indexer/clients/substrate-client/types.ts` (new `SyncStateInfo` interface + `SubstrateClient` method)
 - Modify: `apps/indexer/clients/substrate-client/index.ts` (`PolkadotSubstrateClient` implementation)
 - Modify: `apps/indexer/clients/substrate-client/fake.ts` (programmable sync state)
 - Modify: `apps/indexer/substrate/ports.ts` (new `SyncSource` role, added to `ChainClient`)
 
 **Interfaces:**
+
 - Consumes: `requireApi()` / `api.rpc.system.*` inside the polkadot client.
 - Produces:
   - `interface SyncStateInfo { isSyncing: boolean; peers: number; currentBlock: number | null; highestBlock: number | null }` (exported from `types.ts`, re-exported by the barrel via the existing `export * from "./types"`).
@@ -263,10 +267,12 @@ git commit -m "feat(indexer): add getSyncState to the substrate client surface"
 ### Task 3: `SyncGate` — detection with hysteresis
 
 **Files:**
+
 - Create: `apps/indexer/substrate/sync-gate.ts`
 - Test: `apps/indexer/substrate/sync-gate.test.ts` (new)
 
 **Interfaces:**
+
 - Consumes: `SyncSource` and `ConnectionStream` from `./ports` (Task 2), `SyncStateInfo` from `../clients/substrate-client` (Task 2), `IndexerObservability` fields (Task 1).
 - Produces (used by Tasks 5–7):
   - `class SyncGate implements ConnectionStream`
@@ -581,10 +587,12 @@ git commit -m "feat(indexer): add SyncGate with hysteresis and observability"
 ### Task 4: `QueueCore` gating
 
 **Files:**
+
 - Modify: `apps/indexer/pipeline/queue.ts` (`QueueCoreOpts` + `tryPull`)
 - Test: `apps/indexer/pipeline/queue.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: nothing new (the gate closure is wired in Task 7).
 - Produces: `QueueCoreOpts.gated?: () => boolean` and `QueueCoreOpts.gatedRetryMs?: number` (default `5_000`). While gated, `tryPull` returns `{ retryAtMs: nowMs + gatedRetryMs }` when anything is queued (tip items included) and `"empty"` when nothing is.
 
@@ -697,10 +705,12 @@ git commit -m "feat(indexer): gate queue pulls while the validator syncs"
 ### Task 5: `Reconciler` gating + resume re-tick
 
 **Files:**
+
 - Modify: `apps/indexer/pipeline/producers.ts` (`ReconcilerDeps`, `stream()`, `tick()`)
 - Test: `apps/indexer/pipeline/producers.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: nothing new (wired in Task 7).
 - Produces: `ReconcilerDeps.gated?: () => boolean` (tick returns early while true) and `ReconcilerDeps.resume$?: Observable<void>` (merged into the tick timer — REQUIRED for resume to work, because the next scheduled tick after a gated boot tick is 900s away).
 
@@ -834,10 +844,12 @@ git commit -m "feat(indexer): gate reconciler ticks and re-tick on resume"
 ### Task 6: `SnapshotScheduler` gating
 
 **Files:**
+
 - Modify: `apps/indexer/pipeline/snapshots.ts`
 - Test: `apps/indexer/pipeline/snapshots.test.ts` (new)
 
 **Interfaces:**
+
 - Consumes: nothing new (wired in Task 7).
 - Produces: `SnapshotSchedulerDeps.gated?: () => boolean` and `SnapshotSchedulerDeps.resume$?: Observable<void>`. Gated ticks are filtered BEFORE `--once`'s `take(1)` so once-mode still runs its single poll after resume.
 
@@ -1009,10 +1021,12 @@ git commit -m "feat(indexer): gate snapshot polls while the validator syncs"
 ### Task 7: Worker wiring + integration test
 
 **Files:**
+
 - Modify: `apps/indexer/substrate/worker.ts` (`SubstrateWorkerDeps`, `connection()`)
 - Test: `apps/indexer/substrate/worker.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `SyncGate` (Task 3), `QueueCoreOpts.gated` (Task 4), `ReconcilerDeps.gated/resume$` (Task 5), `SnapshotSchedulerDeps.gated/resume$` (Task 6).
 - Produces: `SubstrateWorkerDeps.syncGatePollMs?: { syncing?: number; synced?: number }` (test knob, like `chainHeadDebounceMs`). The worker runs one `syncGate.check()` between `client.connect()` and pipeline subscription so startup detection is deterministic, not a race against the reconciler's boot tick.
 
@@ -1138,23 +1152,23 @@ export interface SubstrateWorkerDeps {
 and in the constructor:
 
 ```ts
-    this.syncGatePollMs = deps.syncGatePollMs;
+this.syncGatePollMs = deps.syncGatePollMs;
 ```
 
 In `connection()`, after `const wake = (): void => wake$.next();` and BEFORE the `QueueCore` construction:
 
 ```ts
-    // Sync gate (design 2026-07-04): pause-in-place while the validator is
-    // in major sync. Consulted by the queue, reconciler, and snapshot
-    // scheduler; chain-head + tip subscriptions stay live so the dashboard
-    // shows sync progress.
-    const syncGate = new SyncGate({
-      client,
-      state: ctx.state,
-      syncingPollMs: this.syncGatePollMs?.syncing,
-      syncedPollMs: this.syncGatePollMs?.synced,
-      onResume: wake,
-    });
+// Sync gate (design 2026-07-04): pause-in-place while the validator is
+// in major sync. Consulted by the queue, reconciler, and snapshot
+// scheduler; chain-head + tip subscriptions stay live so the dashboard
+// shows sync progress.
+const syncGate = new SyncGate({
+  client,
+  state: ctx.state,
+  syncingPollMs: this.syncGatePollMs?.syncing,
+  syncedPollMs: this.syncGatePollMs?.synced,
+  onResume: wake,
+});
 ```
 
 Add to the `QueueCore` options:
@@ -1196,22 +1210,22 @@ Add `syncGate` FIRST in the streams array:
 Finally, make startup detection deterministic — run one gate check between connect and pipeline subscription. Replace the return pipeline's start:
 
 ```ts
-    return defer(() => client.connect()).pipe(
-      tap(() => {
-        this.ctx.state.observability.chainConnected = true;
-        this.ctx.state.observability.lastSubstrateEventAt = nowIso(this.ctx);
-      }),
-      // Prime the sync gate BEFORE the pipeline subscribes, so a validator
-      // in major sync is detected at startup rather than racing the
-      // reconciler's boot tick. check() swallows RPC errors (gate stays
-      // open), so this cannot fail the connection.
-      concatMap(() => syncGate.check()),
-      concatMap(() => gated$),
-      finalize(() => {
-        void client.disconnect().catch(() => {});
-        this.ctx.state.observability.chainConnected = false;
-      }),
-    );
+return defer(() => client.connect()).pipe(
+  tap(() => {
+    this.ctx.state.observability.chainConnected = true;
+    this.ctx.state.observability.lastSubstrateEventAt = nowIso(this.ctx);
+  }),
+  // Prime the sync gate BEFORE the pipeline subscribes, so a validator
+  // in major sync is detected at startup rather than racing the
+  // reconciler's boot tick. check() swallows RPC errors (gate stays
+  // open), so this cannot fail the connection.
+  concatMap(() => syncGate.check()),
+  concatMap(() => gated$),
+  finalize(() => {
+    void client.disconnect().catch(() => {});
+    this.ctx.state.observability.chainConnected = false;
+  }),
+);
 ```
 
 - [ ] **Step 4: Run the indexer suite**
@@ -1232,12 +1246,14 @@ git commit -m "feat(indexer): wire SyncGate into the substrate worker"
 ### Task 8: Frontend — "Node syncing" SyncIndicator state
 
 **Files:**
+
 - Modify: `apps/frontend/src/lib/staleness.ts` (`SubstrateHealthLevel` + `computeSubstrateHealth`)
 - Modify: `apps/frontend/src/components/layout/SyncIndicator.tsx` (`SUBSTRATE_DOT_STYLES` + memo deps)
 - Modify: `apps/frontend/src/components/layout/SyncIndicator.stories.tsx` (new story)
 - Test: `apps/frontend/src/lib/staleness.test.ts`, `apps/frontend/src/components/layout/SyncIndicator.test.tsx` (append)
 
 **Interfaces:**
+
 - Consumes: `IndexerObservability.nodeSyncing` / `nodeSyncCurrentBlock` / `nodeSyncHighestBlock` (Task 1).
 - Produces: `SubstrateHealthLevel` gains `"syncing"`; `computeSubstrateHealth` returns `{ level: "syncing", ageMs: null, reason }` where `reason` is `Validator is syncing · block 406,173 of 512,000` (or `Validator is syncing` without progress).
 
@@ -1292,23 +1308,23 @@ describe("computeSubstrateHealth — node syncing", () => {
 Append to `apps/frontend/src/components/layout/SyncIndicator.test.tsx` (inside the existing describe):
 
 ```ts
-  test("shows the syncing dot with progress when the validator is in major sync", () => {
-    useTelemetryStore.setState((s) => ({
-      ...s,
-      blocks: [recentBlock()],
-      indexer: baseObs({
-        chainConnected: true,
-        lastSubstrateEventAt: new Date(Date.now() - 5_000).toISOString(),
-        nodeSyncing: true,
-        nodeSyncCurrentBlock: "406173",
-        nodeSyncHighestBlock: "512000",
-      }),
-    }));
-    render(createElement(SyncIndicator));
-    const dot = container.querySelector('[aria-label="Validator syncing"]');
-    expect(dot).not.toBeNull();
-    expect(dot!.getAttribute("title")).toContain("406,173");
-  });
+test("shows the syncing dot with progress when the validator is in major sync", () => {
+  useTelemetryStore.setState((s) => ({
+    ...s,
+    blocks: [recentBlock()],
+    indexer: baseObs({
+      chainConnected: true,
+      lastSubstrateEventAt: new Date(Date.now() - 5_000).toISOString(),
+      nodeSyncing: true,
+      nodeSyncCurrentBlock: "406173",
+      nodeSyncHighestBlock: "512000",
+    }),
+  }));
+  render(createElement(SyncIndicator));
+  const dot = container.querySelector('[aria-label="Validator syncing"]');
+  expect(dot).not.toBeNull();
+  expect(dot!.getAttribute("title")).toContain("406,173");
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1328,12 +1344,12 @@ export type SubstrateHealthLevel = "disabled" | "ok" | "syncing" | "stale" | "of
 In `computeSubstrateHealth`, insert AFTER the `!indexer.chainConnected` early return and BEFORE the `Date.parse(indexer.lastSubstrateEventAt)` freshness checks:
 
 ```ts
-  // Node syncing outranks freshness: a validator in major sync emits heads
-  // constantly, so the ok/stale windows would misreport it as healthy. The
-  // gate's hysteresis is applied upstream (nodeSyncing IS the gate state).
-  if (indexer.nodeSyncing) {
-    return { level: "syncing", ageMs: null, reason: formatSyncProgress(indexer) };
-  }
+// Node syncing outranks freshness: a validator in major sync emits heads
+// constantly, so the ok/stale windows would misreport it as healthy. The
+// gate's hysteresis is applied upstream (nodeSyncing IS the gate state).
+if (indexer.nodeSyncing) {
+  return { level: "syncing", ageMs: null, reason: formatSyncProgress(indexer) };
+}
 ```
 
 And add next to `formatApproxDuration` at the bottom:
@@ -1370,18 +1386,18 @@ Add a `syncing` entry to `SUBSTRATE_DOT_STYLES` (between `ok` and `stale` — bl
 Extend the substrate memo's dependency list so it recomputes when sync state changes:
 
 ```ts
-  const substrate = useMemo(
-    () => computeSubstrateHealth(indexer, nowMs),
-    [
-      nowMs,
-      indexer?.lastSubstrateEventAt,
-      indexer?.chainConnected,
-      indexer?.nodeSyncing,
-      indexer?.nodeSyncCurrentBlock,
-      indexer?.nodeSyncHighestBlock,
-      indexer,
-    ],
-  );
+const substrate = useMemo(
+  () => computeSubstrateHealth(indexer, nowMs),
+  [
+    nowMs,
+    indexer?.lastSubstrateEventAt,
+    indexer?.chainConnected,
+    indexer?.nodeSyncing,
+    indexer?.nodeSyncCurrentBlock,
+    indexer?.nodeSyncHighestBlock,
+    indexer,
+  ],
+);
 ```
 
 (No other render changes needed — the existing dot renderer already shows `substrateStyle.title + " · " + substrate.reason` in the tooltip and `aria-label`.)
