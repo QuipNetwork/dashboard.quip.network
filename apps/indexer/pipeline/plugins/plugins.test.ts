@@ -6,7 +6,7 @@
 // values instead (ZERO_DIFFICULTY blocks-row triple, no difficulty_history
 // row — spec §10.2).
 
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, test } from "bun:test";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
@@ -150,6 +150,24 @@ describe("winners plugin", () => {
     await plugin.onBlock(makeCtx({ events: makeEvents({ proofs: [] }) }), db);
     await plugin.onBlock(makeCtx({ events: makeEvents({ nonce: null }) }), db);
     expect(await db.getRecentBlocks(10)).toHaveLength(0);
+  });
+
+  test("spec-111 reported compute time replaces the derived wall clock", async () => {
+    await winnersPlugin().onBlock(
+      makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 45_500_000 }) }),
+      db,
+    );
+    const [b] = await db.getRecentBlocks(10);
+    expect(b?.miningTime).toBe(45.5); // µs → float seconds, not floored
+  });
+
+  test("deviceAccessTimeUs 0 (present but unreported) keeps the derived value", async () => {
+    await winnersPlugin().onBlock(
+      makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 0 }) }),
+      db,
+    );
+    const [b] = await db.getRecentBlocks(10);
+    expect(b?.miningTime).toBe(60); // (500000 - 499990) blocks × 6s
   });
 
   it("dropState deletes blocks rows", async () => {
