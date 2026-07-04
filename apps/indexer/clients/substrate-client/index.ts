@@ -480,14 +480,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       typeof (nonceCodec as { toString?: () => string })?.toString === "function"
         ? (nonceCodec as { toString: () => string }).toString()
         : String(nonceCodec ?? "0");
-    return {
-      miner: String(sol.miner),
-      energyMilli: Number(sol.energyMilli ?? sol.energy_milli ?? 0),
-      reward: String(sol.reward),
-      submittedAt: String(sol.submittedAt ?? sol.submitted_at ?? "0"),
-      nonce,
-      difficulty: decodeDifficulty(sol.difficulty),
-    };
+    return qblockInfoFromSolution(sol, nonce);
   }
 
   async subscribeBlockEvents(cb: (e: BlockEvents) => void): Promise<UnsubFn> {
@@ -927,6 +920,30 @@ function discreteMeanAbs(min: number, max: number): number | null {
 // directly, so subscribeBlockEvents calls `getQBlock(...)`
 // instead. Less brittle: no dependency on extrinsic decoding or the custom
 // HybridTxSignature codec.
+
+/**
+ * Map a `toJSON()`-coerced `WinningSolution`/`QBlock` struct + its derived
+ * nonce into a {@link QBlockInfo}. Exported so the field mapping (including
+ * the spec-111 `device_access_time_us` tail) can be unit-tested without a
+ * live chain.
+ */
+export function qblockInfoFromSolution(
+  sol: Record<string, unknown>,
+  nonce: string,
+): QBlockInfo {
+  const rawDevice = sol.deviceAccessTimeUs ?? sol.device_access_time_us;
+  const device = Number(rawDevice);
+  return {
+    miner: String(sol.miner),
+    energyMilli: Number(sol.energyMilli ?? sol.energy_milli ?? 0),
+    reward: String(sol.reward),
+    submittedAt: String(sol.submittedAt ?? sol.submitted_at ?? "0"),
+    nonce,
+    difficulty: decodeDifficulty(sol.difficulty),
+    // null = absent (pre-111) or undecodable; 0 = present-but-unreported.
+    deviceAccessTimeUs: rawDevice == null || !Number.isFinite(device) ? null : device,
+  };
+}
 
 /**
  * Decode a `quantumPow.BlockWinner` event's positional `data` array into a

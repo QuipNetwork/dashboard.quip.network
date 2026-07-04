@@ -60,6 +60,7 @@ function makeQBlock(overrides: Partial<QBlockInfo> = {}): QBlockInfo {
     submittedAt: "500000",
     nonce: "123456789",
     difficulty: { maxEnergyMilli: -14_400_000, minDiversityMilli: 100, minSolutions: 2 },
+    deviceAccessTimeUs: null,
     ...overrides,
   };
 }

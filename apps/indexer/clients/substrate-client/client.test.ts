@@ -7,6 +7,7 @@ import {
   PolkadotSubstrateClient,
   decodeBlockWinnerEventData,
   decodeMinerRegistryDescriptor,
+  qblockInfoFromSolution,
   type BlockEvents,
   type SubstrateHead,
 } from ".";
@@ -269,6 +270,37 @@ describe("decodeBlockWinnerEventData (v0.2 6-field BlockWinner)", () => {
   });
 });
 
+describe("qblockInfoFromSolution (spec-111 device_access_time_us)", () => {
+  const base = {
+    miner: "5GWinner",
+    energyMilli: -14_500_123,
+    reward: "1000000000000",
+    submittedAt: "500000",
+    difficulty: { maxEnergyMilli: -14_400_000, minDiversityMilli: 100, minSolutions: 2 },
+  };
+
+  test("reads the camelCase field polkadot-js toJSON emits", () => {
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: 45_000_000 }, "123");
+    expect(info.deviceAccessTimeUs).toBe(45_000_000);
+    expect(info.nonce).toBe("123");
+  });
+
+  test("reads the snake_case spelling defensively", () => {
+    const info = qblockInfoFromSolution({ ...base, device_access_time_us: 7 }, "123");
+    expect(info.deviceAccessTimeUs).toBe(7);
+  });
+
+  test("absent field (pre-111 chain) maps to null, not 0", () => {
+    const info = qblockInfoFromSolution(base, "123");
+    expect(info.deviceAccessTimeUs).toBeNull();
+  });
+
+  test("non-numeric garbage maps to null", () => {
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: "bogus" }, "123");
+    expect(info.deviceAccessTimeUs).toBeNull();
+  });
+});
+
 describe("decodeMinerRegistryDescriptor (V1 / V2 schema)", () => {
   // Bytes fields surface as 0x-prefixed hex via polkadot.js `.toJSON()`.
   const hex = (s: string) =>
@@ -363,6 +395,7 @@ describe("FakeSubstrateClient.getQBlock", () => {
         minDiversityMilli: 200,
         minSolutions: 5,
       },
+      deviceAccessTimeUs: null,
     });
     const sol = await c.getQBlock("77");
     expect(sol?.nonce).toBe("12345");

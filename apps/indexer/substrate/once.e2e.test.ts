@@ -76,6 +76,7 @@ describe("end-to-end --once", () => {
         submittedAt: String(w),
         nonce: String(1000 + w),
         difficulty: { maxEnergyMilli: -13_000, minDiversityMilli: 100, minSolutions: 2 },
+        deviceAccessTimeUs: null,
       });
     }
 
