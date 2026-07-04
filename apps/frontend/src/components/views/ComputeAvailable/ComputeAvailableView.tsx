@@ -17,18 +17,15 @@ import { CumulativeBlocksThresholdChart } from "@/components/charts/cumulative-b
 import { EnergyCdfChart } from "@/components/charts/energy-cdf/EnergyCdfChart";
 import { EnergyDistributionChart } from "@/components/charts/energy-distribution/EnergyDistributionChart";
 import { Leaderboard } from "@/components/charts/leaderboard/Leaderboard";
-import { MiningTimeChart } from "@/components/charts/mining-time/MiningTimeChart";
+import { MiningTimeCard } from "@/components/charts/mining-time/MiningTimeCard";
 import { MiningTimeByDifficultyChart } from "@/components/charts/mining-time-by-difficulty/MiningTimeByDifficultyChart";
 import { TimeToSolutionChart } from "@/components/charts/time-to-solution/TimeToSolutionChart";
 import { WinRateByDifficultyChart } from "@/components/charts/win-rate-by-difficulty/WinRateByDifficultyChart";
 import { useActiveNodes } from "@/components/charts/active-nodes/use-active-nodes";
 import { useBlocksOverTime } from "@/components/charts/blocks-over-time/use-blocks-over-time";
 import { useComputeUsed } from "@/components/charts/compute-used/use-compute-used";
-import { useCumulativeBlocksThreshold } from "@/components/charts/cumulative-blocks-threshold/use-cumulative-blocks-threshold";
-import { useEnergyCdf } from "@/components/charts/energy-cdf/use-energy-cdf";
 import { useEnergyDistribution } from "@/components/charts/energy-distribution/use-energy-distribution";
 import { useLeaderboard } from "@/components/charts/leaderboard/use-leaderboard";
-import { useMiningTime } from "@/components/charts/mining-time/use-mining-time";
 import { useTimeToSolution } from "@/components/charts/time-to-solution/use-time-to-solution";
 import { useWinRateByDifficulty } from "@/components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
 import { useComputeAvailable } from "./use-compute-available";
@@ -84,14 +81,11 @@ export function ComputeAvailableView() {
       : null;
 
   const blocksOverTime = useBlocksOverTime();
-  const miningTime = useMiningTime();
   const computeUsed = useComputeUsed();
   const activeNodes = useActiveNodes();
   const energyDistribution = useEnergyDistribution();
   const timeToSolution = useTimeToSolution();
-  const energyCdf = useEnergyCdf();
   const winRate = useWinRateByDifficulty();
-  const cumulativeBlocks = useCumulativeBlocksThreshold();
   const leaderboard = useLeaderboard();
 
   return (
@@ -162,15 +156,14 @@ export function ComputeAvailableView() {
           <BlocksOverTimeChart data={blocksOverTime} />
         </ChartCard>
 
-        <ChartCard
-          title="Mining Time per QBlock"
-          subtitle={byType ? "Time to qblock by processor type" : "Time to qblock by miner"}
-        >
-          <MiningTimeChart data={miningTime} />
-        </ChartCard>
+        <MiningTimeCard />
+      </div>
 
-        <DifficultyChart />
+      {/* Full width per docs/ui-layout.md — the range-windowed time series
+          needs the horizontal room; a half-column squashes the x-axis. */}
+      <DifficultyChart />
 
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard
           title="Total Compute Used"
           subtitle={
@@ -218,7 +211,7 @@ export function ComputeAvailableView() {
               : "Empirical CDF per miner by threshold"
           }
         >
-          <EnergyCdfChart data={energyCdf} />
+          <EnergyCdfChart />
         </ChartCard>
 
         {byType && (
@@ -232,7 +225,7 @@ export function ComputeAvailableView() {
 
         <ChartCard
           title="Mining Cost by Difficulty"
-          subtitle="Expected qblocks (or time) to reach a target, from the energy distribution"
+          subtitle="Expected qblocks (or time) to reach a target, per processor type"
         >
           <MiningTimeByDifficultyChart />
         </ChartCard>
@@ -245,7 +238,7 @@ export function ComputeAvailableView() {
               : "QBlocks meeting energy threshold per miner"
           }
         >
-          <CumulativeBlocksThresholdChart data={cumulativeBlocks} />
+          <CumulativeBlocksThresholdChart />
         </ChartCard>
       </div>
     </>

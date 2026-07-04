@@ -15,6 +15,7 @@ import type {
   MineableTopologyRecord,
   MinerHardwareRecord,
   MinerWinsRow,
+  MiningHistoryRow,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
 } from "@quip/shared/telemetry";
@@ -204,6 +205,25 @@ export class KyselyAdapter implements DatabaseAdapter {
       bestEnergy: Number(r.best_energy),
       avgMiningTime: Number(r.avg_mining_time),
       lastWonAt: Number(r.last_won_at),
+    }));
+  }
+
+  async getMiningHistorySince(sinceIso: string): Promise<MiningHistoryRow[]> {
+    // `blocks.timestamp` is unix seconds — convert the ISO cutoff once here
+    // so the query stays an index-friendly numeric comparison.
+    const sinceEpochSeconds = Math.floor(Date.parse(sinceIso) / 1000);
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .select(["qblock_id", "substrate_block_number", "timestamp", "miner_id", "mining_time"])
+      .where("timestamp", ">=", sinceEpochSeconds)
+      .orderBy("substrate_block_number", "asc")
+      .execute();
+    return rows.map((r) => ({
+      qblockId: String(r.qblock_id),
+      substrateBlockNumber: String(r.substrate_block_number),
+      timestamp: Number(r.timestamp),
+      minerId: r.miner_id,
+      miningTime: Number(r.mining_time),
     }));
   }
 

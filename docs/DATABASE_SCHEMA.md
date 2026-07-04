@@ -217,26 +217,26 @@ Per-submission summaries polled from the local miner's
 `solution_number` is the global chain solution index
 (`LatestQBlockId + 1`), durable across restarts.
 
-| Column                  | PostgreSQL  | Null | Description                                                                                               |
-| ----------------------- | ----------- | ---- | --------------------------------------------------------------------------------------------------------- |
-| `miner_id`              | TEXT        | PK   | Polled miner SS58 account.                                                                                |
-| `solution_number`       | BIGINT      | PK   | Global chain solution number.                                                                             |
-| `ts_ns`                 | NUMERIC     | no   | Submission timestamp in nanoseconds (u128-as-string).                                                     |
-| `energy_milli`          | BIGINT      | no   | Solution energy ×1000.                                                                                    |
-| `diversity_milli`       | BIGINT      | no   | Solution diversity ×1000.                                                                                 |
-| `threshold_milli`       | BIGINT      | no   | Energy threshold ×1000.                                                                                   |
-| `last_proof_block_hash` | TEXT        | no   | Block hash of the last proof in the attempt.                                                              |
-| `extrinsic_hash`        | TEXT        | yes  | Submission extrinsic hash; null until it lands on chain.                                                  |
-| `chain_block_hash`      | TEXT        | yes  | Winning block hash; null for non-winning / not-yet-landed.                                                |
-| `chain_block_number`    | NUMERIC     | yes  | Winning block height (u64-as-string); null when not a winner.                                             |
-| `pow_sequence`          | BIGINT      | yes  | On-chain `proofs_submitted` sequence for non-winning submissions; null for winners and pre-MR!105 miners. |
-| `outcome`               | TEXT        | no   | Submission outcome (e.g. won / submitted).                                                                |
-| `attempt_count`         | INTEGER     | no   | Number of attempts in the submission.                                                                     |
-| `best_energy_milli`     | BIGINT      | no   | Best energy seen across attempts ×1000.                                                                   |
-| `num_valid`             | INTEGER     | no   | Count of valid solutions (default 0).                                                                     |
-| `miner_type`            | TEXT        | no   | Backend that produced the submission (CPU / CUDA / METAL / MODAL / QPU); empty if unreported.             |
-| `qpu_access_time_us`    | BIGINT      | no   | Summed D-Wave QPU access time across iterations (µs); 0 for non-QPU rows (default 0).                     |
-| `observed_at`           | TIMESTAMPTZ | no   | When the row was written.                                                                                 |
+| Column                  | PostgreSQL  | Null | Description                                                                                                                       |
+| ----------------------- | ----------- | ---- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `miner_id`              | TEXT        | PK   | Polled miner SS58 account.                                                                                                        |
+| `solution_number`       | BIGINT      | PK   | Global chain solution number.                                                                                                     |
+| `ts_ns`                 | NUMERIC     | no   | Submission timestamp in nanoseconds (u128-as-string).                                                                             |
+| `energy_milli`          | BIGINT      | no   | Solution energy ×1000.                                                                                                            |
+| `diversity_milli`       | BIGINT      | no   | Solution diversity ×1000.                                                                                                         |
+| `threshold_milli`       | BIGINT      | no   | Energy threshold ×1000.                                                                                                           |
+| `last_proof_block_hash` | TEXT        | no   | Block hash of the last proof in the attempt.                                                                                      |
+| `extrinsic_hash`        | TEXT        | yes  | Submission extrinsic hash; null until it lands on chain.                                                                          |
+| `chain_block_hash`      | TEXT        | yes  | Winning block hash; null for non-winning / not-yet-landed.                                                                        |
+| `chain_block_number`    | NUMERIC     | yes  | Winning block height (u64-as-string); null when not a winner.                                                                     |
+| `pow_sequence`          | BIGINT      | yes  | On-chain `proofs_submitted` sequence for non-winning submissions; null for winners and pre-MR!105 miners.                         |
+| `outcome`               | TEXT        | no   | Submission outcome (e.g. won / submitted).                                                                                        |
+| `attempt_count`         | INTEGER     | no   | Number of attempts in the submission.                                                                                             |
+| `best_energy_milli`     | BIGINT      | no   | Best energy seen across attempts ×1000.                                                                                           |
+| `num_valid`             | INTEGER     | no   | Count of valid solutions (default 0).                                                                                             |
+| `miner_type`            | TEXT        | no   | Backend that produced the submission (CPU / CUDA / METAL / MODAL / QPU); empty if unreported.                                     |
+| `qpu_access_time_us`    | BIGINT      | no   | Summed D-Wave QPU access time across iterations (µs); emitted per-attempt by miners since v0.2.0. 0 for non-QPU rows (default 0). |
+| `observed_at`           | TIMESTAMPTZ | no   | When the row was written.                                                                                                         |
 
 Indexes: `(miner_id, solution_number DESC)`, `(miner_id) WHERE attempt_count > 0` — partial.
 

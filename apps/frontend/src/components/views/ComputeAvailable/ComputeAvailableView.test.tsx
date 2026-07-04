@@ -60,6 +60,33 @@ describe("ComputeAvailableView", () => {
     expect(text).toContain("Difficulty over time");
   });
 
+  // Full width = the chart card is a page-level sibling, not a grid cell
+  // (docs/ui-layout.md). No ancestor may be the 2-column chart grid.
+  function expectFullWidth(selector: string, title: string): void {
+    const heading = [...container.querySelectorAll(selector)].find((h) => h.textContent === title);
+    expect(heading).toBeDefined();
+    for (let el = heading!.parentElement; el; el = el.parentElement) {
+      expect(el.className).not.toContain("lg:grid-cols-2");
+    }
+  }
+
+  test("renders Difficulty over time full width, outside the 2-column chart grid", () => {
+    renderView(root);
+    expectFullWidth("h3", "Difficulty over time");
+  });
+
+  test("Mining Time per QBlock offers range and grouping toggles", () => {
+    renderView(root);
+    // Windowing like the difficulty panel (1H…ALL), plus the card-local
+    // All | By Type aggregation toggle (docs/ui-layout.md item 5).
+    expect(
+      container.querySelector('[role="group"][aria-label="Mining time range"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[role="group"][aria-label="Mining time grouping"]'),
+    ).not.toBeNull();
+  });
+
   test("hides the by-type-only charts in byNode mode", () => {
     useUIStore.setState({ aggregationMode: "byNode" });
     renderView(root);

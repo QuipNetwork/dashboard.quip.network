@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo } from "react";
+import type { NodeScope } from "@/components/charts/common/SegToggle";
+import { filterToBestNodes } from "@/components/charts/mining-time-by-difficulty/mining-cost-model";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useFilteredBlocks } from "@/store/use-filtered-blocks";
 import { useUIStore } from "@/store/ui-store";
+
+export interface EnergyCdfOptions {
+  scope: NodeScope;
+}
 
 export interface EnergyCdfSeries {
   id: string;
@@ -19,7 +25,13 @@ export interface EnergyCdfResult {
 
 const NUM_POINTS = 50;
 
-export function useEnergyCdf(): EnergyCdfResult {
+/**
+ * Empirical CDF of achieved energies per series key. `scope: "best"` narrows
+ * the blocks to each processor type's single top winner (most wins) before
+ * the sweep — the shared "Best Nodes" semantics, in both aggregation modes.
+ */
+export function useEnergyCdf(opts: EnergyCdfOptions): EnergyCdfResult {
+  const { scope } = opts;
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
@@ -28,10 +40,13 @@ export function useEnergyCdf(): EnergyCdfResult {
 
   return useMemo(() => {
     const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
-    const filtered =
+    let filtered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
         : blocks;
+    if (scope === "best") {
+      filtered = filterToBestNodes(filtered, (id) => categoryFor(id, catIndex));
+    }
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
     const getKey = (b: (typeof blocks)[0]) =>
@@ -92,5 +107,5 @@ export function useEnergyCdf(): EnergyCdfResult {
     });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode, scope]);
 }

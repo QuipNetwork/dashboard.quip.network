@@ -191,6 +191,7 @@ function clientReturning(response: TelemetryResponse): FakeClient {
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
     fetchMinerWins: () => new Promise<never>(() => {}),
+    fetchMiningHistory: () => new Promise<never>(() => {}),
   };
   return client;
 }
@@ -209,6 +210,7 @@ function clientThrowing(error: Error): FakeClient {
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
     fetchMinerWins: () => new Promise<never>(() => {}),
+    fetchMiningHistory: () => new Promise<never>(() => {}),
   };
   return client;
 }

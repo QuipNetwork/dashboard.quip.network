@@ -2,24 +2,28 @@
 
 import { useMemo, useState } from "react";
 import { ResponsiveLine } from "@nivo/line";
-import clsx from "clsx";
 
 import { nivoTheme } from "@/theme/nivo-theme";
 import { SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
+import { difficultyAxisSubtitle } from "@/components/charts/common/BottomAxisSubtitle";
+import { createDifficultyTickRenderer } from "@/components/charts/common/DifficultyTick";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import {
+  NODE_SCOPE_OPTIONS,
+  SegToggle,
+  type NodeScope,
+  type SegOption,
+} from "@/components/charts/common/SegToggle";
 import { formatDifficultyTick, useDifficultyCurveK } from "@/lib/difficulty-curve";
 import { formatDuration } from "@/lib/format";
-import {
-  useMiningTimeByDifficulty,
-  type CostScope,
-  type CostUnits,
-} from "./use-mining-time-by-difficulty";
+import { useMiningTimeByDifficulty, type CostUnits } from "./use-mining-time-by-difficulty";
 
+// QPUWC is the time-mode label for the QPU wall-clock line — same palette.
 const gradientLines = createGradientLines(
   Object.fromEntries(
-    Object.entries(SERIES_GRADIENT).map(([id, [from, to]]) => [
+    Object.entries({ ...SERIES_GRADIENT, QPUWC: SERIES_GRADIENT.QPU }).map(([id, [from, to]]) => [
       id,
       [
         { offset: "0%", color: from },
@@ -29,53 +33,6 @@ const gradientLines = createGradientLines(
   ),
 );
 
-interface SegOption<T extends string> {
-  value: T;
-  label: string;
-}
-
-// Compact two-state segmented control, styled to match the header's
-// aggregation toggle.
-function SegToggle<T extends string>({
-  value,
-  onChange,
-  options,
-  ariaLabel,
-}: {
-  value: T;
-  onChange: (next: T) => void;
-  options: ReadonlyArray<SegOption<T>>;
-  ariaLabel: string;
-}) {
-  return (
-    <div className="flex overflow-hidden border border-border" role="group" aria-label={ariaLabel}>
-      {options.map((opt) => {
-        const active = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(opt.value)}
-            className={clsx(
-              "cursor-pointer px-2.5 py-1 font-accent text-xs transition-colors",
-              active
-                ? "bg-surface-dark text-ink-on-dark"
-                : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong",
-            )}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-const SCOPE_OPTIONS: ReadonlyArray<SegOption<CostScope>> = [
-  { value: "all", label: "All Nodes" },
-  { value: "best", label: "Best Node" },
-];
 const UNITS_OPTIONS: ReadonlyArray<SegOption<CostUnits>> = [
   { value: "time", label: "Time" },
   { value: "attempts", label: "Attempts" },
@@ -83,7 +40,7 @@ const UNITS_OPTIONS: ReadonlyArray<SegOption<CostUnits>> = [
 
 export function MiningTimeByDifficultyChart() {
   const [units, setUnits] = useState<CostUnits>("time");
-  const [scope, setScope] = useState<CostScope>("all");
+  const [scope, setScope] = useState<NodeScope>("all");
   const { series, xMin, xMax, note } = useMiningTimeByDifficulty({ units, scope });
   const k = useDifficultyCurveK();
 
@@ -109,7 +66,7 @@ export function MiningTimeByDifficultyChart() {
         <SegToggle
           value={scope}
           onChange={setScope}
-          options={SCOPE_OPTIONS}
+          options={NODE_SCOPE_OPTIONS}
           ariaLabel="Node scope"
         />
         <SegToggle
@@ -128,18 +85,17 @@ export function MiningTimeByDifficultyChart() {
           <ResponsiveLine
             data={series}
             theme={nivoTheme}
-            colors={(s) => getSeriesColor(String(s.id))}
-            margin={{ top: 20, right: 20, bottom: 50, left: 64 }}
+            colors={(s) => getSeriesColor(s.id === "QPUWC" ? "QPU" : String(s.id))}
+            // Left margin fits time-mode tick labels ("22h 13m", "1d 20h")
+            // with the axis legend clear of them.
+            margin={{ top: 20, right: 20, bottom: 88, left: 92 }}
             xScale={{ type: "linear", min: xMin, max: xMax, reverse: true }}
             yScale={{ type: "linear", min: 0, stacked: false }}
             curve="monotoneX"
-            enableArea={true}
-            areaOpacity={0.08}
-            enablePoints={true}
-            pointSize={4}
-            pointBorderWidth={1}
-            pointBorderColor={{ from: "serieColor" }}
-            pointColor="#1A1A1A"
+            // Three curves share the plot: no per-sample dots (50 per curve)
+            // and no area washes, or they smear into each other.
+            enableArea={false}
+            enablePoints={false}
             lineWidth={2}
             layers={[
               "grid",
@@ -152,18 +108,23 @@ export function MiningTimeByDifficultyChart() {
               "points",
               "mesh",
               "legends",
+              difficultyAxisSubtitle,
             ]}
             axisBottom={{
-              legend: "(lower energy == more difficult)",
-              legendOffset: 40,
+              legend: "Difficulty",
+              legendOffset: 64,
               legendPosition: "middle",
               tickValues: 5,
-              format: (v) => formatDifficultyTick(Number(v), k),
+              // Angled two-line ticks ("0.746" over "(-14540)") — one flat
+              // line collides with its neighbours.
+              tickRotation: -30,
+              renderTick: createDifficultyTickRenderer(k),
             }}
             axisLeft={{
               legend: yLegend,
-              legendOffset: -56,
+              legendOffset: -84,
               legendPosition: "middle",
+              tickValues: 6, // duration labels crowd at nivo's default density
               format: formatY,
             }}
             tooltip={tooltip}

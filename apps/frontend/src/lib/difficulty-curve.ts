@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// energy (units, negative) -> per-mille position on the chain's linear energy
-// curve: position = -energy * 1000 / K. Null when K is unknown (pre-v0.2 / no
-// default topology), so callers fall back to showing raw energy.
+// energy (units, negative) -> ratio along the chain's linear energy curve:
+// c = -energy / K. Null when K is unknown (pre-v0.2 / no default topology),
+// so callers fall back to showing raw energy.
 
 import { useTelemetryStore } from "@/store/telemetry-store";
 
@@ -23,24 +23,28 @@ export function clipToDifficultyFloor<T extends { difficultyEnergy: number }>(bl
   return hard.length > 0 ? hard : blocks;
 }
 
-export function energyToCurveMille(energy: number, k: number | null): number | null {
+// The curve ratio c = -E/K: how far along the curve constant K a target
+// energy sits. A plain fraction, NOT a probability — display it as e.g.
+// "0.746", never with a %/‰ suffix.
+export function energyToCurveRatio(energy: number, k: number | null): number | null {
   if (k == null || !(k > 0)) return null;
-  return Math.round((-energy * 1000) / k);
+  return -energy / k;
 }
 
-// Tick label: "747‰ (−14559)" when K is known, else "−14559". Energies are
-// large integers (units), so no decimal place.
+// Tick label: "0.747 (−14559)" when K is known, else "−14559". Energies are
+// large integers (units), so no decimal place. Too wide to sit flat on an
+// axis — charts rotate their bottom ticks instead of shortening the label.
 export function formatDifficultyTick(energy: number, k: number | null): string {
   const e = String(Math.round(energy));
-  const m = energyToCurveMille(energy, k);
-  return m == null ? e : `${m}‰ (${e})`;
+  const c = energyToCurveRatio(energy, k);
+  return c == null ? e : `${c.toFixed(3)} (${e})`;
 }
 
 /**
  * The difficulty-curve constant K of the current default topology, or null
  * when the chain hasn't exposed it (pre-v0.2 / no default topology yet).
  * Charts pass this to {@link formatDifficultyTick} so a missing K degrades to
- * showing the raw energy instead of a per-mille position.
+ * showing the raw energy instead of a curve ratio.
  */
 export function useDifficultyCurveK(): number | null {
   return (

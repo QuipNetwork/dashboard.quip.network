@@ -9,6 +9,7 @@ import type {
   DifficultyRecord,
   MineableTopologyRecord,
   MinerWinsRow,
+  MiningHistoryRow,
   ValidatorAuthorshipRecord,
 } from "./chain";
 import type {
@@ -85,6 +86,17 @@ export interface DifficultyHistoryResponse {
  */
 export interface MinerWinsResponse {
   rows: MinerWinsRow[];
+}
+
+/**
+ * `GET /api/mining-history?since=<iso>`: slim winner-block rows at/after the
+ * cutoff, ascending by block number — the range-windowed dataset behind the
+ * "Mining Time per QBlock" chart. No anchor row: mining time is a scatter
+ * of discrete wins, not a step function like difficulty.
+ */
+export interface MiningHistoryResponse {
+  since: string; // ISO 8601, echoed from the query
+  rows: MiningHistoryRow[];
 }
 
 /** Spec §11: per-plugin coverage summary surfaced through /api/telemetry. */
