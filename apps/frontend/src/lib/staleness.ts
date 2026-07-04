@@ -6,7 +6,7 @@ export type HealthLevel = "healthy" | "warning" | "stalled";
 export type SyncStage = "connecting" | "caught_up" | "stalled";
 
 /** Substrate worker health (separate dimension from REST chain health). */
-export type SubstrateHealthLevel = "disabled" | "ok" | "stale" | "offline";
+export type SubstrateHealthLevel = "disabled" | "ok" | "syncing" | "stale" | "offline";
 
 export interface SubstrateHealth {
   level: SubstrateHealthLevel;
@@ -134,11 +134,13 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
 }
 
 /**
- * Compute substrate-worker health. Three-tier:
+ * Compute substrate-worker health. Four-tier:
  *
  *   - "disabled": no validator endpoint usable by the indexer — the worker
  *     was never started, so the UI hides the substrate dot entirely.
  *   - "ok": A substrate event arrived within 30s and the socket is live.
+ *   - "syncing": the connected validator reports major sync — the indexer
+ *     is deliberately paused, not stalled.
  *   - "stale": Last event > 30s but < 5m ago (transient slowdown).
  *   - "offline": Either chainConnected=false, or last event > 5m ago.
  *
@@ -158,6 +160,12 @@ export function computeSubstrateHealth(
       ageMs: null,
       reason: "Substrate validator RPC disconnected",
     };
+  }
+  // Node syncing outranks freshness: a validator in major sync emits heads
+  // constantly, so the ok/stale windows would misreport it as healthy. The
+  // gate's hysteresis is applied upstream (nodeSyncing IS the gate state).
+  if (indexer.nodeSyncing) {
+    return { level: "syncing", ageMs: null, reason: formatSyncProgress(indexer) };
   }
   const lastMs = Date.parse(indexer.lastSubstrateEventAt);
   if (!Number.isFinite(lastMs)) {
@@ -190,4 +198,12 @@ function formatApproxDuration(ms: number): string {
   const days = Math.floor(hours / 24);
   const remHours = hours % 24;
   return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
+}
+
+function formatSyncProgress(indexer: IndexerObservability): string {
+  const cur = indexer.nodeSyncCurrentBlock;
+  const high = indexer.nodeSyncHighestBlock;
+  if (!cur || !high) return "Validator is syncing";
+  const fmt = (v: string) => Number(v).toLocaleString("en-US");
+  return `Validator is syncing · block ${fmt(cur)} of ${fmt(high)}`;
 }

@@ -67,6 +67,11 @@ const SUBSTRATE_DOT_STYLES: Record<
   { dotColor: string; dotAnim: "pulse" | "static"; title: string }
 > = {
   ok: { dotColor: "#059669", dotAnim: "static", title: "Substrate validator connected" },
+  syncing: {
+    dotColor: "#3b82f6",
+    dotAnim: "pulse",
+    title: "Validator syncing",
+  },
   stale: {
     dotColor: "#d97706",
     dotAnim: "pulse",
@@ -101,7 +106,15 @@ export function SyncIndicator() {
   );
   const substrate = useMemo(
     () => computeSubstrateHealth(indexer, nowMs),
-    [nowMs, indexer?.lastSubstrateEventAt, indexer?.chainConnected, indexer],
+    [
+      nowMs,
+      indexer?.lastSubstrateEventAt,
+      indexer?.chainConnected,
+      indexer?.nodeSyncing,
+      indexer?.nodeSyncCurrentBlock,
+      indexer?.nodeSyncHighestBlock,
+      indexer,
+    ],
   );
 
   const style = STYLES[health.stage];

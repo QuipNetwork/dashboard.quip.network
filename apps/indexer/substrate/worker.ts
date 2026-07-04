@@ -39,6 +39,7 @@ import { SnapshotScheduler } from "../pipeline/snapshots";
 import { ChainHeadWriter } from "./chain-head";
 import type { ChainClient, ConnectionStream } from "./ports";
 import { CHAIN_HEAD_DEBOUNCE_DEFAULT_MS } from "./shared";
+import { SyncGate } from "./sync-gate";
 
 // Spec §13 default: per-lane backfill budget.
 const BACKFILL_BLOCKS_PER_SEC = 5;
@@ -54,6 +55,8 @@ export interface SubstrateWorkerDeps {
   state: IndexerState;
   now?: () => number;
   chainHeadDebounceMs?: number;
+  // Sync-gate poll cadence overrides (tests shrink them).
+  syncGatePollMs?: { syncing?: number; synced?: number };
 }
 
 export class SubstrateWorker implements Worker {
@@ -61,6 +64,7 @@ export class SubstrateWorker implements Worker {
   private readonly urls: string[];
   private readonly clientFactory: (url: string) => ChainClient;
   private readonly chainHeadDebounceMs: number;
+  private readonly syncGatePollMs?: { syncing?: number; synced?: number };
 
   constructor(deps: SubstrateWorkerDeps) {
     this.ctx = {
@@ -72,6 +76,7 @@ export class SubstrateWorker implements Worker {
     this.urls = deps.urls;
     this.clientFactory = deps.clientFactory;
     this.chainHeadDebounceMs = deps.chainHeadDebounceMs ?? CHAIN_HEAD_DEBOUNCE_DEFAULT_MS;
+    this.syncGatePollMs = deps.syncGatePollMs;
   }
 
   async run(signal: AbortSignal): Promise<void> {
@@ -141,9 +146,23 @@ export class SubstrateWorker implements Worker {
 
     const wake$ = new Subject<void>();
     const wake = (): void => wake$.next();
+
+    // Sync gate (design 2026-07-04): pause-in-place while the validator is
+    // in major sync. Consulted by the queue, reconciler, and snapshot
+    // scheduler; chain-head + tip subscriptions stay live so the dashboard
+    // shows sync progress.
+    const syncGate = new SyncGate({
+      client,
+      state: ctx.state,
+      syncingPollMs: this.syncGatePollMs?.syncing,
+      syncedPollMs: this.syncGatePollMs?.synced,
+      onResume: wake,
+    });
+
     const queue = new QueueCore({
       backfillBlocksPerSec: BACKFILL_BLOCKS_PER_SEC,
       tipQuietMs: TIP_QUIET_MS,
+      gated: () => syncGate.gated(),
       lastEventAtMs: () => {
         const iso = ctx.state.observability.lastSubstrateEventAt;
         if (!iso) return null;
@@ -189,9 +208,12 @@ export class SubstrateWorker implements Worker {
       // the tip worker flushes to meta and /api/telemetry serves.
       state: ctx.state,
       enrichmentFloor: () => dispatcher.topologyEnrichmentFloor(),
+      gated: () => syncGate.gated(),
+      resume$: syncGate.resumed$,
     });
 
     const streams: readonly ConnectionStream[] = [
+      syncGate,
       new ChainHeadWriter(this.ctx, this.chainHeadDebounceMs, client),
       new TipEnqueuer(client, queue, wake, blockPluginNames),
       walker,
@@ -204,6 +226,8 @@ export class SubstrateWorker implements Worker {
         config: ctx.config,
         snapshots,
         once: ctx.config.once,
+        gated: () => syncGate.gated(),
+        resume$: syncGate.resumed$,
       }),
     ];
     const merged$ = merge(...streams.map((s) => s.stream()), fromDisconnect(client)).pipe(
@@ -220,6 +244,11 @@ export class SubstrateWorker implements Worker {
         this.ctx.state.observability.chainConnected = true;
         this.ctx.state.observability.lastSubstrateEventAt = nowIso(this.ctx);
       }),
+      // Prime the sync gate BEFORE the pipeline subscribes, so a validator
+      // in major sync is detected at startup rather than racing the
+      // reconciler's boot tick. check() swallows RPC errors (gate stays
+      // open), so this cannot fail the connection.
+      concatMap(() => syncGate.check()),
       concatMap(() => gated$),
       finalize(() => {
         void client.disconnect().catch(() => {});

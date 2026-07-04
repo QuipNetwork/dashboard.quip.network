@@ -7,8 +7,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Interval } from "./coverage";
-import { BackfillWalker, TipEnqueuer, type RangeCompletion } from "./producers";
+import { BackfillWalker, Reconciler, TipEnqueuer, type RangeCompletion } from "./producers";
 import { QueueCore, type WorkItem } from "./queue";
+import { Subject } from "rxjs";
 
 const T0 = 1_750_000_000_000;
 
@@ -193,5 +194,59 @@ describe("TipEnqueuer gap fill", () => {
     push(200); // gap of 97 → head only; reconciler owns the rest
     items = drain(q);
     expect(items.map((i) => i.block)).toEqual([200]);
+  });
+});
+
+describe("Reconciler sync gating", () => {
+  const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  // Minimal deps: with an empty registry, an ungated tick touches only
+  // getFinalizedHead + getQBlockNumbers + the two cross-check DB reads.
+  function makeDeps(overrides: { gated?: () => boolean; resume$?: Subject<void> }) {
+    const calls = { finalizedHead: 0 };
+    const queue = makeQueue();
+    const { walker } = makeWalker(queue);
+    const deps = {
+      db: {
+        getExistingBlockNumbers: async () => [],
+        getExistingDifficultyBlockNumbers: async () => [],
+      } as never,
+      client: {
+        getFinalizedHead: async () => {
+          calls.finalizedHead += 1;
+          return "100";
+        },
+        getQBlockNumbers: async () => [],
+      } as never,
+      queue,
+      walker,
+      store: {} as never,
+      registry: [],
+      now: () => T0,
+      ...overrides,
+    };
+    return { deps, calls };
+  }
+
+  test("tick() returns early while gated — no RPC touched", async () => {
+    const { deps, calls } = makeDeps({ gated: () => true });
+    const reconciler = new Reconciler(deps);
+    await reconciler.tick();
+    expect(calls.finalizedHead).toBe(0);
+  });
+
+  test("resume$ triggers an immediate tick once the gate opens", async () => {
+    let gated = true;
+    const resume$ = new Subject<void>();
+    const { deps, calls } = makeDeps({ gated: () => gated, resume$ });
+    const reconciler = new Reconciler({ ...deps, reconcileIntervalSec: 10_000 });
+    const sub = reconciler.stream().subscribe();
+    await wait(20); // leading tick fires gated → early return
+    expect(calls.finalizedHead).toBe(0);
+    gated = false;
+    resume$.next();
+    await wait(20);
+    expect(calls.finalizedHead).toBe(1);
+    sub.unsubscribe();
   });
 });

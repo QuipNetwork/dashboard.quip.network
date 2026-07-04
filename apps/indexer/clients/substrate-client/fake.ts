@@ -12,6 +12,7 @@ import type {
   RuntimeVersionInfo,
   SubstrateClient,
   SubstrateHead,
+  SyncStateInfo,
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
@@ -70,6 +71,20 @@ export class FakeSubstrateClient implements SubstrateClient {
   }
   isConnected(): boolean {
     return this.connected;
+  }
+  // Sync-gate knobs: tests mutate `syncState` to simulate a node entering /
+  // leaving major sync; set `syncStateError` to make getSyncState throw
+  // (simulating an RPC failure).
+  public syncState: SyncStateInfo = {
+    isSyncing: false,
+    peers: 1,
+    currentBlock: null,
+    highestBlock: null,
+  };
+  public syncStateError: Error | null = null;
+  async getSyncState(): Promise<SyncStateInfo> {
+    if (this.syncStateError) throw this.syncStateError;
+    return this.syncState;
   }
   onConnected(cb: () => void): UnsubFn {
     this.connectedCbs.add(cb);

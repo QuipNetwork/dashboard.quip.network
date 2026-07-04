@@ -115,4 +115,43 @@ describe("parseIndexerObservability (v6)", () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.indexer).toBeUndefined();
   });
+
+  // --- sync-state round-trip (Finding 1 regression guard) ---
+
+  test("round-trips the three node sync-state fields (nodeSyncing, current, highest)", () => {
+    const withSync = {
+      ...sample,
+      nodeSyncing: true,
+      nodeSyncCurrentBlock: "406173",
+      nodeSyncHighestBlock: "512000",
+    };
+    const parsed = parseIndexerObservability(JSON.stringify(withSync));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.nodeSyncing).toBe(true);
+    expect(parsed?.nodeSyncCurrentBlock).toBe("406173");
+    expect(parsed?.nodeSyncHighestBlock).toBe("512000");
+  });
+
+  test("row without sync-state fields still parses (backward compat, fields undefined)", () => {
+    // sample has no nodeSyncing/nodeSyncCurrentBlock/nodeSyncHighestBlock
+    const parsed = parseIndexerObservability(JSON.stringify(sample));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.nodeSyncing).toBeUndefined();
+    expect(parsed?.nodeSyncCurrentBlock).toBeUndefined();
+    expect(parsed?.nodeSyncHighestBlock).toBeUndefined();
+  });
+
+  test("nodeSyncing=false and null block heights survive the round-trip", () => {
+    const withSyncFalse = {
+      ...sample,
+      nodeSyncing: false,
+      nodeSyncCurrentBlock: null,
+      nodeSyncHighestBlock: null,
+    };
+    const parsed = parseIndexerObservability(JSON.stringify(withSyncFalse));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.nodeSyncing).toBe(false);
+    expect(parsed?.nodeSyncCurrentBlock).toBeNull();
+    expect(parsed?.nodeSyncHighestBlock).toBeNull();
+  });
 });

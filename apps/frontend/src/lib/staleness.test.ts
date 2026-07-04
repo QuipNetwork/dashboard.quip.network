@@ -252,3 +252,45 @@ describe("computeSubstrateHealth", () => {
     expect(computeSubstrateHealth(indexer, NOW_MS).level).toBe("ok");
   });
 });
+
+describe("computeSubstrateHealth — node syncing", () => {
+  it("reports syncing when connected with fresh events but nodeSyncing set", () => {
+    const h = computeSubstrateHealth(
+      obs({
+        chainConnected: true,
+        lastSubstrateEventAt: new Date(NOW_MS - 5_000).toISOString(),
+        nodeSyncing: true,
+        nodeSyncCurrentBlock: "406173",
+        nodeSyncHighestBlock: "512000",
+      }),
+      NOW_MS,
+    );
+    expect(h.level).toBe("syncing");
+    expect(h.reason).toBe("Validator is syncing · block 406,173 of 512,000");
+  });
+
+  it("omits progress when the node did not report it", () => {
+    const h = computeSubstrateHealth(
+      obs({
+        chainConnected: true,
+        lastSubstrateEventAt: new Date(NOW_MS - 5_000).toISOString(),
+        nodeSyncing: true,
+      }),
+      NOW_MS,
+    );
+    expect(h.level).toBe("syncing");
+    expect(h.reason).toBe("Validator is syncing");
+  });
+
+  it("offline wins over syncing when the socket is down", () => {
+    const h = computeSubstrateHealth(
+      obs({
+        chainConnected: false,
+        lastSubstrateEventAt: new Date(NOW_MS - 5_000).toISOString(),
+        nodeSyncing: true,
+      }),
+      NOW_MS,
+    );
+    expect(h.level).toBe("offline");
+  });
+});

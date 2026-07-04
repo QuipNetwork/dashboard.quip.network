@@ -60,6 +60,13 @@ export function parseIndexerObservability(raw: string): IndexerObservability | n
     finalizedBlockHeight: p.finalizedBlockHeight,
     chainConnected: p.chainConnected,
     selfIdentified: typeof p.selfIdentified === "boolean" ? p.selfIdentified : undefined,
+    nodeSyncing: typeof p.nodeSyncing === "boolean" ? p.nodeSyncing : undefined,
+    nodeSyncCurrentBlock: isNullableStr(p.nodeSyncCurrentBlock)
+      ? p.nodeSyncCurrentBlock
+      : undefined,
+    nodeSyncHighestBlock: isNullableStr(p.nodeSyncHighestBlock)
+      ? p.nodeSyncHighestBlock
+      : undefined,
     minerStats: parseMinerStats(p.minerStats),
     modes: parseModeBreakdownMap(p.modes),
     indexer: parseIndexerProgress(p.indexer),

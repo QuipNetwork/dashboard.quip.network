@@ -19,7 +19,7 @@
 //                     is drained, covered, and drift-free.
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
-import { Subject, timer, exhaustMap, ignoreElements, tap, type Observable } from "rxjs";
+import { Subject, timer, exhaustMap, ignoreElements, merge, tap, type Observable } from "rxjs";
 
 import type { SubstrateHead } from "../clients/substrate-client";
 import { runEffect } from "../core/rx";
@@ -320,6 +320,11 @@ export interface ReconcilerDeps {
   // state.observability.indexer with the per-plugin coverage summary.
   state?: IndexerState;
   enrichmentFloor?: () => number | null;
+  // Sync gate (design 2026-07-04): tick() returns early while gated;
+  // resume$ triggers an immediate tick when the gate opens — the 900s
+  // cadence would otherwise park the boot backfill for 15 minutes.
+  gated?: () => boolean;
+  resume$?: Observable<void>;
 }
 
 const AUTHORSHIP_SAMPLE_CHUNKS = 4;
@@ -342,7 +347,10 @@ export class Reconciler implements ConnectionStream {
 
   stream(): Observable<never> {
     const intervalMs = (this.deps.reconcileIntervalSec ?? 900) * 1000;
-    return timer(0, intervalMs).pipe(
+    const tick$ = this.deps.resume$
+      ? merge(timer(0, intervalMs), this.deps.resume$)
+      : timer(0, intervalMs);
+    return tick$.pipe(
       exhaustMap(() => runEffect("reconcile", () => this.tick())),
     ) as Observable<never>;
   }
@@ -350,6 +358,10 @@ export class Reconciler implements ConnectionStream {
   /** One reconcile pass. Public for tests and for --once's deciding tick. */
   async tick(): Promise<void> {
     const { deps } = this;
+    // Sync gate: a syncing validator is saturating its own I/O — skip the
+    // head fetch, winner enumeration, and cross-check entirely. resume$
+    // re-ticks the moment the gate opens (design 2026-07-04).
+    if (deps.gated?.()) return;
     const head = Number(await deps.client.getFinalizedHead());
     if (!Number.isFinite(head)) return;
 
