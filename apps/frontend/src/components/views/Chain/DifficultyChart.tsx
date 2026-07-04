@@ -2,15 +2,12 @@
 
 import { useState } from "react";
 
-import clsx from "clsx";
 import { ResponsiveLine } from "@nivo/line";
 
+import { SegmentedControl } from "@/components/charts/common/SegmentedControl";
+import { TIME_RANGES, type TimeRange } from "@/components/charts/common/time-range";
 import { nivoTheme } from "@/theme/nivo-theme";
-import {
-  DIFFICULTY_RANGES,
-  useDifficultyHistory,
-  type DifficultyRange,
-} from "./use-difficulty-history";
+import { useDifficultyHistory } from "./use-difficulty-history";
 
 /**
  * Time-series of the chain's target energy threshold, windowed like a price
@@ -25,7 +22,7 @@ import {
  * Difficulty tile + MyNode card instead.
  */
 export function DifficultyChart() {
-  const [range, setRange] = useState<DifficultyRange>("24h");
+  const [range, setRange] = useState<TimeRange>("24h");
   const { points, windowStart, loading, error, isEmpty } = useDifficultyHistory(range);
 
   // Short windows read as clock times; long ones as dates.
@@ -41,7 +38,12 @@ export function DifficultyChart() {
             live snapshots from <code>difficulty_history</code>.
           </p>
         </div>
-        <RangeToggle value={range} onChange={setRange} />
+        <SegmentedControl
+          options={TIME_RANGES}
+          value={range}
+          onChange={setRange}
+          ariaLabel="Difficulty history range"
+        />
       </header>
       <div data-qa="chart-difficulty-history" style={{ width: "100%", height: 240 }}>
         {isEmpty || (points.length === 0 && !loading) ? (
@@ -86,42 +88,6 @@ export function DifficultyChart() {
           />
         )}
       </div>
-    </div>
-  );
-}
-
-function RangeToggle({
-  value,
-  onChange,
-}: {
-  value: DifficultyRange;
-  onChange: (next: DifficultyRange) => void;
-}) {
-  return (
-    <div
-      className="flex overflow-hidden border border-border"
-      role="group"
-      aria-label="Difficulty history range"
-    >
-      {DIFFICULTY_RANGES.map((opt) => {
-        const active = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(opt.value)}
-            className={clsx(
-              "cursor-pointer px-2 py-1 font-accent text-xs transition-colors",
-              active
-                ? "bg-surface-dark text-ink-on-dark"
-                : "text-ink-subtle hover:bg-surface-1 hover:text-ink-strong",
-            )}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
     </div>
   );
 }

@@ -37,7 +37,8 @@ export function successProbability(energies: number[], target: number): number {
 /**
  * Median wall-clock gap between consecutive events, given their timestamps (any
  * order). This is the observed cadence — for All Nodes, the network's qblock
- * interval; for Best Node, the gap between that node's wins. Null when fewer
+ * interval; for a best-nodes series, the gap between that node's wins. Null
+ * when fewer
  * than two events exist (no interval can be formed).
  */
 export function meanEventInterval(timestamps: number[]): number | null {
@@ -53,7 +54,7 @@ export function meanEventInterval(timestamps: number[]): number | null {
 /**
  * The account that won the most blocks in the set — the "most powerful" node.
  * Ties break deterministically toward the lexicographically smaller id so the
- * Best Node curve is stable across renders. Null for empty input.
+ * best-nodes curve is stable across renders. Null for empty input.
  */
 export function bestNodeId(blocks: ReadonlyArray<{ minerId: string }>): string | null {
   const counts = new Map<string, number>();
@@ -67,6 +68,27 @@ export function bestNodeId(blocks: ReadonlyArray<{ minerId: string }>): string |
     }
   }
   return best;
+}
+
+/**
+ * Narrow a block list to the wins of each category's single {@link bestNodeId}
+ * — the "Best Nodes" scope shared by the by-difficulty charts. `categoryOf`
+ * resolves a miner's processor type (see miner-category's `categoryFor`);
+ * taking it as a function keeps this module store-free.
+ */
+export function filterToBestNodes<T extends { minerId: string }>(
+  blocks: readonly T[],
+  categoryOf: (minerId: string) => string,
+): T[] {
+  const byCat = new Map<string, T[]>();
+  for (const b of blocks) {
+    const cat = categoryOf(b.minerId);
+    const group = byCat.get(cat);
+    if (group) group.push(b);
+    else byCat.set(cat, [b]);
+  }
+  const bestIds = new Set([...byCat.values()].map((group) => bestNodeId(group)));
+  return blocks.filter((b) => bestIds.has(b.minerId));
 }
 
 /**

@@ -44,6 +44,22 @@ const MOCK_BLOCKS: BlockRecord[] = [
   makeBlock({ substrateBlockNumber: "0", minerId: "gpu-miner-1" }),
 ];
 
+// One in-window win so the mining-time card renders its chart (an empty
+// window shows the "No qblocks in this range yet" notice instead). With no
+// chainMiners the miner resolves to "OTHER", which selectedTypes includes.
+const MOCK_MINING_HISTORY = {
+  since: "1970-01-01T00:00:00.000Z",
+  rows: [
+    {
+      qblockId: "1",
+      substrateBlockNumber: "5",
+      timestamp: 1700000300,
+      minerId: "qpu-miner-1",
+      miningTime: 12,
+    },
+  ],
+};
+
 const MOCK_RESPONSE: TelemetryResponse = {
   blocks: MOCK_BLOCKS,
   selfAddress: null,
@@ -104,10 +120,14 @@ afterEach(() => {
 describe("App smoke test", () => {
   test("renders the compute view's chart grid after fetching telemetry", async () => {
     const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(((input: unknown) => {
-      // Route by URL: the app now fetches /api/miner-wins alongside
-      // /api/telemetry, and each expects its own response shape.
+      // Route by URL: the app fetches /api/miner-wins and /api/mining-history
+      // alongside /api/telemetry, and each expects its own response shape.
       const url = String(input);
-      const body = url.endsWith("/api/miner-wins") ? { rows: [] } : MOCK_RESPONSE;
+      const body = url.endsWith("/api/miner-wins")
+        ? { rows: [] }
+        : url.includes("/api/mining-history")
+          ? MOCK_MINING_HISTORY
+          : MOCK_RESPONSE;
       return Promise.resolve(
         new Response(JSON.stringify(body), {
           status: 200,

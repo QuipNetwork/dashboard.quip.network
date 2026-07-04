@@ -171,11 +171,12 @@ export interface MiningSubmissionRecord {
   // wall-clock `mining_time_us`, which is dominated by D-Wave cloud
   // network round-trip + queue and so wildly overstates QPU compute.
   //
-  // Requires the miner to surface `qpu_access_time_us` on each
-  // iteration in its attempts JSONL output. Until that lands the
-  // field reads 0 for new rows and existing rows after the v18 schema
-  // wipe — operators see "—" or 0h on the QPU compute bar instead of
-  // a wall-clock impostor.
+  // The miner surfaces `qpu_access_time_us` on each iteration in its
+  // attempts JSONL output since quip-protocol v0.2.0 (db4ed96,
+  // 2026-05-26) — every v0.2.x release emits it. Rows only exist for
+  // solutions the locally-polled miner actually *submitted* (the
+  // attempts endpoint 404s without a submission.json), so a 0/empty
+  // column means no recent self-submissions, not a missing field.
   //
   // Always 0 for CPU/GPU miners — they have no quantum sampler and
   // their wall-clock mining time is the right metric for the

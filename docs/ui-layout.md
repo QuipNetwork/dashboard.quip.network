@@ -43,18 +43,19 @@ until the indexer has produced chain data; **Node** is a detail page reached by
 2. Recent QBlocks (`RecentBlocksTable`) — table, sortable — default QBlock# desc, search + pagination
 3. Mining Leaderboard (`Leaderboard`) — table, sortable — default rank asc, search
 4. QBlocks Mined Over Time — line chart — cumulative per miner/type
-5. Mining Time per QBlock — chart
-6. Difficulty over time (`DifficultyChart`) — step line chart — range toggle 1H…ALL
+5. Mining Time per QBlock — chart — range toggle 1H…ALL, All | By Type toggle (default By Type), x-axis = qblock id
+6. Difficulty over time (`DifficultyChart`) — step line chart — range toggle 1H…ALL — full width
 7. Total Compute Used — chart
 8. Mining Nodes by Type — chart — _By Type mode only_
 9. Energy Distribution — chart
 10. Time to QBlock — chart
-11. Probability of Meeting Difficulty — CDF chart
+11. Probability of Meeting Difficulty — CDF chart — All Nodes | Best Nodes toggle (best = each type's top winner, in both aggregation modes)
 12. Win Rate by Difficulty — chart — _By Type mode only_
-13. Mining Cost by Difficulty — chart
-14. Cumulative QBlocks by Threshold — chart
+13. Mining Cost by Difficulty — chart — CPU/GPU/QPU lines; All Nodes | Best Nodes and Time | Attempts toggles; in Time mode the QPU line is labeled QPUWC (wall clock — a device-time QPU line joins it once qpu_access_time data lands)
+14. Cumulative QBlocks by Threshold — chart — All Nodes | Best Nodes toggle (best = each type's top winner, in both aggregation modes)
 
-(4-5 and 6–14 render in a 2-column grid; order is left-to-right, top-to-bottom.)
+(4–5 and 7–14 render in 2-column grids; 6 spans full width between them. Grid
+order is left-to-right, top-to-bottom.)
 
 ## Chain
 

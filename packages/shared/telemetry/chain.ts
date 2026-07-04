@@ -233,6 +233,23 @@ export interface MinerWinsRow {
 }
 
 /**
+ * One winner block projected to the fields the range-windowed mining-time
+ * chart plots — a slim row so the ALL range (every stored qblock) stays a
+ * small payload instead of shipping full BlockRecords. Served by
+ * `GET /api/mining-history?since=<iso>`.
+ */
+export interface MiningHistoryRow {
+  // Monotonic 1-based on-chain win id (u64 as string) — the chart's x-axis.
+  qblockId: string;
+  substrateBlockNumber: string; // u64 as string
+  // Unix seconds of the winner block (blocks.timestamp).
+  timestamp: number;
+  minerId: string;
+  // Seconds the winning proof took to mine.
+  miningTime: number;
+}
+
+/**
  * Per-validator authorship payload joined against the active BABE authority
  * set. Each row corresponds to one BABE authority for the current session;
  * the server fills `blocksAuthored` / `blocksAuthoredWithPow` from the

@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo } from "react";
+import type { NodeScope } from "@/components/charts/common/SegToggle";
+import { filterToBestNodes } from "@/components/charts/mining-time-by-difficulty/mining-cost-model";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useFilteredBlocks } from "@/store/use-filtered-blocks";
 import { useUIStore } from "@/store/ui-store";
+
+export interface ThresholdOptions {
+  scope: NodeScope;
+}
 
 export interface CumulativeBlocksThresholdSeries {
   id: string;
@@ -22,8 +28,15 @@ const NUM_POINTS = 50;
 /**
  * v0.3 transitional: per-miner unit counts came from the v0.2 `nodes`
  * snapshot. Each block contributes a single sample (units=1).
+ *
+ * `scope: "best"` narrows the blocks to each processor type's single top
+ * winner (most wins) before the sweep — the same "Best Nodes" semantics as
+ * the Mining Cost chart, in both aggregation modes.
  */
-export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult {
+export function useCumulativeBlocksThreshold(
+  opts: ThresholdOptions,
+): CumulativeBlocksThresholdResult {
+  const { scope } = opts;
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
@@ -32,10 +45,13 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
 
   return useMemo(() => {
     const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
-    const filtered =
+    let filtered =
       mode === "byType"
         ? blocks.filter((b) => selectedTypes.includes(categoryFor(b.minerId, catIndex)))
         : blocks;
+    if (scope === "best") {
+      filtered = filterToBestNodes(filtered, (id) => categoryFor(id, catIndex));
+    }
     if (filtered.length === 0) return { series: [], xMin: 0, xMax: 0 };
 
     const getKey = (b: (typeof blocks)[0]) =>
@@ -102,5 +118,5 @@ export function useCumulativeBlocksThreshold(): CumulativeBlocksThresholdResult 
     });
 
     return { series, xMin: Math.floor(min), xMax: Math.ceil(max) };
-  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode]);
+  }, [blocks, chainMiners, nodeDescriptors, selectedTypes, mode, scope]);
 }

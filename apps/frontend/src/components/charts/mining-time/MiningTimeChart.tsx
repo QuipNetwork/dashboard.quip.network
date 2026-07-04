@@ -38,7 +38,9 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
         theme={nivoTheme}
         colors={(series) => getSeriesColor(String(series.id))}
         margin={{ top: 20, right: 20, bottom: 50, left: 60 }}
-        xScale={{ type: "linear" }}
+        // min "auto" hugs the windowed data — nivo's default of 0 would
+        // stretch the axis back to qblock #0 on every range.
+        xScale={{ type: "linear", min: "auto", max: "auto" }}
         yScale={{ type: "linear", min: 0, stacked: false }}
         curve="monotoneX"
         enablePoints={true}
@@ -59,11 +61,11 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
           "legends",
         ]}
         axisBottom={{
-          // Large block numbers on a zoomed linear scale render fractional /
+          // Large ids on a zoomed linear scale render fractional /
           // scientific ticks by default — coerce to plain integers.
           format: (v) => String(Math.round(Number(v))),
           tickValues: 6,
-          legend: "Block # (most recent 100 qblocks)",
+          legend: "QBlock #",
           legendOffset: 40,
           legendPosition: "middle",
         }}

@@ -235,7 +235,7 @@ Per-submission summaries polled from the local miner's
 | `best_energy_milli`     | BIGINT      | no   | Best energy seen across attempts ×1000.                                                                   |
 | `num_valid`             | INTEGER     | no   | Count of valid solutions (default 0).                                                                     |
 | `miner_type`            | TEXT        | no   | Backend that produced the submission (CPU / CUDA / METAL / MODAL / QPU); empty if unreported.             |
-| `qpu_access_time_us`    | BIGINT      | no   | Summed D-Wave QPU access time across iterations (µs); 0 for non-QPU rows (default 0).                     |
+| `qpu_access_time_us`    | BIGINT      | no   | Summed D-Wave QPU access time across iterations (µs); emitted per-attempt by miners since v0.2.0. 0 for non-QPU rows (default 0). |
 | `observed_at`           | TIMESTAMPTZ | no   | When the row was written.                                                                                 |
 
 Indexes: `(miner_id, solution_number DESC)`, `(miner_id) WHERE attempt_count > 0` — partial.
