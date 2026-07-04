@@ -12,6 +12,7 @@ import type {
   MinerHardwareRecord,
   MinerStats,
   MinerWinsRow,
+  MiningHistoryRow,
   MiningSubmissionRecord,
   ModeBreakdown,
   NodeDescriptorRecord,
@@ -203,6 +204,13 @@ export interface DatabaseAdapter {
    * see `MinerWinsRow` for the coverage caveat vs the on-chain counter.
    */
   getMinerWins(): Promise<MinerWinsRow[]>;
+
+  /**
+   * Slim winner-block rows whose `timestamp` is at/after the ISO cutoff,
+   * ascending by block number — the range-windowed dataset behind the
+   * mining-time chart (`GET /api/mining-history`).
+   */
+  getMiningHistorySince(sinceIso: string): Promise<MiningHistoryRow[]>;
 
   /**
    * Topology-tag backfill support. Returns up to `limit` blocks whose

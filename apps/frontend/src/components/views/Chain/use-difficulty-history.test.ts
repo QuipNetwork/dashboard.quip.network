@@ -14,9 +14,9 @@ import type { TelemetryClient } from "@/services/telemetry-client";
 import { createTestServices } from "@/testing/services";
 import type { DifficultyHistoryResponse, DifficultyRecord } from "@quip/shared/telemetry";
 
+import { sinceForRange } from "@/components/charts/common/time-range";
 import {
   buildSeriesPoints,
-  sinceForRange,
   useDifficultyHistory,
   type DifficultyHistoryState,
 } from "./use-difficulty-history";
@@ -121,6 +121,7 @@ describe("useDifficultyHistory", () => {
       fetchBlocks: () => new Promise<never>(() => {}),
       fetchNodeLive: () => new Promise<never>(() => {}),
       fetchMinerWins: () => new Promise<never>(() => {}),
+      fetchMiningHistory: () => new Promise<never>(() => {}),
       fetchDifficultyHistory: async (sinceIso: string) => {
         calls.push(sinceIso);
         return {

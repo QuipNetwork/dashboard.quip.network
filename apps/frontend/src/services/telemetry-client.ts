@@ -7,6 +7,7 @@ import type {
   DifficultyHistoryResponse,
   MinerWinsResponse,
   MiningAttemptsResponse,
+  MiningHistoryResponse,
   NodeLiveData,
   TelemetryResponse,
 } from "@quip/shared/telemetry";
@@ -34,6 +35,9 @@ export interface TelemetryClient {
   // All-time per-miner win aggregates from the indexed blocks table — the
   // shared dataset behind every "qblocks won" surface (see MinerWinsRow).
   fetchMinerWins(signal?: AbortSignal): Promise<MinerWinsResponse>;
+  // Range-windowed slim winner-block rows at/after `sinceIso`, ascending.
+  // Feeds the "Mining Time per QBlock" range selector.
+  fetchMiningHistory(sinceIso: string, signal?: AbortSignal): Promise<MiningHistoryResponse>;
 }
 
 export interface HttpTelemetryClientOptions {
@@ -103,6 +107,15 @@ export class HttpTelemetryClient implements TelemetryClient {
     const res = await this.fetch(`${this.baseUrl}/api/miner-wins`, signal ? { signal } : undefined);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as MinerWinsResponse;
+  }
+
+  async fetchMiningHistory(sinceIso: string, signal?: AbortSignal): Promise<MiningHistoryResponse> {
+    const res = await this.fetch(
+      `${this.baseUrl}/api/mining-history?since=${encodeURIComponent(sinceIso)}`,
+      signal ? { signal } : undefined,
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as MiningHistoryResponse;
   }
 
   async fetchNodeLive(

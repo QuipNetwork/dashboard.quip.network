@@ -212,6 +212,63 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         expect(await db.getMinerWins()).toEqual([]);
       });
 
+      it("getMiningHistorySince returns slim in-window rows ascending by block number", async () => {
+        // Wins at t=…000 / …100 / …200. A cutoff exactly at the second win
+        // must keep the later two (>= inclusive), oldest first.
+        await db.insertBlock(
+          sampleBlock({
+            blockHash: "0xa1",
+            substrateBlockNumber: "1",
+            qblockId: "1",
+            minerId: "5A",
+            miningTime: 10,
+            timestamp: 1700000000,
+          }),
+        );
+        await db.insertBlock(
+          sampleBlock({
+            blockHash: "0xb1",
+            substrateBlockNumber: "2",
+            qblockId: "2",
+            minerId: "5B",
+            miningTime: 7,
+            timestamp: 1700000100,
+          }),
+        );
+        await db.insertBlock(
+          sampleBlock({
+            blockHash: "0xa2",
+            substrateBlockNumber: "3",
+            qblockId: "3",
+            minerId: "5A",
+            miningTime: 20,
+            timestamp: 1700000200,
+          }),
+        );
+        const since = new Date(1700000100 * 1000).toISOString();
+        expect(await db.getMiningHistorySince(since)).toEqual([
+          {
+            qblockId: "2",
+            substrateBlockNumber: "2",
+            timestamp: 1700000100,
+            minerId: "5B",
+            miningTime: 7,
+          },
+          {
+            qblockId: "3",
+            substrateBlockNumber: "3",
+            timestamp: 1700000200,
+            minerId: "5A",
+            miningTime: 20,
+          },
+        ]);
+      });
+
+      it("getMiningHistorySince returns [] when nothing is in-window", async () => {
+        await db.insertBlock(sampleBlock({ timestamp: 1700000000 }));
+        expect(await db.getMiningHistorySince("2026-01-01T00:00:00.000Z")).toEqual([]);
+      });
+
       it("getExistingBlockNumbers handles a lookup larger than the bind-parameter ceiling", async () => {
         // Seed a handful of real blocks, then ask about 70k numbers (> the
         // 65535 single-statement ceiling) — the adapter must chunk the IN-list.
