@@ -42,26 +42,26 @@ Won proof-of-work blocks. The substrate worker is the sole writer; rows are
 inserted once (`ON CONFLICT DO NOTHING`) and only
 `finalized` is later updated.
 
-| Column                   | PostgreSQL       | Null | Description                                                       |
-| ------------------------ | ---------------- | ---- | ----------------------------------------------------------------- |
-| `block_hash`             | TEXT             | PK   | Dashboard primary key — the PoW block's hash.                     |
-| `substrate_block_number` | NUMERIC          | no   | Substrate block height (u64-as-string).                           |
-| `substrate_block_hash`   | TEXT             | no   | Substrate block hash.                                             |
-| `substrate_parent_hash`  | TEXT             | no   | Parent block hash.                                                |
-| `timestamp`              | BIGINT           | no   | Block production time (unix seconds).                             |
-| `miner_id`               | TEXT             | no   | SS58 account that won the block.                                  |
-| `energy`                 | DOUBLE PRECISION | no   | Energy of the winning solution.                                   |
-| `diversity`              | DOUBLE PRECISION | no   | Diversity of the winning solution.                                |
-| `num_valid_solutions`    | INTEGER          | no   | Count of valid solutions in the block.                            |
-| `mining_time`            | DOUBLE PRECISION | no   | Seconds spent mining this block.                                  |
-| `reward`                 | NUMERIC          | no   | Block reward (planck, u128-as-string).                            |
-| `nonce`                  | NUMERIC          | no   | Winning nonce (u64-as-string).                                    |
-| `num_nodes`              | INTEGER          | no   | Problem graph node count.                                         |
-| `num_edges`              | INTEGER          | no   | Problem graph edge count.                                         |
-| `difficulty_energy`      | DOUBLE PRECISION | no   | Energy threshold in force for this block.                         |
-| `min_diversity`          | DOUBLE PRECISION | no   | Diversity requirement in force.                                   |
-| `min_solutions`          | INTEGER          | no   | Minimum solutions requirement in force.                           |
-| `finalized`              | BOOLEAN          | no   | Whether the block is finalized; flipped monotonically false→true. |
+| Column                   | PostgreSQL       | Null | Description                                                                                                                           |
+| ------------------------ | ---------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `block_hash`             | TEXT             | PK   | Dashboard primary key — the PoW block's hash.                                                                                         |
+| `substrate_block_number` | NUMERIC          | no   | Substrate block height (u64-as-string).                                                                                               |
+| `substrate_block_hash`   | TEXT             | no   | Substrate block hash.                                                                                                                 |
+| `substrate_parent_hash`  | TEXT             | no   | Parent block hash.                                                                                                                    |
+| `timestamp`              | BIGINT           | no   | Block production time (unix seconds).                                                                                                 |
+| `miner_id`               | TEXT             | no   | SS58 account that won the block.                                                                                                      |
+| `energy`                 | DOUBLE PRECISION | no   | Energy of the winning solution.                                                                                                       |
+| `diversity`              | DOUBLE PRECISION | no   | Diversity of the winning solution.                                                                                                    |
+| `num_valid_solutions`    | INTEGER          | no   | Count of valid solutions in the block.                                                                                                |
+| `mining_time`            | DOUBLE PRECISION | no   | Seconds of compute behind the win: miner-reported device time (µs→s, spec-111+) or derived block spacing for pre-111/unreported wins. |
+| `reward`                 | NUMERIC          | no   | Block reward (planck, u128-as-string).                                                                                                |
+| `nonce`                  | NUMERIC          | no   | Winning nonce (u64-as-string).                                                                                                        |
+| `num_nodes`              | INTEGER          | no   | Problem graph node count.                                                                                                             |
+| `num_edges`              | INTEGER          | no   | Problem graph edge count.                                                                                                             |
+| `difficulty_energy`      | DOUBLE PRECISION | no   | Energy threshold in force for this block.                                                                                             |
+| `min_diversity`          | DOUBLE PRECISION | no   | Diversity requirement in force.                                                                                                       |
+| `min_solutions`          | INTEGER          | no   | Minimum solutions requirement in force.                                                                                               |
+| `finalized`              | BOOLEAN          | no   | Whether the block is finalized; flipped monotonically false→true.                                                                     |
 
 Indexes: `(substrate_block_number DESC)`, `(miner_id, substrate_block_number DESC)`,
 `(timestamp DESC)`.

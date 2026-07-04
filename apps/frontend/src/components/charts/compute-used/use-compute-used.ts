@@ -17,10 +17,12 @@ export interface ComputeUsedEntry {
  *
  * Two source paths, picked per block by the *winning miner's* category:
  *
- *   - CPU/GPU blocks → `block.miningTime` (wall-clock seconds between
- *     blocks). Originally meant to be multiplied by parallel worker
- *     count, but the v0.3 hardware-snapshot drop took unitCount with
- *     it — for now this is raw wall-clock.
+ *   - CPU/GPU blocks → `block.miningTime` (reported device compute time on
+ *     spec-111+ wins; derived block spacing — wall-clock seconds between
+ *     winner blocks — as fallback for pre-111/unreported wins).
+ *     Originally meant to be multiplied by parallel worker count, but
+ *     the v0.3 hardware-snapshot drop took unitCount with it — for now
+ *     this is the reported (or derived) time directly.
  *
  *   - QPU blocks → sum of `qpuAccessTimeUs` from the matching
  *     mining_submissions row (joined by `chainBlockNumber`). Captures

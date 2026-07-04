@@ -63,6 +63,7 @@ describe("substrate worker", () => {
         minDiversityMilli: 200,
         minSolutions: 5,
       },
+      deviceAccessTimeUs: null,
     });
     client.lastProofBlockByHash.set("0xsub99", 94);
 
@@ -321,6 +322,7 @@ describe("substrate worker", () => {
       submittedAt: "40",
       nonce: "1",
       difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
+      deviceAccessTimeUs: null,
     });
     client.qblocksByBlock.set("80", {
       miner: "5GPP",
@@ -329,6 +331,7 @@ describe("substrate worker", () => {
       submittedAt: "80",
       nonce: "2",
       difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
+      deviceAccessTimeUs: null,
     });
 
     const ac = new AbortController();
@@ -1010,6 +1013,7 @@ describe("substrate worker", () => {
       submittedAt: "10",
       nonce: "1",
       difficulty: { maxEnergyMilli: -100, minDiversityMilli: 1, minSolutions: 1 },
+      deviceAccessTimeUs: null,
     });
 
     const ac = new AbortController();
@@ -1119,6 +1123,7 @@ describe("substrate worker", () => {
       submittedAt: "200",
       nonce: "9",
       difficulty: { maxEnergyMilli: -300, minDiversityMilli: 10, minSolutions: 1 },
+      deviceAccessTimeUs: null,
     });
     client.historicalBlocks.set("200", {
       blockNumber: 200,
@@ -1289,6 +1294,7 @@ describe("substrate worker", () => {
       submittedAt: "10",
       nonce: "1",
       difficulty: { maxEnergyMilli: -5000, minDiversityMilli: 300, minSolutions: 7 },
+      deviceAccessTimeUs: null,
     });
 
     const ac = new AbortController();

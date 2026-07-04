@@ -71,7 +71,14 @@ export function winnersPlugin(): BlockIndexable {
       // LastProofBlock is read at the PARENT hash: on_finalize updates it
       // in-block, so the parent's value is the prior tip.
       const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
-      const miningTime = miningTimeBlocks * BABE_SLOT_DURATION_SEC;
+      // Spec-111 qblocks carry the winner's self-reported compute time
+      // (QPU access time for QPU wins, wall clock for CPU/GPU), in µs.
+      // Prefer it — the derived block-spacing wall clock below remains
+      // recomputable from chain data by anyone, so nothing is lost.
+      // Falsy (null = pre-111, 0 = unreported) falls back to the spacing.
+      const miningTime = qblock?.deviceAccessTimeUs
+        ? qblock.deviceAccessTimeUs / 1_000_000
+        : miningTimeBlocks * BABE_SLOT_DURATION_SEC;
       // Post-v0.2 the qblock carries the mined-against difficulty; pre-v0.2
       // winners get the stated sentinel (spec §10.2).
       const difficulty = qblock?.difficulty ?? ZERO_DIFFICULTY;

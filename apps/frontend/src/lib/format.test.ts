@@ -27,6 +27,18 @@ describe("formatDuration", () => {
     expect(formatDuration(2 * 24 * 60 * 60 * 1000 + 5 * 60 * 60 * 1000)).toBe("2d 5h");
   });
 
+  it("renders milliseconds for sub-second durations", () => {
+    expect(formatDuration(742)).toBe("742ms");
+    expect(formatDuration(1)).toBe("1ms");
+    expect(formatDuration(999)).toBe("999ms");
+    // Exactly 1 second falls into the seconds branch, not ms.
+    expect(formatDuration(1000)).toBe("1s");
+  });
+
+  it("renders 0s for zero input (0 is not sub-second, it is the absence of duration)", () => {
+    expect(formatDuration(0)).toBe("0s");
+  });
+
   it("handles invalid input", () => {
     expect(formatDuration(Number.NaN)).toBe("—");
     expect(formatDuration(-5)).toBe("—");

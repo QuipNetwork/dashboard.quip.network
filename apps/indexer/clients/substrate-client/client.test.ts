@@ -2,11 +2,15 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { TypeRegistry } from "@polkadot/types";
+
 import {
   FakeSubstrateClient,
+  HYBRID_EXTRINSIC_TYPES,
   PolkadotSubstrateClient,
   decodeBlockWinnerEventData,
   decodeMinerRegistryDescriptor,
+  qblockInfoFromSolution,
   type BlockEvents,
   type SubstrateHead,
 } from ".";
@@ -243,6 +247,45 @@ describe("PolkadotSubstrateClient (integration)", () => {
   );
 });
 
+describe("HYBRID_EXTRINSIC_TYPES (per-block registry overrides)", () => {
+  // polkadot.js swaps to a FRESH registry for blocks from older runtime
+  // specVersions (@polkadot/api base/Init.js: setRegistrySwap →
+  // _createBlockRegistry → _initRegistry). _initRegistry seeds that registry
+  // ONLY from the ApiPromise.create options: setKnownTypes(options) then
+  // register(getSpecTypes(...)), where getSpecTypes merges knownTypes.types
+  // as the final catch-all override. For a chain with no built-in known
+  // types that reduces to exactly the user-supplied map — which is what we
+  // reproduce here. A post-create api.registry.register() call never reaches
+  // these registries (the original bug: backfilled pre-upgrade blocks failed
+  // with "Signed Extrinsics are currently only available for ExtrinsicV4").
+  const perBlockRegistry = (): TypeRegistry => {
+    const registry = new TypeRegistry();
+    registry.setKnownTypes({ types: HYBRID_EXTRINSIC_TYPES });
+    registry.register({ ...(registry.knownTypes.types ?? {}) });
+    return registry;
+  };
+
+  const createSignature = (
+    registry: TypeRegistry,
+    version: "ExtrinsicSignatureV4" | "ExtrinsicSignatureV5",
+    opts: { isSigned?: boolean },
+  ): { isSigned: boolean } =>
+    registry.createTypeUnsafe(version, [undefined, opts]) as unknown as { isSigned: boolean };
+
+  test.each(["ExtrinsicSignatureV4", "ExtrinsicSignatureV5"] as const)(
+    "%s trusts the preamble-derived isSigned option on a fresh registry",
+    (version) => {
+      const registry = perBlockRegistry();
+      // The stock GenericExtrinsicSignature derives isSigned from the
+      // signature bytes' emptiness, which is wrong for quip's concrete
+      // HybridTxSignature struct. The hybrid override must track the
+      // constructor option in BOTH directions.
+      expect(createSignature(registry, version, { isSigned: true }).isSigned).toBe(true);
+      expect(createSignature(registry, version, {}).isSigned).toBe(false);
+    },
+  );
+});
+
 describe("decodeBlockWinnerEventData (v0.2 6-field BlockWinner)", () => {
   test("decodes [qblock_id, block_number, miner, reward, energy_milli, submitted_at]", () => {
     const decoded = decodeBlockWinnerEventData([
@@ -266,6 +309,48 @@ describe("decodeBlockWinnerEventData (v0.2 6-field BlockWinner)", () => {
   test("returns null when the data array is truncated", () => {
     expect(decodeBlockWinnerEventData([codec("7"), codec("4500"), codec("5GPPxx")])).toBeNull();
     expect(decodeBlockWinnerEventData([])).toBeNull();
+  });
+});
+
+describe("qblockInfoFromSolution (spec-111 device_access_time_us)", () => {
+  const base = {
+    miner: "5GWinner",
+    energyMilli: -14_500_123,
+    reward: "1000000000000",
+    submittedAt: "500000",
+    difficulty: { maxEnergyMilli: -14_400_000, minDiversityMilli: 100, minSolutions: 2 },
+  };
+
+  test("reads the camelCase number that polkadot-js toJSON emits for small u64", () => {
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: 45_000_000 }, "123");
+    expect(info.deviceAccessTimeUs).toBe(45_000_000);
+    expect(info.nonce).toBe("123");
+  });
+
+  test("deviceAccessTimeUs: 0 maps to 0, not null (present-but-unreported)", () => {
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: 0 }, "123");
+    expect(info.deviceAccessTimeUs).toBe(0);
+  });
+
+  test("hex-string input parses correctly (polkadot-js emits 0x… for u64 > 2^52)", () => {
+    // Number("0x2a") === 42; Number.isFinite(42) → true; no null coercion.
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: "0x2a" }, "123");
+    expect(info.deviceAccessTimeUs).toBe(42);
+  });
+
+  test("reads the snake_case spelling defensively", () => {
+    const info = qblockInfoFromSolution({ ...base, device_access_time_us: 7 }, "123");
+    expect(info.deviceAccessTimeUs).toBe(7);
+  });
+
+  test("absent field (pre-111 chain) maps to null, not 0", () => {
+    const info = qblockInfoFromSolution(base, "123");
+    expect(info.deviceAccessTimeUs).toBeNull();
+  });
+
+  test("non-numeric garbage maps to null", () => {
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: "bogus" }, "123");
+    expect(info.deviceAccessTimeUs).toBeNull();
   });
 });
 
@@ -363,6 +448,7 @@ describe("FakeSubstrateClient.getQBlock", () => {
         minDiversityMilli: 200,
         minSolutions: 5,
       },
+      deviceAccessTimeUs: null,
     });
     const sol = await c.getQBlock("77");
     expect(sol?.nonce).toBe("12345");
