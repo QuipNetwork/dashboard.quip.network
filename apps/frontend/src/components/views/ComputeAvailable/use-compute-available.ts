@@ -50,8 +50,11 @@ export interface ComputeAvailability {
   networkTflops: number;
   // Block the network just completed (tip of chain). Null before first sync.
   lastBlock: BlockRecord | null;
-  // PFLOP·s poured into the last block (networkTflops × miningTime / 1000).
-  // Null when there is no tip block.
+  // PFLOP·s poured into the last block (networkTflops × wall-clock block
+  // spacing / 1000). Uses timestamp delta between the two most recent winner
+  // blocks — NOT miningTime, which on spec-111+ carries device compute time
+  // (e.g. ~60ms for QPU) rather than wall-clock block duration. Null when
+  // fewer than two blocks are available.
   lastBlockPflopSeconds: number | null;
   // PFLOP·s poured into the block currently being mined, based on wall-clock
   // elapsed since the last tip. Null when there is no tip block. This value
@@ -73,6 +76,7 @@ export interface ComputeAvailability {
 export function useComputeAvailable(): ComputeAvailability {
   const nodes = useTelemetryStore((s) => s.nodes);
   const lastBlock = useTelemetryStore(selectTipBlock);
+  const blocks = useTelemetryStore((s) => s.blocks);
 
   return useMemo<ComputeAvailability>(() => {
     if (!nodes) return { ...EMPTY, lastBlock };
@@ -141,8 +145,22 @@ export function useComputeAvailable(): ComputeAvailability {
     // Block-ceiling estimates. "PFLOP-seconds" = TFLOPS × seconds ÷ 1000.
     // Interprets the network running at full theoretical FP32 throughput for
     // the block's duration — a ceiling, not a measurement.
+    //
+    // lastBlockWallClock: derive from timestamp delta between the two most
+    // recent winner blocks instead of miningTime. miningTime now carries the
+    // winner's self-reported device compute time on spec-111+ wins (e.g. ~60ms
+    // for a QPU), which would collapse the PFLOP·s tile ~1000×. Wall-clock
+    // block spacing (tip.timestamp − prev.timestamp) is always valid for this
+    // "how long did the network run at full throughput" metric.
+    const prevBlock: BlockRecord | undefined = blocks[1];
+    const lastBlockWallClock =
+      lastBlock != null && prevBlock != null
+        ? Math.max(0, lastBlock.timestamp - prevBlock.timestamp)
+        : null;
+    // When there is only one block, we cannot derive a delta — show null so
+    // the tile renders "—" rather than a meaningless value.
     const lastBlockPflopSeconds =
-      lastBlock != null ? (totalTflops * lastBlock.miningTime) / 1000 : null;
+      lastBlockWallClock != null ? (totalTflops * lastBlockWallClock) / 1000 : null;
     const currentBlockElapsedSeconds =
       lastBlock != null ? Math.max(0, Date.now() / 1000 - lastBlock.timestamp) : null;
     const currentBlockPflopSeconds =
@@ -167,7 +185,7 @@ export function useComputeAvailable(): ComputeAvailability {
       locatedNodes: located,
       unlocatedCount,
     };
-  }, [nodes, lastBlock]);
+  }, [nodes, lastBlock, blocks]);
 }
 
 const EMPTY: ComputeAvailability = {

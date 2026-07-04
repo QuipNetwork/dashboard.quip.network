@@ -5,10 +5,6 @@ import { formatBalance, formatEnergy, formatNonce } from "@/lib/format-chain";
 import type { BlockRecord, MiningSubmissionRecord } from "@quip/shared/telemetry";
 import { BlockDetailCard } from "./BlockDetailCard";
 
-// `miningTime` is seconds (substrate-worker converts the block-delta via BABE
-// slot duration before writing); divide back out for the "X blocks" display.
-const BLOCK_TIME_SEC = 6;
-
 export function LastQBlockCard({
   lastWonBlock,
   lastWonSubmission,
@@ -17,8 +13,6 @@ export function LastQBlockCard({
   lastWonSubmission: MiningSubmissionRecord | undefined;
 }) {
   const lastSolutionTimeMs = lastWonBlock != null ? lastWonBlock.miningTime * 1000 : null;
-  const lastSolutionBlocks =
-    lastWonBlock != null ? Math.round(lastWonBlock.miningTime / BLOCK_TIME_SEC) : null;
 
   return (
     <BlockDetailCard
@@ -30,7 +24,7 @@ export function LastQBlockCard({
                 label: "Time to QBlock",
                 value:
                   lastSolutionTimeMs != null && lastSolutionTimeMs > 0
-                    ? `${formatDuration(lastSolutionTimeMs)} · ${lastSolutionBlocks} blocks`
+                    ? formatDuration(lastSolutionTimeMs)
                     : "—",
               },
               {

@@ -279,10 +279,21 @@ describe("qblockInfoFromSolution (spec-111 device_access_time_us)", () => {
     difficulty: { maxEnergyMilli: -14_400_000, minDiversityMilli: 100, minSolutions: 2 },
   };
 
-  test("reads the camelCase field polkadot-js toJSON emits", () => {
+  test("reads the camelCase number that polkadot-js toJSON emits for small u64", () => {
     const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: 45_000_000 }, "123");
     expect(info.deviceAccessTimeUs).toBe(45_000_000);
     expect(info.nonce).toBe("123");
+  });
+
+  test("deviceAccessTimeUs: 0 maps to 0, not null (present-but-unreported)", () => {
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: 0 }, "123");
+    expect(info.deviceAccessTimeUs).toBe(0);
+  });
+
+  test("hex-string input parses correctly (polkadot-js emits 0x… for u64 > 2^52)", () => {
+    // Number("0x2a") === 42; Number.isFinite(42) → true; no null coercion.
+    const info = qblockInfoFromSolution({ ...base, deviceAccessTimeUs: "0x2a" }, "123");
+    expect(info.deviceAccessTimeUs).toBe(42);
   });
 
   test("reads the snake_case spelling defensively", () => {
