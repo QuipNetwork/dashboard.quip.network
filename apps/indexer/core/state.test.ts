@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, test } from "bun:test";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import type { IndexerObservability } from "@quip/shared/telemetry";
@@ -50,9 +50,9 @@ describe("IndexerState observability persistence", () => {
     expect(state.observability.chainConnected).toBe(false);
   });
 
-  it("load() resets sync-gate fields like chainConnected", async () => {
-    adapter = await newInMemoryAdapter();
-    await adapter.setIndexerObservability({
+  test("load() resets sync-gate fields like chainConnected", async () => {
+    const db = await newInMemoryAdapter();
+    await db.setIndexerObservability({
       chainHeadFromNode: "100",
       lastStatusFetchAt: new Date().toISOString(),
       lastBlockInsertAt: null,
@@ -65,11 +65,11 @@ describe("IndexerState observability persistence", () => {
       nodeSyncCurrentBlock: "406173",
       nodeSyncHighestBlock: "512000",
     });
-    const state = new IndexerState(adapter);
+    const state = new IndexerState(db);
     await state.load();
     expect(state.observability.nodeSyncing).toBe(false);
     expect(state.observability.nodeSyncCurrentBlock).toBeNull();
     expect(state.observability.nodeSyncHighestBlock).toBeNull();
-    await adapter.disconnect();
+    await db.disconnect();
   });
 });

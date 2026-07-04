@@ -32,17 +32,17 @@ export class IndexerState {
     // Transient — never seeded from the DB on restart, since a prior
     // process's WSS connection state is meaningless to a new process.
     chainConnected: false,
+    // Transient like chainConnected — a prior process's sync-gate state is
+    // meaningless to a new process.
+    nodeSyncing: false,
+    nodeSyncCurrentBlock: null,
+    nodeSyncHighestBlock: null,
     selfIdentified: false,
     minerStats: null,
     // Same transient story as chainConnected — re-fetched on next
     // /api/v1/status poll. Default empty so a fresh process renders
     // "single backend" UI until the first poll lands.
     modes: {},
-    // Transient like chainConnected — a prior process's sync-gate state is
-    // meaningless to a new process.
-    nodeSyncing: false,
-    nodeSyncCurrentBlock: null,
-    nodeSyncHighestBlock: null,
   };
 
   constructor(private readonly db: DatabaseAdapter) {}
