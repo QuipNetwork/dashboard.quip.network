@@ -14,6 +14,7 @@
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { GenericExtrinsicSignatureV4 } from "@polkadot/types/extrinsic/v4/ExtrinsicSignature";
 import { GenericExtrinsicSignatureV5 } from "@polkadot/types/extrinsic/v5/ExtrinsicSignature";
+import type { RegistryTypes } from "@polkadot/types/types";
 
 import type {
   MinerCategory,
@@ -95,6 +96,20 @@ class HybridExtrinsicSignatureV5 extends GenericExtrinsicSignatureV5 {
   }
 }
 
+// MUST go through ApiPromise.create's `types` option, never a post-create
+// api.registry.register() call: polkadot.js swaps registries per block hash
+// (base/Init.js setRegistrySwap) and builds a FRESH registry for any block
+// from an older runtime specVersion. Each new registry is seeded only from
+// the create() options (knownTypes.types is getSpecTypes' final catch-all
+// override), so options are the one channel that reaches the per-block
+// registries used when backfilling pre-upgrade blocks. The values are Codec
+// classes, which RegistryTypes' type doesn't admit even though register()
+// handles them at runtime — hence the cast.
+export const HYBRID_EXTRINSIC_TYPES = {
+  ExtrinsicSignatureV4: HybridExtrinsicSignatureV4,
+  ExtrinsicSignatureV5: HybridExtrinsicSignatureV5,
+} as unknown as RegistryTypes;
+
 /**
  * @polkadot/api-backed implementation. Pinned to 16.5.6 in package.json so
  * @polkadot/types stays in lockstep (a mismatch produces opaque decode
@@ -128,22 +143,15 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       for (const cb of this.disconnectedCbs) cb();
     });
     await this.provider.connect();
-    this.api = await ApiPromise.create({ provider: this.provider, throwOnConnect: true });
-    // Override extrinsic signature codecs so that polkadot.js v16's
-    // `isSigned` derivation works with quip's `HybridTxSignature` struct.
-    // See HybridExtrinsicSignatureV{4,5} above for the rationale.
-    // The polkadot.js type for `register(name, class)` is `CodecClass`, but
-    // our subclass extends `Struct` (which IS a CodecClass at runtime); the
-    // generic signature is too tight to accept a `Struct` subclass directly.
-    type AnyCodecClass = Parameters<typeof this.api.registry.register>[1];
-    this.api.registry.register(
-      "ExtrinsicSignatureV4",
-      HybridExtrinsicSignatureV4 as unknown as AnyCodecClass,
-    );
-    this.api.registry.register(
-      "ExtrinsicSignatureV5",
-      HybridExtrinsicSignatureV5 as unknown as AnyCodecClass,
-    );
+    // `types` overrides the extrinsic signature codecs so polkadot.js v16's
+    // `isSigned` derivation works with quip's `HybridTxSignature` struct —
+    // on the boot registry AND on the per-block registries created for
+    // historical specVersions. See HYBRID_EXTRINSIC_TYPES above.
+    this.api = await ApiPromise.create({
+      provider: this.provider,
+      throwOnConnect: true,
+      types: HYBRID_EXTRINSIC_TYPES,
+    });
   }
 
   async disconnect(): Promise<void> {
@@ -927,10 +935,7 @@ function discreteMeanAbs(min: number, max: number): number | null {
  * the spec-111 `device_access_time_us` tail) can be unit-tested without a
  * live chain.
  */
-export function qblockInfoFromSolution(
-  sol: Record<string, unknown>,
-  nonce: string,
-): QBlockInfo {
+export function qblockInfoFromSolution(sol: Record<string, unknown>, nonce: string): QBlockInfo {
   const rawDevice = sol.deviceAccessTimeUs ?? sol.device_access_time_us;
   const device = Number(rawDevice);
   return {

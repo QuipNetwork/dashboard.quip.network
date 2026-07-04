@@ -2,8 +2,11 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { TypeRegistry } from "@polkadot/types";
+
 import {
   FakeSubstrateClient,
+  HYBRID_EXTRINSIC_TYPES,
   PolkadotSubstrateClient,
   decodeBlockWinnerEventData,
   decodeMinerRegistryDescriptor,
@@ -241,6 +244,45 @@ describe("PolkadotSubstrateClient (integration)", () => {
       expect(client.isConnected()).toBe(false);
     },
     30_000,
+  );
+});
+
+describe("HYBRID_EXTRINSIC_TYPES (per-block registry overrides)", () => {
+  // polkadot.js swaps to a FRESH registry for blocks from older runtime
+  // specVersions (@polkadot/api base/Init.js: setRegistrySwap →
+  // _createBlockRegistry → _initRegistry). _initRegistry seeds that registry
+  // ONLY from the ApiPromise.create options: setKnownTypes(options) then
+  // register(getSpecTypes(...)), where getSpecTypes merges knownTypes.types
+  // as the final catch-all override. For a chain with no built-in known
+  // types that reduces to exactly the user-supplied map — which is what we
+  // reproduce here. A post-create api.registry.register() call never reaches
+  // these registries (the original bug: backfilled pre-upgrade blocks failed
+  // with "Signed Extrinsics are currently only available for ExtrinsicV4").
+  const perBlockRegistry = (): TypeRegistry => {
+    const registry = new TypeRegistry();
+    registry.setKnownTypes({ types: HYBRID_EXTRINSIC_TYPES });
+    registry.register({ ...(registry.knownTypes.types ?? {}) });
+    return registry;
+  };
+
+  const createSignature = (
+    registry: TypeRegistry,
+    version: "ExtrinsicSignatureV4" | "ExtrinsicSignatureV5",
+    opts: { isSigned?: boolean },
+  ): { isSigned: boolean } =>
+    registry.createTypeUnsafe(version, [undefined, opts]) as unknown as { isSigned: boolean };
+
+  test.each(["ExtrinsicSignatureV4", "ExtrinsicSignatureV5"] as const)(
+    "%s trusts the preamble-derived isSigned option on a fresh registry",
+    (version) => {
+      const registry = perBlockRegistry();
+      // The stock GenericExtrinsicSignature derives isSigned from the
+      // signature bytes' emptiness, which is wrong for quip's concrete
+      // HybridTxSignature struct. The hybrid override must track the
+      // constructor option in BOTH directions.
+      expect(createSignature(registry, version, { isSigned: true }).isSigned).toBe(true);
+      expect(createSignature(registry, version, {}).isSigned).toBe(false);
+    },
   );
 });
 
