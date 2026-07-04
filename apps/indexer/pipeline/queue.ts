@@ -31,6 +31,11 @@ export interface QueueCoreOpts {
   tipQuietMs: number;
   // Epoch ms of the last live substrate event, or null before the first.
   lastEventAtMs: () => number | null;
+  // Sync gate (design 2026-07-04): while true, EVERY pull — tip included —
+  // is held; queue contents are preserved and drain on resume. The
+  // dispatcher sleeps gatedRetryMs between gated retries.
+  gated?: () => boolean;
+  gatedRetryMs?: number; // 5_000
 }
 
 /** Continuous-refill token bucket; capacity = one second's rate. */
@@ -127,6 +132,14 @@ export class QueueCore {
   }
 
   tryPull(nowMs: number): PullResult {
+    if (this.opts.gated?.()) {
+      const anyQueued = this.tip.length > 0 || this.lanes.W.length > 0 || this.lanes.D.length > 0;
+      // Empty + gated sleeps until the next wake (a tip enqueue) rather
+      // than spinning a retry timer for nothing.
+      if (!anyQueued) return "empty";
+      return { retryAtMs: nowMs + (this.opts.gatedRetryMs ?? 5_000) };
+    }
+
     const tipItem = this.tip.shift();
     if (tipItem) return this.claim(tipItem);
 
