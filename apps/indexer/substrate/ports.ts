@@ -17,6 +17,7 @@ import type {
   MinerRegistryDescriptorRecord,
   RuntimeVersionInfo,
   SubstrateHead,
+  SyncStateInfo,
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
@@ -65,6 +66,11 @@ export interface PollSource {
   getMineableTopologies(): Promise<MineableTopologyInfo[]>;
 }
 
+// Node sync status for the SyncGate (design 2026-07-04).
+export interface SyncSource {
+  getSyncState(): Promise<SyncStateInfo>;
+}
+
 // Finalized-state registry snapshots (the node-descriptors plugin's only
 // chain call — same slice `descriptor/iteration.ts` declares locally).
 export interface DescriptorSource {
@@ -80,7 +86,8 @@ export type ChainClient = ConnectionControl &
   BlockSource &
   BackfillSource &
   PollSource &
-  DescriptorSource;
+  DescriptorSource &
+  SyncSource;
 
 // A per-connection side-effect stream the worker merges without knowing which
 // is which (OCP — a new stream is one array entry, no edit to the worker).

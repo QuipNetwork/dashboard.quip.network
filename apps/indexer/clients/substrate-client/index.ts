@@ -40,6 +40,7 @@ import type {
   RuntimeVersionInfo,
   SubstrateClient,
   SubstrateHead,
+  SyncStateInfo,
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
@@ -163,6 +164,28 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 
   isConnected(): boolean {
     return this.provider?.isConnected ?? false;
+  }
+
+  async getSyncState(): Promise<SyncStateInfo> {
+    const api = this.requireApi();
+    const health = await api.rpc.system.health();
+    let currentBlock: number | null = null;
+    let highestBlock: number | null = null;
+    try {
+      const sync = await api.rpc.system.syncState();
+      currentBlock = sync.currentBlock.toNumber();
+      // highestBlock is Option<BlockNumber> on current node versions.
+      highestBlock = sync.highestBlock.isSome ? sync.highestBlock.unwrap().toNumber() : null;
+    } catch {
+      // system_syncState absent on this node; system_health alone still
+      // drives the gate.
+    }
+    return {
+      isSyncing: health.isSyncing.isTrue,
+      peers: health.peers.toNumber(),
+      currentBlock,
+      highestBlock,
+    };
   }
 
   onConnected(cb: () => void): UnsubFn {
