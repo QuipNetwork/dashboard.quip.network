@@ -147,6 +147,13 @@ export interface QBlockInfo {
   // salt_32bytes)), decimal-encoded. Replaces the v0.1 u64 nonce.
   nonce: string;
   difficulty: DifficultyInfo;
+  // Spec-111 trailing QBlock field: miner-reported compute time for the
+  // winning proof, in microseconds — D-Wave QPU access time for QPU wins,
+  // wall clock for CPU/GPU. Self-reported (consensus never reads it).
+  // `null` when the chain pre-dates runtime 111 (field absent from the
+  // runtime API); `0` when present but unreported. Consumers must treat
+  // both as "no report" and fall back to derived block spacing.
+  deviceAccessTimeUs: number | null;
 }
 
 // One topology on the chain's mineable whitelist, with its current decayed

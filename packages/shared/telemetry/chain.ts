@@ -23,6 +23,12 @@ export interface BlockRecord {
   energy: number;
   diversity: number;
   numValidSolutions: number;
+  // Seconds of compute behind the winning proof. Spec-111+ blocks carry the
+  // winner's self-reported device_access_time_us (QPU access time for QPU
+  // wins, wall clock for CPU/GPU), converted µs → s. Pre-111 blocks and
+  // unreported (0) wins fall back to derived block spacing
+  // ((win − last proof) × slot seconds) — which stays recomputable from
+  // chain data either way.
   miningTime: number;
   // u128 as string (token amount).
   reward: string;
@@ -245,7 +251,8 @@ export interface MiningHistoryRow {
   // Unix seconds of the winner block (blocks.timestamp).
   timestamp: number;
   minerId: string;
-  // Seconds the winning proof took to mine.
+  // Seconds of compute behind the winning proof (see BlockRecord.miningTime:
+  // reported device time on spec-111+ wins, derived block spacing otherwise).
   miningTime: number;
 }
 
