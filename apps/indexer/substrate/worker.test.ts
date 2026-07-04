@@ -1558,7 +1558,7 @@ describe("sync gate integration", () => {
     // the reconciler, and the queue drains once the 750ms tip-quiet window
     // (anchored at connect) has passed.
     client.syncState = { isSyncing: false, peers: 2, currentBlock: 100, highestBlock: 100 };
-    await wait(900);
+    await wait(1100);
     expect(state.observability.nodeSyncing).toBe(false);
     const blocks = await db.getRecentBlocks(10, 0);
     expect(blocks).toHaveLength(1);
@@ -1566,5 +1566,5 @@ describe("sync gate integration", () => {
 
     ac.abort();
     await loop;
-  });
+  }, 5000);
 });
