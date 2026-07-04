@@ -38,6 +38,11 @@ export class IndexerState {
     // /api/v1/status poll. Default empty so a fresh process renders
     // "single backend" UI until the first poll lands.
     modes: {},
+    // Transient like chainConnected — a prior process's sync-gate state is
+    // meaningless to a new process.
+    nodeSyncing: false,
+    nodeSyncCurrentBlock: null,
+    nodeSyncHighestBlock: null,
   };
 
   constructor(private readonly db: DatabaseAdapter) {}
@@ -51,7 +56,14 @@ export class IndexerState {
   async load(): Promise<void> {
     const prior = await this.db.getIndexerObservability();
     if (prior) {
-      this.observability = { ...prior, chainConnected: false, selfIdentified: false };
+      this.observability = {
+        ...prior,
+        chainConnected: false,
+        selfIdentified: false,
+        nodeSyncing: false,
+        nodeSyncCurrentBlock: null,
+        nodeSyncHighestBlock: null,
+      };
     }
   }
 }

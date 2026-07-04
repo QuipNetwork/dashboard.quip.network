@@ -49,6 +49,17 @@ export interface IndexerObservability {
   // ss58. selfAddress set + selfIdentified false = configured (e.g. via
   // QUIP_OPERATOR_ACCOUNT) but miner unreachable — the otherwise-silent case.
   selfIdentified?: boolean;
+  // Sync gate (design 2026-07-04): true while the connected validator
+  // reports major sync, with the gate's hysteresis applied so the UI
+  // doesn't flap near the tip. Transient like chainConnected — reset on
+  // load, never trusted from persisted rows. Optional so pre-gate
+  // persisted rows and existing fixtures parse cleanly; consumers
+  // default to false/null when reading.
+  nodeSyncing?: boolean;
+  // Validator-reported sync progress from system_syncState (u64 as
+  // string). Null when the RPC is absent or not yet polled.
+  nodeSyncCurrentBlock?: string | null;
+  nodeSyncHighestBlock?: string | null;
   minerStats: MinerStats | null;
   // Per-backend breakdown from the multi-process aggregator's last
   // /api/v1/status response. `{}` for single-process miners. UI

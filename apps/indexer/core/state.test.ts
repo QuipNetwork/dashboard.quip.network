@@ -49,4 +49,27 @@ describe("IndexerState observability persistence", () => {
     expect(state.observability.finalizedBlockHeight).toBe("99");
     expect(state.observability.chainConnected).toBe(false);
   });
+
+  it("load() resets sync-gate fields like chainConnected", async () => {
+    adapter = await newInMemoryAdapter();
+    await adapter.setIndexerObservability({
+      chainHeadFromNode: "100",
+      lastStatusFetchAt: new Date().toISOString(),
+      lastBlockInsertAt: null,
+      lastSubstrateEventAt: null,
+      bestBlockHeight: null,
+      finalizedBlockHeight: null,
+      chainConnected: true,
+      minerStats: null,
+      nodeSyncing: true,
+      nodeSyncCurrentBlock: "406173",
+      nodeSyncHighestBlock: "512000",
+    });
+    const state = new IndexerState(adapter);
+    await state.load();
+    expect(state.observability.nodeSyncing).toBe(false);
+    expect(state.observability.nodeSyncCurrentBlock).toBeNull();
+    expect(state.observability.nodeSyncHighestBlock).toBeNull();
+    await adapter.disconnect();
+  });
 });
