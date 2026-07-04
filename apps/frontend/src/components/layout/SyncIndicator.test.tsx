@@ -114,4 +114,22 @@ describe("SyncIndicator", () => {
     render(createElement(SyncIndicator));
     expect(container.querySelector('[role="status"]')).not.toBeNull();
   });
+
+  test("shows the syncing dot with progress when the validator is in major sync", () => {
+    useTelemetryStore.setState((s) => ({
+      ...s,
+      blocks: [recentBlock()],
+      indexer: baseObs({
+        chainConnected: true,
+        lastSubstrateEventAt: new Date(Date.now() - 5_000).toISOString(),
+        nodeSyncing: true,
+        nodeSyncCurrentBlock: "406173",
+        nodeSyncHighestBlock: "512000",
+      }),
+    }));
+    render(createElement(SyncIndicator));
+    const dot = container.querySelector('[aria-label="Validator syncing"]');
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute("title")).toContain("406,173");
+  });
 });

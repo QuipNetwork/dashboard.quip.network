@@ -172,10 +172,25 @@ export interface MineableTopologyInfo {
 
 export type UnsubFn = () => void;
 
+// system_health + system_syncState snapshot (design 2026-07-04). isSyncing
+// mirrors the node's major-sync flag; currentBlock/highestBlock are
+// best-effort from system_syncState — null when that RPC is unavailable.
+export interface SyncStateInfo {
+  isSyncing: boolean;
+  peers: number;
+  currentBlock: number | null;
+  highestBlock: number | null;
+}
+
 export interface SubstrateClient {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   isConnected(): boolean;
+
+  // Node sync status for the indexer's sync gate. system_health is
+  // required; system_syncState is best-effort. Throws on RPC failure —
+  // the SyncGate keeps its last state on error (failure ≠ syncing).
+  getSyncState(): Promise<SyncStateInfo>;
 
   // Connection lifecycle hooks. Used by the substrate worker to track
   // chainConnected for the SyncIndicator and to re-acquire subscriptions

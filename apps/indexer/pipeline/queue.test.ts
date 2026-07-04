@@ -175,3 +175,48 @@ describe("drain state and depth", () => {
     expect(q.backfillDepth("D")).toBe(1);
   });
 });
+
+describe("sync gate", () => {
+  test("gated tryPull holds EVERYTHING — tip included — and preserves contents", () => {
+    let gated = true;
+    const q = new QueueCore({
+      backfillBlocksPerSec: 5,
+      tipQuietMs: 750,
+      lastEventAtMs: () => null,
+      gated: () => gated,
+    });
+    q.enqueueTip(500, new Set(["winners"]));
+    q.enqueueBackfill(100, "W", new Set(["winners"]));
+
+    const r = q.tryPull(T0);
+    expect(r).toHaveProperty("retryAtMs");
+    expect((r as { retryAtMs: number }).retryAtMs).toBe(T0 + 5_000);
+
+    // Opening the gate drains in normal priority order — nothing was lost.
+    gated = false;
+    expect(pullBlock(q, T0)).toBe(500);
+    expect(pullBlock(q, T0)).toBe(100);
+  });
+
+  test("gated tryPull on an empty queue returns 'empty' (sleep until wake)", () => {
+    const q = new QueueCore({
+      backfillBlocksPerSec: 5,
+      tipQuietMs: 750,
+      lastEventAtMs: () => null,
+      gated: () => true,
+    });
+    expect(q.tryPull(T0)).toBe("empty");
+  });
+
+  test("gatedRetryMs overrides the retry interval", () => {
+    const q = new QueueCore({
+      backfillBlocksPerSec: 5,
+      tipQuietMs: 750,
+      lastEventAtMs: () => null,
+      gated: () => true,
+      gatedRetryMs: 20,
+    });
+    q.enqueueTip(1, new Set(["winners"]));
+    expect((q.tryPull(T0) as { retryAtMs: number }).retryAtMs).toBe(T0 + 20);
+  });
+});
