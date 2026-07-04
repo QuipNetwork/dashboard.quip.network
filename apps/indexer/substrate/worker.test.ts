@@ -1492,3 +1492,79 @@ describe("substrate worker", () => {
     await loop;
   }, 5000);
 });
+
+describe("sync gate integration", () => {
+  test("backfill pauses while the validator syncs and drains on resume", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.syncState = { isSyncing: true, peers: 2, currentBlock: 50, highestBlock: 100 };
+    client.topology = { nodeCount: 100, edgeCount: 200 };
+    // A historical winner the reconciler's boot tick would normally
+    // enumerate and backfill immediately.
+    client.finalizedHead = "100";
+    client.qblocksByBlock.set("100", {
+      miner: "5GPP",
+      energyMilli: -2510,
+      reward: "1000",
+      submittedAt: "100",
+      nonce: "42",
+      difficulty: { maxEnergyMilli: -2500, minDiversityMilli: 200, minSolutions: 5 },
+      deviceAccessTimeUs: null,
+    });
+    client.lastProofBlockByHash.set("0xsub99", 94);
+    client.historicalBlocks.set("100", {
+      blockNumber: 100,
+      blockHash: "0xsub",
+      parentHash: "0xsub99",
+      author: "5Author",
+      timestamp: 1700000000,
+      winner: {
+        qblockId: "1",
+        blockNumber: "100",
+        miner: "5GPP",
+        reward: "1000",
+        energyMilli: -2510,
+        submittedAt: "100",
+      },
+      proofs: [{ miner: "5GPP", energyMilli: -2510, diversityMilli: 420, validSolutionCount: 5 }],
+      nonce: "42",
+    });
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig({ substrateBabePollSec: 1000, substrateChainPollSec: 1000 }),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+        syncGatePollMs: { syncing: 20, synced: 20 },
+        // Real clock: the tip-quiet gate compares lastSubstrateEventAt
+        // (stamped at connect) against now — a pinned clock would hold
+        // backfill forever.
+      },
+      ac.signal,
+    );
+
+    // Paused: the startup check saw isSyncing before the pipeline started.
+    await wait(150);
+    expect(await db.getRecentBlocks(10, 0)).toHaveLength(0);
+    expect(state.observability.nodeSyncing).toBe(true);
+    expect(state.observability.nodeSyncCurrentBlock).toBe("50");
+
+    // Node finishes syncing: two 20ms polls open the gate, resume$ re-ticks
+    // the reconciler, and the queue drains once the 750ms tip-quiet window
+    // (anchored at connect) has passed.
+    client.syncState = { isSyncing: false, peers: 2, currentBlock: 100, highestBlock: 100 };
+    await wait(900);
+    expect(state.observability.nodeSyncing).toBe(false);
+    const blocks = await db.getRecentBlocks(10, 0);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.blockHash).toBe("0xsub");
+
+    ac.abort();
+    await loop;
+  });
+});
