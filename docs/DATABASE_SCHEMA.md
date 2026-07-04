@@ -53,7 +53,7 @@ inserted once (`ON CONFLICT DO NOTHING`) and only
 | `energy`                 | DOUBLE PRECISION | no   | Energy of the winning solution.                                   |
 | `diversity`              | DOUBLE PRECISION | no   | Diversity of the winning solution.                                |
 | `num_valid_solutions`    | INTEGER          | no   | Count of valid solutions in the block.                            |
-| `mining_time`            | DOUBLE PRECISION | no   | Seconds spent mining this block.                                  |
+| `mining_time`            | DOUBLE PRECISION | no   | Seconds of compute behind the win: miner-reported device time (µs→s, spec-111+) or derived block spacing for pre-111/unreported wins. |
 | `reward`                 | NUMERIC          | no   | Block reward (planck, u128-as-string).                            |
 | `nonce`                  | NUMERIC          | no   | Winning nonce (u64-as-string).                                    |
 | `num_nodes`              | INTEGER          | no   | Problem graph node count.                                         |
