@@ -78,3 +78,20 @@ export const IndexerOffline: Story = () => (
     <SyncIndicator />
   </StoryServices>
 );
+
+export const NodeSyncing: Story = () => (
+  <StoryServices
+    telemetry={{
+      loading: false,
+      serverTime: new Date(nowMs).toISOString(),
+      blocks: [recentBlock()],
+      indexer: observability({
+        nodeSyncing: true,
+        nodeSyncCurrentBlock: "406173",
+        nodeSyncHighestBlock: "512000",
+      }),
+    }}
+  >
+    <SyncIndicator />
+  </StoryServices>
+);
