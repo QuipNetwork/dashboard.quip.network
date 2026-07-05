@@ -52,7 +52,7 @@ describe("ComputeAvailableView", () => {
     renderView(root);
     const text = container.textContent ?? "";
     expect(text).toContain("Last QBlock Details");
-    expect(text).toContain("Current Block FLOPS");
+    expect(text).toContain("Current QBlock Details");
     expect(text).toContain("Current Difficulty");
     expect(text).toContain("Recent QBlocks");
     expect(text).toContain("Mining Leaderboard");

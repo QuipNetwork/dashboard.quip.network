@@ -3,7 +3,7 @@
 import { ChartCard } from "@/components/layout/ChartCard";
 import { SERIES_COLORS } from "@/lib/colors";
 import { decaysApplied } from "@/lib/decays";
-import { formatDuration, formatNumber } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import { formatEnergy } from "@/lib/format-chain";
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { useTelemetryStore } from "@/store/telemetry-store";
@@ -29,6 +29,7 @@ import { useEnergyDistribution } from "@/components/charts/energy-distribution/u
 import { useLeaderboard } from "@/components/charts/leaderboard/use-leaderboard";
 import { useTimeToSolution } from "@/components/charts/time-to-solution/use-time-to-solution";
 import { useWinRateByDifficulty } from "@/components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
+import { CurrentQBlockDetailsCard } from "./CurrentQBlockDetailsCard";
 import { LastQBlockDetailsCard } from "./LastQBlockDetailsCard";
 import { useComputeAvailable } from "./use-compute-available";
 
@@ -85,42 +86,34 @@ export function ComputeAvailableView() {
 
   return (
     <>
-      {/* Block-ceiling FLOPS + live difficulty — orthogonal to By Node / By
-          Type, visible in both modes. Three columns on lg; stacks below. */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+      {/* Block-ceiling FLOPS — orthogonal to By Node / By Type, visible in
+          both modes. Side-by-side on lg; stacks below. */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <LastQBlockDetailsCard
           lastBlock={compute.lastBlock}
           lastBlockPflopSeconds={compute.lastBlockPflopSeconds}
         />
-        <StatTile
-          label="Current Block FLOPS"
-          value={
-            compute.currentBlockPflopSeconds != null
-              ? `${compute.currentBlockPflopSeconds.toFixed(1)} PFLOP·s`
-              : "—"
-          }
-          sublabel={
-            compute.lastBlock != null && compute.currentBlockElapsedSeconds != null
-              ? `#${Number(compute.lastBlock.substrateBlockNumber) + 1} · ${formatDuration(compute.currentBlockElapsedSeconds * 1000)} and counting`
-              : "Awaiting first block"
-          }
-          accent={SERIES_COLORS.QPU}
-        />
-        <StatTile
-          label="Current Difficulty"
-          value={
-            currentDifficulty != null
-              ? `≤ ${formatEnergy(currentDifficulty.difficultyEnergy)}`
-              : "—"
-          }
-          sublabel={
-            currentDifficulty != null
-              ? `${decays != null ? `${decays} ${decays === 1 ? "decay" : "decays"} · ` : ""}min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
-              : "Awaiting first difficulty poll"
-          }
-          accent={SERIES_COLORS.CPU}
+        <CurrentQBlockDetailsCard
+          lastBlock={compute.lastBlock}
+          currentBlockPflopSeconds={compute.currentBlockPflopSeconds}
+          currentBlockElapsedSeconds={compute.currentBlockElapsedSeconds}
         />
       </div>
+
+      {/* Transitional: Current Difficulty still stands alone here — the
+          next commit folds it into CurrentQBlockDetailsCard above. */}
+      <StatTile
+        label="Current Difficulty"
+        value={
+          currentDifficulty != null ? `≤ ${formatEnergy(currentDifficulty.difficultyEnergy)}` : "—"
+        }
+        sublabel={
+          currentDifficulty != null
+            ? `${decays != null ? `${decays} ${decays === 1 ? "decay" : "decays"} · ` : ""}min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
+            : "Awaiting first difficulty poll"
+        }
+        accent={SERIES_COLORS.CPU}
+      />
 
       <ChartCard title="Recent QBlocks" subtitle="Last 10 mined qblocks on the current chain tip">
         <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
