@@ -15,7 +15,7 @@ import {
   SegToggle,
   type SegOption,
 } from "@/components/charts/common/SegToggle";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { useDifficultyCurveK } from "@/lib/difficulty-curve";
 import { useWinRateByDifficulty, type WinRateMode } from "./use-win-rate-by-difficulty";
 
@@ -30,14 +30,15 @@ export function WinRateByDifficultyChart() {
   const [mode, setMode] = useState<WinRateMode>("all");
   const { series, xMin, xMax } = useWinRateByDifficulty({ mode });
   const k = useDifficultyCurveK();
+  const qpuLabel = useQpuDisplayLabel();
 
   // Normalized series carry display labels ("QPU100" -> "QPU100%"); nivo's
   // legend and tooltip show the id, so render under the label. Raw all/best
-  // series have no label — displayLabelForCategory covers the plain "QPU"
-  // case (-> "QPU20m", which colorForNormalizedSeries already resolves a
-  // color for).
+  // series have no label — labelFor covers the plain "QPU" case (-> live
+  // "QPU<N>m", which colorForNormalizedSeries already resolves a color for).
+  const labelFor = labelForCategoryWith(qpuLabel);
   const chartSeries = series.map((s) => ({
-    id: s.label ?? displayLabelForCategory(s.id),
+    id: s.label ?? labelFor(s.id),
     data: s.data,
   }));
   const yLabel = mode === "normalized" ? "Win Share" : "Win Rate";

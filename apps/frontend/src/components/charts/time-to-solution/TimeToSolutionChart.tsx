@@ -2,7 +2,7 @@ import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { OverlappingBarsLayer } from "@/components/charts/common/OverlappingBarsLayer";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import type { HistogramData } from "@/lib/histogram";
 
 export interface TimeToSolutionChartProps {
@@ -10,7 +10,10 @@ export interface TimeToSolutionChartProps {
 }
 
 export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
+  const qpuLabel = useQpuDisplayLabel();
   if (data.data.length === 0) return null;
+
+  const labelFor = labelForCategoryWith(qpuLabel);
 
   return (
     <div data-qa="chart-time-to-solution" style={{ width: "100%", height: "100%" }}>
@@ -27,9 +30,9 @@ export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
         enableLabel={false}
         enableGridY={true}
         // Default tooltip label is "{id} - {indexValue}" (nivo's BasicTooltip);
-        // reroute the id through displayLabelForCategory so "QPU" reads
-        // "QPU20m" without a custom tooltip component.
-        tooltipLabel={(d) => `${displayLabelForCategory(String(d.id))} - ${d.indexValue}`}
+        // reroute the id through labelFor so "QPU" reads under the live
+        // budget label without a custom tooltip component.
+        tooltipLabel={(d) => `${labelFor(String(d.id))} - ${d.indexValue}`}
         layers={["grid", "axes", OverlappingBarsLayer, "markers", "legends"]}
         axisBottom={{
           legend: "Time (seconds)",
@@ -46,11 +49,11 @@ export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
           {
             dataFrom: "keys",
             // Explicit `data` overrides the dataFrom-derived default so
-            // "QPU" renders as "QPU20m" without touching the series key
+            // "QPU" renders under the live budget label without touching the series key
             // nivo colors bars/tooltips by.
             data: data.keys.map((k) => ({
               id: k,
-              label: displayLabelForCategory(k),
+              label: labelFor(k),
               color: getSeriesColor(k),
             })),
             anchor: "top-right",

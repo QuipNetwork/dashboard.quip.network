@@ -95,3 +95,15 @@ export function useQpuDisplayLabel(): string {
   const budgetMin = useMemo(() => latestAdvertisedQpuBudgetMin(descriptors), [descriptors]);
   return qpuDisplayLabel(budgetMin);
 }
+
+/**
+ * Bind a live `qpuLabel` (from `useQpuDisplayLabel()`) into a
+ * `displayLabelForCategory`-shaped `(id: string) => string` resolver, for
+ * chart call sites that need a plain callback (nivo axis/tooltip/legend
+ * props) rather than a hook call at every use site. Resolve `qpuLabel` once
+ * at the component layer, then thread it through this helper — keeps the
+ * callback itself pure.
+ */
+export function labelForCategoryWith(qpuLabel: string): (id: string) => string {
+  return (id) => (id === "QPU" ? qpuLabel : displayLabelForCategory(id));
+}

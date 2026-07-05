@@ -5,7 +5,7 @@ import { SearchInput } from "@/components/common/SearchInput";
 import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
 import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 import { SERIES_COLORS } from "@/lib/colors";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { displayNodeName, formatEnergy } from "@/lib/format-chain";
 import { formatDuration, formatSeconds, formatNumber } from "@/lib/format";
 import { useTableSort, type SortAccessors } from "@/lib/table-sort";
@@ -81,6 +81,8 @@ interface LeaderboardProps {
 export function Leaderboard({ data, mode = "byCount" }: LeaderboardProps) {
   const [query, setQuery] = useState("");
   const { open, nameOf, modal } = useNodeIdentityModal();
+  const qpuLabel = useQpuDisplayLabel();
+  const labelFor = labelForCategoryWith(qpuLabel);
 
   const sortAccessors = useMemo<SortAccessors<LeaderboardEntry, LeaderboardSortColumn>>(
     () => ({
@@ -231,7 +233,7 @@ export function Leaderboard({ data, mode = "byCount" }: LeaderboardProps) {
                           border: `1px solid ${typeColor}33`,
                         }}
                       >
-                        {displayLabelForCategory(entry.minerCategory)}
+                        {labelFor(entry.minerCategory)}
                       </span>
                     </td>
                     <td className="py-2 pr-3 text-right font-heading text-sm text-ink-strong">

@@ -1,17 +1,12 @@
+import { useMemo } from "react";
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import type { BlocksOverTimeSeries } from "./use-blocks-over-time";
-
-const tooltip = createLineTooltip({
-  xLabel: "Time (min)",
-  yLabel: "Blocks",
-  seriesLabel: displayLabelForCategory,
-});
 
 export interface BlocksOverTimeChartProps {
   data: BlocksOverTimeSeries[];
@@ -37,6 +32,17 @@ export function BlocksOverTimeChart({
   data,
   yAxisLabel = "Cumulative QBlocks",
 }: BlocksOverTimeChartProps) {
+  const qpuLabel = useQpuDisplayLabel();
+  const labelFor = labelForCategoryWith(qpuLabel);
+  const tooltip = useMemo(
+    () =>
+      createLineTooltip({
+        xLabel: "Time (min)",
+        yLabel: "Blocks",
+        seriesLabel: labelForCategoryWith(qpuLabel),
+      }),
+    [qpuLabel],
+  );
   if (data.length === 0) return null;
 
   return (
@@ -89,11 +95,11 @@ export function BlocksOverTimeChart({
                   symbolSize: 10,
                   symbolShape: "circle",
                   translateY: -15,
-                  // Override the id-derived default so "QPU" renders as
-                  // "QPU20m" without touching the series id nivo colors by.
+                  // Override the id-derived default so "QPU" renders under
+                  // the live budget label without touching the series id nivo colors by.
                   data: data.map((s) => ({
                     id: s.id,
-                    label: displayLabelForCategory(s.id),
+                    label: labelFor(s.id),
                     color: getSeriesColor(s.id),
                   })),
                 },

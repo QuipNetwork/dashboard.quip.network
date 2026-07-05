@@ -5,7 +5,7 @@ import {
   colorForNormalizedSeries as colorFor,
   normalizedSeriesGradientLines as gradientLines,
 } from "@/components/charts/common/normalized-series-colors";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { formatJoules } from "@/lib/format";
 import type { MiningMetric, MiningTimeSeries } from "./use-mining-time";
 
@@ -22,15 +22,16 @@ export function MiningTimeChart({
   metric = "time",
   normalized = false,
 }: MiningTimeChartProps) {
+  const qpuLabel = useQpuDisplayLabel();
   if (data.length === 0) return null;
 
   // Normalized series carry display labels ("QPU100" -> "QPU100%"); nivo's
   // legend and tooltip show the id, so render under the label. Raw byType/all
-  // series have no label — displayLabelForCategory covers the plain "QPU"
-  // case (-> "QPU20m", which colorForNormalizedSeries already resolves a
-  // color for).
+  // series have no label — labelFor covers the plain "QPU" case (-> live
+  // "QPU<N>m", which colorForNormalizedSeries already resolves a color for).
+  const labelFor = labelForCategoryWith(qpuLabel);
   const chartSeries = data.map((s) => ({
-    id: s.label ?? displayLabelForCategory(s.id),
+    id: s.label ?? labelFor(s.id),
     data: s.data,
   }));
 

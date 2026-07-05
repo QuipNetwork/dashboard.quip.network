@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { SERIES_GRADIENT } from "@/lib/colors";
@@ -7,7 +7,7 @@ import { difficultyAxisSubtitle } from "@/components/charts/common/BottomAxisSub
 import { createDifficultyTickRenderer } from "@/components/charts/common/DifficultyTick";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import {
   NODE_SCOPE_OPTIONS,
   SegToggle,
@@ -15,13 +15,6 @@ import {
 } from "@/components/charts/common/SegToggle";
 import { useDifficultyCurveK } from "@/lib/difficulty-curve";
 import { useEnergyCdf } from "./use-energy-cdf";
-
-const tooltip = createLineTooltip({
-  xLabel: "Difficulty",
-  yLabel: "Probability",
-  yFormat: (v) => `${v.toFixed(1)}%`,
-  seriesLabel: displayLabelForCategory,
-});
 
 const gradientLines = createGradientLines(
   Object.fromEntries(
@@ -39,6 +32,18 @@ export function EnergyCdfChart() {
   const [scope, setScope] = useState<NodeScope>("all");
   const { series, xMin, xMax } = useEnergyCdf({ scope });
   const k = useDifficultyCurveK();
+  const qpuLabel = useQpuDisplayLabel();
+  const labelFor = labelForCategoryWith(qpuLabel);
+  const tooltip = useMemo(
+    () =>
+      createLineTooltip({
+        xLabel: "Difficulty",
+        yLabel: "Probability",
+        yFormat: (v) => `${v.toFixed(1)}%`,
+        seriesLabel: labelForCategoryWith(qpuLabel),
+      }),
+    [qpuLabel],
+  );
 
   return (
     <div data-qa="chart-energy-cdf" className="flex h-full flex-col">
@@ -108,11 +113,11 @@ export function EnergyCdfChart() {
                       symbolSize: 10,
                       symbolShape: "circle",
                       translateY: -15,
-                      // Override the id-derived default so "QPU" renders as
-                      // "QPU20m" without touching the series id nivo colors by.
+                      // Override the id-derived default so "QPU" renders under
+                      // the live budget label without touching the series id nivo colors by.
                       data: series.map((s) => ({
                         id: s.id,
-                        label: displayLabelForCategory(s.id),
+                        label: labelFor(s.id),
                         color: getSeriesColor(s.id),
                       })),
                     },

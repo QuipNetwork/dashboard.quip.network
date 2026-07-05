@@ -8,7 +8,7 @@ import {
   type NodeScope,
 } from "@/components/charts/common/SegToggle";
 import { getSeriesColor } from "@/lib/chart-colors";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { displayLabelForCategory, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { EnergyDistributionMiniChart } from "./EnergyDistributionMiniChart";
 import { useEnergyDistributionByType, type TypeDistribution } from "./use-energy-distribution";
 
@@ -48,13 +48,14 @@ export function EnergyDistributionCard() {
 
 function EnergyDistributionMiniPanel({ distribution }: { distribution: TypeDistribution }) {
   const { type, totalWins } = distribution;
+  const qpuLabel = useQpuDisplayLabel();
   return (
     <div
       className="flex h-full flex-col border border-border p-2"
       data-qa={`energy-distribution-${type}`}
     >
       <p className="mb-1 font-accent text-xs font-semibold" style={{ color: getSeriesColor(type) }}>
-        {displayLabelForCategory(type)}
+        {type === "QPU" ? qpuLabel : displayLabelForCategory(type)}
       </p>
       <div className="min-h-0 flex-1">
         {totalWins === 0 ? (

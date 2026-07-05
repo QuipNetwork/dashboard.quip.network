@@ -1,7 +1,7 @@
 import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { getSeriesColor } from "@/lib/chart-colors";
-import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { formatSeconds } from "@/lib/format";
 import type { ComputeUsedEntry } from "./use-compute-used";
 
@@ -10,7 +10,10 @@ export interface ComputeUsedChartProps {
 }
 
 export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
+  const qpuLabel = useQpuDisplayLabel();
   if (data.length === 0) return null;
+
+  const labelFor = labelForCategoryWith(qpuLabel);
 
   // Nivo only ever plots `displayCompute` (possibly floored for visibility,
   // see use-compute-used.ts) and needs `minerType` as the index key — that's
@@ -42,7 +45,7 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
           legendPosition: "middle",
           format: (v) => formatSeconds(Number(v)),
         }}
-        axisBottom={{ format: (v) => displayLabelForCategory(String(v)) }}
+        axisBottom={{ format: (v) => labelFor(String(v)) }}
         label={(d) => describe(String(d.indexValue))}
         tooltip={({ indexValue }) => {
           const entry = byType.get(String(indexValue));
@@ -60,9 +63,7 @@ export function ComputeUsedChart({ data }: ComputeUsedChartProps) {
                 color: "#27272a",
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                {displayLabelForCategory(entry.minerType)}
-              </div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>{labelFor(entry.minerType)}</div>
               <div>{describe(entry.minerType)}</div>
               {entry.floored && (
                 <div style={{ color: "#71717B", marginTop: 2 }}>
