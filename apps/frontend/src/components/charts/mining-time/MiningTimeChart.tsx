@@ -5,6 +5,7 @@ import { SERIES_COLORS, SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { NORMALIZED_SERIES_LABELS } from "@/components/charts/common/normalized-composition";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import { formatJoules, type MiningMetric, type MiningTimeSeries } from "./use-mining-time";
 
 // QPU100% needs a colour distinguishable from the QPU emerald while still
@@ -101,8 +102,13 @@ export function MiningTimeChart({
   if (data.length === 0) return null;
 
   // Normalized series carry display labels ("QPU100" -> "QPU100%"); nivo's
-  // legend and tooltip show the id, so render under the label.
-  const chartSeries = data.map((s) => ({ id: s.label ?? s.id, data: s.data }));
+  // legend and tooltip show the id, so render under the label. Raw byType/all
+  // series have no label — displayLabelForCategory covers the plain "QPU"
+  // case (-> "QPU20m", which EXTRA_SERIES_COLORS already resolves a color for).
+  const chartSeries = data.map((s) => ({
+    id: s.label ?? displayLabelForCategory(s.id),
+    data: s.data,
+  }));
 
   const yLabel = normalized ? "Share" : metric === "energy" ? "Energy" : "Device Time";
   const yFormat = normalized

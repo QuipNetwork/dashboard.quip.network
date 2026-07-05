@@ -97,4 +97,13 @@ describe("Leaderboard search", () => {
     expect(container.querySelectorAll("tbody tr")).toHaveLength(0);
     expect(container.textContent).toContain("No miners match");
   });
+
+  it("renders the QPU row's type column under the advertised-budget label", () => {
+    act(() => root.render(createElement(Leaderboard, { data: ENTRIES })));
+
+    const typeCells = [...container.querySelectorAll("tbody td:nth-child(3)")].map(
+      (td) => td.textContent,
+    );
+    expect(typeCells).toEqual(["GPU", "CPU", "QPU20m"]);
+  });
 });

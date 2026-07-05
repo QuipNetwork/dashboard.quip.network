@@ -7,6 +7,7 @@ import { difficultyAxisSubtitle } from "@/components/charts/common/BottomAxisSub
 import { createDifficultyTickRenderer } from "@/components/charts/common/DifficultyTick";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import {
   NODE_SCOPE_OPTIONS,
   SegToggle,
@@ -18,6 +19,7 @@ import { useCumulativeBlocksThreshold } from "./use-cumulative-blocks-threshold"
 const tooltip = createLineTooltip({
   xLabel: "Difficulty",
   yLabel: "Blocks / Unit",
+  seriesLabel: displayLabelForCategory,
 });
 
 const gradientLines = createGradientLines(
@@ -105,6 +107,13 @@ export function CumulativeBlocksThresholdChart() {
                       symbolSize: 10,
                       symbolShape: "circle",
                       translateY: -15,
+                      // Override the id-derived default so "QPU" renders as
+                      // "QPU20m" without touching the series id nivo colors by.
+                      data: series.map((s) => ({
+                        id: s.id,
+                        label: displayLabelForCategory(s.id),
+                        color: getSeriesColor(s.id),
+                      })),
                     },
                   ]
                 : []

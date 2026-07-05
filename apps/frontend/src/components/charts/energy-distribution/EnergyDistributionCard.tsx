@@ -8,6 +8,7 @@ import {
   type NodeScope,
 } from "@/components/charts/common/SegToggle";
 import { getSeriesColor } from "@/lib/chart-colors";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import { EnergyDistributionMiniChart } from "./EnergyDistributionMiniChart";
 import { useEnergyDistributionByType, type TypeDistribution } from "./use-energy-distribution";
 
@@ -56,7 +57,7 @@ function EnergyDistributionMiniPanel({ distribution }: { distribution: TypeDistr
       data-qa={`energy-distribution-${type}`}
     >
       <p className="mb-1 font-accent text-xs font-semibold" style={{ color: getSeriesColor(type) }}>
-        {type}
+        {displayLabelForCategory(type)}
       </p>
       <div className="min-h-0 flex-1">
         {totalWins === 0 ? (

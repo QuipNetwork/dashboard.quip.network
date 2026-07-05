@@ -4,11 +4,13 @@ import { SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import type { BlocksOverTimeSeries } from "./use-blocks-over-time";
 
 const tooltip = createLineTooltip({
   xLabel: "Time (min)",
   yLabel: "Blocks",
+  seriesLabel: displayLabelForCategory,
 });
 
 export interface BlocksOverTimeChartProps {
@@ -87,6 +89,13 @@ export function BlocksOverTimeChart({
                   symbolSize: 10,
                   symbolShape: "circle",
                   translateY: -15,
+                  // Override the id-derived default so "QPU" renders as
+                  // "QPU20m" without touching the series id nivo colors by.
+                  data: data.map((s) => ({
+                    id: s.id,
+                    label: displayLabelForCategory(s.id),
+                    color: getSeriesColor(s.id),
+                  })),
                 },
               ]
             : []

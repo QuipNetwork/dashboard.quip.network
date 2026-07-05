@@ -2,6 +2,7 @@ import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { OverlappingBarsLayer } from "@/components/charts/common/OverlappingBarsLayer";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import type { HistogramData } from "@/lib/histogram";
 
 export interface TimeToSolutionChartProps {
@@ -40,6 +41,14 @@ export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
         legends={[
           {
             dataFrom: "keys",
+            // Explicit `data` overrides the dataFrom-derived default so
+            // "QPU" renders as "QPU20m" without touching the series key
+            // nivo colors bars/tooltips by.
+            data: data.keys.map((k) => ({
+              id: k,
+              label: displayLabelForCategory(k),
+              color: getSeriesColor(k),
+            })),
             anchor: "top-right",
             direction: "column",
             itemWidth: 60,

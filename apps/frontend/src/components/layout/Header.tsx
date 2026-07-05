@@ -5,6 +5,7 @@ import { SetAggregationMode, SetViewMode, ToggleMinerType } from "@/event-bus/ui
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore, type AggregationMode, type ViewMode } from "@/store/ui-store";
 import { SERIES_COLORS } from "@/lib/colors";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import { shortAddress } from "@/lib/format-chain";
 import type { MinerCategory } from "@quip/shared/telemetry";
 import { BabeEpochProgress } from "./BabeEpochProgress";
@@ -164,7 +165,7 @@ export function Header() {
                   className="inline-block h-2.5 w-2.5 rounded-full"
                   style={{ backgroundColor: active ? SERIES_COLORS[type] : "#d4d4d8" }}
                 />
-                {type}
+                {displayLabelForCategory(type)}
               </button>
             );
           })}

@@ -6,9 +6,18 @@ interface LineTooltipConfig {
   yLabel: string;
   xFormat?: (v: number) => string;
   yFormat?: (v: number) => string;
+  // Display label for the series id (e.g. "QPU" -> "QPU20m"); defaults to
+  // the id itself.
+  seriesLabel?: (id: string) => string;
 }
 
-export function createLineTooltip({ xLabel, yLabel, xFormat, yFormat }: LineTooltipConfig) {
+export function createLineTooltip({
+  xLabel,
+  yLabel,
+  xFormat,
+  yFormat,
+  seriesLabel = (id) => id,
+}: LineTooltipConfig) {
   const fmt = (v: unknown, f?: (v: number) => string) => {
     const n = Number(v);
     return f ? f(n) : n.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -39,7 +48,9 @@ export function createLineTooltip({ xLabel, yLabel, xFormat, yFormat }: LineTool
               flexShrink: 0,
             }}
           />
-          <span style={{ color: "#F2F2F2", fontWeight: 600 }}>{String(point.serieId)}</span>
+          <span style={{ color: "#F2F2F2", fontWeight: 600 }}>
+            {seriesLabel(String(point.serieId))}
+          </span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <span>

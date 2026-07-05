@@ -3,6 +3,7 @@ import { nivoTheme } from "@/theme/nivo-theme";
 import { SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { createPieGradientProps } from "@/components/charts/common/GradientPie";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import type { ActiveNodesEntry } from "./use-active-nodes";
 
 const pieGradient = createPieGradientProps(
@@ -26,7 +27,7 @@ export function ActiveNodesChart({ data }: ActiveNodesChartProps) {
 
   const pieData = data.map((d) => ({
     id: d.minerType,
-    label: d.minerType,
+    label: displayLabelForCategory(d.minerType),
     value: d.count,
   }));
 

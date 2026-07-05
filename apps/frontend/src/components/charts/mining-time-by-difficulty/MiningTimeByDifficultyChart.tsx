@@ -10,6 +10,7 @@ import { difficultyAxisSubtitle } from "@/components/charts/common/BottomAxisSub
 import { createDifficultyTickRenderer } from "@/components/charts/common/DifficultyTick";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import {
   NODE_SCOPE_OPTIONS,
   SegToggle,
@@ -54,6 +55,9 @@ export function MiningTimeByDifficultyChart() {
         yLabel: units === "time" ? "Expected time" : "Expected qblocks",
         xFormat: (v) => formatDifficultyTick(Number(v), k),
         yFormat: formatY,
+        // QPUWC is the wall-clock line's own id, not the "QPU" miner
+        // category — displayLabelForCategory only relabels the latter.
+        seriesLabel: displayLabelForCategory,
       }),
     // formatY is derived from units; k only affects the x tooltip label.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,6 +143,13 @@ export function MiningTimeByDifficultyChart() {
                 symbolSize: 10,
                 symbolShape: "circle",
                 translateY: -15,
+                // Override the id-derived default so "QPU" renders as
+                // "QPU20m" without touching the series id nivo colors by.
+                data: series.map((s) => ({
+                  id: s.id,
+                  label: displayLabelForCategory(s.id),
+                  color: getSeriesColor(s.id === "QPUWC" ? "QPU" : String(s.id)),
+                })),
               },
             ]}
           />
