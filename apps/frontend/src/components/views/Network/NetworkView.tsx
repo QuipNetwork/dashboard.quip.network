@@ -99,7 +99,11 @@ export function NetworkView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <ChartCard title="CPU Model Breakdown" subtitle="Logical CPU populations on the network">
+          <ChartCard
+            title="CPU Model Breakdown"
+            subtitle="Logical CPU populations on the network"
+            bodyClassName="max-h-[420px] overflow-y-auto"
+          >
             <HardwareBreakdown
               data={compute.cpuModels}
               accent={SERIES_COLORS.CPU}
@@ -107,7 +111,11 @@ export function NetworkView() {
             />
           </ChartCard>
 
-          <ChartCard title="GPU Model Breakdown" subtitle="Devices by model across all nodes">
+          <ChartCard
+            title="GPU Model Breakdown"
+            subtitle="Devices by model across all nodes"
+            bodyClassName="max-h-[420px] overflow-y-auto"
+          >
             <HardwareBreakdown
               data={compute.gpuModels}
               accent={SERIES_COLORS.GPU}
