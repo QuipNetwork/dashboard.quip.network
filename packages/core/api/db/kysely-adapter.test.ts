@@ -34,6 +34,7 @@ const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   minSolutions: 1,
   finalized: false,
   topologyHash: null,
+  deviceAccessTimeUs: 45_500_000,
   ...overrides,
 });
 
@@ -124,6 +125,12 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         await db.insertBlock(sampleBlock({ finalized: true }));
         const [b] = await db.getRecentBlocks(10);
         expect(b).toEqual(sampleBlock({ finalized: true }));
+      });
+
+      it("round-trips a null deviceAccessTimeUs (the normal, unreported case)", async () => {
+        await db.insertBlock(sampleBlock({ deviceAccessTimeUs: null }));
+        const [b] = await db.getRecentBlocks(10);
+        expect(b?.deviceAccessTimeUs).toBeNull();
       });
 
       it("ignores duplicate block_hash", async () => {

@@ -52,6 +52,7 @@ export function rowToBlockRecord(r: Row): BlockRecord {
     minSolutions: num(r.min_solutions),
     finalized: Boolean(r.finalized),
     topologyHash: r.topology_hash == null ? null : String(r.topology_hash),
+    deviceAccessTimeUs: r.device_access_time_us == null ? null : num(r.device_access_time_us),
   };
 }
 

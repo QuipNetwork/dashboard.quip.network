@@ -157,6 +157,7 @@ export class KyselyAdapter implements DatabaseAdapter {
         min_solutions: b.minSolutions,
         finalized: b.finalized,
         topology_hash: b.topologyHash,
+        device_access_time_us: b.deviceAccessTimeUs,
       })
       .onConflict((oc) => oc.column("block_hash").doNothing())
       .execute();

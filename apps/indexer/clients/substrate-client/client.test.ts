@@ -313,7 +313,7 @@ describe("decodeBlockWinnerEventData (v0.2 6-field BlockWinner)", () => {
   });
 });
 
-describe("qblockInfoFromSolution (spec-111 device_access_time_us)", () => {
+describe("qblockInfoFromSolution (runtime-112 device_access_time_us)", () => {
   const base = {
     miner: "5GWinner",
     energyMilli: -14_500_123,
@@ -344,7 +344,7 @@ describe("qblockInfoFromSolution (spec-111 device_access_time_us)", () => {
     expect(info.deviceAccessTimeUs).toBe(7);
   });
 
-  test("absent field (pre-111 chain) maps to null, not 0", () => {
+  test("absent field (pre-112 chain) maps to null, not 0", () => {
     const info = qblockInfoFromSolution(base, "123");
     expect(info.deviceAccessTimeUs).toBeNull();
   });

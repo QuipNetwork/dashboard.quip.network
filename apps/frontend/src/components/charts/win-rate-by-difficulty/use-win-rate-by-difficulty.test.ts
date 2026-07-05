@@ -37,6 +37,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     minSolutions: 1,
     topologyHash: null,
     finalized: false,
+    deviceAccessTimeUs: null,
     ...overrides,
   };
 }

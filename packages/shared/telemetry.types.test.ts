@@ -33,6 +33,7 @@ describe("v6 telemetry types", () => {
       minSolutions: 5,
       finalized: false,
       topologyHash: null,
+      deviceAccessTimeUs: null,
     };
     expect(b.substrateBlockNumber).toBe("4500");
     // @ts-expect-error - epoch is gone from v0.3

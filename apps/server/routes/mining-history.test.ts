@@ -35,6 +35,7 @@ const block = (n: number, minerId: string, timestamp: number, miningTime: number
   minSolutions: 1,
   finalized: true,
   topologyHash: null,
+  deviceAccessTimeUs: null,
 });
 
 beforeEach(async () => {

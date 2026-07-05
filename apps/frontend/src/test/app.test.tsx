@@ -31,6 +31,7 @@ function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId"
     minSolutions: 1,
     topologyHash: null,
     finalized: false,
+    deviceAccessTimeUs: null,
     ...overrides,
   };
 }

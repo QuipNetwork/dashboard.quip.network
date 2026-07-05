@@ -33,6 +33,7 @@ const block = (overrides: Partial<BlockRecord> & Pick<BlockRecord, "blockHash">)
   minSolutions: 1,
   finalized: true,
   topologyHash: null,
+  deviceAccessTimeUs: null,
   ...overrides,
 });
 

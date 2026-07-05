@@ -50,6 +50,7 @@ async function seedPreRedesignDb(): Promise<void> {
     minSolutions: 1,
     finalized: true,
     topologyHash: null,
+    deviceAccessTimeUs: null,
   });
   // Pre-redesign difficulty rows: the poll path was the only writer, and
   // migration 0005 backfills them as source='poll'.

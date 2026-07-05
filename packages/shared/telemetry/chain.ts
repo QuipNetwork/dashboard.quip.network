@@ -23,13 +23,20 @@ export interface BlockRecord {
   energy: number;
   diversity: number;
   numValidSolutions: number;
-  // Seconds of compute behind the winning proof. Spec-111+ blocks carry the
-  // winner's self-reported device_access_time_us (QPU access time for QPU
-  // wins, wall clock for CPU/GPU), converted µs → s. Pre-111 blocks and
+  // Seconds of compute behind the winning proof. Runtime-112+ blocks carry
+  // the winner's self-reported device_access_time_us (QPU access time for
+  // QPU wins, wall clock for CPU/GPU), converted µs → s. Pre-112 blocks and
   // unreported (0) wins fall back to derived block spacing
   // ((win − last proof) × slot seconds) — which stays recomputable from
   // chain data either way.
   miningTime: number;
+  // Self-reported µs of device compute behind the winning proof — QPU access
+  // time for QPU wins, wall clock for CPU/GPU. `null` when absent (pre-
+  // runtime-112 chain OR simply unreported — the normal case for most
+  // blocks); a reported `0` is normalized to `null` at the write path. This
+  // is the raw distinct value `miningTime` is derived from when present;
+  // unlike `miningTime` it carries no derived fallback.
+  deviceAccessTimeUs: number | null;
   // u128 as string (token amount).
   reward: string;
   // Monotonic 1-based qblock id this win was assigned on chain (u64 as
@@ -252,7 +259,8 @@ export interface MiningHistoryRow {
   timestamp: number;
   minerId: string;
   // Seconds of compute behind the winning proof (see BlockRecord.miningTime:
-  // reported device time on spec-111+ wins, derived block spacing otherwise).
+  // reported device time on runtime-112+ wins, derived block spacing
+  // otherwise).
   miningTime: number;
 }
 

@@ -32,6 +32,7 @@ export interface BlocksTable {
   min_solutions: number;
   finalized: Bool;
   topology_hash: string | null;
+  device_access_time_us: Big | null;
 }
 
 export interface MetaTable {
