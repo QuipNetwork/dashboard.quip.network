@@ -3,11 +3,10 @@
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { displayNodeName, formatBalance } from "@/lib/format-chain";
 import { formatNumber } from "@/lib/format";
-import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { selectServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { useMinerWins } from "@/services/use-miner-wins";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
-import { CurrentDifficultyCard } from "./CurrentDifficultyCard";
 import { LastQBlockCard } from "./LastQBlockCard";
 import { MinerStatsPanel } from "./MinerStatsPanel";
 import { NeighborsList } from "./NeighborsList";
@@ -21,9 +20,7 @@ export function MyNodeView() {
   // on this page agrees with them.
   const minerWins = useMinerWins();
   const stats = useMyNode(minerWins.rows);
-  const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
   const chainHead = useTelemetryStore((s) => s.chainHead);
-  const tipBlock = useTelemetryStore(selectTipBlock);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
@@ -66,7 +63,6 @@ export function MyNodeView() {
     lastWonBlock,
     lastWonProblemNumber,
     blocksMined,
-    currentRequirements,
     selfAvgMiningTimeSec,
     self,
     neighbors,
@@ -128,13 +124,6 @@ export function MyNodeView() {
           lastWonProblemNumber={lastWonProblemNumber}
         />
       </div>
-
-      <CurrentDifficultyCard
-        currentRequirements={currentRequirements}
-        recentDifficulty={recentDifficulty}
-        chainHead={chainHead}
-        tipBlock={tipBlock}
-      />
 
       <CurrentAttemptsPanel
         dispatch={currentDispatch}

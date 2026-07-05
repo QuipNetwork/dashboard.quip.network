@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { ChartCard } from "@/components/layout/ChartCard";
-import { SERIES_COLORS } from "@/lib/colors";
 import { decaysApplied } from "@/lib/decays";
-import { formatNumber } from "@/lib/format";
-import { formatEnergy } from "@/lib/format-chain";
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
-import { StatTile } from "@/components/views/MyNode/StatTile";
 import { DifficultyChart } from "@/components/views/Chain/DifficultyChart";
 import { RecentBlocksTable } from "@/components/views/Network/RecentBlocksTable";
 import { ActiveNodesChart } from "@/components/charts/active-nodes/ActiveNodesChart";
@@ -55,10 +51,15 @@ export function ComputeAvailableView() {
   const totalProofsWon = winningSolutionsSolved(chainHead, chainMiners);
 
   // Live decayed difficulty from `current_difficulty()` runtime API
-  // (refreshed every chain poll). Falls back to the per-block snapshot
-  // from the tip block when no live poll has landed yet — same chain of
-  // precedence used by the MyNode "Current Difficulty" detail card.
-  const liveDifficulty = useTelemetryStore((s) => s.recentDifficulty[0] ?? null);
+  // (refreshed every chain poll). Falls back to the per-block snapshot from
+  // the tip block when no live poll has landed yet. This is the identical
+  // precedence chain `useMyNode` builds its `currentRequirements` from
+  // (recentDifficulty[0] ?? tipBlock snapshot) — confirmed equivalent by
+  // inspection — so CurrentQBlockDetailsCard takes the already-resolved
+  // value here rather than importing the MyNode hook, keeping Compute's
+  // difficulty source local to Compute's own data flow.
+  const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
+  const liveDifficulty = recentDifficulty[0] ?? null;
   const currentDifficulty =
     liveDifficulty ??
     (compute.lastBlock
@@ -86,8 +87,8 @@ export function ComputeAvailableView() {
 
   return (
     <>
-      {/* Block-ceiling FLOPS — orthogonal to By Node / By Type, visible in
-          both modes. Side-by-side on lg; stacks below. */}
+      {/* Block-ceiling FLOPS + live difficulty — orthogonal to By Node / By
+          Type, visible in both modes. Side-by-side on lg; stacks below. */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <LastQBlockDetailsCard
           lastBlock={compute.lastBlock}
@@ -97,23 +98,11 @@ export function ComputeAvailableView() {
           lastBlock={compute.lastBlock}
           currentBlockPflopSeconds={compute.currentBlockPflopSeconds}
           currentBlockElapsedSeconds={compute.currentBlockElapsedSeconds}
+          currentDifficulty={currentDifficulty}
+          recentDifficulty={recentDifficulty}
+          decays={decays}
         />
       </div>
-
-      {/* Transitional: Current Difficulty still stands alone here — the
-          next commit folds it into CurrentQBlockDetailsCard above. */}
-      <StatTile
-        label="Current Difficulty"
-        value={
-          currentDifficulty != null ? `≤ ${formatEnergy(currentDifficulty.difficultyEnergy)}` : "—"
-        }
-        sublabel={
-          currentDifficulty != null
-            ? `${decays != null ? `${decays} ${decays === 1 ? "decay" : "decays"} · ` : ""}min diversity ${currentDifficulty.minDiversity > 0 ? currentDifficulty.minDiversity.toFixed(2) : "—"} · min solutions ${currentDifficulty.minSolutions > 0 ? formatNumber(currentDifficulty.minSolutions) : "—"}`
-            : "Awaiting first difficulty poll"
-        }
-        accent={SERIES_COLORS.CPU}
-      />
 
       <ChartCard title="Recent QBlocks" subtitle="Last 10 mined qblocks on the current chain tip">
         <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />

@@ -53,11 +53,32 @@ describe("ComputeAvailableView", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Last QBlock Details");
     expect(text).toContain("Current QBlock Details");
-    expect(text).toContain("Current Difficulty");
     expect(text).toContain("Recent QBlocks");
     expect(text).toContain("Mining Leaderboard");
     expect(text).toContain("QBlocks Mined Over Time");
     expect(text).toContain("Difficulty over time");
+  });
+
+  test("merges difficulty rows into Current QBlock Details, no standalone tile", () => {
+    useTelemetryStore.setState({
+      recentDifficulty: [
+        {
+          observedAtBlock: "100",
+          difficultyEnergy: -120,
+          minDiversity: 0.2,
+          minSolutions: 2,
+          observedAt: "2026-01-01T00:00:00.000Z",
+          topologyHash: null,
+          source: "poll",
+        },
+      ],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Current Difficulty");
+    expect(text).toContain("Target Energy");
+    expect(text).toContain("Min Diversity");
+    expect(text).toContain("Min Solutions");
   });
 
   // Full width = the chart card is a page-level sibling, not a grid cell

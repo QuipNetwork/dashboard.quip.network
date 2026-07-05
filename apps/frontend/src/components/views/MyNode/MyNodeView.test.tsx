@@ -102,6 +102,29 @@ describe("MyNodeView", () => {
     expect(text).not.toContain("Last QBlock Details");
   });
 
+  test("no longer renders the Current Difficulty pane — it moved to Compute", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock()],
+      recentDifficulty: [
+        {
+          observedAtBlock: "100",
+          difficultyEnergy: -120,
+          minDiversity: 0.2,
+          minSolutions: 2,
+          observedAt: "2026-01-01T00:00:00.000Z",
+          topologyHash: null,
+          source: "poll",
+        },
+      ],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Current Difficulty");
+    expect(text).not.toContain("Target Energy");
+  });
+
   test("still renders QBlocks Won and Rewards Earned tiles", () => {
     useTelemetryStore.setState({
       selfAddress: SELF,
