@@ -1,7 +1,7 @@
 {
   "name": "quip-dashboard",
   "private": true,
-  "version": "0.2.1-rc13",
+  "version": "0.2.1-rc14",
   "type": "module",
   "workspaces": [
     "apps/*",
