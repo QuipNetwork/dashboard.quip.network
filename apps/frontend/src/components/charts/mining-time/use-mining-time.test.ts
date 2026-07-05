@@ -35,7 +35,6 @@ import type {
 } from "@quip/shared/telemetry";
 
 import {
-  formatJoules,
   useMiningTime,
   type MiningMetric,
   type MiningTimeGrouping,
@@ -379,13 +378,5 @@ describe("useMiningTime", () => {
         }
       }
     }
-  });
-});
-
-describe("formatJoules", () => {
-  test("ladders J → kJ → MJ", () => {
-    expect(formatJoules(999)).toBe("999.0 J");
-    expect(formatJoules(1_500)).toBe("1.5 kJ");
-    expect(formatJoules(2_500_000)).toBe("2.5 MJ");
   });
 });

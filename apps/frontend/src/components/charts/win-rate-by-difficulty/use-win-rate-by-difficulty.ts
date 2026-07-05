@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { BlockRecord, MinerCategory } from "@quip/shared/telemetry";
+import { bandByKey, censusUnitCounts, type Band } from "@/components/charts/common/band-by-key";
 import type { NodeScope } from "@/components/charts/common/SegToggle";
 import {
   buildNormalizedComposition,
@@ -39,27 +40,6 @@ const NUM_BANDS = 12;
 const EMPTY: WinRateByDifficultyResult = { series: [], xMin: 0, xMax: 0 };
 const COMPOSITION_TYPES = ["CPU", "GPU", "QPU"] as const;
 
-interface Band {
-  midpoint: number;
-  blocks: BlockRecord[];
-}
-
-// Slice difficulty-sorted blocks into ~NUM_BANDS equal-count bands, each
-// summarised by its average difficulty (the plotted x).
-function buildBands(cleaned: BlockRecord[]): Band[] {
-  const bandSize = Math.max(1, Math.floor(cleaned.length / NUM_BANDS));
-  const bands: Band[] = [];
-  for (let i = 0; i < cleaned.length; i += bandSize) {
-    const blocks = cleaned.slice(i, Math.min(i + bandSize, cleaned.length));
-    if (blocks.length === 0) continue;
-    const midpoint = Math.round(
-      blocks.reduce((sum, b) => sum + b.difficultyEnergy, 0) / blocks.length,
-    );
-    bands.push({ midpoint, blocks });
-  }
-  return bands;
-}
-
 function winsByCategory(
   blocks: BlockRecord[],
   catIndex: ReadonlyMap<string, MinerCategory>,
@@ -76,7 +56,7 @@ const round1 = (v: number): number => Math.round(v * 10) / 10;
 
 // Observed win share per type and band: (type wins in band) / (band size).
 function buildObservedSeries(
-  bands: Band[],
+  bands: Array<Band<BlockRecord>>,
   catIndex: ReadonlyMap<string, MinerCategory>,
   selectedTypes: string[],
 ): WinRateSeries[] {
@@ -84,9 +64,9 @@ function buildObservedSeries(
   for (const type of selectedTypes) series[type] = [];
 
   for (const band of bands) {
-    const wins = winsByCategory(band.blocks, catIndex);
+    const wins = winsByCategory(band.items, catIndex);
     for (const type of selectedTypes) {
-      const rate = ((wins[type as MinerCategory] ?? 0) / band.blocks.length) * 100;
+      const rate = ((wins[type as MinerCategory] ?? 0) / band.items.length) * 100;
       series[type]!.push({ x: band.midpoint, y: round1(rate) });
     }
   }
@@ -103,17 +83,10 @@ function buildObservedSeries(
 // is observed under its 20 min/day budget; the composition module splits it
 // into QPU20m/QPU100%.
 function buildNormalizedSeries(
-  bands: Band[],
+  bands: Array<Band<BlockRecord>>,
   catIndex: ReadonlyMap<string, MinerCategory>,
 ): WinRateSeries[] {
-  const unitCounts: Record<(typeof COMPOSITION_TYPES)[number], number> = {
-    CPU: 0,
-    GPU: 0,
-    QPU: 0,
-  };
-  for (const cat of catIndex.values()) {
-    if (cat !== "OTHER") unitCounts[cat]++;
-  }
+  const unitCounts = censusUnitCounts(catIndex);
 
   const perUnit: Record<(typeof COMPOSITION_TYPES)[number], PerfPoint[]> = {
     CPU: [],
@@ -121,7 +94,7 @@ function buildNormalizedSeries(
     QPU: [],
   };
   for (const band of bands) {
-    const wins = winsByCategory(band.blocks, catIndex);
+    const wins = winsByCategory(band.items, catIndex);
     for (const type of COMPOSITION_TYPES) {
       const n = unitCounts[type];
       perUnit[type].push({ x: band.midpoint, y: n > 0 ? (wins[type] ?? 0) / n : 0 });
@@ -179,7 +152,7 @@ export function useWinRateByDifficulty(
     );
     if (cleaned.length === 0) return EMPTY;
 
-    const bands = buildBands(cleaned);
+    const bands = bandByKey(cleaned, NUM_BANDS, (b) => b.difficultyEnergy);
 
     const series =
       mode === "normalized"

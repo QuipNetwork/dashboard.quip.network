@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo, useState } from "react";
-import { ResponsiveLine, type PointTooltipProps } from "@nivo/line";
+import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "@/theme/nivo-theme";
-import { SERIES_COLORS, SERIES_GRADIENT } from "@/lib/colors";
-import { getSeriesColor } from "@/lib/chart-colors";
 import { difficultyAxisSubtitle } from "@/components/charts/common/BottomAxisSubtitle";
 import { createDifficultyTickRenderer } from "@/components/charts/common/DifficultyTick";
-import { createGradientLines } from "@/components/charts/common/GradientLines";
+import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import {
+  colorForNormalizedSeries as colorFor,
+  normalizedSeriesGradientLines as gradientLines,
+} from "@/components/charts/common/normalized-series-colors";
 import {
   NODE_SCOPE_OPTIONS,
   SegToggle,
   type SegOption,
 } from "@/components/charts/common/SegToggle";
-import { NORMALIZED_SERIES_LABELS } from "@/components/charts/common/normalized-composition";
 import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import { useDifficultyCurveK } from "@/lib/difficulty-curve";
 import { useWinRateByDifficulty, type WinRateMode } from "./use-win-rate-by-difficulty";
@@ -25,83 +26,6 @@ const MODE_OPTIONS: ReadonlyArray<SegOption<WinRateMode>> = [
   { value: "normalized", label: "Normalized" },
 ];
 
-// QPU100% needs a colour distinguishable from the QPU emerald while still
-// reading as "quantum" — lime, derived locally (lib/colors stays type-keyed).
-const QPU100_COLOR = "#84CC16";
-const QPU100_GRADIENT: [string, string] = ["#84CC16", "#BEF264"];
-
-// Normalized-mode series render under their display labels; the two QPU
-// regimes aren't type keys, so resolve their colours locally.
-const EXTRA_SERIES_COLORS: Record<string, string> = {
-  [NORMALIZED_SERIES_LABELS.QPU20m]: SERIES_COLORS.QPU,
-  [NORMALIZED_SERIES_LABELS.QPU100]: QPU100_COLOR,
-};
-
-function colorFor(id: string): string {
-  return EXTRA_SERIES_COLORS[id] ?? getSeriesColor(id);
-}
-
-const gradientLines = createGradientLines(
-  Object.fromEntries(
-    Object.entries({
-      ...SERIES_GRADIENT,
-      [NORMALIZED_SERIES_LABELS.QPU20m]: SERIES_GRADIENT.QPU,
-      [NORMALIZED_SERIES_LABELS.QPU100]: QPU100_GRADIENT,
-    }).map(([id, [from, to]]) => [
-      id,
-      [
-        { offset: "0%", color: from },
-        { offset: "100%", color: to },
-      ],
-    ]),
-  ),
-);
-
-// Local tooltip (mirrors common/LineTooltip): the shared one resolves swatch
-// colours through getSeriesColor only, which can't know the QPU20m/QPU100%
-// series — this one goes through colorFor.
-function createTooltip(yLabel: string) {
-  return function WinRateTooltip({ point }: PointTooltipProps) {
-    return (
-      <div
-        style={{
-          background: "#ffffff",
-          border: "1px solid #d4d4d8",
-          borderRadius: 6,
-          padding: "8px 12px",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-          fontFamily: "'ABC Favotit Mono', monospace",
-          fontSize: 12,
-          color: "#27272a",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-          <span
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: "50%",
-              backgroundColor: colorFor(String(point.serieId)),
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontWeight: 600 }}>{String(point.serieId)}</span>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span>
-            <span style={{ color: "#52525c" }}>Difficulty: </span>
-            {Number(point.data.x).toLocaleString("en-US", { maximumFractionDigits: 1 })}
-          </span>
-          <span>
-            <span style={{ color: "#52525c" }}>{yLabel}: </span>
-            {`${Number(point.data.y).toFixed(1)}%`}
-          </span>
-        </div>
-      </div>
-    );
-  };
-}
-
 export function WinRateByDifficultyChart() {
   const [mode, setMode] = useState<WinRateMode>("all");
   const { series, xMin, xMax } = useWinRateByDifficulty({ mode });
@@ -110,13 +34,23 @@ export function WinRateByDifficultyChart() {
   // Normalized series carry display labels ("QPU100" -> "QPU100%"); nivo's
   // legend and tooltip show the id, so render under the label. Raw all/best
   // series have no label — displayLabelForCategory covers the plain "QPU"
-  // case (-> "QPU20m", which EXTRA_SERIES_COLORS already resolves a color for).
+  // case (-> "QPU20m", which colorForNormalizedSeries already resolves a
+  // color for).
   const chartSeries = series.map((s) => ({
     id: s.label ?? displayLabelForCategory(s.id),
     data: s.data,
   }));
   const yLabel = mode === "normalized" ? "Win Share" : "Win Rate";
-  const tooltip = useMemo(() => createTooltip(yLabel), [yLabel]);
+  const tooltip = useMemo(
+    () =>
+      createLineTooltip({
+        xLabel: "Difficulty",
+        yLabel,
+        yFormat: (v) => `${v.toFixed(1)}%`,
+        colorFor,
+      }),
+    [yLabel],
+  );
 
   return (
     <div data-qa="chart-win-rate-by-difficulty" className="flex h-full flex-col">

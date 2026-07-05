@@ -9,6 +9,11 @@ interface LineTooltipConfig {
   // Display label for the series id (e.g. "QPU" -> "QPU20m"); defaults to
   // the id itself.
   seriesLabel?: (id: string) => string;
+  // Swatch colour for the series id; defaults to getSeriesColor. Charts with
+  // series ids outside the miner-category/node-id space (e.g. the Normalized
+  // mode's QPU20m/QPU100%) supply their own resolver here instead of
+  // duplicating this tooltip.
+  colorFor?: (id: string) => string;
 }
 
 export function createLineTooltip({
@@ -17,6 +22,7 @@ export function createLineTooltip({
   xFormat,
   yFormat,
   seriesLabel = (id) => id,
+  colorFor = getSeriesColor,
 }: LineTooltipConfig) {
   const fmt = (v: unknown, f?: (v: number) => string) => {
     const n = Number(v);
@@ -24,7 +30,7 @@ export function createLineTooltip({
   };
 
   return function LineTooltip({ point }: PointTooltipProps) {
-    const color = getSeriesColor(String(point.serieId));
+    const color = colorFor(String(point.serieId));
     return (
       <div
         style={{
@@ -48,9 +54,7 @@ export function createLineTooltip({
               flexShrink: 0,
             }}
           />
-          <span style={{ color: "#F2F2F2", fontWeight: 600 }}>
-            {seriesLabel(String(point.serieId))}
-          </span>
+          <span style={{ fontWeight: 600 }}>{seriesLabel(String(point.serieId))}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <span>

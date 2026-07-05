@@ -26,6 +26,10 @@ export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
         innerPadding={0}
         enableLabel={false}
         enableGridY={true}
+        // Default tooltip label is "{id} - {indexValue}" (nivo's BasicTooltip);
+        // reroute the id through displayLabelForCategory so "QPU" reads
+        // "QPU20m" without a custom tooltip component.
+        tooltipLabel={(d) => `${displayLabelForCategory(String(d.id))} - ${d.indexValue}`}
         layers={["grid", "axes", OverlappingBarsLayer, "markers", "legends"]}
         axisBottom={{
           legend: "Time (seconds)",

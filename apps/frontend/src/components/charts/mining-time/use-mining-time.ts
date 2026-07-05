@@ -21,6 +21,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { bandByKey, censusUnitCounts } from "@/components/charts/common/band-by-key";
 import {
   buildNormalizedComposition,
   type PerfPoint,
@@ -48,13 +49,6 @@ export const MINING_METRICS: ReadonlyArray<{ value: MiningMetric; label: string 
   { value: "time", label: "Time" },
   { value: "energy", label: "Energy" },
 ];
-
-/** J → kJ → MJ laddering, mirroring formatSeconds' unit steps (lib/format). */
-export function formatJoules(j: number): string {
-  if (j < 1_000) return `${j.toFixed(1)} J`;
-  if (j < 1_000_000) return `${(j / 1_000).toFixed(1)} kJ`;
-  return `${(j / 1_000_000).toFixed(1)} MJ`;
-}
 
 export interface MiningTimeSeries {
   id: string;
@@ -93,36 +87,26 @@ function buildNormalizedSeries(
   catIndex: ReadonlyMap<string, MinerCategory>,
   metricFor: (row: MiningHistoryRow, cat: MinerCategory) => number,
 ): MiningTimeSeries[] {
-  const unitCounts: Record<(typeof COMPOSITION_TYPES)[number], number> = {
-    CPU: 0,
-    GPU: 0,
-    QPU: 0,
-  };
-  for (const cat of catIndex.values()) {
-    if (cat !== "OTHER") unitCounts[cat]++;
-  }
+  const unitCounts = censusUnitCounts(catIndex);
 
   const sorted = [...rows].sort((a, b) => Number(a.qblockId) - Number(b.qblockId));
-  const bandSize = Math.max(1, Math.floor(sorted.length / NUM_BANDS));
+  const bands = bandByKey(sorted, NUM_BANDS, (r) => Number(r.qblockId));
 
   const perUnit: Record<(typeof COMPOSITION_TYPES)[number], PerfPoint[]> = {
     CPU: [],
     GPU: [],
     QPU: [],
   };
-  for (let i = 0; i < sorted.length; i += bandSize) {
-    const band = sorted.slice(i, Math.min(i + bandSize, sorted.length));
-    if (band.length === 0) continue;
-    const midpoint = Math.round(band.reduce((sum, r) => sum + Number(r.qblockId), 0) / band.length);
+  for (const band of bands) {
     const totals: Record<(typeof COMPOSITION_TYPES)[number], number> = { CPU: 0, GPU: 0, QPU: 0 };
-    for (const r of band) {
+    for (const r of band.items) {
       const cat = categoryFor(r.minerId, catIndex);
       if (cat === "OTHER") continue;
       totals[cat] += metricFor(r, cat);
     }
     for (const type of COMPOSITION_TYPES) {
       const n = unitCounts[type];
-      perUnit[type].push({ x: midpoint, y: n > 0 ? totals[type] / n : 0 });
+      perUnit[type].push({ x: band.midpoint, y: n > 0 ? totals[type] / n : 0 });
     }
   }
 
