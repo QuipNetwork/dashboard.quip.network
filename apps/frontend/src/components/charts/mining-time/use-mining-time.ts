@@ -1,31 +1,67 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Range-windowed mining-time series (mirrors the difficulty panel's
+// Range-windowed "Mining per QBlock" series (mirrors the difficulty panel's
 // windowing): each range maps to a `since` cutoff served by
 // /api/mining-history, so long windows aren't capped by the telemetry
-// store's recent-blocks depth. Grouping is local to the card — "byType"
-// draws one line per processor type (honouring the global type selection),
-// "all" one aggregate line across every winner.
+// store's recent-blocks depth. Grouping and metric are local to the card —
+// "byType" draws one line per processor type (honouring the global type
+// selection), "all" one aggregate line across every winner, "normalized"
+// the fixed-composition shares from charts/common/normalized-composition.
+// The metric is either device access time (seconds) or its estimated
+// electrical energy (joules = device watts × seconds).
+//
+// PARTICIPATION HONESTY: the indexer records exactly one row per qblock —
+// the WINNING block (`blocks` table; see getMiningHistorySince in
+// packages/core/api/db/kysely-adapter.ts). Non-winner participation is not
+// recorded anywhere network-wide (`mining_submissions` only covers the
+// dashboard's own node, keyed by selfAddress). So nextsteps #8b's "sum of
+// all device_access_times of participating nodes" reduces to the winner's
+// resolved device time (or energy) per qblock — that is what every mode
+// here plots, and the card subtitle says so.
 
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  buildNormalizedComposition,
+  type PerfPoint,
+} from "@/components/charts/common/normalized-composition";
 import { sinceForRange, type TimeRange } from "@/components/charts/common/time-range";
+import { resolveDeviceAccessTime } from "@/lib/device-access-time";
+import { estimateDeviceWatts, estimateEnergyJoules } from "@/lib/hardware-power";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
 import { useTelemetryClient } from "@/services/telemetry-client";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
-import type { MiningHistoryRow } from "@quip/shared/telemetry";
+import type { MinerCategory, MiningHistoryRow, NodeInfo } from "@quip/shared/telemetry";
 
-export type MiningTimeGrouping = "all" | "byType";
+export type MiningTimeGrouping = "all" | "byType" | "normalized";
 
 export const MINING_TIME_GROUPINGS: ReadonlyArray<{ value: MiningTimeGrouping; label: string }> = [
   { value: "all", label: "All" },
   { value: "byType", label: "By Type" },
+  { value: "normalized", label: "Normalized" },
 ];
+
+export type MiningMetric = "time" | "energy";
+
+export const MINING_METRICS: ReadonlyArray<{ value: MiningMetric; label: string }> = [
+  { value: "time", label: "Time" },
+  { value: "energy", label: "Energy" },
+];
+
+/** J → kJ → MJ laddering, mirroring formatSeconds' unit steps (lib/format). */
+export function formatJoules(j: number): string {
+  if (j < 1_000) return `${j.toFixed(1)} J`;
+  if (j < 1_000_000) return `${(j / 1_000).toFixed(1)} kJ`;
+  return `${(j / 1_000_000).toFixed(1)} MJ`;
+}
 
 export interface MiningTimeSeries {
   id: string;
-  // x = on-chain qblock id (monotonic win counter), y = mining time seconds.
+  // Display label when it differs from the id ("QPU100" renders as "QPU100%").
+  label?: string;
+  // x = on-chain qblock id (band midpoint in normalized mode), y = metric
+  // value: seconds / joules, or the 0–100 share in normalized mode.
   data: Array<{ x: number; y: number }>;
 }
 
@@ -39,12 +75,73 @@ export interface MiningTimeState {
 const REFRESH_MS = 60_000;
 export const AGGREGATE_SERIES_ID = "All";
 
+// Same banding granularity as Win Rate by Difficulty's normalized mode.
+const NUM_BANDS = 12;
+const COMPOSITION_TYPES = ["CPU", "GPU", "QPU"] as const;
+
+const round1 = (v: number): number => Math.round(v * 10) / 10;
+
+// Normalized mode: band the window's qblocks (ascending id) into ~NUM_BANDS
+// equal-count bands, feed each type's per-unit average metric per band into
+// the canonical composition model, and plot the resulting shares. Per-unit =
+// (type's total winner time/energy in band) / (devices of that type the
+// category index knows about) — same census denominator as win-rate's
+// normalized mode. The QPU curve is observed under its 20 min/day budget;
+// the composition module splits it into QPU20m/QPU100%.
+function buildNormalizedSeries(
+  rows: MiningHistoryRow[],
+  catIndex: ReadonlyMap<string, MinerCategory>,
+  metricFor: (row: MiningHistoryRow, cat: MinerCategory) => number,
+): MiningTimeSeries[] {
+  const unitCounts: Record<(typeof COMPOSITION_TYPES)[number], number> = {
+    CPU: 0,
+    GPU: 0,
+    QPU: 0,
+  };
+  for (const cat of catIndex.values()) {
+    if (cat !== "OTHER") unitCounts[cat]++;
+  }
+
+  const sorted = [...rows].sort((a, b) => Number(a.qblockId) - Number(b.qblockId));
+  const bandSize = Math.max(1, Math.floor(sorted.length / NUM_BANDS));
+
+  const perUnit: Record<(typeof COMPOSITION_TYPES)[number], PerfPoint[]> = {
+    CPU: [],
+    GPU: [],
+    QPU: [],
+  };
+  for (let i = 0; i < sorted.length; i += bandSize) {
+    const band = sorted.slice(i, Math.min(i + bandSize, sorted.length));
+    if (band.length === 0) continue;
+    const midpoint = Math.round(band.reduce((sum, r) => sum + Number(r.qblockId), 0) / band.length);
+    const totals: Record<(typeof COMPOSITION_TYPES)[number], number> = { CPU: 0, GPU: 0, QPU: 0 };
+    for (const r of band) {
+      const cat = categoryFor(r.minerId, catIndex);
+      if (cat === "OTHER") continue;
+      totals[cat] += metricFor(r, cat);
+    }
+    for (const type of COMPOSITION_TYPES) {
+      const n = unitCounts[type];
+      perUnit[type].push({ x: midpoint, y: n > 0 ? totals[type] / n : 0 });
+    }
+  }
+
+  return buildNormalizedComposition(perUnit).map((s) => ({
+    id: s.id,
+    label: s.label,
+    data: s.data.map((p) => ({ x: p.x, y: round1(p.y) })),
+  }));
+}
+
 export function useMiningTime(
   range: TimeRange,
   grouping: MiningTimeGrouping,
+  metric: MiningMetric = "time",
   opts: { now?: () => number; refreshMs?: number } = {},
 ): MiningTimeState {
   const client = useTelemetryClient();
+  const blocks = useTelemetryStore((s) => s.blocks);
+  const nodes = useTelemetryStore((s) => s.nodes);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
@@ -88,18 +185,55 @@ export function useMiningTime(
   }, [client, range, refreshMs]); // eslint-disable-line react-hooks/exhaustive-deps -- `now` is a stable test seam
 
   return useMemo(() => {
+    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
+
+    // Reported deviceAccessTimeUs lives on BlockRecord, not the slim history
+    // row — join by qblockId for whatever the recent-blocks window still
+    // holds; older rows estimate, which is the normal path
+    // (lib/device-access-time).
+    const accessUsByQblock = new Map<string, number | null>();
+    for (const b of blocks) accessUsByQblock.set(b.qblockId, b.deviceAccessTimeUs);
+
+    // Winner's telemetry node (for its device's watt estimate): chain miner →
+    // telemetryNodeAddress → NodesSnapshot entry, when all three line up.
+    const nodeByMiner = new Map<string, NodeInfo>();
+    if (nodes) {
+      for (const m of chainMiners) {
+        const node = m.telemetryNodeAddress != null ? nodes.nodes[m.telemetryNodeAddress] : null;
+        if (node) nodeByMiner.set(m.accountId, node);
+      }
+    }
+
+    // Winner's device seconds behind the qblock, or the joules they imply.
+    const metricFor = (r: MiningHistoryRow, cat: MinerCategory): number => {
+      const { seconds } = resolveDeviceAccessTime(
+        { deviceAccessTimeUs: accessUsByQblock.get(r.qblockId) ?? null, miningTime: r.miningTime },
+        cat,
+      );
+      if (metric === "time") return seconds;
+      return estimateEnergyJoules(
+        estimateDeviceWatts(cat, nodeByMiner.get(r.minerId) ?? null),
+        seconds,
+      );
+    };
+
     const point = (r: MiningHistoryRow): { x: number; y: number } => ({
       // u64-as-string at the boundary; qblock ids stay far below 2^53.
       x: Number(r.qblockId),
-      y: r.miningTime,
+      y: metricFor(r, categoryFor(r.minerId, catIndex)),
     });
 
     let series: MiningTimeSeries[];
-    if (grouping === "all") {
+    if (grouping === "normalized") {
+      // The hypothetical composition is fixed (10k CPU / 100 GPU / one QPU in
+      // two regimes), so the per-type chips don't apply here — always draw
+      // from the whole window.
+      series =
+        fetched.rows.length > 0 ? buildNormalizedSeries(fetched.rows, catIndex, metricFor) : [];
+    } else if (grouping === "all") {
       series =
         fetched.rows.length > 0 ? [{ id: AGGREGATE_SERIES_ID, data: fetched.rows.map(point) }] : [];
     } else {
-      const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
       const grouped: Record<string, Array<{ x: number; y: number }>> = {};
       for (const r of fetched.rows) {
         const cat = categoryFor(r.minerId, catIndex);
@@ -120,5 +254,5 @@ export function useMiningTime(
       error: fetched.error,
       isEmpty: !fetched.loading && series.length === 0,
     };
-  }, [fetched, grouping, chainMiners, nodeDescriptors, selectedTypes]);
+  }, [fetched, grouping, metric, blocks, nodes, chainMiners, nodeDescriptors, selectedTypes]);
 }
