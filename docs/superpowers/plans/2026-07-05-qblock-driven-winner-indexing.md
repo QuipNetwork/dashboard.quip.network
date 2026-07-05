@@ -89,3 +89,34 @@
 ## Phase 2 (separate plan, after Phase 1 is measured): qblock-id enumeration
 
 Swap the winner lane's enumeration from `getQBlockNumbers()` (sparse block heights) to `[floor..qBlockCount]` (dense qblock ids). **Blocked on** namespacing queue/walker work items by lane first — today `queue.complete(block)` / `walker.notifyCompleted(block)` key by a bare integer, so qblock-id `4196` would collide with block-height `4196`. Design the namespacing (e.g. `{lane, n}` keys or per-lane queues) before touching enumeration. Deferred intentionally; Phase 1 delivers the CPU win without it.
+
+## Results (Phase 1, fresh-index measurement 2026-07-05)
+
+| metric | baseline | after Phase 1 |
+|---|---|---|
+| winner-backfill peak validator CPU | 1300–2200% | ~850–950% |
+| backfill throughput | ~1.6 blocks/s | ~5.3 blocks/s (≈3×) |
+| backfill duration (4.2k winner blocks) | ~44 min | ~13 min |
+| total validator work (peak × duration) | ~50k core-s | ~7k core-s (≈7× less) |
+| **steady-state (caught up)** | ~8% | **7–18% (near-idle)** |
+
+Conclusion: Phase 1 cut total backfill validator load ~7× (both peak and duration).
+Steady-state after sync is near the idle floor. The heavy load was the one-time
+historical backfill, NOT steady-state.
+
+Remaining per-winner-block floor during backfill: 1 `winningSolution` WASM
+runtime call (irreducible — the solution isn't in plain storage; `qBlocks(id)`
+returns null) + ~2 historical state reads (`system.events.at`, `timestamp.now.at`,
+`getLastProofBlockAt`). Further peak reduction = throttle backfill concurrency
+(trades duration) or make `lastProofBlockAtParent` conditional on
+deviceAccessTimeUs.
+
+Steady-state risk NOT addressed by Phase 1 (relevant if a deployment shows
+sustained high CPU while "caught up"):
+- **Flapping sync-gate** (`getSyncState` trusts `system_health.isSyncing`, which
+  flaps on a quiet/solo validator even at current==highest) → perpetual
+  pause→gap→re-backfill churn. Observed 13 flaps / 500 log lines during initial
+  sync. Fix: treat current>=highest as synced regardless of the raw flag.
+- **6s full-map snapshot enumerations** (`nodeDescriptors.entriesAt`,
+  `quantumPow.miners.entries()`) scale with node/miner count — cheap here (~8%),
+  costlier at scale. Fix: storage-change subscriptions / root-change gating.
