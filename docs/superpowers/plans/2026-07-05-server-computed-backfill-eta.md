@@ -40,10 +40,12 @@
 ### Task 1: Indexer pure ETA helper
 
 **Files:**
+
 - Create: `apps/indexer/pipeline/backfill-eta.ts`
 - Test: `apps/indexer/pipeline/backfill-eta.test.ts`
 
 **Interfaces:**
+
 - Produces (later tasks depend on these):
   - `export interface EtaSample { atMs: number; remaining: number }`
   - `export const ETA_WINDOW_MS = 120_000`, `export const ETA_MIN_SPAN_MS = 90_000`
@@ -199,37 +201,39 @@ git commit -m "feat(indexer): add pure backfill-eta helper"
 ### Task 2: Shared type + parser + round-trip test
 
 **Files:**
+
 - Modify: `packages/shared/telemetry/response.ts` (inside `interface IndexerBackfillProgress`, after `difficultyDataStartBlock`)
 - Modify: `packages/core/api/db/adapter.ts:112-116` (the `parseIndexerProgress` return object)
 - Test: `packages/core/api/db/kysely-adapter.test.ts` (add a test in the same `describe` as `roundtrips self address and observability`, near line 306)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `IndexerBackfillProgress` now has an optional `backfillEtaSeconds?: number | null`, and `parseIndexerProgress` always sets it (number or null).
 
 - [ ] **Step 1: Write the failing test** — in `packages/core/api/db/kysely-adapter.test.ts`, add this test immediately after the existing `it("roundtrips self address and observability", …)` test (after its closing `});`, ~line 306):
 
 ```ts
-      it("roundtrips backfillEtaSeconds through the indexer progress whitelist", async () => {
-        const obs = {
-          chainHeadFromNode: "300",
-          lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
-          lastBlockInsertAt: null,
-          lastSubstrateEventAt: null,
-          bestBlockHeight: "300",
-          finalizedBlockHeight: "300",
-          chainConnected: true,
-          indexer: {
-            backfillQueueDepth: 5,
-            coverage: {},
-            difficultyDataStartBlock: null,
-            backfillEtaSeconds: 780,
-          },
-        } as IndexerObservability;
-        await db.setIndexerObservability(obs);
-        const got = await db.getIndexerObservability();
-        expect(got?.indexer?.backfillEtaSeconds).toBe(780);
-      });
+it("roundtrips backfillEtaSeconds through the indexer progress whitelist", async () => {
+  const obs = {
+    chainHeadFromNode: "300",
+    lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
+    lastBlockInsertAt: null,
+    lastSubstrateEventAt: null,
+    bestBlockHeight: "300",
+    finalizedBlockHeight: "300",
+    chainConnected: true,
+    indexer: {
+      backfillQueueDepth: 5,
+      coverage: {},
+      difficultyDataStartBlock: null,
+      backfillEtaSeconds: 780,
+    },
+  } as IndexerObservability;
+  await db.setIndexerObservability(obs);
+  const got = await db.getIndexerObservability();
+  expect(got?.indexer?.backfillEtaSeconds).toBe(780);
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -249,22 +253,22 @@ Expected: FAIL — `got.indexer.backfillEtaSeconds` is `undefined` (stripped by 
 - [ ] **Step 3b: Carry it in the parser** — in `packages/core/api/db/adapter.ts`, change the `parseIndexerProgress` return object (lines 112-116) from:
 
 ```ts
-  return {
-    backfillQueueDepth: p.backfillQueueDepth,
-    coverage,
-    difficultyDataStartBlock: (p.difficultyDataStartBlock ?? null) as string | null,
-  };
+return {
+  backfillQueueDepth: p.backfillQueueDepth,
+  coverage,
+  difficultyDataStartBlock: (p.difficultyDataStartBlock ?? null) as string | null,
+};
 ```
 
 to:
 
 ```ts
-  return {
-    backfillQueueDepth: p.backfillQueueDepth,
-    coverage,
-    difficultyDataStartBlock: (p.difficultyDataStartBlock ?? null) as string | null,
-    backfillEtaSeconds: typeof p.backfillEtaSeconds === "number" ? p.backfillEtaSeconds : null,
-  };
+return {
+  backfillQueueDepth: p.backfillQueueDepth,
+  coverage,
+  difficultyDataStartBlock: (p.difficultyDataStartBlock ?? null) as string | null,
+  backfillEtaSeconds: typeof p.backfillEtaSeconds === "number" ? p.backfillEtaSeconds : null,
+};
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -287,10 +291,12 @@ git commit -m "feat(core): carry backfillEtaSeconds through observability parser
 ### Task 3: Reconciler publishes the ETA
 
 **Files:**
+
 - Modify: `apps/indexer/pipeline/producers.ts` (the `Reconciler` class @ line 333; `publishProgress()` @ lines 533-561)
 - Test: `apps/indexer/pipeline/producers.test.ts` (extend the `Reconciler sync gating` harness's `makeDeps`, ~lines 200-229)
 
 **Interfaces:**
+
 - Consumes: `pushEtaSample`, `estimateEtaSeconds`, `EtaSample` from `./backfill-eta` (Task 1); `backfillEtaSeconds?` on `IndexerBackfillProgress` (Task 2).
 - Produces: `state.observability.indexer.backfillEtaSeconds` set on every `publishProgress`.
 
@@ -305,17 +311,17 @@ import type { IndexerState } from "../core/state";
 Then, inside the `describe("Reconciler sync gating", …)` block, add this test after the existing tests (before the block's closing `});`). It sets a real `state`, drives one ungated tick with an empty registry (so `totalGaps` is 0 and the ETA is null), and asserts the field is present and wired:
 
 ```ts
-  test("publishProgress sets backfillEtaSeconds on the observability", async () => {
-    const state = {
-      observability: { indexer: undefined },
-    } as unknown as IndexerState;
-    const { deps } = makeDeps({});
-    const reconciler = new Reconciler({ ...deps, state });
-    await reconciler.tick();
-    expect(state.observability.indexer).toBeDefined();
-    // Empty registry → 0 gaps → never net-shrinking → null, but the key is set.
-    expect(state.observability.indexer!.backfillEtaSeconds).toBeNull();
-  });
+test("publishProgress sets backfillEtaSeconds on the observability", async () => {
+  const state = {
+    observability: { indexer: undefined },
+  } as unknown as IndexerState;
+  const { deps } = makeDeps({});
+  const reconciler = new Reconciler({ ...deps, state });
+  await reconciler.tick();
+  expect(state.observability.indexer).toBeDefined();
+  // Empty registry → 0 gaps → never net-shrinking → null, but the key is set.
+  expect(state.observability.indexer!.backfillEtaSeconds).toBeNull();
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -339,19 +345,17 @@ import { estimateEtaSeconds, pushEtaSample, type EtaSample } from "./backfill-et
 - [ ] **Step 3c: Accumulate and publish** — in `publishProgress()` (`producers.ts`), replace the `deps.state.observability.indexer = { … }` assignment (lines 555-561) with:
 
 ```ts
-    const totalGaps = Object.values(coverage).reduce((sum, c) => sum + c.gapBlocks, 0);
-    this.etaSamples = pushEtaSample(this.etaSamples, {
-      atMs: deps.now(),
-      remaining: totalGaps,
-    });
-    deps.state.observability.indexer = {
-      backfillQueueDepth: deps.queue.totalDepth(),
-      coverage,
-      difficultyDataStartBlock: difficulty
-        ? String(deps.store.coverageFor("difficulty").start)
-        : null,
-      backfillEtaSeconds: estimateEtaSeconds(this.etaSamples),
-    };
+const totalGaps = Object.values(coverage).reduce((sum, c) => sum + c.gapBlocks, 0);
+this.etaSamples = pushEtaSample(this.etaSamples, {
+  atMs: deps.now(),
+  remaining: totalGaps,
+});
+deps.state.observability.indexer = {
+  backfillQueueDepth: deps.queue.totalDepth(),
+  coverage,
+  difficultyDataStartBlock: difficulty ? String(deps.store.coverageFor("difficulty").start) : null,
+  backfillEtaSeconds: estimateEtaSeconds(this.etaSamples),
+};
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -362,7 +366,7 @@ Expected: PASS.
 Run: `docker exec deploy-app-1 bash -lc 'cd /app && bun run typecheck'`
 Expected: all workspaces exit 0.
 
-Note: the ETA *dynamics* (null before 90s of history, positive once the deficit net-shrinks, null when it grows) are exhaustively covered by Task 1's `estimateEtaSeconds` unit tests; this task verifies only that `publishProgress` accumulates `totalGaps` and wires the field.
+Note: the ETA _dynamics_ (null before 90s of history, positive once the deficit net-shrinks, null when it grows) are exhaustively covered by Task 1's `estimateEtaSeconds` unit tests; this task verifies only that `publishProgress` accumulates `totalGaps` and wires the field.
 
 - [ ] **Step 5: Commit**
 
@@ -376,12 +380,14 @@ git commit -m "feat(indexer): publish backfillEtaSeconds from the reconciler"
 ### Task 4: Frontend consumes the published ETA
 
 **Files:**
+
 - Modify: `apps/frontend/src/lib/indexer-eta.ts` (delete sampling API; keep `formatEta`)
 - Modify: `apps/frontend/src/lib/indexer-eta.test.ts` (keep only `formatEta` tests)
 - Modify: `apps/frontend/src/components/layout/IndexerProgress.tsx`
 - Modify: `apps/frontend/src/components/layout/IndexerProgress.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `backfillEtaSeconds?` on `IndexerObservability["indexer"]` (Task 2); `formatEta` (kept).
 - Produces: nothing new.
 
@@ -456,11 +462,7 @@ export function IndexerProgress() {
   const etaSec = progress.stage === "indexing" ? indexer?.indexer?.backfillEtaSeconds : null;
   const eta = typeof etaSec === "number" && etaSec > 0 ? ` · ${formatEta(etaSec * 1000)}` : "";
   return (
-    <p
-      className="font-accent text-[10px] text-ink-subtle"
-      role="status"
-      aria-live="polite"
-    >
+    <p className="font-accent text-[10px] text-ink-subtle" role="status" aria-live="polite">
       {STAGE_LABEL[progress.stage]} · {fmt(progress.current)} / {fmt(progress.total)}
       {eta}
     </p>
@@ -471,30 +473,30 @@ export function IndexerProgress() {
 - [ ] **Step 4: Update the component test** — in `apps/frontend/src/components/layout/IndexerProgress.test.tsx`, (a) DELETE the two tests titled `"omits the ETA suffix until enough history exists"` and `"appends a smoothed ETA once the deficit shrinks over the window"`, and (b) add these two tests inside the `describe("IndexerProgress", …)` block (the `cov` helper and `obs` factory already exist in the file):
 
 ```ts
-  test("appends the server ETA when backfillEtaSeconds is set", () => {
-    useTelemetryStore.setState({
-      indexer: obs({
-        chainHeadFromNode: "560000",
-        indexer: { ...cov(12_000), backfillEtaSeconds: 780 },
-      }),
-      serverTime: null,
-    });
-    act(() => root.render(createElement(IndexerProgress)));
-    expect(container.textContent).toContain("Indexing · 548,000 / 560,000 · ~13m");
+test("appends the server ETA when backfillEtaSeconds is set", () => {
+  useTelemetryStore.setState({
+    indexer: obs({
+      chainHeadFromNode: "560000",
+      indexer: { ...cov(12_000), backfillEtaSeconds: 780 },
+    }),
+    serverTime: null,
   });
+  act(() => root.render(createElement(IndexerProgress)));
+  expect(container.textContent).toContain("Indexing · 548,000 / 560,000 · ~13m");
+});
 
-  test("omits the ETA when backfillEtaSeconds is null", () => {
-    useTelemetryStore.setState({
-      indexer: obs({
-        chainHeadFromNode: "560000",
-        indexer: { ...cov(12_000), backfillEtaSeconds: null },
-      }),
-      serverTime: null,
-    });
-    act(() => root.render(createElement(IndexerProgress)));
-    expect(container.textContent).toContain("Indexing · 548,000 / 560,000");
-    expect(container.textContent).not.toMatch(/~\d/);
+test("omits the ETA when backfillEtaSeconds is null", () => {
+  useTelemetryStore.setState({
+    indexer: obs({
+      chainHeadFromNode: "560000",
+      indexer: { ...cov(12_000), backfillEtaSeconds: null },
+    }),
+    serverTime: null,
   });
+  act(() => root.render(createElement(IndexerProgress)));
+  expect(container.textContent).toContain("Indexing · 548,000 / 560,000");
+  expect(container.textContent).not.toMatch(/~\d/);
+});
 ```
 
 - [ ] **Step 5: Run tests + typecheck**
@@ -517,6 +519,7 @@ git commit -m "feat(frontend): show server-computed backfill ETA, drop client sa
 ## Self-Review
 
 **Spec coverage:**
+
 - Pure server ETA helper → Task 1. ✓
 - Wiring in `publishProgress` with `deps.now`, summed gapBlocks → Task 3. ✓
 - Shared type field → Task 2. ✓

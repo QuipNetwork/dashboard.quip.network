@@ -35,9 +35,12 @@ ReconcileProducer.publishProgress()   (every ~6s, per head — producers.ts:533)
 **Pure helper** `apps/indexer/pipeline/backfill-eta.ts`:
 
 ```ts
-export interface EtaSample { atMs: number; remaining: number }
-export function pushEtaSample(samples, next, windowMs?): EtaSample[]
-export function estimateEtaSeconds(samples, minSpanMs?): number | null
+export interface EtaSample {
+  atMs: number;
+  remaining: number;
+}
+export function pushEtaSample(samples, next, windowMs?): EtaSample[];
+export function estimateEtaSeconds(samples, minSpanMs?): number | null;
 ```
 
 - `pushEtaSample` appends `next` and trims to a trailing window (default 120_000

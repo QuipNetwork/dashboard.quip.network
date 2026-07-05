@@ -22,11 +22,7 @@ export function IndexerProgress() {
   const etaSec = progress.stage === "indexing" ? indexer?.indexer?.backfillEtaSeconds : null;
   const eta = typeof etaSec === "number" && etaSec > 0 ? ` · ${formatEta(etaSec * 1000)}` : "";
   return (
-    <p
-      className="font-accent text-[10px] text-ink-subtle"
-      role="status"
-      aria-live="polite"
-    >
+    <p className="font-accent text-[10px] text-ink-subtle" role="status" aria-live="polite">
       {STAGE_LABEL[progress.stage]} · {fmt(progress.current)} / {fmt(progress.total)}
       {eta}
     </p>
