@@ -6,10 +6,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { Interval } from "./coverage";
+import type { Coverage, Interval } from "./coverage";
 import { BackfillWalker, Reconciler, TipEnqueuer, type RangeCompletion } from "./producers";
 import { QueueCore, type WorkItem } from "./queue";
 import { Subject } from "rxjs";
+import type { IndexerState } from "../core/state";
 
 const T0 = 1_750_000_000_000;
 
@@ -248,5 +249,97 @@ describe("Reconciler sync gating", () => {
     await wait(20);
     expect(calls.finalizedHead).toBe(1);
     sub.unsubscribe();
+  });
+
+  test("publishProgress sets backfillEtaSeconds on the observability", async () => {
+    const state = {
+      observability: { indexer: undefined },
+    } as unknown as IndexerState;
+    const { deps } = makeDeps({});
+    const reconciler = new Reconciler({ ...deps, state });
+    await reconciler.tick();
+    expect(state.observability.indexer).toBeDefined();
+    // Empty registry → 0 gaps → never net-shrinking → null, but the key is set.
+    expect(state.observability.indexer!.backfillEtaSeconds).toBeNull();
+  });
+});
+
+describe("Reconciler backfill ETA across ticks", () => {
+  // A single winner-domain plugin whose coverage gap shrinks/holds between
+  // ticks, driven by mutable `now`/`gapHi` closures so each tick can move the
+  // clock and the deficit independently.
+  function makeEtaReconciler(now: () => number, gapHi: () => number, state: IndexerState) {
+    const queue = makeQueue();
+    const { walker } = makeWalker(queue);
+    const store = {
+      ensureLoaded: async () => {},
+      coverageFor: (_name: string): Coverage => ({
+        v: 1,
+        gen: 0,
+        start: 0,
+        low: 0,
+        high: 1000,
+        gaps: [[0, gapHi()]],
+        prunedFloor: null,
+        updatedAt: null,
+      }),
+      clearFloor: () => {},
+      flush: async () => {},
+    };
+    const db = {
+      getExistingBlockNumbers: async () => [],
+      getExistingDifficultyBlockNumbers: async () => [],
+    } as never;
+    const client = {
+      getFinalizedHead: async () => "1000",
+      getQBlockNumbers: async () => [],
+    } as never;
+    return new Reconciler({
+      db,
+      client,
+      queue,
+      walker,
+      store,
+      registry: [{ name: "winners", domain: "winner-blocks" } as never],
+      now,
+      state,
+    });
+  }
+
+  test("backfillEtaSeconds turns positive once the deficit shrinks over >=90s", async () => {
+    let clock = 1_750_000_000_000;
+    let gapHi = 999;
+    const state = { observability: { indexer: undefined } } as unknown as IndexerState;
+    const reconciler = makeEtaReconciler(
+      () => clock,
+      () => gapHi,
+      state,
+    );
+
+    await reconciler.tick(); // tick 1: totalGaps=1000, 1 sample → null
+    expect(state.observability.indexer!.backfillEtaSeconds).toBeNull();
+
+    clock += 90_001;
+    gapHi = 399; // deficit shrinks 1000 -> 400 blocks over >=90s
+    await reconciler.tick(); // tick 2: totalGaps=400, span 90_001ms, closed 600 → positive
+    expect(state.observability.indexer!.backfillEtaSeconds).toBeGreaterThan(0);
+  });
+
+  test("backfillEtaSeconds stays null when the deficit does not shrink", async () => {
+    let clock = 1_750_000_000_000;
+    const gapHi = 999;
+    const state = { observability: { indexer: undefined } } as unknown as IndexerState;
+    const reconciler = makeEtaReconciler(
+      () => clock,
+      () => gapHi,
+      state,
+    );
+
+    await reconciler.tick(); // tick 1: totalGaps=1000, 1 sample → null
+    expect(state.observability.indexer!.backfillEtaSeconds).toBeNull();
+
+    clock += 90_001;
+    await reconciler.tick(); // tick 2: same deficit, span >=90s, closed=0 → still null
+    expect(state.observability.indexer!.backfillEtaSeconds).toBeNull();
   });
 });

@@ -304,6 +304,27 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
           bestBlockHeight: "200",
         });
       });
+
+      it("roundtrips backfillEtaSeconds through the indexer progress whitelist", async () => {
+        const obs = {
+          chainHeadFromNode: "300",
+          lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
+          lastBlockInsertAt: null,
+          lastSubstrateEventAt: null,
+          bestBlockHeight: "300",
+          finalizedBlockHeight: "300",
+          chainConnected: true,
+          indexer: {
+            backfillQueueDepth: 5,
+            coverage: {},
+            difficultyDataStartBlock: null,
+            backfillEtaSeconds: 780,
+          },
+        } as IndexerObservability;
+        await db.setIndexerObservability(obs);
+        const got = await db.getIndexerObservability();
+        expect(got?.indexer?.backfillEtaSeconds).toBe(780);
+      });
     });
 
     describe("chain head", () => {

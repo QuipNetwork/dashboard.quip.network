@@ -26,6 +26,7 @@ import { runEffect } from "../core/rx";
 import type { IndexerState } from "../core/state";
 import type { ChainClient, ConnectionStream, HeadSource } from "../substrate/ports";
 import { fromChainSubscription } from "../substrate/streams";
+import { estimateEtaSeconds, pushEtaSample, type EtaSample } from "./backfill-eta";
 import { isComplete, uncovered, type Coverage, type Interval } from "./coverage";
 import type { BlockIndexable } from "./plugin";
 import type { BackfillLane, QueueCore } from "./queue";
@@ -334,6 +335,9 @@ export class Reconciler implements ConnectionStream {
   /** Fires (then completes) when the --once exit condition holds (spec §7). */
   readonly done$ = new Subject<void>();
 
+  // Rolling (now, totalGaps) samples feeding the published backfill ETA.
+  private etaSamples: EtaSample[] = [];
+
   private lastCrossCheckAt: number | null = null;
   // Drift blocks re-enqueued once that STAYED missing: suppressed for the
   // generation so a genuinely unindexable block can't flap --once or spam
@@ -552,12 +556,18 @@ export class Reconciler implements ConnectionStream {
       };
     }
     const difficulty = deps.registry.find((p) => p.name === "difficulty");
+    const totalGaps = Object.values(coverage).reduce((sum, c) => sum + c.gapBlocks, 0);
+    this.etaSamples = pushEtaSample(this.etaSamples, {
+      atMs: deps.now(),
+      remaining: totalGaps,
+    });
     deps.state.observability.indexer = {
       backfillQueueDepth: deps.queue.totalDepth(),
       coverage,
       difficultyDataStartBlock: difficulty
         ? String(deps.store.coverageFor("difficulty").start)
         : null,
+      backfillEtaSeconds: estimateEtaSeconds(this.etaSamples),
     };
   }
 
