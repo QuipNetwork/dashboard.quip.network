@@ -10,6 +10,7 @@ import {
   PolkadotSubstrateClient,
   decodeBlockWinnerEventData,
   decodeMinerRegistryDescriptor,
+  deriveIsSyncing,
   qblockInfoFromSolution,
   type BlockEvents,
   type SubstrateHead,
@@ -757,5 +758,30 @@ describe("FakeSubstrateClient.getQBlock", () => {
     const sol = await c.getQBlock("77");
     expect(sol?.nonce).toBe("12345");
     expect(sol?.difficulty.minSolutions).toBe(5);
+  });
+});
+
+describe("deriveIsSyncing (filters system_health.isSyncing flapping)", () => {
+  test("flag false → never syncing", () => {
+    expect(deriveIsSyncing(false, 100, 200)).toBe(false);
+    expect(deriveIsSyncing(false, 100, null)).toBe(false);
+  });
+
+  test("flag true but at/past the known head → NOT syncing (the flap fix)", () => {
+    expect(deriveIsSyncing(true, 200, 200)).toBe(false); // current == highest
+    expect(deriveIsSyncing(true, 201, 200)).toBe(false); // current > highest
+  });
+
+  test("flag true and genuinely trailing a higher head → syncing", () => {
+    expect(deriveIsSyncing(true, 150, 200)).toBe(true);
+  });
+
+  test("flag true with no head to compare (syncState absent) → trust the flag", () => {
+    expect(deriveIsSyncing(true, null, null)).toBe(true);
+    expect(deriveIsSyncing(true, 150, null)).toBe(true);
+  });
+
+  test("flag true, head known but current unknown → assume syncing", () => {
+    expect(deriveIsSyncing(true, null, 200)).toBe(true);
   });
 });

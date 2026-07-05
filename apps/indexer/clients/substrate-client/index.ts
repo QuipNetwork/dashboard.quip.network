@@ -207,7 +207,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       // drives the gate.
     }
     return {
-      isSyncing: health.isSyncing.isTrue,
+      isSyncing: deriveIsSyncing(health.isSyncing.isTrue, currentBlock, highestBlock),
       peers: health.peers.toNumber(),
       currentBlock,
       highestBlock,
@@ -1073,6 +1073,26 @@ function discreteMeanAbs(min: number, max: number): number | null {
  * the spec-111 `device_access_time_us` tail) can be unit-tested without a
  * live chain.
  */
+/**
+ * Filter the flapping of `system_health.isSyncing`. A quiet / solo validator
+ * toggles that flag `true` even when it has imported everything it knows about
+ * (`currentBlock >= highestBlock`), which would otherwise make the SyncGate
+ * pause/resume indexing in a loop and drive perpetual re-backfill. Only report
+ * syncing when the node genuinely trails a known-higher head. When syncState
+ * gave no head (`highestBlock === null`) there is nothing to compare against, so
+ * fall back to the raw flag.
+ */
+export function deriveIsSyncing(
+  flag: boolean,
+  currentBlock: number | null,
+  highestBlock: number | null,
+): boolean {
+  if (!flag) return false;
+  if (highestBlock === null) return true; // no head to compare — trust the flag
+  if (currentBlock === null) return true; // head known but current unknown — assume syncing
+  return currentBlock < highestBlock;
+}
+
 export function qblockInfoFromSolution(sol: Record<string, unknown>, nonce: string): QBlockInfo {
   const rawDevice = sol.deviceAccessTimeUs ?? sol.device_access_time_us;
   const device = Number(rawDevice);
