@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "dashboard_quip_network",
+  "project_id": "6738bc98-5442-47ec-be91-c9fe40b1d2aa"
+}
