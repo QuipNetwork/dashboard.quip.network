@@ -112,6 +112,27 @@ export const HYBRID_EXTRINSIC_TYPES = {
 } as unknown as RegistryTypes;
 
 /**
+ * Static-per-topology-hash metadata memoized for a connection's lifetime.
+ *
+ * A topology's on-chain `TopologyMeta` (node/edge vectors, allowed H/J value
+ * specs) never changes for a fixed `H256` hash, so its derived node/edge counts
+ * and energy-curve constant are pure functions of the hash. In practice ~one
+ * topology hash spans the whole chain, so resolving it once per hash turns the
+ * per-winner-block topology lookup from a WASM runtime call into a Map read.
+ *
+ * `curveConstant` is optional: `getTopology` resolves only node/edge counts (via
+ * the `registeredTopologies` storage read) and leaves it unset, signalling that
+ * `getMineableTopologies` still has to resolve the curve constant once via the
+ * `topologyMeta` runtime API. Decayed difficulty (`difficultyFor`) is
+ * deliberately NOT memoized here — it changes per block.
+ */
+interface CachedTopologyMeta {
+  nodeCount: number;
+  edgeCount: number;
+  curveConstant?: number | null;
+}
+
+/**
  * @polkadot/api-backed implementation. Pinned to 16.5.6 in package.json so
  * @polkadot/types stays in lockstep (a mismatch produces opaque decode
  * errors). Storage queries target quip-protocol-rs v0.2 — later runtime
@@ -123,6 +144,9 @@ export class PolkadotSubstrateClient implements SubstrateClient {
   private provider: WsProvider | null = null;
   private connectedCbs = new Set<() => void>();
   private disconnectedCbs = new Set<() => void>();
+  // Per-connection memo of static-per-topology-hash metadata. Cleared on
+  // disconnect so a reconnect (possibly to a different chain) re-resolves.
+  private topologyByHash = new Map<string, CachedTopologyMeta>();
 
   constructor(
     private readonly url: string,
@@ -159,6 +183,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     const api = this.api;
     this.api = null;
     this.provider = null;
+    this.topologyByHash.clear();
     if (api) await api.disconnect();
   }
 
@@ -355,6 +380,51 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     return decodeDifficulty(codec);
   }
 
+  // Resolve a topology's static node/edge counts + energy-curve constant,
+  // memoized by hash for the connection. A cache entry counts as "fully
+  // resolved" only once its curveConstant is set (getTopology seeds counts
+  // without it), so a counts-only entry still triggers one topologyMeta read
+  // here. Absent/undecodable meta is not cached — the next call retries.
+  private async resolveMineableTopologyMeta(
+    topologyHash: string,
+    metaFn: unknown,
+  ): Promise<CachedTopologyMeta> {
+    const cached = this.topologyByHash.get(topologyHash);
+    if (cached && cached.curveConstant !== undefined) return cached;
+    const fallback: CachedTopologyMeta = {
+      nodeCount: cached?.nodeCount ?? 0,
+      edgeCount: cached?.edgeCount ?? 0,
+      curveConstant: null,
+    };
+    if (typeof metaFn !== "function") return fallback;
+    const mc = (await (metaFn as (h: string) => Promise<unknown>)(topologyHash)) as {
+      isSome?: boolean;
+      unwrap?: () => {
+        nodes: { length: number };
+        edges: { length: number };
+        // The allowed-value specs are small enums; toJSON only these (never
+        // the large nodes/edges vectors) to keep the poll cheap.
+        allowedHValues?: { toJSON?: () => unknown };
+        allowedJValues?: { toJSON?: () => unknown };
+        allowed_h_values?: { toJSON?: () => unknown };
+        allowed_j_values?: { toJSON?: () => unknown };
+      };
+    };
+    if (!mc?.isSome || !mc.unwrap) return fallback;
+    const meta = mc.unwrap();
+    const nodeCount = meta.nodes.length;
+    const edgeCount = meta.edges.length;
+    const hSpec = (meta.allowedHValues ?? meta.allowed_h_values)?.toJSON?.();
+    const jSpec = (meta.allowedJValues ?? meta.allowed_j_values)?.toJSON?.();
+    const resolved: CachedTopologyMeta = {
+      nodeCount,
+      edgeCount,
+      curveConstant: computeCurveConstant(nodeCount, edgeCount, hSpec, jSpec),
+    };
+    this.topologyByHash.set(topologyHash, resolved);
+    return resolved;
+  }
+
   async getMineableTopologies(): Promise<MineableTopologyInfo[]> {
     const api = this.requireApi();
     const call = api.call as unknown as Record<string, Record<string, unknown> | undefined>;
@@ -389,39 +459,17 @@ export class PolkadotSubstrateClient implements SubstrateClient {
         };
         if (dc?.isSome && dc.unwrap) difficulty = decodeDifficulty(dc.unwrap());
       }
-      let nodeCount = 0;
-      let edgeCount = 0;
-      let curveConstant: number | null = null;
-      if (typeof metaFn === "function") {
-        const mc = (await (metaFn as (h: string) => Promise<unknown>)(topologyHash)) as {
-          isSome?: boolean;
-          unwrap?: () => {
-            nodes: { length: number };
-            edges: { length: number };
-            // The allowed-value specs are small enums; toJSON only these (never
-            // the large nodes/edges vectors) to keep the poll cheap.
-            allowedHValues?: { toJSON?: () => unknown };
-            allowedJValues?: { toJSON?: () => unknown };
-            allowed_h_values?: { toJSON?: () => unknown };
-            allowed_j_values?: { toJSON?: () => unknown };
-          };
-        };
-        if (mc?.isSome && mc.unwrap) {
-          const meta = mc.unwrap();
-          nodeCount = meta.nodes.length;
-          edgeCount = meta.edges.length;
-          const hSpec = (meta.allowedHValues ?? meta.allowed_h_values)?.toJSON?.();
-          const jSpec = (meta.allowedJValues ?? meta.allowed_j_values)?.toJSON?.();
-          curveConstant = computeCurveConstant(nodeCount, edgeCount, hSpec, jSpec);
-        }
-      }
+      const { nodeCount, edgeCount, curveConstant } = await this.resolveMineableTopologyMeta(
+        topologyHash,
+        metaFn,
+      );
       out.push({
         topologyHash,
         isDefault: topologyHash === defaultHash,
         difficulty,
         nodeCount,
         edgeCount,
-        curveConstant,
+        curveConstant: curveConstant ?? null,
       });
     }
     return out;
@@ -832,6 +880,11 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     };
     if (!defaultOpt.isSome || !defaultOpt.unwrap) return null;
     const topologyHash = defaultOpt.unwrap().toHex();
+    // Node/edge counts are static per hash — serve from the connection cache
+    // (populated here or by getMineableTopologies) instead of re-reading the
+    // full TopologyMeta on every winner block during backfill.
+    const cached = this.topologyByHash.get(topologyHash);
+    if (cached) return { nodeCount: cached.nodeCount, edgeCount: cached.edgeCount };
     const metaCodec = await api.query.quantumPow.registeredTopologies(topologyHash);
     const metaOpt = metaCodec as unknown as {
       isSome?: boolean;
@@ -839,10 +892,17 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     };
     if (!metaOpt.isSome || !metaOpt.unwrap) return null;
     const meta = metaOpt.unwrap();
-    return {
+    const info: TopologyInfo = {
       nodeCount: meta.nodes.length,
       edgeCount: meta.edges.length,
     };
+    // Leave curveConstant unset: this path doesn't derive it, so
+    // getMineableTopologies knows it must still resolve it once via topologyMeta.
+    this.topologyByHash.set(topologyHash, {
+      nodeCount: info.nodeCount,
+      edgeCount: info.edgeCount,
+    });
+    return info;
   }
 
   async getDefaultTopologyAt(blockNumber: string): Promise<string | null> {

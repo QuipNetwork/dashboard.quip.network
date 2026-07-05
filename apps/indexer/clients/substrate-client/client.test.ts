@@ -429,6 +429,156 @@ describe("decodeMinerRegistryDescriptor (V1 / V2 schema)", () => {
   });
 });
 
+describe("PolkadotSubstrateClient topology-by-hash cache", () => {
+  // Inject a fake `api` so the topology read paths run without a live chain.
+  // The cache is a private field; we exercise it purely through the public
+  // methods and count how often the underlying runtime/storage reads fire.
+  const optHash = (hex: string) => ({ isSome: true, unwrap: () => ({ toHex: () => hex }) });
+  const meta = (nodes: number, edges: number) => ({
+    isSome: true,
+    unwrap: () => ({ nodes: { length: nodes }, edges: { length: edges } }),
+  });
+  // topologyMeta additionally exposes the allowed H/J value specs used to
+  // derive the (static) curve constant.
+  const mineableMeta = (nodes: number, edges: number) => ({
+    isSome: true,
+    unwrap: () => ({
+      nodes: { length: nodes },
+      edges: { length: edges },
+      allowedHValues: { toJSON: () => ({ set: [-1000, 1000] }) },
+      allowedJValues: { toJSON: () => ({ set: [-1000, 1000] }) },
+    }),
+  });
+
+  const withApi = (api: unknown): PolkadotSubstrateClient => {
+    const client = new PolkadotSubstrateClient("ws://unused");
+    (client as unknown as { api: unknown }).api = api;
+    return client;
+  };
+
+  test("getTopology resolves a hash once, then serves node/edge counts from cache", async () => {
+    let registeredCalls = 0;
+    const client = withApi({
+      query: {
+        quantumPow: {
+          defaultTopology: () => Promise.resolve(optHash("0xabc")),
+          registeredTopologies: (_hash: string) => {
+            registeredCalls++;
+            return Promise.resolve(meta(120, 300));
+          },
+        },
+      },
+    });
+    const first = await client.getTopology();
+    const second = await client.getTopology();
+    expect(registeredCalls).toBe(1);
+    expect(first).toEqual({ nodeCount: 120, edgeCount: 300 });
+    expect(second).toEqual(first);
+  });
+
+  test("disconnect clears the cache so the next resolve hits the chain again", async () => {
+    let registeredCalls = 0;
+    const makeApi = () => ({
+      query: {
+        quantumPow: {
+          defaultTopology: () => Promise.resolve(optHash("0xabc")),
+          registeredTopologies: (_hash: string) => {
+            registeredCalls++;
+            return Promise.resolve(meta(120, 300));
+          },
+        },
+      },
+      disconnect: () => Promise.resolve(),
+    });
+    const client = withApi(makeApi());
+    await client.getTopology();
+    expect(registeredCalls).toBe(1);
+    await client.disconnect();
+    // Re-attach a fresh api (new connection); the cache must not survive.
+    (client as unknown as { api: unknown }).api = makeApi();
+    await client.getTopology();
+    expect(registeredCalls).toBe(2);
+  });
+
+  test("getMineableTopologies caches node/edge counts but re-reads decayed difficulty", async () => {
+    let metaCalls = 0;
+    let diffCalls = 0;
+    const client = withApi({
+      query: {
+        quantumPow: {
+          defaultTopology: () => Promise.resolve(optHash("0xabc")),
+        },
+      },
+      call: {
+        quantumPowApi: {
+          mineableTopologies: () => Promise.resolve({ toJSON: () => ["0xabc"] }),
+          difficultyFor: (_hash: string) => {
+            diffCalls++;
+            return Promise.resolve({
+              isSome: true,
+              unwrap: () => ({
+                toJSON: () => ({ maxEnergyMilli: -100, minDiversityMilli: 5, minSolutions: 1 }),
+              }),
+            });
+          },
+          topologyMeta: (_hash: string) => {
+            metaCalls++;
+            return Promise.resolve(mineableMeta(120, 300));
+          },
+        },
+      },
+    });
+    const first = await client.getMineableTopologies();
+    const second = await client.getMineableTopologies();
+    // Static node/edge/curve metadata resolved once; decayed difficulty each time.
+    expect(metaCalls).toBe(1);
+    expect(diffCalls).toBe(2);
+    expect(first[0]?.nodeCount).toBe(120);
+    expect(first[0]?.edgeCount).toBe(300);
+    expect(second[0]?.nodeCount).toBe(120);
+    expect(second[0]?.curveConstant).toBe(first[0]?.curveConstant);
+  });
+
+  test("getTopology and getMineableTopologies share the same per-hash cache", async () => {
+    let metaCalls = 0;
+    let registeredCalls = 0;
+    const client = withApi({
+      query: {
+        quantumPow: {
+          defaultTopology: () => Promise.resolve(optHash("0xabc")),
+          registeredTopologies: (_hash: string) => {
+            registeredCalls++;
+            return Promise.resolve(meta(120, 300));
+          },
+        },
+      },
+      call: {
+        quantumPowApi: {
+          mineableTopologies: () => Promise.resolve({ toJSON: () => ["0xabc"] }),
+          difficultyFor: (_hash: string) =>
+            Promise.resolve({
+              isSome: true,
+              unwrap: () => ({
+                toJSON: () => ({ maxEnergyMilli: -100, minDiversityMilli: 5, minSolutions: 1 }),
+              }),
+            }),
+          topologyMeta: (_hash: string) => {
+            metaCalls++;
+            return Promise.resolve(mineableMeta(120, 300));
+          },
+        },
+      },
+    });
+    // getMineableTopologies resolves the curve constant via topologyMeta and
+    // seeds the cache; getTopology then serves node/edge counts with no read.
+    await client.getMineableTopologies();
+    const topo = await client.getTopology();
+    expect(metaCalls).toBe(1);
+    expect(registeredCalls).toBe(0);
+    expect(topo).toEqual({ nodeCount: 120, edgeCount: 300 });
+  });
+});
+
 describe("FakeSubstrateClient.getQBlock", () => {
   test("returns null when no solution is programmed for the block", async () => {
     const c = new FakeSubstrateClient();
