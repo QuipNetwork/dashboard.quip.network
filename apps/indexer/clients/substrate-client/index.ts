@@ -696,32 +696,7 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     ]).catch(mapPruned);
     const author = signedBlockExt.author ? signedBlockExt.author.toString() : null;
 
-    type EventRecord = {
-      event: {
-        section: string;
-        method: string;
-        data: Array<{ toString: () => string }>;
-      };
-    };
-    let winner: BlockWinnerEvent | null = null;
-    const proofs: ProofAcceptedEvent[] = [];
-    for (const rec of signedBlockExt.events as unknown as EventRecord[]) {
-      const { section, method, data } = rec.event;
-      if (section !== "quantumPow") continue;
-      if (method === "BlockWinner") {
-        const decoded = decodeBlockWinnerEventData(data);
-        if (decoded) winner = decoded;
-      } else if (method === "ProofAccepted") {
-        const [minerCodec, energyCodec, diversityCodec, validCodec] = data;
-        if (!minerCodec || !energyCodec || !diversityCodec || !validCodec) continue;
-        proofs.push({
-          miner: minerCodec.toString(),
-          energyMilli: Number(energyCodec.toString()),
-          diversityMilli: Number(diversityCodec.toString()),
-          validSolutionCount: Number(validCodec.toString()),
-        });
-      }
-    }
+    const { winner, proofs } = parseQuantumPowEvents(signedBlockExt.events);
     // Nonce sourced from quip-protocol-rs v0.2's
     // `QuantumPowApi::winning_solution(block)` — the runtime computes the
     // BLAKE3 digest server-side. Null for winnerless heads (no fetch
@@ -735,6 +710,76 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       // pallet_timestamp returns milliseconds; the indexer stores unix
       // seconds (BlockRecord.timestamp) for parity with the legacy REST
       // path. Truncate rather than round to keep ordering stable.
+      timestamp: Math.floor(
+        Number((timestampAtBlock as unknown as { toString: () => string }).toString()) / 1000,
+      ),
+      winner,
+      proofs,
+      nonce,
+    };
+  }
+
+  /**
+   * Targeted decode for a winning block: produces the same `winner`,
+   * `proofs`, and `nonce` a canonical `blocks` row needs WITHOUT
+   * `api.derive.chain.getBlock`. That full-block derivation (block body +
+   * every event + BABE author-set resolution) is the dominant validator-CPU
+   * cost during winner backfill; this path reads only the block's events
+   * (`system.events.at`), its timestamp, and the winning solution's nonce
+   * (from the `winningSolution` runtime API — already needed for the qblock
+   * fields), skipping the body entirely.
+   *
+   * `author` is intentionally null: validator authorship is now recorded only
+   * at the tip via the every-block `decodeFinalizedBlock` path, so backfill
+   * needn't derive the author. Returns null for a block with no
+   * `quantumPow.BlockWinner` event (mirrors the winnerless handling in the
+   * full-decode path). Throws {@link StatePrunedError} when the historical
+   * state at the block hash has been pruned.
+   */
+  async decodeWinnerBlock(blockNumber: string): Promise<BlockEvents | null> {
+    const api = this.requireApi();
+    const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
+    const blockHash = hashCodec.toHex();
+    // BlockHash("0x00…00") is the chain_getBlockHash "not found" sentinel.
+    if (/^0x0+$/.test(blockHash)) return null;
+
+    const eventsAt = api.query.system?.events?.at;
+    if (!eventsAt) {
+      throw new Error("[substrate-client] api.query.system.events.at is unavailable");
+    }
+    const timestampAt = api.query.timestamp?.now?.at;
+    if (!timestampAt) {
+      throw new Error("[substrate-client] runtime missing timestamp.now");
+    }
+
+    // Header supplies parentHash without decoding the body — a cheap RPC that
+    // is NOT `derive.chain.getBlock` (no events or author-set derivation).
+    const header = await api.rpc.chain.getHeader(hashCodec);
+    const parentHash = header.parentHash.toHex();
+
+    // Tier-2 reads at the historical hash: pruned nodes surface "state already
+    // discarded" here — typed so the dispatcher can ratchet pruned floors.
+    const [eventRecords, timestampAtBlock] = await Promise.all([
+      (eventsAt as (h: string) => Promise<unknown>)(blockHash),
+      timestampAt(blockHash),
+    ]).catch(mapPruned);
+
+    const { winner, proofs } = parseQuantumPowEvents(eventRecords);
+    // Not a winner block — mirror decodeFinalizedBlock's winnerless handling.
+    if (!winner) return null;
+
+    // Nonce from the runtime `winning_solution` result (BLAKE3 digest computed
+    // server-side); reused from the qblock fetch, so no extrinsic decode. Null
+    // when the runtime value is unavailable (pre-v0.2 capability absent).
+    const nonce = (await this.getQBlock(blockNumber))?.nonce ?? null;
+    return {
+      blockNumber: Number(blockNumber),
+      blockHash,
+      parentHash,
+      // Winner-only path: authorship backfills at the tip, not here.
+      author: null,
+      // pallet_timestamp returns milliseconds; store unix seconds (truncated
+      // to keep ordering stable), matching decodeFinalizedBlock.
       timestamp: Math.floor(
         Number((timestampAtBlock as unknown as { toString: () => string }).toString()) / 1000,
       ),
@@ -1045,6 +1090,50 @@ export function qblockInfoFromSolution(sol: Record<string, unknown>, nonce: stri
  * Extracted (and exported) so the positional decode can be unit-tested
  * without a live chain — the Fake client emits already-decoded events.
  */
+/**
+ * Extract the single `quantumPow.BlockWinner` and all `quantumPow.ProofAccepted`
+ * events from a block's event records into the `{winner, proofs}` shape a
+ * {@link BlockEvents} carries. Shared by the full-block decode
+ * (`decodeFinalizedBlock`, records from `derive.chain.getBlock`) and the
+ * targeted winner decode (`decodeWinnerBlock`, records from
+ * `system.events.at`) — both surface the same `event.{section,method,data}`
+ * record shape, so the parse is identical. `diversityMilli` and
+ * `validSolutionCount` live only on the `ProofAccepted` event, so this is the
+ * only place they can be recovered.
+ */
+export function parseQuantumPowEvents(records: unknown): {
+  winner: BlockWinnerEvent | null;
+  proofs: ProofAcceptedEvent[];
+} {
+  type EventRecord = {
+    event: {
+      section: string;
+      method: string;
+      data: Array<{ toString: () => string }>;
+    };
+  };
+  let winner: BlockWinnerEvent | null = null;
+  const proofs: ProofAcceptedEvent[] = [];
+  for (const rec of records as EventRecord[]) {
+    const { section, method, data } = rec.event;
+    if (section !== "quantumPow") continue;
+    if (method === "BlockWinner") {
+      const decoded = decodeBlockWinnerEventData(data);
+      if (decoded) winner = decoded;
+    } else if (method === "ProofAccepted") {
+      const [minerCodec, energyCodec, diversityCodec, validCodec] = data;
+      if (!minerCodec || !energyCodec || !diversityCodec || !validCodec) continue;
+      proofs.push({
+        miner: minerCodec.toString(),
+        energyMilli: Number(energyCodec.toString()),
+        diversityMilli: Number(diversityCodec.toString()),
+        validSolutionCount: Number(validCodec.toString()),
+      });
+    }
+  }
+  return { winner, proofs };
+}
+
 export function decodeBlockWinnerEventData(
   data: Array<{ toString: () => string }>,
 ): BlockWinnerEvent | null {

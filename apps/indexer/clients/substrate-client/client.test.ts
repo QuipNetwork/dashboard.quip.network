@@ -579,6 +579,156 @@ describe("PolkadotSubstrateClient topology-by-hash cache", () => {
   });
 });
 
+describe("PolkadotSubstrateClient.decodeWinnerBlock (targeted decode)", () => {
+  const eventRec = (section: string, method: string, data: Array<{ toString: () => string }>) => ({
+    event: { section, method, data },
+  });
+
+  // A representative winner block: one BlockWinner + two ProofAccepted events
+  // (plus unrelated noise that must be filtered out).
+  const winnerData = [
+    codec("7"),
+    codec("4500"),
+    codec("5GPPxx"),
+    codec("1000000000000"),
+    codec(-2510),
+    codec("4498"),
+  ];
+  const winnerEvents = [
+    eventRec("system", "ExtrinsicSuccess", []),
+    eventRec("quantumPow", "BlockWinner", winnerData),
+    eventRec("quantumPow", "ProofAccepted", [codec("5GPPxx"), codec(-2510), codec(420), codec(5)]),
+    eventRec("quantumPow", "ProofAccepted", [codec("5Other"), codec(-1000), codec(300), codec(3)]),
+  ];
+  const noWinnerEvents = [
+    eventRec("system", "ExtrinsicSuccess", []),
+    eventRec("quantumPow", "ProofAccepted", [codec("5GPPxx"), codec(-2510), codec(420), codec(5)]),
+  ];
+
+  const solutionOpt = {
+    isSome: true,
+    unwrap: () => ({
+      solution: {
+        toJSON: () => ({
+          miner: "5GPPxx",
+          energyMilli: -2510,
+          reward: "1000000000000",
+          submittedAt: "4498",
+          difficulty: { maxEnergyMilli: -1200, minDiversityMilli: 200, minSolutions: 5 },
+          deviceAccessTimeUs: 12,
+        }),
+      },
+      nonce: codec("999888777"),
+    }),
+  };
+
+  // Fake api covering both decode paths. `deriveThrows` makes
+  // derive.chain.getBlock explode (the winner path must never touch it);
+  // otherwise it returns author + events so the full-decode golden succeeds
+  // and increments the shared counter.
+  const makeApi = (opts: {
+    events?: unknown;
+    solution?: unknown;
+    deriveThrows?: boolean;
+    deriveCalls?: { n: number };
+    eventsThrows?: unknown;
+  }) => {
+    const events = opts.events ?? winnerEvents;
+    const solution = "solution" in opts ? opts.solution : solutionOpt;
+    return {
+      rpc: {
+        chain: {
+          getBlockHash: (_n: string) => Promise.resolve({ toHex: () => "0xhash4500" }),
+          getHeader: (_h: unknown) =>
+            Promise.resolve({ parentHash: { toHex: () => "0xhash4499" } }),
+        },
+      },
+      query: {
+        system: {
+          events: {
+            at: (_h: string) => {
+              if (opts.eventsThrows) return Promise.reject(opts.eventsThrows);
+              return Promise.resolve(events);
+            },
+          },
+        },
+        timestamp: { now: { at: (_h: string) => Promise.resolve(codec("1700000000000")) } },
+      },
+      call: {
+        quantumPowApi: { winningSolution: (_n: string) => Promise.resolve(solution) },
+      },
+      derive: {
+        chain: {
+          getBlock: (_h: string) => {
+            if (opts.deriveCalls) opts.deriveCalls.n++;
+            if (opts.deriveThrows) {
+              return Promise.reject(new Error("derive.chain.getBlock must not be called"));
+            }
+            return Promise.resolve({
+              author: { toString: () => "0xAUTHOR" },
+              events,
+            });
+          },
+        },
+      },
+    };
+  };
+
+  const withApi = (api: unknown): PolkadotSubstrateClient => {
+    const client = new PolkadotSubstrateClient("ws://unused");
+    (client as unknown as { api: unknown }).api = api;
+    return client;
+  };
+
+  test("winner/proofs/nonce equal the full decode, with zero derive.chain.getBlock", async () => {
+    // Golden: the existing full-block path (which DOES fetch the block).
+    const goldenCalls = { n: 0 };
+    const goldenClient = withApi(makeApi({ deriveCalls: goldenCalls }));
+    const golden = await (
+      goldenClient as unknown as {
+        decodeFinalizedBlock: (h: string, p: string, n: number) => Promise<BlockEvents | null>;
+      }
+    ).decodeFinalizedBlock("0xhash4500", "0xhash4499", 4500);
+    expect(goldenCalls.n).toBe(1);
+
+    // Targeted: same fixture, but derive.chain.getBlock is wired to throw —
+    // the winner path must produce the equivalent result without it.
+    const winnerCalls = { n: 0 };
+    const winnerClient = withApi(makeApi({ deriveThrows: true, deriveCalls: winnerCalls }));
+    const targeted = await winnerClient.decodeWinnerBlock("4500");
+    expect(winnerCalls.n).toBe(0);
+
+    expect(targeted?.winner).toEqual(golden?.winner ?? null);
+    expect(targeted?.proofs).toEqual(golden?.proofs ?? []);
+    expect(targeted?.nonce).toBe(golden?.nonce ?? null);
+    // diversity + validSolutionCount are event-only; recovered from events.at.
+    expect(targeted?.proofs[0]?.diversityMilli).toBe(420);
+    expect(targeted?.proofs[0]?.validSolutionCount).toBe(5);
+    // Winner-only path leaves author null (authorship backfills at the tip).
+    expect(targeted?.author).toBeNull();
+    expect(targeted?.timestamp).toBe(1700000000);
+  });
+
+  test("returns null for a block with no BlockWinner event", async () => {
+    const client = withApi(makeApi({ events: noWinnerEvents }));
+    expect(await client.decodeWinnerBlock("4500")).toBeNull();
+  });
+
+  test("nonce is null when the winning_solution runtime value is unavailable", async () => {
+    const client = withApi(makeApi({ solution: { isSome: false } }));
+    const res = await client.decodeWinnerBlock("4500");
+    expect(res?.winner).not.toBeNull();
+    expect(res?.nonce).toBeNull();
+  });
+
+  test("propagates StatePrunedError from pruned historical state", async () => {
+    const client = withApi(
+      makeApi({ eventsThrows: new Error("state already discarded for 0xhash4500") }),
+    );
+    await expect(client.decodeWinnerBlock("4500")).rejects.toThrow(/state already discarded/i);
+  });
+});
+
 describe("FakeSubstrateClient.getQBlock", () => {
   test("returns null when no solution is programmed for the block", async () => {
     const c = new FakeSubstrateClient();
