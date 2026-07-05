@@ -16,8 +16,17 @@ export function authorshipPlugin(): BlockIndexable {
     kind: "block",
     domain: "every-block",
 
-    // Validator authorship exists from genesis.
-    startBlock: async () => 0,
+    // This runtime has no per-validator authored-block counter (no imOnline /
+    // staking / authorship pallet), so counts can only be reconstructed by
+    // walking each block's author digest. Rather than pay the whole-chain
+    // [0, head] dense walk — the single biggest source of backfill load on the
+    // validator — to seed lifetime totals, start at the current head and let
+    // tip-following accumulate counts from now on. The validator SET is read
+    // directly from `session.validators`; only these counters are
+    // indexer-relative. On restart, persisted coverage is reused (ensureLoaded
+    // discards this value), so restarts backfill only the bounded downtime gap
+    // above the last covered head — never genesis.
+    startBlock: async (client) => Number(await client.getFinalizedHead()),
 
     async onBlock(ctx: BlockContext, db: DatabaseAdapter): Promise<void> {
       const e = ctx.events;

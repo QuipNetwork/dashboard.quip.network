@@ -36,7 +36,8 @@ export function ValidatorsTable({
         </h2>
         <p className="mt-1 font-accent text-xs text-ink-subtle">
           BABE validator set from <code>session.validators</code>. Counters increment per finalized
-          head; the PoW column counts heads that also won a <code>quantumPow.BlockWinner</code>.
+          head since indexing began (not lifetime — the chain exposes no authored-block counter);
+          the PoW column counts heads that also won a <code>quantumPow.BlockWinner</code>.
         </p>
       </header>
       <div className="overflow-x-auto">

@@ -67,7 +67,10 @@ function plugins(): BlockIndexable[] {
   return [
     { ...winnersPlugin(), startBlock: async () => 0 },
     { ...difficultyPlugin(), startBlock: async () => 0 },
-    authorshipPlugin(),
+    // authorship's real startBlock now reads the chain head; pin to 0 here so
+    // the reindex idempotence walk covers the full [0, HEAD] range like the
+    // other plugins (this test exercises reindex mechanics, not the floor).
+    { ...authorshipPlugin(), startBlock: async () => 0 },
   ];
 }
 
