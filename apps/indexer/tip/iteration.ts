@@ -200,15 +200,18 @@ async function persistAttempt(
 }
 
 /**
- * Dominant miner type across `miners[]`. Ties broken by enum order
- * (CPU first, then GPU, QPU, OTHER) so a single-miner CPU node and a
- * single-miner GPU node both report something sensible.
+ * Primary type for a rig, by hardware *capability* rather than process count:
+ * a node with any GPU miner is a GPU node even when CPU worker processes
+ * outnumber it (e.g. an Apple-silicon box running 6 CPU workers + 1 GPU/MPS
+ * miner — the CPU workers are incidental filler). Priority GPU > QPU > CPU >
+ * OTHER matches the dashboard's `derivePrimaryTypeFromDescriptor`, so the
+ * self-status path and the chain-descriptor path classify the same rig
+ * identically. Empty/OTHER-only miner lists fall through to OTHER.
  */
 function derivePrimaryType(miners: Array<{ type: MinerCategory }>): MinerCategory {
-  if (miners.length === 0) return "OTHER";
-  const counts: Record<MinerCategory, number> = { CPU: 0, GPU: 0, QPU: 0, OTHER: 0 };
-  for (const m of miners) counts[m.type]++;
-  return (Object.entries(counts) as Array<[MinerCategory, number]>).sort(
-    (a, b) => b[1] - a[1],
-  )[0]![0];
+  const present = new Set(miners.map((m) => m.type));
+  for (const cat of ["GPU", "QPU", "CPU"] as const) {
+    if (present.has(cat)) return cat;
+  }
+  return "OTHER";
 }

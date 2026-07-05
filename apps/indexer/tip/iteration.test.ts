@@ -164,6 +164,30 @@ describe("tip-worker v0.3", () => {
     expect((await deps.db.getMinerHardware("5GPP"))?.primaryType).toBe("GPU");
   });
 
+  test("derivePrimaryType prefers GPU capability even when CPU workers outnumber it", async () => {
+    // Real case: an Apple-silicon rig runs 6 CPU workers + 1 GPU/MPS miner.
+    // By raw process count CPU wins 6-to-1, but the node is a GPU node — the
+    // CPU workers are incidental filler. Classification is capability-priority
+    // (GPU > QPU > CPU > OTHER), not most-frequent.
+    const deps = await setupDeps({
+      client: fakeClient({
+        status: {
+          miners: [
+            { id: "quip-miner-CPU-1", type: "CPU" },
+            { id: "quip-miner-CPU-2", type: "CPU" },
+            { id: "quip-miner-CPU-3", type: "CPU" },
+            { id: "quip-miner-CPU-4", type: "CPU" },
+            { id: "quip-miner-CPU-5", type: "CPU" },
+            { id: "quip-miner-CPU-6", type: "CPU" },
+            { id: "quip-miner-GPU-MPS", type: "GPU" },
+          ],
+        },
+      }),
+    });
+    await runTipIteration(deps);
+    expect((await deps.db.getMinerHardware("5GPP"))?.primaryType).toBe("GPU");
+  });
+
   test("502 on /status leaves selfAddress null but heartbeat still advances", async () => {
     const deps = await setupDeps({ client: fakeClient({ status: "error" }) });
     await runTipIteration(deps);
