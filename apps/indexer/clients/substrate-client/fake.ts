@@ -16,6 +16,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  WinnerBlockDecode,
 } from "./types";
 
 import { StatePrunedError } from "./errors";
@@ -193,6 +194,19 @@ export class FakeSubstrateClient implements SubstrateClient {
   async processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null> {
     this.throwIfPruned(blockNumber);
     return this.historicalBlocks.get(blockNumber) ?? null;
+  }
+  // Targeted winner decode: same source as processFinalizedBlock but returns
+  // the block's events (author nulled, matching production's winner path) plus
+  // the single programmed QBlock. Null for a non-winner block.
+  async decodeWinnerBlock(blockNumber: string): Promise<WinnerBlockDecode | null> {
+    this.throwIfPruned(blockNumber);
+    const source = this.historicalBlocks.get(blockNumber) ?? null;
+    if (!source || source.winner === null) return null;
+    const qblock = this.qblocksByBlock.get(blockNumber) ?? null;
+    return {
+      events: { ...source, author: null, nonce: qblock?.nonce ?? null },
+      qblock,
+    };
   }
   // Tests populate `minerRegistryDescriptorsByBlock` (keyed by scan block)
   // with the storage snapshot the descriptor worker should observe.

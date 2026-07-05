@@ -57,19 +57,31 @@ function makeFakeClient(): ChainClient {
       nonce: WINNERS.includes(n) ? String(1000 + n) : null,
     }) as BlockEvents;
 
+  const qblock = (n: number) =>
+    WINNERS.includes(n)
+      ? {
+          miner: "5GWinner",
+          energyMilli: -14_000_000 - n,
+          reward: "1000",
+          submittedAt: String(n),
+          nonce: String(1000 + n),
+          difficulty: { maxEnergyMilli: -13_900_000, minDiversityMilli: 100, minSolutions: 1 },
+          deviceAccessTimeUs: null,
+          // Same hash the historical getDefaultTopologyAt returns — one static
+          // topology (verified). The winner path stamps this without the read.
+          topologyHash: "0xHIST",
+        }
+      : null;
+
   return {
     processFinalizedBlock: async (n: string) => events(Number(n)),
-    getQBlock: async (n: string) =>
-      WINNERS.includes(Number(n))
-        ? {
-            miner: "5GWinner",
-            energyMilli: -14_000_000 - Number(n),
-            reward: "1000",
-            submittedAt: n,
-            nonce: String(1000 + Number(n)),
-            difficulty: { maxEnergyMilli: -13_900_000, minDiversityMilli: 100, minSolutions: 1 },
-          }
-        : null,
+    // Targeted winner decode: events (author nulled) + the single QBlock fetch.
+    decodeWinnerBlock: async (n: string) => {
+      const e = events(Number(n));
+      if (e.winner === null) return null;
+      return { events: { ...e, author: null }, qblock: qblock(Number(n)) };
+    },
+    getQBlock: async (n: string) => qblock(Number(n)),
     getLastProofBlockAt: async () => 0,
     getDefaultTopologyAt: async () => "0xHIST",
     getTopology: async () => ({ nodeCount: 4, edgeCount: 8 }),
@@ -93,9 +105,9 @@ interface Rig {
 async function makeRig(
   db: DatabaseAdapter,
   plugins: BlockIndexable[],
-  opts: { once?: boolean } = {},
+  opts: { once?: boolean; client?: ChainClient } = {},
 ): Promise<Rig> {
-  const client = makeFakeClient();
+  const client = opts.client ?? makeFakeClient();
   const state = new IndexerState(db);
   const now = () => Date.now();
   const wake$ = new Subject<void>();
@@ -184,10 +196,12 @@ describe("dispatcher end-to-end (boot reconcile → converged coverage)", () => 
         "103",
         "108",
       ]);
-      // authorship.startBlock() = 0 and the fake chain synthesizes events
-      // for every height, so the dense walk reaches genesis: blocks 0..HEAD.
+      // authorship.startBlock() now reads the chain head (getFinalizedHead =
+      // HEAD), so the dense walk only covers block HEAD itself — one authored
+      // block. (Historical winner blocks below head are winner-only items and
+      // take the targeted decode, which records no authorship.)
       const [author] = await db.getValidatorAuthorship();
-      expect(author?.blocksAuthored).toBe(HEAD + 1);
+      expect(author?.blocksAuthored).toBe(1);
       // Coverage converged for every plugin, winner-domain included (D1).
       for (const name of ["winners", "difficulty", "authorship"]) {
         const cov = parseCoverage(JSON.parse((await db.getCoverage(name)) ?? "null"));
@@ -214,7 +228,7 @@ describe("dispatcher end-to-end (boot reconcile → converged coverage)", () => 
         expect(await db.getRecentBlocks(50)).toHaveLength(2);
         expect(await db.getRecentDifficulty(50)).toHaveLength(2);
         const [author] = await db.getValidatorAuthorship();
-        expect(author?.blocksAuthored).toBe(HEAD + 1); // no double counts
+        expect(author?.blocksAuthored).toBe(1); // head only; no double counts
       } finally {
         rig2.stop();
       }
@@ -268,6 +282,156 @@ describe("--once exit condition", () => {
       await settle(rig, 3_000);
       await rig.reconciler.tick(); // deciding tick: everything converged
       expect(done).toBe(true);
+    } finally {
+      rig.stop();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3: winner-lane routing through the targeted decode + de-dupe.
+
+interface SpyCounts {
+  processFinalizedBlock: number;
+  decodeWinnerBlock: number;
+  getQBlock: number;
+  getDefaultTopologyAt: number;
+}
+
+// Wraps makeFakeClient with call counters. `decodeWinnerBlock` mirrors
+// production: it makes the SINGLE winning_solution fetch (the counted
+// getQBlock) and returns it for the dispatcher to reuse — so a winner block
+// that also read ctx.qblock() must still show exactly one getQBlock call.
+function makeSpyClient(): { client: ChainClient; calls: SpyCounts } {
+  const base = makeFakeClient();
+  const calls: SpyCounts = {
+    processFinalizedBlock: 0,
+    decodeWinnerBlock: 0,
+    getQBlock: 0,
+    getDefaultTopologyAt: 0,
+  };
+  const getQBlock = async (n: string) => {
+    calls.getQBlock++;
+    return base.getQBlock(n);
+  };
+  const client = {
+    ...base,
+    getQBlock,
+    processFinalizedBlock: async (n: string) => {
+      calls.processFinalizedBlock++;
+      return base.processFinalizedBlock(n);
+    },
+    getDefaultTopologyAt: async (n: string) => {
+      calls.getDefaultTopologyAt++;
+      return base.getDefaultTopologyAt(n);
+    },
+    decodeWinnerBlock: async (n: string) => {
+      calls.decodeWinnerBlock++;
+      const events = await base.processFinalizedBlock(n); // raw source, uncounted
+      if (!events || events.winner === null) return null;
+      const qblock = await getQBlock(n); // the ONE winning_solution call
+      return { events: { ...events, author: null }, qblock };
+    },
+  } as unknown as ChainClient;
+  return { client, calls };
+}
+
+// A no-op every-block plugin starting at genesis, so every block (winner
+// blocks included) carries a non-winner-domain pending and takes the full path.
+function everyBlockTag(): BlockIndexable {
+  return {
+    name: "tag",
+    kind: "block",
+    domain: "every-block",
+    startBlock: async () => 0,
+    onBlock: async () => {},
+    dropState: async () => {},
+  };
+}
+
+describe("winner-lane routing (targeted decode)", () => {
+  it("routes winner-only backfill items through decodeWinnerBlock with exactly one winningSolution each", async () => {
+    const { client, calls } = makeSpyClient();
+    const rig = await makeRig(db, [winnersPlugin(), difficultyPlugin()], { client });
+    try {
+      await rig.reconciler.tick();
+      await settle(rig, 3_000);
+
+      // Both winner blocks decoded via the targeted path; full decode unused.
+      expect(calls.decodeWinnerBlock).toBe(WINNERS.length);
+      expect(calls.processFinalizedBlock).toBe(0);
+      // Exactly one winning_solution (getQBlock) per winner block — the value
+      // is threaded onto ctx, so difficulty's ctx.qblock() adds no extra call.
+      expect(calls.getQBlock).toBe(WINNERS.length);
+      // Rows still land.
+      expect((await db.getRecentBlocks(50)).map((b) => b.substrateBlockNumber).sort()).toEqual([
+        "103",
+        "108",
+      ]);
+    } finally {
+      rig.stop();
+    }
+  });
+
+  it("winner-path row is byte-for-byte the full-decode row (golden equivalence)", async () => {
+    // Full path: an every-block tag makes winner blocks non-winner-only, so
+    // block 103 is decoded via processFinalizedBlock and stamped via the
+    // historical getDefaultTopologyAt.
+    const db2 = await newInMemoryAdapter();
+    const rigFull = await makeRig(db2, [winnersPlugin(), difficultyPlugin(), everyBlockTag()]);
+    try {
+      await rigFull.reconciler.tick();
+      await settle(rigFull, 3_000);
+    } finally {
+      rigFull.stop();
+    }
+    const fullRow = (await db2.getRecentBlocks(50)).find((b) => b.substrateBlockNumber === "103");
+
+    // Winner path: same fixture, winner-only → decodeWinnerBlock + solution
+    // topologyHash.
+    const rigWin = await makeRig(db, [winnersPlugin(), difficultyPlugin()]);
+    try {
+      await rigWin.reconciler.tick();
+      await settle(rigWin, 3_000);
+    } finally {
+      rigWin.stop();
+    }
+    const winRow = (await db.getRecentBlocks(50)).find((b) => b.substrateBlockNumber === "103");
+
+    expect(winRow).toBeDefined();
+    expect(winRow).toEqual(fullRow);
+  });
+
+  it("winner path stamps topology_hash from the solution, not a historical DefaultTopology read", async () => {
+    const { client, calls } = makeSpyClient();
+    const rig = await makeRig(db, [winnersPlugin(), difficultyPlugin()], { client });
+    try {
+      await rig.reconciler.tick();
+      await settle(rig, 3_000);
+
+      // The per-block historical read never happens on the winner path.
+      expect(calls.getDefaultTopologyAt).toBe(0);
+      // The stamped hash is the one the solution carried.
+      const row = (await db.getRecentBlocks(50)).find((b) => b.substrateBlockNumber === "103");
+      expect(row?.topologyHash).toBe("0xHIST");
+    } finally {
+      rig.stop();
+    }
+  });
+
+  it("an item carrying an every-block plugin uses the full decode (processFinalizedBlock)", async () => {
+    const { client, calls } = makeSpyClient();
+    const rig = await makeRig(db, [winnersPlugin(), difficultyPlugin(), everyBlockTag()], {
+      client,
+    });
+    try {
+      await rig.reconciler.tick();
+      await settle(rig, 3_000);
+
+      // Every block (winner blocks included) carries `tag` → nothing is
+      // winner-only → the targeted decode is never taken.
+      expect(calls.decodeWinnerBlock).toBe(0);
+      expect(calls.processFinalizedBlock).toBeGreaterThan(0);
     } finally {
       rig.stop();
     }

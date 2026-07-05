@@ -44,6 +44,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  WinnerBlockDecode,
 } from "./types";
 
 export * from "./types";
@@ -735,8 +736,14 @@ export class PolkadotSubstrateClient implements SubstrateClient {
    * `quantumPow.BlockWinner` event (mirrors the winnerless handling in the
    * full-decode path). Throws {@link StatePrunedError} when the historical
    * state at the block hash has been pruned.
+   *
+   * Returns the decoded `events` alongside the single `winning_solution` fetch
+   * (`qblock`) that produced its nonce, so the dispatcher can thread that one
+   * `QBlockInfo` onto the `BlockContext` (`ctx.qblock()` and the
+   * solution-carried `topologyHash`) — guaranteeing exactly one `winningSolution`
+   * runtime call per winner block instead of one here plus one in the context.
    */
-  async decodeWinnerBlock(blockNumber: string): Promise<BlockEvents | null> {
+  async decodeWinnerBlock(blockNumber: string): Promise<WinnerBlockDecode | null> {
     const api = this.requireApi();
     const hashCodec = await api.rpc.chain.getBlockHash(blockNumber);
     const blockHash = hashCodec.toHex();
@@ -768,11 +775,13 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     // Not a winner block — mirror decodeFinalizedBlock's winnerless handling.
     if (!winner) return null;
 
-    // Nonce from the runtime `winning_solution` result (BLAKE3 digest computed
-    // server-side); reused from the qblock fetch, so no extrinsic decode. Null
-    // when the runtime value is unavailable (pre-v0.2 capability absent).
-    const nonce = (await this.getQBlock(blockNumber))?.nonce ?? null;
-    return {
+    // The single `winning_solution` runtime call for this block: supplies the
+    // nonce (BLAKE3 digest computed server-side, so no extrinsic decode) AND
+    // is returned so the dispatcher reuses it for `ctx.qblock()` and the
+    // solution-carried `topologyHash`. Null when the runtime value is
+    // unavailable (pre-v0.2 capability absent).
+    const qblock = await this.getQBlock(blockNumber);
+    const events: BlockEvents = {
       blockNumber: Number(blockNumber),
       blockHash,
       parentHash,
@@ -785,8 +794,9 @@ export class PolkadotSubstrateClient implements SubstrateClient {
       ),
       winner,
       proofs,
-      nonce,
+      nonce: qblock?.nonce ?? null,
     };
+    return { events, qblock };
   }
 
   async getLastProofBlockAt(blockHash: string): Promise<number> {
@@ -1066,6 +1076,7 @@ function discreteMeanAbs(min: number, max: number): number | null {
 export function qblockInfoFromSolution(sol: Record<string, unknown>, nonce: string): QBlockInfo {
   const rawDevice = sol.deviceAccessTimeUs ?? sol.device_access_time_us;
   const device = Number(rawDevice);
+  const rawTopology = sol.topologyHash ?? sol.topology_hash;
   return {
     miner: String(sol.miner),
     energyMilli: Number(sol.energyMilli ?? sol.energy_milli ?? 0),
@@ -1075,6 +1086,9 @@ export function qblockInfoFromSolution(sol: Record<string, unknown>, nonce: stri
     difficulty: decodeDifficulty(sol.difficulty),
     // null = absent (pre-111) or undecodable; 0 = present-but-unreported.
     deviceAccessTimeUs: rawDevice == null || !Number.isFinite(device) ? null : device,
+    // The solution carries the mined-against topology hash directly; null when
+    // absent (pre-topology runtime) so the winner path degrades to null tagging.
+    topologyHash: rawTopology == null ? null : String(rawTopology),
   };
 }
 

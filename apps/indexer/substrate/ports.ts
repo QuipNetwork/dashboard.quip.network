@@ -21,6 +21,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  WinnerBlockDecode,
 } from "../clients/substrate-client";
 
 export interface ConnectionControl {
@@ -56,6 +57,10 @@ export interface BlockSource {
 export interface BackfillSource {
   getQBlockNumbers(): Promise<string[]>;
   processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null>;
+  // Targeted winner-block decode: events + the single winning_solution fetch,
+  // skipping derive.chain.getBlock. Used by the dispatcher for winner-only
+  // backfill items (spec §Phase-1). Returns null for a non-winner block.
+  decodeWinnerBlock(blockNumber: string): Promise<WinnerBlockDecode | null>;
 }
 
 export interface PollSource {

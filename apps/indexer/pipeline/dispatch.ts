@@ -30,7 +30,7 @@ import {
 } from "rxjs";
 
 import { StatePrunedError } from "../clients/substrate-client/errors";
-import type { QBlockInfo, TopologyInfo } from "../clients/substrate-client";
+import type { BlockEvents, QBlockInfo, TopologyInfo } from "../clients/substrate-client";
 import type { IndexerState } from "../core/state";
 import type { ChainClient, ConnectionStream } from "../substrate/ports";
 import {
@@ -175,6 +175,11 @@ export interface DispatcherDeps {
 
 export class DispatcherStream implements ConnectionStream {
   private readonly byName: Map<string, BlockIndexable>;
+  // Names of the winner-domain plugins. An item whose entire `pending` set is
+  // drawn from here is a "winner-only" item (winner backfill, never the tip —
+  // tip winner blocks also carry the every-block authorship plugin) and takes
+  // the targeted `decodeWinnerBlock` path instead of the full block fetch.
+  private readonly winnerDomainNames: Set<string>;
   // Blocks whose onBlock threw, per plugin — excluded from range folds so
   // range completion can never paper over a real failure.
   private readonly errorBlocks = new Map<string, Set<number>>();
@@ -187,6 +192,16 @@ export class DispatcherStream implements ConnectionStream {
 
   constructor(private readonly deps: DispatcherDeps) {
     this.byName = new Map(deps.blockPlugins.map((p) => [p.name, p]));
+    this.winnerDomainNames = new Set(
+      deps.blockPlugins.filter((p) => p.domain === "winner-blocks").map((p) => p.name),
+    );
+  }
+
+  /** An item every one of whose pending plugins is winner-domain. */
+  private isWinnerOnly(pending: ReadonlySet<string>): boolean {
+    if (pending.size === 0) return false;
+    for (const name of pending) if (!this.winnerDomainNames.has(name)) return false;
+    return true;
   }
 
   errorBlocksFor(plugin: string): ReadonlySet<number> {
@@ -236,10 +251,25 @@ export class DispatcherStream implements ConnectionStream {
     const { deps } = this;
     const block = item.block;
     try {
-      // ONE block fetch per item, shared by every plugin (spec §6).
-      let events;
+      // ONE block fetch per item, shared by every plugin (spec §6). Winner-only
+      // backfill items take the targeted decode: events from system.events.at
+      // plus a SINGLE winning_solution fetch (reused below for ctx.qblock and
+      // the solution-carried topologyHash), skipping derive.chain.getBlock. The
+      // tip/full path keeps the full decode — authorship at the tip needs the
+      // author + full events.
+      const winnerOnly = this.isWinnerOnly(item.pending);
+      let events: BlockEvents | null;
+      // The winner path's single QBlockInfo, threaded onto ctx below so no
+      // second winningSolution call is ever issued for a winner block.
+      let winnerQblock: QBlockInfo | null = null;
       try {
-        events = await deps.client.processFinalizedBlock(String(block));
+        if (winnerOnly) {
+          const decoded = await deps.client.decodeWinnerBlock(String(block));
+          events = decoded?.events ?? null;
+          winnerQblock = decoded?.qblock ?? null;
+        } else {
+          events = await deps.client.processFinalizedBlock(String(block));
+        }
       } catch (err) {
         if (err instanceof StatePrunedError) {
           // Case 3 (spec §8): the block cannot be indexed for ANY plugin
@@ -255,7 +285,7 @@ export class DispatcherStream implements ConnectionStream {
           }
           return;
         }
-        console.warn(`[pipeline] block #${block}: processFinalizedBlock failed:`, err);
+        console.warn(`[pipeline] block #${block}: block decode failed:`, err);
         return;
       }
       if (events === null) return; // nothing marked covered; reconciler re-detects
@@ -275,7 +305,13 @@ export class DispatcherStream implements ConnectionStream {
         number: block,
         source: item.source,
         events,
-        qblock: () => (qblockMemo ??= deps.client.getQBlock(String(block)).catch(() => null)),
+        // Winner path: reuse the QBlockInfo decodeWinnerBlock already fetched
+        // (its single winningSolution call) — never a second runtime call. The
+        // tip/full path lazily fetches on first read exactly as before.
+        qblock: () =>
+          winnerOnly
+            ? Promise.resolve(winnerQblock)
+            : (qblockMemo ??= deps.client.getQBlock(String(block)).catch(() => null)),
         lastProofBlockAtParent: () =>
           (lastProofMemo ??= deps.client.getLastProofBlockAt(events.parentHash).catch((err) => {
             if (err instanceof StatePrunedError) {
@@ -286,12 +322,15 @@ export class DispatcherStream implements ConnectionStream {
             }
             throw err;
           })),
-        // Tip items resolve live (mid-connection topology switches re-tag
-        // immediately, blocks.ts:181); backfill items read the true
+        // Winner path: the solution already carries the mined-against topology
+        // hash, so stamp from it — no per-block historical DefaultTopology.at
+        // runtime read. Tip items resolve live (mid-connection topology switches
+        // re-tag immediately, blocks.ts:181); other backfill items read the true
         // historical value (spec §6).
         defaultTopologyAt: () =>
-          (topoAtMemo ??=
-            item.source === "tip"
+          (topoAtMemo ??= winnerOnly
+            ? Promise.resolve(winnerQblock?.topologyHash ?? null)
+            : item.source === "tip"
               ? Promise.resolve(deps.state.defaultTopologyHash)
               : deps.client.getDefaultTopologyAt(String(block)).catch((err) => {
                   if (err instanceof StatePrunedError) {

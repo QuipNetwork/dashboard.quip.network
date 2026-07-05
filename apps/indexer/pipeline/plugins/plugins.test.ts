@@ -61,6 +61,7 @@ function makeQBlock(overrides: Partial<QBlockInfo> = {}): QBlockInfo {
     nonce: "123456789",
     difficulty: { maxEnergyMilli: -14_400_000, minDiversityMilli: 100, minSolutions: 2 },
     deviceAccessTimeUs: null,
+    topologyHash: null,
     ...overrides,
   };
 }
@@ -258,6 +259,14 @@ describe("authorship plugin", () => {
     const [a] = await db.getValidatorAuthorship();
     expect(a?.accountId).toBe("5GAuthor");
     expect(a?.blocksAuthored).toBe(1);
+  });
+
+  it("startBlock seeds at the current chain head, not genesis (no whole-chain walk)", async () => {
+    // No on-chain authored-block counter exists, so lifetime counts would
+    // require a [0, head] dense walk. We deliberately floor at the head and
+    // accumulate from tip-following instead, so a fresh index never pays that.
+    const client = { getFinalizedHead: async () => "568089" } as unknown as ChainClient;
+    expect(await authorshipPlugin().startBlock(client)).toBe(568_089);
   });
 });
 

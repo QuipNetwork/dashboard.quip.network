@@ -154,6 +154,22 @@ export interface QBlockInfo {
   // runtime API); `0` when present but unreported. Consumers must treat
   // both as "no report" and fall back to derived block spacing.
   deviceAccessTimeUs: number | null;
+  // H256 (0x hex) of the topology this solution was mined against, carried
+  // directly on the winning solution. Lets the winner-backfill path stamp
+  // `blocks.topology_hash` from the already-fetched solution instead of a
+  // per-block historical `DefaultTopology.at(hash)` runtime read. `null` when
+  // the runtime value is absent (pre-topology era) or undecodable.
+  topologyHash: string | null;
+}
+
+// Result of the targeted winner decode (`decodeWinnerBlock`): the block's
+// events PLUS the single `winning_solution` fetch that produced them, threaded
+// together so the dispatcher issues EXACTLY ONE `winningSolution` runtime call
+// per winner block — the same `QBlockInfo` is reused for `ctx.qblock()` and its
+// `topologyHash` for `ctx.defaultTopologyAt()` on the winner path.
+export interface WinnerBlockDecode {
+  events: BlockEvents;
+  qblock: QBlockInfo | null;
 }
 
 // One topology on the chain's mineable whitelist, with its current decayed
@@ -284,6 +300,13 @@ export interface SubstrateClient {
   // Returns null when the block isn't found. Used by the startup backfill
   // path to route historical winning blocks through the worker's writer.
   processFinalizedBlock(blockNumber: string): Promise<BlockEvents | null>;
+
+  // Targeted winner-block decode used by the dispatcher for winner-only
+  // backfill items: the block's events (author left null — authorship
+  // backfills at the tip) plus the single `winning_solution` fetch that
+  // produced them, WITHOUT `derive.chain.getBlock`. Returns null for a
+  // non-winner block. See WinnerBlockDecode.
+  decodeWinnerBlock(blockNumber: string): Promise<WinnerBlockDecode | null>;
 
   // Snapshot `miner_registry.NodeDescriptors` at a finalized block. The
   // runtime stores the descriptor's own `updated_at` block; returned rows

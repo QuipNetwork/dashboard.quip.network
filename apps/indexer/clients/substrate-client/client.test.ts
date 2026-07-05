@@ -698,15 +698,17 @@ describe("PolkadotSubstrateClient.decodeWinnerBlock (targeted decode)", () => {
     const targeted = await winnerClient.decodeWinnerBlock("4500");
     expect(winnerCalls.n).toBe(0);
 
-    expect(targeted?.winner).toEqual(golden?.winner ?? null);
-    expect(targeted?.proofs).toEqual(golden?.proofs ?? []);
-    expect(targeted?.nonce).toBe(golden?.nonce ?? null);
+    expect(targeted?.events.winner).toEqual(golden?.winner ?? null);
+    expect(targeted?.events.proofs).toEqual(golden?.proofs ?? []);
+    expect(targeted?.events.nonce).toBe(golden?.nonce ?? null);
     // diversity + validSolutionCount are event-only; recovered from events.at.
-    expect(targeted?.proofs[0]?.diversityMilli).toBe(420);
-    expect(targeted?.proofs[0]?.validSolutionCount).toBe(5);
+    expect(targeted?.events.proofs[0]?.diversityMilli).toBe(420);
+    expect(targeted?.events.proofs[0]?.validSolutionCount).toBe(5);
     // Winner-only path leaves author null (authorship backfills at the tip).
-    expect(targeted?.author).toBeNull();
-    expect(targeted?.timestamp).toBe(1700000000);
+    expect(targeted?.events.author).toBeNull();
+    expect(targeted?.events.timestamp).toBe(1700000000);
+    // The single winning_solution fetch is returned for the dispatcher to reuse.
+    expect(targeted?.qblock?.nonce).toBe("999888777");
   });
 
   test("returns null for a block with no BlockWinner event", async () => {
@@ -717,8 +719,9 @@ describe("PolkadotSubstrateClient.decodeWinnerBlock (targeted decode)", () => {
   test("nonce is null when the winning_solution runtime value is unavailable", async () => {
     const client = withApi(makeApi({ solution: { isSome: false } }));
     const res = await client.decodeWinnerBlock("4500");
-    expect(res?.winner).not.toBeNull();
-    expect(res?.nonce).toBeNull();
+    expect(res?.events.winner).not.toBeNull();
+    expect(res?.events.nonce).toBeNull();
+    expect(res?.qblock).toBeNull();
   });
 
   test("propagates StatePrunedError from pruned historical state", async () => {
@@ -749,6 +752,7 @@ describe("FakeSubstrateClient.getQBlock", () => {
         minSolutions: 5,
       },
       deviceAccessTimeUs: null,
+      topologyHash: null,
     });
     const sol = await c.getQBlock("77");
     expect(sol?.nonce).toBe("12345");

@@ -77,6 +77,7 @@ describe("end-to-end --once", () => {
         nonce: String(1000 + w),
         difficulty: { maxEnergyMilli: -13_000, minDiversityMilli: 100, minSolutions: 2 },
         deviceAccessTimeUs: null,
+        topologyHash: null,
       });
     }
 
