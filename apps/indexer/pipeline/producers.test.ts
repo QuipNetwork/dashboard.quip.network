@@ -10,6 +10,7 @@ import type { Interval } from "./coverage";
 import { BackfillWalker, Reconciler, TipEnqueuer, type RangeCompletion } from "./producers";
 import { QueueCore, type WorkItem } from "./queue";
 import { Subject } from "rxjs";
+import type { IndexerState } from "../core/state";
 
 const T0 = 1_750_000_000_000;
 
@@ -248,5 +249,17 @@ describe("Reconciler sync gating", () => {
     await wait(20);
     expect(calls.finalizedHead).toBe(1);
     sub.unsubscribe();
+  });
+
+  test("publishProgress sets backfillEtaSeconds on the observability", async () => {
+    const state = {
+      observability: { indexer: undefined },
+    } as unknown as IndexerState;
+    const { deps } = makeDeps({});
+    const reconciler = new Reconciler({ ...deps, state });
+    await reconciler.tick();
+    expect(state.observability.indexer).toBeDefined();
+    // Empty registry → 0 gaps → never net-shrinking → null, but the key is set.
+    expect(state.observability.indexer!.backfillEtaSeconds).toBeNull();
   });
 });
