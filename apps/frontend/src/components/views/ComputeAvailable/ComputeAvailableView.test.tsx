@@ -51,7 +51,7 @@ describe("ComputeAvailableView", () => {
   test("hosts the mining analytics: FLOPS tiles, qblock feed, leaderboard, charts", () => {
     renderView(root);
     const text = container.textContent ?? "";
-    expect(text).toContain("Last Block FLOPS");
+    expect(text).toContain("Last QBlock Details");
     expect(text).toContain("Current Block FLOPS");
     expect(text).toContain("Current Difficulty");
     expect(text).toContain("Recent QBlocks");

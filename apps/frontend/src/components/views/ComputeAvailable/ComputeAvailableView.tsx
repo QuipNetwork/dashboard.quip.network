@@ -29,6 +29,7 @@ import { useEnergyDistribution } from "@/components/charts/energy-distribution/u
 import { useLeaderboard } from "@/components/charts/leaderboard/use-leaderboard";
 import { useTimeToSolution } from "@/components/charts/time-to-solution/use-time-to-solution";
 import { useWinRateByDifficulty } from "@/components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
+import { LastQBlockDetailsCard } from "./LastQBlockDetailsCard";
 import { useComputeAvailable } from "./use-compute-available";
 
 /**
@@ -87,19 +88,9 @@ export function ComputeAvailableView() {
       {/* Block-ceiling FLOPS + live difficulty — orthogonal to By Node / By
           Type, visible in both modes. Three columns on lg; stacks below. */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <StatTile
-          label="Last Block FLOPS"
-          value={
-            compute.lastBlockPflopSeconds != null
-              ? `${compute.lastBlockPflopSeconds.toFixed(1)} PFLOP·s`
-              : "—"
-          }
-          sublabel={
-            compute.lastBlock != null
-              ? `#${compute.lastBlock.substrateBlockNumber} · solved in ${formatDuration(compute.lastBlock.miningTime * 1000)}`
-              : "Awaiting first block"
-          }
-          accent={SERIES_COLORS.GPU}
+        <LastQBlockDetailsCard
+          lastBlock={compute.lastBlock}
+          lastBlockPflopSeconds={compute.lastBlockPflopSeconds}
         />
         <StatTile
           label="Current Block FLOPS"
