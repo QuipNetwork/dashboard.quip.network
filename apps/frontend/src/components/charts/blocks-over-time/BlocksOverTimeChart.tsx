@@ -13,6 +13,10 @@ const tooltip = createLineTooltip({
 
 export interface BlocksOverTimeChartProps {
   data: BlocksOverTimeSeries[];
+  // Left-axis legend; defaults to the cumulative-count wording used by the
+  // "By Type"/"By Node" presentations. `BlocksOverTimeCard`'s Normalized
+  // mode overrides it to the per-device wording.
+  yAxisLabel?: string;
 }
 
 const gradientLines = createGradientLines(
@@ -27,7 +31,10 @@ const gradientLines = createGradientLines(
   ),
 );
 
-export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
+export function BlocksOverTimeChart({
+  data,
+  yAxisLabel = "Cumulative QBlocks",
+}: BlocksOverTimeChartProps) {
   if (data.length === 0) return null;
 
   return (
@@ -62,7 +69,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
           legendPosition: "middle",
         }}
         axisLeft={{
-          legend: "Cumulative QBlocks",
+          legend: yAxisLabel,
           legendOffset: -50,
           legendPosition: "middle",
         }}
