@@ -97,6 +97,8 @@ describe("parseIndexerObservability (v6)", () => {
           },
         },
         difficultyDataStartBlock: "394362",
+        // The parser always emits backfillEtaSeconds (null when not a number).
+        backfillEtaSeconds: null,
       },
     };
     const parsed = parseIndexerObservability(JSON.stringify(withIndexer));

@@ -113,6 +113,7 @@ function parseIndexerProgress(raw: unknown): IndexerObservability["indexer"] | u
     backfillQueueDepth: p.backfillQueueDepth,
     coverage,
     difficultyDataStartBlock: (p.difficultyDataStartBlock ?? null) as string | null,
+    backfillEtaSeconds: typeof p.backfillEtaSeconds === "number" ? p.backfillEtaSeconds : null,
   };
 }
 

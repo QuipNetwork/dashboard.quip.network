@@ -11,7 +11,7 @@ that is ahead of the indexer, views that depend on backfilled data appear empty
 for minutes with no explanation (e.g. the Compute Available hardware breakdown
 stayed empty for ~8 minutes while the indexer backfilled ~4100 blocks and the
 validator sync-gate flapped). Operators have no visible signal that the indexer
-is *working and catching up* versus *broken*.
+is _working and catching up_ versus _broken_.
 
 This feature adds a small, self-contained progress line under the **Connected
 Miner** identity block in the header showing how far along synchronization is.
@@ -21,11 +21,11 @@ Miner** identity block in the header showing how far along synchronization is.
 A single line rendered directly beneath the connected miner's address
 (`Header.tsx`, right column). It has three states:
 
-| State         | When                                                       | Renders                        |
-| ------------- | ---------------------------------------------------------- | ------------------------------ |
-| **Node sync** | validator is syncing and `current < highest`               | `Node sync · 559,624 / 559,745` |
-| **Indexing**  | not node-syncing, backfill meaningfully incomplete         | `Indexing · 555,600 / 559,745` |
-| **Live**      | node synced **and** backfill drained                       | *(renders nothing)*            |
+| State         | When                                               | Renders                         |
+| ------------- | -------------------------------------------------- | ------------------------------- |
+| **Node sync** | validator is syncing and `current < highest`       | `Node sync · 559,624 / 559,745` |
+| **Indexing**  | not node-syncing, backfill meaningfully incomplete | `Indexing · 555,600 / 559,745`  |
+| **Live**      | node synced **and** backfill drained               | _(renders nothing)_             |
 
 The line is also hidden (renders nothing) when observability is absent or stale
 — the existing `SyncIndicator` already owns the "Indexer offline" messaging, so
@@ -79,7 +79,7 @@ Decision order:
 
 > **Metric correction (2026-07-04, post-verification).** The original design used
 > `current = chainHead - backfillQueueDepth`. Driving the real app showed
-> `backfillQueueDepth` is a *bounded rolling in-flight window* (~2,600) the coverage
+> `backfillQueueDepth` is a _bounded rolling in-flight window_ (~2,600) the coverage
 > walker keeps topped up — it stays ~constant while backfill genuinely progresses,
 > so the line looked frozen. Replaced with the summed per-plugin coverage
 > `gapBlocks` (failed/pending-retry blocks still missing), the true deficit, which

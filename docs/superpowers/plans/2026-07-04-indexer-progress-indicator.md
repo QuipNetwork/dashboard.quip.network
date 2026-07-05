@@ -34,10 +34,12 @@
 ### Task 1: Pure `computeIndexerProgress` helper
 
 **Files:**
+
 - Create: `apps/frontend/src/lib/indexer-progress.ts`
 - Test: `apps/frontend/src/lib/indexer-progress.test.ts`
 
 **Interfaces:**
+
 - Consumes: `IndexerObservability` from `@quip/shared/telemetry`; `computeChainHealth` from `@/lib/staleness` (signature: `computeChainHealth({ nowMs: number; tipBlockTimestampMs: number | null; indexer: IndexerObservability | null }): { stage: "connecting" | "caught_up" | "stalled"; ... }`).
 - Produces:
   - `export const LIVE_THRESHOLD = 2`
@@ -74,9 +76,7 @@ function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservabilit
   };
 }
 
-const progress = (
-  depth: number,
-): NonNullable<IndexerObservability["indexer"]> => ({
+const progress = (depth: number): NonNullable<IndexerObservability["indexer"]> => ({
   backfillQueueDepth: depth,
   coverage: {},
   difficultyDataStartBlock: null,
@@ -249,10 +249,12 @@ git commit -m "feat(frontend): add computeIndexerProgress helper"
 ### Task 2: `IndexerProgress` component
 
 **Files:**
+
 - Create: `apps/frontend/src/components/layout/IndexerProgress.tsx`
 - Test: `apps/frontend/src/components/layout/IndexerProgress.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `computeIndexerProgress`, `IndexerProgress` from `@/lib/indexer-progress`; `useTelemetryStore` and `selectServerNowMs` from `@/store/telemetry-store` (`selectServerNowMs(state): number`, server-anchored now, falls back to `Date.now()` when `serverTime` is null).
 - Produces: `export function IndexerProgress(): JSX.Element | null`.
 
@@ -359,11 +361,7 @@ export function IndexerProgress() {
   if (!progress) return null;
   const fmt = (v: number) => v.toLocaleString("en-US");
   return (
-    <p
-      className="font-accent text-[10px] text-ink-subtle"
-      role="status"
-      aria-live="polite"
-    >
+    <p className="font-accent text-[10px] text-ink-subtle" role="status" aria-live="polite">
       {STAGE_LABEL[progress.stage]} · {fmt(progress.current)} / {fmt(progress.total)}
     </p>
   );
@@ -387,9 +385,11 @@ git commit -m "feat(frontend): add IndexerProgress component"
 ### Task 3: Wire into the header
 
 **Files:**
+
 - Modify: `apps/frontend/src/components/layout/Header.tsx`
 
 **Interfaces:**
+
 - Consumes: `IndexerProgress` from `./IndexerProgress`.
 - Produces: nothing new; renders the line under the Connected Miner address.
 
@@ -436,6 +436,7 @@ git commit -m "feat(frontend): show indexer progress under Connected Miner"
 ## Self-Review
 
 **Spec coverage:**
+
 - Placement under Connected Miner → Task 3. ✓
 - Three states (node-sync / indexing / live-hidden) → Task 1 helper + tests. ✓
 - Absent/stale guard reusing `lib/staleness` → Task 1 (`computeChainHealth(... ).stage === "stalled"`). ✓
