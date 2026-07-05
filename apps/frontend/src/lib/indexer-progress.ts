@@ -57,6 +57,9 @@ export function computeIndexerProgress(
   const depth = indexer.indexer?.backfillQueueDepth;
   const total = toBlockNum(indexer.chainHeadFromNode);
   if (typeof depth === "number" && depth > LIVE_THRESHOLD && total !== null) {
+    // The `Math.min(total, …)` upper bound is unreachable here (depth is
+    // always > 0 due to the LIVE_THRESHOLD gate above, so total - depth < total),
+    // but it keeps the result provably within [0, total] per spec.
     const current = Math.min(total, Math.max(0, total - depth));
     return { stage: "indexing", current, total };
   }

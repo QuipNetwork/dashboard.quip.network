@@ -101,4 +101,23 @@ describe("computeIndexerProgress", () => {
     const o = obs({ chainHeadFromNode: "50", indexer: progress(100) });
     expect(computeIndexerProgress(o, NOW)).toEqual({ stage: "indexing", current: 0, total: 50 });
   });
+
+  it("falls through to indexing when node-sync current is past highest", () => {
+    const o = obs({
+      nodeSyncing: true,
+      nodeSyncCurrentBlock: "559800",
+      nodeSyncHighestBlock: "559745",
+      indexer: progress(100),
+    });
+    expect(computeIndexerProgress(o, NOW)).toEqual({
+      stage: "indexing",
+      current: 559_645,
+      total: 559_745,
+    });
+  });
+
+  it("returns null in the indexing branch when chainHead is non-numeric", () => {
+    const o = obs({ chainHeadFromNode: "not-a-number", indexer: progress(100) });
+    expect(computeIndexerProgress(o, NOW)).toBeNull();
+  });
 });

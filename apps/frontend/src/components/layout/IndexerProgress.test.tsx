@@ -61,4 +61,32 @@ describe("IndexerProgress", () => {
     act(() => root.render(createElement(IndexerProgress)));
     expect(container.textContent).toBe("");
   });
+
+  test("renders node-sync progress as current / total", () => {
+    useTelemetryStore.setState({
+      indexer: obs({
+        nodeSyncing: true,
+        nodeSyncCurrentBlock: "559624",
+        nodeSyncHighestBlock: "559745",
+      }),
+      serverTime: null,
+    });
+    act(() => root.render(createElement(IndexerProgress)));
+    expect(container.textContent).toContain("Node sync · 559,624 / 559,745");
+  });
+
+  test("exposes the progress line as an accessible live region", () => {
+    useTelemetryStore.setState({
+      indexer: obs({
+        nodeSyncing: true,
+        nodeSyncCurrentBlock: "559624",
+        nodeSyncHighestBlock: "559745",
+      }),
+      serverTime: null,
+    });
+    act(() => root.render(createElement(IndexerProgress)));
+    const status = container.querySelector('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+  });
 });
