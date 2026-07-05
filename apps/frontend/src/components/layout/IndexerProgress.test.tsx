@@ -24,6 +24,22 @@ function obs(overrides: Partial<IndexerObservability> = {}): IndexerObservabilit
   };
 }
 
+// Backfill-progress object whose summed coverage gapBlocks equals `gap`.
+const cov = (gap: number): NonNullable<IndexerObservability["indexer"]> => ({
+  backfillQueueDepth: 0,
+  difficultyDataStartBlock: null,
+  coverage: {
+    winners: {
+      low: "0",
+      high: "560000",
+      gapBlocks: gap,
+      prunedFloor: null,
+      topologyEnrichmentFloor: null,
+      generation: 1,
+    },
+  },
+});
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -43,7 +59,20 @@ describe("IndexerProgress", () => {
   test("renders indexing progress as current / total", () => {
     useTelemetryStore.setState({
       indexer: obs({
-        indexer: { backfillQueueDepth: 4145, coverage: {}, difficultyDataStartBlock: null },
+        indexer: {
+          backfillQueueDepth: 0,
+          difficultyDataStartBlock: null,
+          coverage: {
+            winners: {
+              low: "394362",
+              high: "559745",
+              gapBlocks: 4145,
+              prunedFloor: null,
+              topologyEnrichmentFloor: null,
+              generation: 1,
+            },
+          },
+        },
       }),
       serverTime: null,
     });
@@ -73,6 +102,47 @@ describe("IndexerProgress", () => {
     });
     act(() => root.render(createElement(IndexerProgress)));
     expect(container.textContent).toContain("Node sync · 559,624 / 559,745");
+  });
+
+  test("omits the ETA suffix until enough history exists", () => {
+    useTelemetryStore.setState({
+      indexer: obs({
+        chainHeadFromNode: "560000",
+        lastStatusFetchAt: "2026-07-04T00:00:00.000Z",
+        indexer: cov(12_000),
+      }),
+      serverTime: "2026-07-04T00:00:00.000Z",
+    });
+    act(() => root.render(createElement(IndexerProgress)));
+    expect(container.textContent).toContain("Indexing · 548,000 / 560,000");
+    expect(container.textContent).not.toMatch(/~\d/);
+  });
+
+  test("appends a smoothed ETA once the deficit shrinks over the window", () => {
+    // Poll 1 at t0 with a 12k deficit.
+    useTelemetryStore.setState({
+      indexer: obs({
+        chainHeadFromNode: "560000",
+        lastStatusFetchAt: "2026-07-04T00:00:00.000Z",
+        indexer: cov(12_000),
+      }),
+      serverTime: "2026-07-04T00:00:00.000Z",
+    });
+    act(() => root.render(createElement(IndexerProgress)));
+    // Poll 2 at t0+120s with the deficit down to 8k → 4k closed over 120s →
+    // 8k / (4k/120s) = 240s ETA → "~4m". The store update re-renders the
+    // already-mounted component (same instance keeps its sample buffer).
+    act(() => {
+      useTelemetryStore.setState({
+        indexer: obs({
+          chainHeadFromNode: "560000",
+          lastStatusFetchAt: "2026-07-04T00:02:00.000Z",
+          indexer: cov(8_000),
+        }),
+        serverTime: "2026-07-04T00:02:00.000Z",
+      });
+    });
+    expect(container.textContent).toContain("Indexing · 552,000 / 560,000 · ~4m");
   });
 
   test("exposes the progress line as an accessible live region", () => {

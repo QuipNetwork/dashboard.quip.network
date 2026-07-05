@@ -71,28 +71,48 @@ Decision order:
 2. **Node sync.** If `indexer.nodeSyncing === true` and both
    `nodeSyncCurrentBlock` and `nodeSyncHighestBlock` parse to numbers with
    `current < highest`, return `{ stage: "node-sync", current, total: highest }`.
-3. **Indexing.** Else, if `indexer.indexer` is present and
-   `backfillQueueDepth > LIVE_THRESHOLD` and `chainHeadFromNode` parses:
-   return `{ stage: "indexing", current: chainHead - backfillQueueDepth, total: chainHead }`.
-   Clamp `current` to `[0, total]` for safety against transient overshoot.
+3. **Indexing.** Else, if `indexer.indexer.coverage` is present and
+   `chainHeadFromNode` parses: let `gaps = Σ coverage[plugin].gapBlocks`. If
+   `gaps > LIVE_THRESHOLD`, return
+   `{ stage: "indexing", current: max(0, chainHead - gaps), total: chainHead }`.
 4. **Live / unknown.** Otherwise return null (render nothing).
+
+> **Metric correction (2026-07-04, post-verification).** The original design used
+> `current = chainHead - backfillQueueDepth`. Driving the real app showed
+> `backfillQueueDepth` is a *bounded rolling in-flight window* (~2,600) the coverage
+> walker keeps topped up — it stays ~constant while backfill genuinely progresses,
+> so the line looked frozen. Replaced with the summed per-plugin coverage
+> `gapBlocks` (failed/pending-retry blocks still missing), the true deficit, which
+> shrinks as gaps close (verified live: ~20,500 → 20,150 over 90s). Unit tests
+> passed against both because they fed synthetic scalars — only live verification
+> exposed the difference.
 
 ### `LIVE_THRESHOLD`
 
-`backfillQueueDepth` briefly ticks to ~1 on each new live block (the tip
-bucket), so a strict `> 0` test would keep the indicator visible during normal
-live operation and never reach the "Live" (hidden) state. `LIVE_THRESHOLD` is a
-small constant (default `2`) below which the queue is treated as routine live
-tip churn, not catch-up. Documented as a named constant with this rationale.
+A healthy, fully-backfilled deployment reports `0` gapBlocks for every coverage
+plugin, so anything above `LIVE_THRESHOLD` (default `2`) means real catch-up work
+remains. The small slack absorbs the odd transient failed/pending-retry block
+without pinning the indicator open. Documented as a named constant.
 
-### Indexing metric rationale (approach A)
+### Indexing metric rationale (summed coverage gapBlocks)
 
-`total = chainHeadFromNode`, `current = chainHeadFromNode − backfillQueueDepth`.
-Chosen over coverage-span math because: it is always well-defined; it uses the
-reconciler's own single source of truth for remaining work; it reaches
-`current === total` exactly when caught up; and it avoids the gappy,
-multi-plugin coverage aggregation. This is an approximation of "blocks
-processed," not a literal contiguous height — acceptable for a progress hint.
+`total = chainHeadFromNode`, `current = max(0, chainHead − Σ gapBlocks)`. Keeps
+the same `current/total` shape as the node-sync stage, but uses the true remaining
+deficit (summed per-plugin `gapBlocks`) so `current` visibly climbs toward `total`
+as backfill closes gaps, reaching parity when caught up. This is an approximation
+of "blocks processed," not a literal contiguous height — acceptable for a progress
+hint. See the metric-correction note above for why `backfillQueueDepth` was
+rejected after live verification.
+
+### Backfill ETA suffix
+
+The indexing line appends a smoothed ETA (`… · ~70m`) derived client-side, since
+the indexer publishes no rate. `lib/indexer-eta` keeps a rolling ~120s window of
+`(nowMs, remaining)` samples; the rate is the NET decline across the window (not a
+single poll-to-poll delta) so it absorbs the deficit's jitter as the coverage
+walker discovers new gaps. The suffix is omitted until ≥90s of history exists and
+whenever the deficit is not net-shrinking, so it never shows a bogus or negative
+time — it reappears once progress resumes. The node-sync stage carries no ETA.
 
 ## Files
 
