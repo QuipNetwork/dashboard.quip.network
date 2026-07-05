@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Normalized hypothetical-composition model — the CANONICAL implementation
-// shared by the "Normalized" mode of the by-difficulty charts (Win Rate today;
-// Mining per QBlock reuses it later). Pure data-in/data-out: no React, no
-// stores, no chart specifics.
+// shared by the "Normalized" mode of the by-difficulty charts (Win Rate and
+// Mining per QBlock). Pure data-in/data-out: no React, no stores, no chart
+// specifics.
 //
 // ## The model
 //
