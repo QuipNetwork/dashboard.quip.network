@@ -10,6 +10,7 @@ import type { MinerCategory } from "@quip/shared/telemetry";
 import { BabeEpochProgress } from "./BabeEpochProgress";
 import { CurrentBlockIndicator } from "./CurrentBlockIndicator";
 import { SyncIndicator } from "./SyncIndicator";
+import { IndexerProgress } from "./IndexerProgress";
 
 const TYPES: MinerCategory[] = ["CPU", "GPU", "QPU"];
 
@@ -129,6 +130,7 @@ export function Header() {
             </p>
             {selfName && <p className="font-accent text-xs text-ink-strong">{selfName}</p>}
             <p className="font-mono text-xs text-ink-strong">{shortAddress(selfAddress)}</p>
+            <IndexerProgress />
           </div>
         ) : (
           <div />
