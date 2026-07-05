@@ -44,6 +44,10 @@ services:
       RUN_SERVER: "true"
       RUN_INDEXER: "true"
       RUN_FRONTEND: "true"
+      # Docker Desktop (macOS) doesn't propagate host filesystem events into the
+      # container, so Vite's chokidar watcher misses host-side edits and serves
+      # stale modules (HMR silently no-ops). Poll instead so edits hot-reload.
+      CHOKIDAR_USEPOLLING: "true"
     volumes:
       - ..:/app:Z
     ports:
