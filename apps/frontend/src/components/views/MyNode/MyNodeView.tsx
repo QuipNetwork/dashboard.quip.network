@@ -103,36 +103,38 @@ export function MyNodeView() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <StatTile
-          label="QBlocks Won"
-          value={formatNumber(Number(blocksMined))}
-          sublabel={
-            chainMinerEntry
-              ? `${chainMinerEntry.proofsSubmitted} proofs submitted · chain-confirmed`
-              : "Not registered on chain"
-          }
-        />
-        <StatTile
-          label="Rewards Earned"
-          value={chainMinerEntry ? formatBalance(chainMinerEntry.rewardsEarned) : "—"}
-          sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
-        />
-      </div>
-
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div className="flex flex-col gap-5">
+          <StatTile
+            className="flex-1"
+            label="QBlocks Won"
+            value={formatNumber(Number(blocksMined))}
+            sublabel={
+              chainMinerEntry
+                ? `${chainMinerEntry.proofsSubmitted} proofs submitted · chain-confirmed`
+                : "Not registered on chain"
+            }
+          />
+          <StatTile
+            className="flex-1"
+            label="Rewards Earned"
+            value={chainMinerEntry ? formatBalance(chainMinerEntry.rewardsEarned) : "—"}
+            sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
+          />
+        </div>
         <LastQBlockCard
           lastWonBlock={lastWonBlock}
           lastWonSubmission={lastWonSubmission}
           lastWonProblemNumber={lastWonProblemNumber}
         />
-        <CurrentDifficultyCard
-          currentRequirements={currentRequirements}
-          recentDifficulty={recentDifficulty}
-          chainHead={chainHead}
-          tipBlock={tipBlock}
-        />
       </div>
+
+      <CurrentDifficultyCard
+        currentRequirements={currentRequirements}
+        recentDifficulty={recentDifficulty}
+        chainHead={chainHead}
+        tipBlock={tipBlock}
+      />
 
       <CurrentAttemptsPanel
         dispatch={currentDispatch}

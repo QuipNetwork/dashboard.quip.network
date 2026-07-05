@@ -151,4 +151,24 @@ describe("MyNodeView", () => {
     );
     return labelParas[0]?.parentElement ?? null;
   }
+
+  test("puts QBlocks Won, Rewards Earned, and the details pane on one row", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock()],
+    });
+    renderView(root);
+    const wonTile = findCardByLabel("QBlocks Won");
+    const detailsCard = findCardByLabel("Last Won QBlock Details");
+    expect(wonTile).not.toBeNull();
+    expect(detailsCard).not.toBeNull();
+    // The two StatTiles share a flex-col wrapper that is itself a sibling
+    // grid cell of the details pane — same row, not stacked one after the
+    // other down the page.
+    const stackedTiles = wonTile?.parentElement;
+    expect(stackedTiles?.className).toContain("flex-col");
+    expect(stackedTiles?.parentElement).toBe(detailsCard?.parentElement);
+    expect(stackedTiles?.parentElement?.className).toContain("sm:grid-cols-2");
+  });
 });
