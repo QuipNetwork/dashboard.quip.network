@@ -118,7 +118,11 @@ function NodeDetail({ accountId, onBack }: { accountId: string; onBack: () => vo
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <LastQBlockCard lastWonBlock={lastWonBlock} lastWonSubmission={lastWonSubmission} />
+        <LastQBlockCard
+          lastWonBlock={lastWonBlock}
+          lastWonSubmission={lastWonSubmission}
+          lastWonProblemNumber={lastWonProblemNumber}
+        />
         <CurrentDifficultyCard
           currentRequirements={currentRequirements}
           recentDifficulty={recentDifficulty}

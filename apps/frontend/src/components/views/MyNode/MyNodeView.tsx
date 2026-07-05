@@ -2,7 +2,7 @@
 
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { displayNodeName, formatBalance } from "@/lib/format-chain";
-import { formatDuration, formatNumber } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 import { useMinerWins } from "@/services/use-miner-wins";
 import { ChartCard } from "@/components/layout/ChartCard";
@@ -74,7 +74,6 @@ export function MyNodeView() {
     effectiveMinerStats,
     effectiveProblemsAttempted,
   } = stats;
-  const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
   // Correlate the chain-side winning BlockRecord with the miner-side
   // submission by chain_block_number to pull the winning dispatch's attempt
   // count, which the chain has no equivalent for.
@@ -119,23 +118,14 @@ export function MyNodeView() {
           value={chainMinerEntry ? formatBalance(chainMinerEntry.rewardsEarned) : "—"}
           sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
         />
-        <StatTile
-          label="Last QBlock Won"
-          value={
-            lastWonBlock != null && lastWonProblemNumber != null
-              ? `QBlock #${formatNumber(lastWonProblemNumber)}`
-              : "—"
-          }
-          sublabel={
-            lastWonBlock != null && lastWonAgoMs != null
-              ? `${formatDuration(lastWonAgoMs)} ago · win ${formatNumber(Number(blocksMined))} of yours · block #${lastWonBlock.substrateBlockNumber}`
-              : "No wins yet"
-          }
-        />
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <LastQBlockCard lastWonBlock={lastWonBlock} lastWonSubmission={lastWonSubmission} />
+        <LastQBlockCard
+          lastWonBlock={lastWonBlock}
+          lastWonSubmission={lastWonSubmission}
+          lastWonProblemNumber={lastWonProblemNumber}
+        />
         <CurrentDifficultyCard
           currentRequirements={currentRequirements}
           recentDifficulty={recentDifficulty}

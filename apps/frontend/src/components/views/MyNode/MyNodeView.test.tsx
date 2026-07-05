@@ -113,4 +113,42 @@ describe("MyNodeView", () => {
     expect(text).toContain("QBlocks Won");
     expect(text).toContain("Rewards Earned");
   });
+
+  test("folds the QBlock number into the details pane and drops the standalone tile", () => {
+    // qblockId "42" is the win the details pane must now surface itself —
+    // the standalone "Last QBlock Won" tile that used to show it is gone.
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock({ qblockId: "42" })],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Last QBlock Won");
+    expect(text).toContain("Last Won QBlock Details");
+    expect(text).toContain("#42");
+  });
+
+  test("preserves the no-wins-yet empty state in the details pane", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner({ proofsWon: "0" })],
+      blocks: [],
+    });
+    renderView(root);
+    const card = findCardByLabel("Last Won QBlock Details");
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("No wins yet");
+    expect(card?.textContent).not.toContain("#");
+  });
+
+  // Walks up from the BlockDetailCard's label paragraph to the card's own
+  // bordered div, so assertions scope to that pane and not sibling panels
+  // that happen to share vocabulary (e.g. CurrentAttemptsPanel's "qblock #N").
+  function findCardByLabel(label: string): HTMLElement | null {
+    const labelParas = Array.from(container.querySelectorAll("p")).filter(
+      (p) => p.textContent === label,
+    );
+    return labelParas[0]?.parentElement ?? null;
+  }
 });

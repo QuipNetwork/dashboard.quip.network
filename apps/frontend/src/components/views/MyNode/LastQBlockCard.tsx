@@ -8,9 +8,11 @@ import { BlockDetailCard } from "./BlockDetailCard";
 export function LastQBlockCard({
   lastWonBlock,
   lastWonSubmission,
+  lastWonProblemNumber,
 }: {
   lastWonBlock: BlockRecord | null;
   lastWonSubmission: MiningSubmissionRecord | undefined;
+  lastWonProblemNumber: number | null;
 }) {
   const lastSolutionTimeMs = lastWonBlock != null ? lastWonBlock.miningTime * 1000 : null;
 
@@ -20,6 +22,14 @@ export function LastQBlockCard({
       rows={
         lastWonBlock != null
           ? [
+              // Folded in from the top row's standalone "Last QBlock Won"
+              // tile — the two surfaced the same win, so the number now
+              // lives here as the pane's own headline row.
+              {
+                label: "QBlock",
+                value:
+                  lastWonProblemNumber != null ? `#${formatNumber(lastWonProblemNumber)}` : "—",
+              },
               {
                 label: "Time to QBlock",
                 value:
