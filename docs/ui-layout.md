@@ -43,7 +43,7 @@ until the indexer has produced chain data; **Node** is a detail page reached by
 2. Recent QBlocks (`RecentBlocksTable`) — table, sortable — default QBlock# desc, search + pagination
 3. Mining Leaderboard (`Leaderboard`) — table, sortable — default rank asc, search
 4. QBlocks Mined Over Time — line chart — cumulative per miner/type
-5. Mining Time per QBlock — chart — range toggle 1H…ALL, All | By Type toggle (default By Type), x-axis = qblock id
+5. Mining per QBlock — chart — range toggle 1H…ALL, All | By Type toggle (default By Type), x-axis = qblock id
 6. Difficulty over time (`DifficultyChart`) — step line chart — range toggle 1H…ALL — full width
 7. Total Compute Used — chart
 8. Mining Nodes by Type — chart — _By Type mode only_

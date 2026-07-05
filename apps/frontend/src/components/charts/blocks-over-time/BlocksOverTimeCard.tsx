@@ -28,14 +28,11 @@ const PRESENTATION_OPTIONS: ReadonlyArray<{
  * rule.
  *
  * Normalization is a per-*type* presentation, so it only makes sense when
- * the global aggregation mode is "byType" (see `ComputeAvailableView.tsx`
- * :146-151 for the byType/byNode subtitle split this mirrors). In "byNode"
+ * the global aggregation mode is "byType" (see `ComputeAvailableView.tsx`'s
+ * byType/byNode subtitle ternaries for the split this mirrors). In "byNode"
  * mode the series are per-miner, not per-type, so there's no device
  * denominator to divide by — the toggle is hidden rather than shown
  * disabled, since there's nothing for the operator to choose between.
- *
- * Unwired: a later task swaps this into `ComputeAvailableView` in place of
- * the bare `<BlocksOverTimeChart>` + `ChartCard` it renders today.
  */
 export function BlocksOverTimeCard() {
   const [presentation, setPresentation] = useState<BlocksOverTimePresentation>("byType");

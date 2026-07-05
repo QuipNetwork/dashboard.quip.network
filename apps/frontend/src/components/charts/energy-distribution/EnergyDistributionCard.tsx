@@ -18,9 +18,6 @@ import { useEnergyDistributionByType, type TypeDistribution } from "./use-energy
  * normalised against ITSELF (its bars sum to ~100% of that type's own wins),
  * plus an All Nodes | Best Nodes scope toggle. Bucket/anchor math lives in
  * ./energy-buckets; the sign-convention writeup for "hardest" is there too.
- *
- * Unwired: `ComputeAvailableView` still renders the legacy
- * `EnergyDistributionChart` directly — a later task swaps this Card in.
  */
 export function EnergyDistributionCard() {
   const [scope, setScope] = useState<NodeScope>("all");

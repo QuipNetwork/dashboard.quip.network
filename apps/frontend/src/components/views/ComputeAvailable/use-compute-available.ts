@@ -52,7 +52,7 @@ export interface ComputeAvailability {
   lastBlock: BlockRecord | null;
   // PFLOP·s poured into the last block (networkTflops × wall-clock block
   // spacing / 1000). Uses timestamp delta between the two most recent winner
-  // blocks — NOT miningTime, which on spec-111+ carries device compute time
+  // blocks — NOT miningTime, which on spec-112+ carries device compute time
   // (e.g. ~60ms for QPU) rather than wall-clock block duration. Null when
   // fewer than two blocks are available.
   lastBlockPflopSeconds: number | null;
@@ -148,7 +148,7 @@ export function useComputeAvailable(): ComputeAvailability {
     //
     // lastBlockWallClock: derive from timestamp delta between the two most
     // recent winner blocks instead of miningTime. miningTime now carries the
-    // winner's self-reported device compute time on spec-111+ wins (e.g. ~60ms
+    // winner's self-reported device compute time on spec-112+ wins (e.g. ~60ms
     // for a QPU), which would collapse the PFLOP·s tile ~1000×. Wall-clock
     // block spacing (tip.timestamp − prev.timestamp) is always valid for this
     // "how long did the network run at full throughput" metric.

@@ -102,7 +102,7 @@ export interface MinerWinsResponse {
 /**
  * `GET /api/mining-history?since=<iso>`: slim winner-block rows at/after the
  * cutoff, ascending by block number — the range-windowed dataset behind the
- * "Mining Time per QBlock" chart. No anchor row: mining time is a scatter
+ * "Mining per QBlock" chart. No anchor row: mining time is a scatter
  * of discrete wins, not a step function like difficulty.
  */
 export interface MiningHistoryResponse {

@@ -2,9 +2,7 @@
 //
 // Self-contained "Mining Leaderboard" card: owns its ChartCard, the
 // By Count | By Energy | By Time toggle, and the mode-aware ranking
-// (leaderboard-modes.ts). Not wired into ComputeAvailableView yet — a later
-// task swaps the existing bare `<Leaderboard data={useLeaderboard()} />`
-// block there for this component.
+// (leaderboard-modes.ts).
 
 import { useMemo, useState } from "react";
 

@@ -16,11 +16,7 @@ import {
 import { NORMALIZED_SERIES_LABELS } from "@/components/charts/common/normalized-composition";
 import { displayLabelForCategory } from "@/components/charts/common/qpu-label";
 import { useDifficultyCurveK } from "@/lib/difficulty-curve";
-import {
-  useWinRateByDifficulty,
-  type WinRateByDifficultyResult,
-  type WinRateMode,
-} from "./use-win-rate-by-difficulty";
+import { useWinRateByDifficulty, type WinRateMode } from "./use-win-rate-by-difficulty";
 
 // This chart's own mode list: the shared All|Best scopes plus Normalized
 // (NODE_SCOPE_OPTIONS itself stays two-valued for its other consumers).
@@ -106,15 +102,7 @@ function createTooltip(yLabel: string) {
   };
 }
 
-export interface WinRateByDifficultyChartProps {
-  // Legacy wiring: ComputeAvailableView still computes and passes the default
-  // (All Nodes) result, but the chart owns its data now — the in-chart mode
-  // toggle re-queries the hook per mode, so this prop is ignored. Drop it
-  // together with the view's useWinRateByDifficulty() call.
-  data?: WinRateByDifficultyResult;
-}
-
-export function WinRateByDifficultyChart(_props: WinRateByDifficultyChartProps) {
+export function WinRateByDifficultyChart() {
   const [mode, setMode] = useState<WinRateMode>("all");
   const { series, xMin, xMax } = useWinRateByDifficulty({ mode });
   const k = useDifficultyCurveK();

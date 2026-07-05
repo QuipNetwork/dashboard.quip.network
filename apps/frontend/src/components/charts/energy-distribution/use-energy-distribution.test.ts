@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Covers useEnergyDistributionByType (WU10). The pre-existing
-// useEnergyDistribution (stacked, hard-regime-clipped) is unchanged and out
-// of scope here.
+// Covers useEnergyDistributionByType (WU10).
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createElement } from "react";

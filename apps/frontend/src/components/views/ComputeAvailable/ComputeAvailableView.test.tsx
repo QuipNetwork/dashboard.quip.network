@@ -56,6 +56,8 @@ describe("ComputeAvailableView", () => {
     expect(text).toContain("Recent QBlocks");
     expect(text).toContain("Mining Leaderboard");
     expect(text).toContain("QBlocks Mined Over Time");
+    expect(text).toContain("Energy Distribution");
+    expect(text).toContain("Time to QBlock");
     expect(text).toContain("Difficulty over time");
   });
 
@@ -96,7 +98,7 @@ describe("ComputeAvailableView", () => {
     expectFullWidth("h3", "Difficulty over time");
   });
 
-  test("Mining Time per QBlock offers range and grouping toggles", () => {
+  test("Mining per QBlock offers range and grouping toggles", () => {
     renderView(root);
     // Windowing like the difficulty panel (1H…ALL), plus the card-local
     // All | By Type aggregation toggle (docs/ui-layout.md item 5).

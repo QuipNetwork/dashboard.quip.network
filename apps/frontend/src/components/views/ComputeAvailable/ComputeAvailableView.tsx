@@ -8,23 +8,18 @@ import { useUIStore } from "@/store/ui-store";
 import { DifficultyChart } from "@/components/views/Chain/DifficultyChart";
 import { RecentBlocksTable } from "@/components/views/Network/RecentBlocksTable";
 import { ActiveNodesChart } from "@/components/charts/active-nodes/ActiveNodesChart";
-import { BlocksOverTimeChart } from "@/components/charts/blocks-over-time/BlocksOverTimeChart";
+import { BlocksOverTimeCard } from "@/components/charts/blocks-over-time/BlocksOverTimeCard";
 import { ComputeUsedChart } from "@/components/charts/compute-used/ComputeUsedChart";
 import { CumulativeBlocksThresholdChart } from "@/components/charts/cumulative-blocks-threshold/CumulativeBlocksThresholdChart";
 import { EnergyCdfChart } from "@/components/charts/energy-cdf/EnergyCdfChart";
-import { EnergyDistributionChart } from "@/components/charts/energy-distribution/EnergyDistributionChart";
-import { Leaderboard } from "@/components/charts/leaderboard/Leaderboard";
+import { EnergyDistributionCard } from "@/components/charts/energy-distribution/EnergyDistributionCard";
+import { LeaderboardCard } from "@/components/charts/leaderboard/LeaderboardCard";
 import { MiningTimeCard } from "@/components/charts/mining-time/MiningTimeCard";
 import { MiningTimeByDifficultyChart } from "@/components/charts/mining-time-by-difficulty/MiningTimeByDifficultyChart";
-import { TimeToSolutionChart } from "@/components/charts/time-to-solution/TimeToSolutionChart";
+import { TimeToSolutionCard } from "@/components/charts/time-to-solution/TimeToSolutionCard";
 import { WinRateByDifficultyChart } from "@/components/charts/win-rate-by-difficulty/WinRateByDifficultyChart";
 import { useActiveNodes } from "@/components/charts/active-nodes/use-active-nodes";
-import { useBlocksOverTime } from "@/components/charts/blocks-over-time/use-blocks-over-time";
 import { useComputeUsed } from "@/components/charts/compute-used/use-compute-used";
-import { useEnergyDistribution } from "@/components/charts/energy-distribution/use-energy-distribution";
-import { useLeaderboard } from "@/components/charts/leaderboard/use-leaderboard";
-import { useTimeToSolution } from "@/components/charts/time-to-solution/use-time-to-solution";
-import { useWinRateByDifficulty } from "@/components/charts/win-rate-by-difficulty/use-win-rate-by-difficulty";
 import { CurrentQBlockDetailsCard } from "./CurrentQBlockDetailsCard";
 import { LastQBlockDetailsCard } from "./LastQBlockDetailsCard";
 import { useComputeAvailable } from "./use-compute-available";
@@ -77,13 +72,8 @@ export function ComputeAvailableView() {
     compute.lastBlock ? compute.lastBlock.substrateBlockNumber : null,
   );
 
-  const blocksOverTime = useBlocksOverTime();
   const computeUsed = useComputeUsed();
   const activeNodes = useActiveNodes();
-  const energyDistribution = useEnergyDistribution();
-  const timeToSolution = useTimeToSolution();
-  const winRate = useWinRateByDifficulty();
-  const leaderboard = useLeaderboard();
 
   return (
     <>
@@ -108,20 +98,10 @@ export function ComputeAvailableView() {
         <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
       </ChartCard>
 
-      <ChartCard
-        title="Mining Leaderboard"
-        subtitle="Lifetime qblocks won, from on-chain proofs_won"
-      >
-        <Leaderboard data={leaderboard} />
-      </ChartCard>
+      <LeaderboardCard />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ChartCard
-          title="QBlocks Mined Over Time"
-          subtitle={byType ? "Cumulative qblocks per unit type" : "Cumulative qblocks per miner"}
-        >
-          <BlocksOverTimeChart data={blocksOverTime} />
-        </ChartCard>
+        <BlocksOverTimeCard />
 
         <MiningTimeCard />
       </div>
@@ -131,14 +111,7 @@ export function ComputeAvailableView() {
       <DifficultyChart />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ChartCard
-          title="Total Compute Used"
-          subtitle={
-            byType
-              ? "Wall-clock for CPU/GPU · D-Wave anneal+readout time for QPU"
-              : "Wall-clock (CPU/GPU) or D-Wave qpu_access_time (QPU) per miner"
-          }
-        >
+        <ChartCard title="Total Compute Used" subtitle="Reported or estimated device time per win">
           <ComputeUsedChart data={computeUsed} />
         </ChartCard>
 
@@ -148,27 +121,9 @@ export function ComputeAvailableView() {
           </ChartCard>
         )}
 
-        <ChartCard
-          title="Energy Distribution"
-          subtitle={
-            byType
-              ? "Normalised frequency per unit by energy"
-              : "Normalised frequency per miner by energy"
-          }
-        >
-          <EnergyDistributionChart data={energyDistribution} />
-        </ChartCard>
+        <EnergyDistributionCard />
 
-        <ChartCard
-          title="Time to QBlock"
-          subtitle={
-            byType
-              ? "Normalised frequency per unit by mining time"
-              : "Normalised frequency per miner by mining time"
-          }
-        >
-          <TimeToSolutionChart data={timeToSolution} />
-        </ChartCard>
+        <TimeToSolutionCard />
 
         <ChartCard
           title="Probability of Meeting Difficulty"
@@ -186,7 +141,7 @@ export function ComputeAvailableView() {
             title="Win Rate by Difficulty"
             subtitle="Mining race win rate per processor type"
           >
-            <WinRateByDifficultyChart data={winRate} />
+            <WinRateByDifficultyChart />
           </ChartCard>
         )}
 

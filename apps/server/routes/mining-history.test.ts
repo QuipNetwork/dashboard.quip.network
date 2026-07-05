@@ -2,7 +2,7 @@
 //
 // /api/mining-history?since=<iso>: slim winner-block rows at/after the cutoff,
 // ascending by block number — the range-windowed dataset behind the
-// "Mining Time per QBlock" chart.
+// "Mining per QBlock" chart.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
