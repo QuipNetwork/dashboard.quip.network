@@ -76,6 +76,14 @@ export interface IndexerObservability {
   // never the non-winner numbers inside enumerated winner ranges — so a
   // healthy fully-backfilled deployment reads 0 for every plugin.
   indexer?: IndexerBackfillProgress;
+  // One-shot device_access_time backfill decision, made once at indexer
+  // startup (pipeline/device-access-backfill.ts). "triggered" = every
+  // indexed winner row had a null device_access_time_us so a winners
+  // reindex was auto-scheduled; "not-needed" = a reported value already
+  // existed, or the DB was fresh (normal indexing populates the field
+  // going forward). Mirrors the durable meta marker; optional so
+  // pre-feature rows and existing fixtures parse cleanly.
+  deviceAccessTimeBackfill?: "triggered" | "not-needed";
 }
 
 /**

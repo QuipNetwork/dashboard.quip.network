@@ -7,6 +7,7 @@ import { QuipClient } from "./clients/miner-client";
 import { parseConfig } from "./core/config";
 import { IndexerState } from "./core/state";
 import { PolkadotSubstrateClient, type SubstrateClient } from "./clients/substrate-client";
+import { ensureDeviceAccessTimeBackfill } from "./pipeline/device-access-backfill";
 import { buildRegistry } from "./pipeline/plugin";
 import { formatIndexables, runReindex } from "./pipeline/reindex";
 import { SubstrateWorker } from "./substrate";
@@ -96,6 +97,13 @@ async function main(): Promise<number> {
 
   const state = new IndexerState(db);
   await state.load();
+
+  // One-shot device_access_time backfill (pipeline/device-access-backfill.ts):
+  // at most once per deployment, reindex winners when every indexed row is
+  // missing the field. The decision rides the observability heartbeat the
+  // tip worker flushes, so operators can see it on /api/telemetry.
+  const backfill = await ensureDeviceAccessTimeBackfill(db, registry);
+  state.observability.deviceAccessTimeBackfill = backfill.status;
 
   const processAc = new AbortController();
   const onSignal = (sig: string) => {

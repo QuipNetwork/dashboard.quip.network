@@ -143,6 +143,31 @@ describe("parseIndexerObservability (v6)", () => {
     expect(parsed?.nodeSyncHighestBlock).toBeUndefined();
   });
 
+  // --- device_access_time backfill whitelist (one-shot startup decision) ---
+
+  test("round-trips both deviceAccessTimeBackfill values through the whitelist", () => {
+    for (const status of ["triggered", "not-needed"] as const) {
+      const parsed = parseIndexerObservability(
+        JSON.stringify({ ...sample, deviceAccessTimeBackfill: status }),
+      );
+      expect(parsed?.deviceAccessTimeBackfill).toBe(status);
+    }
+  });
+
+  test("row without deviceAccessTimeBackfill still parses (pre-feature rows)", () => {
+    const parsed = parseIndexerObservability(JSON.stringify(sample));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.deviceAccessTimeBackfill).toBeUndefined();
+  });
+
+  test("unknown deviceAccessTimeBackfill value is stripped, not fatal", () => {
+    const parsed = parseIndexerObservability(
+      JSON.stringify({ ...sample, deviceAccessTimeBackfill: "done" }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.deviceAccessTimeBackfill).toBeUndefined();
+  });
+
   test("nodeSyncing=false and null block heights survive the round-trip", () => {
     const withSyncFalse = {
       ...sample,

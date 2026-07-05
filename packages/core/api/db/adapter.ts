@@ -70,6 +70,10 @@ export function parseIndexerObservability(raw: string): IndexerObservability | n
     minerStats: parseMinerStats(p.minerStats),
     modes: parseModeBreakdownMap(p.modes),
     indexer: parseIndexerProgress(p.indexer),
+    deviceAccessTimeBackfill:
+      p.deviceAccessTimeBackfill === "triggered" || p.deviceAccessTimeBackfill === "not-needed"
+        ? p.deviceAccessTimeBackfill
+        : undefined,
   };
 }
 
@@ -339,6 +343,28 @@ export interface DatabaseAdapter {
   bumpIndexerGeneration(name: string): Promise<number>;
   /** Write coverage only when the stamped generation is still current. */
   setCoverageIfGeneration(name: string, gen: number, json: string): Promise<boolean>;
+
+  // --- device_access_time one-shot backfill (startup auto-reindex) ---
+  // Durable latch in the meta KV for the startup missing-data detection.
+  // The field is self-reported and usually absent, so "every row is null"
+  // can be legitimate forever — the marker's PRESENCE (not the data) is
+  // what guarantees the auto-reindex runs at most once per deployment.
+
+  /**
+   * The recorded backfill decision ("triggered" | "not-needed"), or null
+   * when the startup detection has never run against this DB.
+   */
+  getDeviceAccessTimeBackfillMarker(): Promise<string | null>;
+
+  /** Latch the backfill decision. Written BEFORE the reindex is started. */
+  setDeviceAccessTimeBackfillMarker(value: string): Promise<void>;
+
+  /**
+   * Startup probe for the detection: whether any `blocks` rows exist, and
+   * whether any carries a non-null `device_access_time_us`. Two LIMIT-1
+   * lookups — cheap at any table size.
+   */
+  probeDeviceAccessTimeData(): Promise<{ hasBlocks: boolean; hasReported: boolean }>;
 
   // Current per-topology difficulty snapshot for the chain's mineable
   // whitelist (`quantum_pow` runtime APIs). Current-state, not history:

@@ -47,6 +47,8 @@ const MINEABLE_TOPOLOGIES_KEY = "mineable_topologies";
 const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
 // Pipeline coverage cursors + authorship cutover flag (spec §7 / §9.2).
 const AUTHORSHIP_CUTOVER_KEY = "indexer.authorship.cutover";
+// One-shot device_access_time backfill latch (pipeline/device-access-backfill).
+const DEVICE_ACCESS_BACKFILL_KEY = "indexer.device_access_time.backfill";
 const coverageKey = (name: string): string => `indexer.coverage.${name}`;
 const generationKey = (name: string): string => `indexer.generation.${name}`;
 
@@ -658,6 +660,29 @@ export class KyselyAdapter implements DatabaseAdapter {
           .execute();
         return true;
       });
+  }
+
+  // --- device_access_time one-shot backfill latch ---
+
+  async getDeviceAccessTimeBackfillMarker(): Promise<string | null> {
+    return this.getMeta(DEVICE_ACCESS_BACKFILL_KEY);
+  }
+
+  async setDeviceAccessTimeBackfillMarker(value: string): Promise<void> {
+    await this.setMeta(DEVICE_ACCESS_BACKFILL_KEY, value);
+  }
+
+  async probeDeviceAccessTimeData(): Promise<{ hasBlocks: boolean; hasReported: boolean }> {
+    const db = this.requireDb();
+    const anyBlock = await db.selectFrom("blocks").select("block_hash").limit(1).executeTakeFirst();
+    if (!anyBlock) return { hasBlocks: false, hasReported: false };
+    const reported = await db
+      .selectFrom("blocks")
+      .select("block_hash")
+      .where("device_access_time_us", "is not", null)
+      .limit(1)
+      .executeTakeFirst();
+    return { hasBlocks: true, hasReported: reported !== undefined };
   }
 
   async getRecentDifficulty(limit: number): Promise<DifficultyRecord[]> {
