@@ -1,6 +1,6 @@
 {
   "name": "@quip/shared",
-  "version": "0.2.0",
+  "version": "0.2.1-rc13",
   "private": true,
   "type": "module",
   "exports": {
