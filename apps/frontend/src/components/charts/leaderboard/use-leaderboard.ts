@@ -27,6 +27,21 @@ export interface LeaderboardEntry {
   avgMiningTime: number | null;
   /** Best (lowest) energy across the miner's indexed wins; null as above. */
   bestEnergy: number | null;
+  /**
+   * Sum of `resolveDeviceAccessTime(block, category).seconds` over the
+   * miner's indexed wins — populated by `leaderboard-modes.ts`'s
+   * `withTimeEnergyTotals`, not by `computeLeaderboard` itself. Undefined
+   * until a caller joins the indexed `blocks` window; null when joined but
+   * the miner has no indexed wins.
+   */
+  totalMiningSeconds?: number | null;
+  /** Sum of `estimateEnergyJoules(...)` over the same indexed wins. */
+  totalEnergyJoules?: number | null;
+  /**
+   * True when at least one win behind `totalMiningSeconds`/`totalEnergyJoules`
+   * used an estimated (not self-reported) device-access time.
+   */
+  estimated?: boolean;
 }
 
 export interface LeaderboardFilter {
