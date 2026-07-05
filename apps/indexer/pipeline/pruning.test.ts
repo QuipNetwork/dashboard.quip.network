@@ -74,6 +74,30 @@ function makeClient(knobs: FakeKnobs): ChainClient {
             difficulty: { maxEnergyMilli: -13_000_000, minDiversityMilli: 0, minSolutions: 1 },
           }
         : null,
+    // Winner-only items use the targeted decode. Events come from
+    // `system.events.at` (block-data pruning still applies, mirroring
+    // processFinalizedBlock); the winning solution carries topologyHash
+    // inline, so the winner path never reads prunable historical topology.
+    decodeWinnerBlock: async (s: string) => {
+      const n = Number(s);
+      if (knobs.pruneEventsBelow !== undefined && n < knobs.pruneEventsBelow) {
+        throw new StatePrunedError(`state already discarded for block ${n}`);
+      }
+      if (!winners.includes(n)) return null;
+      return {
+        events: events(n),
+        qblock: {
+          miner: "5GW",
+          energyMilli: -14_000_000,
+          reward: "1",
+          submittedAt: s,
+          nonce: "42",
+          difficulty: { maxEnergyMilli: -13_000_000, minDiversityMilli: 0, minSolutions: 1 },
+          deviceAccessTimeUs: null,
+          topologyHash: "0xSOL",
+        },
+      };
+    },
     getLastProofBlockAt: async (hash: string) => {
       if (knobs.pruneLastProofFor?.has(hash)) {
         throw new StatePrunedError(`state already discarded at ${hash}`);
@@ -186,11 +210,15 @@ describe("case 3 — pruned block-data read ratchets the floor", () => {
   });
 });
 
-describe("cases 1+2 — pruned enrichment reads degrade in place", () => {
-  it("writes the winners row with topology null + miningTime 0, and covers the block", async () => {
+describe("case 2 — pruned lastProof degrades miningTime; winner topology stays resilient", () => {
+  it("keeps the solution's topologyHash under pruning, degrades miningTime, and covers the block", async () => {
     const client = makeClient({
       winners: [103],
-      pruneTopologyBelow: 104, // defaultTopologyAt pruned at 103
+      // Historical topology state is pruned at 103 — but the winner path reads
+      // topologyHash from the winning solution, not from `getDefaultTopologyAt`,
+      // so this no longer degrades the row (a strict improvement over the old
+      // full-decode path, which floored topology to null here).
+      pruneTopologyBelow: 104,
       pruneLastProofFor: new Set(["0xb102"]), // parent state pruned at the boundary
     });
     const plugins = [{ ...winnersPlugin(), startBlock: async () => 100 }];
@@ -201,13 +229,13 @@ describe("cases 1+2 — pruned enrichment reads degrade in place", () => {
 
       const [b] = await db.getRecentBlocks(10);
       expect(b?.substrateBlockNumber).toBe("103");
-      expect(b?.topologyHash).toBeNull(); // case 1: degraded in place
-      expect(b?.miningTime).toBe(0); // case 2: mirrors lastProofBlock ≤ 0
+      expect(b?.topologyHash).toBe("0xSOL"); // resilient: from the solution, not prunable historical state
+      expect(b?.miningTime).toBe(0); // case 2: lastProof pruned → mirrors lastProofBlock ≤ 0
 
       const cov = parseCoverage(JSON.parse((await db.getCoverage("winners")) ?? "null"));
       expect(isComplete(cov!, HEAD)).toBe(true); // block IS covered
       expect(cov?.prunedFloor).toBeNull(); // enrichment degradation ≠ data floor
-      // The shallowest degraded block is reported for observability.
+      // The shallowest degraded block is still reported (via the lastProof read).
       expect(rig.dispatcher.topologyEnrichmentFloor()).toBe(103);
     } finally {
       rig.stop();
