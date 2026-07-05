@@ -16,7 +16,7 @@ export function LastQBlockCard({
 
   return (
     <BlockDetailCard
-      label="Last QBlock Details"
+      label="Last Won QBlock Details"
       rows={
         lastWonBlock != null
           ? [
