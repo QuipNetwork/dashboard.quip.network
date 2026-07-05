@@ -5,12 +5,8 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type {
-  BlockRecord,
-  ChainMinerRecord,
-  MinerHardwareRecord,
-  MiningSubmissionRecord,
-} from "@quip/shared/telemetry";
+import type { BlockRecord, ChainMinerRecord, MinerHardwareRecord } from "@quip/shared/telemetry";
+import { QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN } from "@/lib/device-access-time";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 
@@ -70,28 +66,15 @@ function makeChainMiner(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRe
   };
 }
 
-function makeSubmission(overrides: Partial<MiningSubmissionRecord>): MiningSubmissionRecord {
-  return {
-    solutionNumber: 1,
-    minerId: "5GQpu",
-    minerType: "QPU",
-    tsNs: "0",
-    energyMilli: -14000000,
-    diversityMilli: 250,
-    thresholdMilli: -14910591,
-    lastProofBlockHash: "0xabc",
-    extrinsicHash: null,
-    chainBlockHash: null,
-    chainBlockNumber: null,
-    powSequence: null,
-    outcome: "submitted_inblock",
-    attemptCount: 2,
-    bestEnergyMilli: -14000000,
-    numValid: 5,
-    qpuAccessTimeUs: 0,
-    observedAt: "2026-05-26T00:00:00Z",
-    ...overrides,
-  };
+function qpuMiner(accountId: string): ChainMinerRecord {
+  return makeChainMiner({
+    accountId,
+    hardware: makeHardware({
+      accountId,
+      primaryType: "QPU",
+      miners: [{ id: "qpu-1", type: "QPU" }],
+    }),
+  });
 }
 
 // ---- Harness -----------------------------------------------------------
@@ -118,9 +101,6 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  // Reset both stores to a known baseline each test. byType + all
-  // three categories selected lines up with the default
-  // NetworkView chart layout.
   useTelemetryStore.setState({
     blocks: [],
     chainMiners: [],
@@ -138,105 +118,111 @@ afterEach(() => {
 // ---- Tests -------------------------------------------------------------
 
 describe("useComputeUsed", () => {
-  test("CPU bar accumulates wall-clock miningTime per block", () => {
+  test("reported deviceAccessTimeUs is used directly, not estimated", () => {
     useTelemetryStore.setState({
       blocks: [
-        makeBlock({ blockHash: "0xc1", minerId: "5GCpu", miningTime: 60 }),
-        makeBlock({ blockHash: "0xc2", minerId: "5GCpu", miningTime: 30 }),
+        makeBlock({
+          blockHash: "0xc1",
+          minerId: "5GCpu",
+          miningTime: 999,
+          deviceAccessTimeUs: 45_000_000,
+        }),
       ],
-      chainMiners: [makeChainMiner({ accountId: "5GCpu", hardware: makeHardware({}) })],
+      chainMiners: [makeChainMiner({})],
     });
 
     const cpu = renderHook().current.find((e) => e.minerType === "CPU");
-    expect(cpu?.compute).toBe(90);
+    expect(cpu?.compute).toBe(45); // 45_000_000us -> 45s, not the 999s miningTime
+    expect(cpu?.estimated).toBe(false);
   });
 
-  test("QPU bar uses qpu_access_time_us from the matching submission, not wall-clock", () => {
-    // Critical regression coverage. Before this fix the QPU bar
-    // added block.miningTime (wall-clock seconds dominated by
-    // D-Wave RTT) — overstating by 100x+. Now: the bar pulls
-    // qpu_access_time_us joined by chain_block_number from
-    // mining_submissions and converts microseconds → seconds.
+  test("missing access time: CPU/GPU fall back to miningTime, QPU to the documented constant", () => {
     useTelemetryStore.setState({
       blocks: [
-        makeBlock({
-          blockHash: "0xq1",
-          substrateBlockNumber: "200",
-          minerId: "5GQpu",
-          miningTime: 1200, // 20-minute wall-clock — would have been the impostor
-        }),
+        makeBlock({ blockHash: "0xc1", minerId: "5GCpu", miningTime: 60 }),
+        makeBlock({ blockHash: "0xg1", minerId: "5GGpu", miningTime: 30 }),
+        makeBlock({ blockHash: "0xq1", minerId: "5GQpu", miningTime: 1200 }),
       ],
       chainMiners: [
+        makeChainMiner({}),
         makeChainMiner({
-          accountId: "5GQpu",
+          accountId: "5GGpu",
           hardware: makeHardware({
-            accountId: "5GQpu",
-            primaryType: "QPU",
-            miners: [{ id: "qpu-1", type: "QPU" }],
+            accountId: "5GGpu",
+            primaryType: "GPU",
+            miners: [{ id: "gpu-1", type: "GPU" }],
           }),
         }),
-      ],
-      recentMiningSubmissions: [
-        makeSubmission({
-          minerId: "5GQpu",
-          chainBlockNumber: "200",
-          qpuAccessTimeUs: 84_000, // 0.084s — realistic D-Wave qpu_access_time
-        }),
+        qpuMiner("5GQpu"),
       ],
     });
 
-    const qpu = renderHook().current.find((e) => e.minerType === "QPU");
-    expect(qpu?.compute).toBeCloseTo(0.084, 6);
+    const entries = renderHook().current;
+    expect(entries.find((e) => e.minerType === "CPU")?.compute).toBe(60);
+    expect(entries.find((e) => e.minerType === "GPU")?.compute).toBe(30);
+    const qpu = entries.find((e) => e.minerType === "QPU");
+    expect(qpu?.compute).toBe(QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN);
+    expect(qpu?.estimated).toBe(true);
   });
 
-  test("QPU blocks with no matching mining_submissions row are excluded entirely", () => {
-    // Other operators' QPU wins land in `blocks` but we have no
-    // iteration data for them — undercounting (skip) is the right
-    // call here. Counting wall-clock would overstate by 100x+ and
-    // re-introduce the bug we just fixed.
+  test("zero QPU wins still produce a labeled QPU entry with value 0", () => {
     useTelemetryStore.setState({
-      blocks: [
-        makeBlock({
-          blockHash: "0xq1",
-          substrateBlockNumber: "200",
-          minerId: "5GOtherQpu",
-          miningTime: 1500,
-        }),
-      ],
-      chainMiners: [
-        makeChainMiner({
-          accountId: "5GOtherQpu",
-          hardware: makeHardware({
-            accountId: "5GOtherQpu",
-            primaryType: "QPU",
-            miners: [{ id: "qpu-other", type: "QPU" }],
-          }),
-        }),
-      ],
-      recentMiningSubmissions: [], // no local data for this miner
+      blocks: [makeBlock({ blockHash: "0xc1", minerId: "5GCpu", miningTime: 60 })],
+      chainMiners: [makeChainMiner({})],
     });
 
     const qpu = renderHook().current.find((e) => e.minerType === "QPU");
-    // Type was requested but no rows survived the filter → no entry.
-    expect(qpu).toBeUndefined();
+    expect(qpu).toBeDefined();
+    expect(qpu?.compute).toBe(0);
+    expect(qpu?.displayCompute).toBe(0);
+    expect(qpu?.floored).toBe(false);
   });
 
-  test("CPU/GPU bars are unaffected by missing mining_submissions data", () => {
-    // The qpuAccessTimeUs path is QPU-only — CPU/GPU miners that
-    // never write to mining_submissions still account for their
-    // wall-clock time. This guards against a regression where the
-    // filter accidentally caught all types.
+  test("a tiny-but-real QPU total is floored to a visible bar height next to a huge CPU total", () => {
+    useTelemetryStore.setState({
+      blocks: [
+        makeBlock({ blockHash: "0xc1", minerId: "5GCpu", miningTime: 100_000 }),
+        makeBlock({
+          blockHash: "0xq1",
+          minerId: "5GQpu",
+          deviceAccessTimeUs: 50_000, // 0.05s — real, but invisible next to 100_000s
+        }),
+      ],
+      chainMiners: [makeChainMiner({}), qpuMiner("5GQpu")],
+    });
+
+    const entries = renderHook().current;
+    const qpu = entries.find((e) => e.minerType === "QPU");
+    expect(qpu?.compute).toBeCloseTo(0.05, 6); // true value unchanged
+    expect(qpu?.floored).toBe(true);
+    expect(qpu?.displayCompute).toBeGreaterThan(qpu!.compute); // plotted height raised
+  });
+
+  test("estimated marker surfaces when access time is unreported (null)", () => {
+    useTelemetryStore.setState({
+      blocks: [
+        makeBlock({
+          blockHash: "0xc1",
+          minerId: "5GCpu",
+          miningTime: 60,
+          deviceAccessTimeUs: null,
+        }),
+      ],
+      chainMiners: [makeChainMiner({})],
+    });
+
+    const cpu = renderHook().current.find((e) => e.minerType === "CPU");
+    expect(cpu?.estimated).toBe(true);
+  });
+
+  test("CPU/GPU bars are unaffected by having no local mining_submissions data", () => {
     useTelemetryStore.setState({
       blocks: [
         makeBlock({ blockHash: "0xc1", minerId: "5GCpu", miningTime: 100 }),
-        makeBlock({
-          blockHash: "0xg1",
-          minerId: "5GGpu",
-          miningTime: 50,
-        }),
+        makeBlock({ blockHash: "0xg1", minerId: "5GGpu", miningTime: 50 }),
       ],
       chainMiners: [
-        makeChainMiner({ accountId: "5GCpu", hardware: makeHardware({}) }),
+        makeChainMiner({}),
         makeChainMiner({
           accountId: "5GGpu",
           hardware: makeHardware({
@@ -246,7 +232,6 @@ describe("useComputeUsed", () => {
           }),
         }),
       ],
-      recentMiningSubmissions: [],
     });
 
     const entries = renderHook().current;
