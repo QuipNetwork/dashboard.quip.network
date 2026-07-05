@@ -1,14 +1,62 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+
+import { useTelemetryStore } from "@/store/telemetry-store";
+import type { NodeDescriptorRecord, NodeMinerEntry } from "@quip/shared/telemetry";
 
 import { QPU_DAILY_BUDGET_MIN } from "./normalized-composition";
-import { displayLabelForCategory, qpuDisplayLabel } from "./qpu-label";
+import {
+  displayLabelForCategory,
+  latestAdvertisedQpuBudgetMin,
+  qpuDisplayLabel,
+  useQpuDisplayLabel,
+} from "./qpu-label";
+
+function descriptor(
+  accountId: string,
+  blockTimestamp: number,
+  miners: Record<string, NodeMinerEntry>,
+): NodeDescriptorRecord {
+  return {
+    accountId,
+    blockNumber: String(blockTimestamp),
+    blockHash: `0x${accountId}`,
+    extrinsicIndex: 0,
+    blockTimestamp,
+    firstBlockTimestamp: blockTimestamp,
+    observedAt: new Date(blockTimestamp * 1000).toISOString(),
+    descriptor: {
+      schema: "quip.node_descriptor.v1",
+      descriptorVersion: 1,
+      nodeName: accountId,
+      miners,
+    },
+  };
+}
+
+function qpuEntry(dailyBudget?: string): NodeMinerEntry {
+  return { kind: "QPU", minerId: "qpu-1", dailyBudget };
+}
 
 describe("qpuDisplayLabel", () => {
-  test('returns "QPU20m", derived from QPU_DAILY_BUDGET_MIN', () => {
+  test('returns "QPU20m" with no argument, derived from QPU_DAILY_BUDGET_MIN', () => {
     expect(qpuDisplayLabel()).toBe("QPU20m");
     expect(qpuDisplayLabel()).toBe(`QPU${QPU_DAILY_BUDGET_MIN}m`);
+  });
+
+  test("uses a provided finite positive budget", () => {
+    expect(qpuDisplayLabel(45)).toBe("QPU45m");
+  });
+
+  test("falls back to QPU_DAILY_BUDGET_MIN for null/undefined/non-positive", () => {
+    expect(qpuDisplayLabel(null)).toBe("QPU20m");
+    expect(qpuDisplayLabel(undefined)).toBe("QPU20m");
+    expect(qpuDisplayLabel(0)).toBe("QPU20m");
+    expect(qpuDisplayLabel(-5)).toBe("QPU20m");
+    expect(qpuDisplayLabel(Number.NaN)).toBe("QPU20m");
   });
 });
 
@@ -21,5 +69,96 @@ describe("displayLabelForCategory", () => {
     for (const id of ["CPU", "GPU", "OTHER", "All", "QPUWC", "5abc123"]) {
       expect(displayLabelForCategory(id)).toBe(id);
     }
+  });
+});
+
+describe("latestAdvertisedQpuBudgetMin", () => {
+  test.each([
+    ["20", 20],
+    ["20m", 20],
+    ["20min", 20],
+    ["45m", 45],
+    ["45.5m", 45.5],
+  ] as const)("parses %s to %d", (raw, expected) => {
+    const budget = latestAdvertisedQpuBudgetMin([descriptor("a", 100, { qpu: qpuEntry(raw) })]);
+    expect(budget).toBe(expected);
+  });
+
+  test.each([
+    ["garbage", undefined],
+    ["", undefined],
+    ["-5m", undefined],
+    ["0", undefined],
+    ["20 hours", undefined],
+  ] as const)("returns null for unparseable %s", (raw) => {
+    const budget = latestAdvertisedQpuBudgetMin([descriptor("a", 100, { qpu: qpuEntry(raw) })]);
+    expect(budget).toBeNull();
+  });
+
+  test("returns null when the dailyBudget field is absent", () => {
+    const budget = latestAdvertisedQpuBudgetMin([descriptor("a", 100, { qpu: qpuEntry() })]);
+    expect(budget).toBeNull();
+  });
+
+  test("returns null with no descriptors", () => {
+    expect(latestAdvertisedQpuBudgetMin([])).toBeNull();
+  });
+
+  test("ignores non-QPU entries", () => {
+    const budget = latestAdvertisedQpuBudgetMin([
+      descriptor("a", 100, { cpu: { kind: "CPU", minerId: "cpu-1" } }),
+    ]);
+    expect(budget).toBeNull();
+  });
+
+  test("picks the most recently updated descriptor's value", () => {
+    const budget = latestAdvertisedQpuBudgetMin([
+      descriptor("old", 100, { qpu: qpuEntry("20m") }),
+      descriptor("new", 200, { qpu: qpuEntry("45m") }),
+    ]);
+    expect(budget).toBe(45);
+  });
+
+  test("falls back to an older valid value when the newest one doesn't parse", () => {
+    const budget = latestAdvertisedQpuBudgetMin([
+      descriptor("old", 100, { qpu: qpuEntry("20m") }),
+      descriptor("new", 200, { qpu: qpuEntry("garbage") }),
+    ]);
+    expect(budget).toBe(20);
+  });
+});
+
+describe("useQpuDisplayLabel", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function Label() {
+    return createElement("span", null, useQpuDisplayLabel());
+  }
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    useTelemetryStore.setState({ nodeDescriptors: [] });
+  });
+
+  test('renders "QPU45m" when a descriptor advertises a 45m budget', () => {
+    useTelemetryStore.setState({
+      nodeDescriptors: [descriptor("a", 100, { qpu: qpuEntry("45m") })],
+    });
+    act(() => root.render(createElement(Label)));
+    expect(container.textContent).toBe("QPU45m");
+  });
+
+  test('renders "QPU20m" fallback with no QPU descriptor', () => {
+    useTelemetryStore.setState({ nodeDescriptors: [] });
+    act(() => root.render(createElement(Label)));
+    expect(container.textContent).toBe("QPU20m");
   });
 });
