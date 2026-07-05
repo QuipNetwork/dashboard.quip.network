@@ -130,6 +130,10 @@ export interface IndexerBackfillProgress {
   // First block with own difficulty — the "All Time" range start
   // (measured ≈ 394,362 on the live chain, spec §10.2).
   difficultyDataStartBlock: string | null;
+  // Server-computed seconds until the backfill catches up, or null when there
+  // isn't enough history yet or the deficit isn't net-shrinking. Optional so
+  // pre-field persisted rows / a just-restarted indexer parse cleanly.
+  backfillEtaSeconds?: number | null;
 }
 
 /**
