@@ -4,7 +4,7 @@
 
 **Goal:** Stop the indexer pegging the validator (~1300–2200% CPU) during winner backfill by replacing per-winner-block full-block decoding + redundant runtime calls with targeted storage reads.
 
-**Architecture:** The pipeline shape is unchanged: "enumerate integers in a domain → decode each → hand a `BlockContext` to plugins." Phase 1 changes only what *decode* does for winner blocks (drop `derive.chain.getBlock`, cache topology, drop the duplicate `winningSolution`). Phase 2 (separate, later) swaps the winner enumeration unit from block-height to qblock-id, which first requires namespacing queue items by lane.
+**Architecture:** The pipeline shape is unchanged: "enumerate integers in a domain → decode each → hand a `BlockContext` to plugins." Phase 1 changes only what _decode_ does for winner blocks (drop `derive.chain.getBlock`, cache topology, drop the duplicate `winningSolution`). Phase 2 (separate, later) swaps the winner enumeration unit from block-height to qblock-id, which first requires namespacing queue items by lane.
 
 **Tech stack:** TypeScript, Bun, `@polkadot/api`, RxJS pipeline (`apps/indexer/pipeline`), Postgres/Kysely.
 
@@ -30,13 +30,16 @@
 ## Task 1: Topology-by-hash cache in the substrate client
 
 **Files:**
+
 - Modify: `apps/indexer/clients/substrate-client/index.ts` (the topology read path used by `getTopology` / `getDefaultTopologyAt` / topology metadata runtime calls).
 - Test: `apps/indexer/clients/substrate-client/*.test.ts` (or a focused new test file).
 
 **Interfaces:**
+
 - Produces: a per-connection cache `topologyByHash: Map<string, TopologyInfo>` so that resolving `{nodeCount, edgeCount}` for a known `topologyHash` costs one runtime call the first time and zero after.
 
 **Steps:**
+
 - [ ] Write a failing test: two resolutions of the same topology hash issue only one underlying runtime call (spy/fake the client's topology RPC).
 - [ ] Implement a `Map<hash, TopologyInfo>` cache keyed by `topologyHash`, populated on first resolve, cleared on disconnect (per-connection lifetime, like other memoized state).
 - [ ] Verify the test passes; confirm `getTopology`/topology-metadata callers hit the cache.
@@ -45,14 +48,17 @@
 ## Task 2: Targeted winner decode (`decodeWinnerBlock`)
 
 **Files:**
+
 - Modify: `apps/indexer/clients/substrate-client/index.ts` — add a method that, given a block number, returns the enrichment a winner row needs WITHOUT `derive.chain.getBlock`.
 - Test: substrate-client test.
 
 **Interfaces:**
+
 - Consumes: `winningSolution(blockNum)` (Task uses existing `getQBlock` internals), `api.query.system.events.at(blockHash)`, `getBlockHash`, `timestamp.now.at`.
 - Produces: enough to build a `BlockRecord`. Concretely, extend the winner path so `BlockContext.events` for a winner item is populated from `system.events.at(hash)` (only the `ProofAccepted` → `diversityMilli`, `validSolutionCount`, and `BlockWinner` → miner/energy/reward/qblockId/nonce) rather than a full `SignedBlockExtended` decode. `author` is left `null` for winner-only decode (authorship no longer backfills — it runs at tip via the every-block path).
 
 **Steps:**
+
 - [ ] Write a failing test: `decodeWinnerBlock(blockNum)` returns a `BlockEvents`-shaped object with `winner`, `proofs` (diversity + validSolutionCount), and `nonce`, using only `events.at` + `winningSolution` (assert no `derive.chain.getBlock` call via a spy).
 - [ ] Implement `decodeWinnerBlock`: `getBlockHash(blockNum)` → `system.events.at(hash)` filtered to `quantumPow.BlockWinner` + `quantumPow.ProofAccepted`; nonce from the winning `submit_proof` extrinsic OR from `winningSolution().nonce` (prefer the runtime value — it's already fetched and avoids extrinsic decode). Reuse `qblockInfoFromSolution` for the qblock fields.
 - [ ] Verify diversity + numValidSolutions match what the full-decode path produced for a sample block (golden test against current `decodeFinalizedBlock` output for one known winner).
@@ -61,15 +67,18 @@
 ## Task 3: Route the winner lane through the targeted decode + de-dupe
 
 **Files:**
+
 - Modify: `apps/indexer/pipeline/dispatch.ts` (`process`) — for items whose pending set is winner-domain only, fetch via `decodeWinnerBlock` instead of `processFinalizedBlock`; build `BlockContext.qblock()` from the already-fetched solution (no second `winningSolution`); resolve `topology()`/`defaultTopologyAt()` via the Task 1 cache.
 - Modify: `apps/indexer/clients/substrate-client/index.ts` — ensure `getQBlock`'s result is threaded onto the context so `winners.ts` `ctx.qblock()` reuses it (kills the duplicate runtime call, subagent finding #2).
 - Test: `apps/indexer/pipeline/dispatch.test.ts`.
 
 **Interfaces:**
+
 - Consumes: Task 1 cache, Task 2 `decodeWinnerBlock`.
 - Preserves: the `winners.ts` and `difficulty.ts` `onBlock` bodies unchanged — they still consume `BlockContext` with the same shape.
 
 **Steps:**
+
 - [ ] Write a failing test: a winner-only item is processed with zero `derive.chain.getBlock` and exactly one `winningSolution` call; the resulting `blocks` row equals the current pipeline's row for the same fixture.
 - [ ] Implement the routing in `process`: detect winner-only items; use `decodeWinnerBlock`; memoize `qblock()` from the fetched solution; use cached topology.
 - [ ] Keep the every-block/tip path on `processFinalizedBlock` (authorship at tip still needs author + events).
@@ -79,6 +88,7 @@
 ## Task 4: Fresh-index measurement
 
 **Steps:**
+
 - [ ] `docker stop deploy-app-1`; `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on `deploy-postgres-1`; `docker start deploy-app-1`.
 - [ ] Monitor `quip-validator` CPU for ~10 min (30s cadence). Record peak + steady state.
 - [ ] Compare to the pre-change baseline (1300–2200% during winner backfill). Success = winner backfill no longer pegs the validator (target: low hundreds of % or less), blocks row counts and values unchanged.
@@ -92,13 +102,13 @@ Swap the winner lane's enumeration from `getQBlockNumbers()` (sparse block heigh
 
 ## Results (Phase 1, fresh-index measurement 2026-07-05)
 
-| metric | baseline | after Phase 1 |
-|---|---|---|
-| winner-backfill peak validator CPU | 1300–2200% | ~850–950% |
-| backfill throughput | ~1.6 blocks/s | ~5.3 blocks/s (≈3×) |
-| backfill duration (4.2k winner blocks) | ~44 min | ~13 min |
-| total validator work (peak × duration) | ~50k core-s | ~7k core-s (≈7× less) |
-| **steady-state (caught up)** | ~8% | **7–18% (near-idle)** |
+| metric                                 | baseline      | after Phase 1         |
+| -------------------------------------- | ------------- | --------------------- |
+| winner-backfill peak validator CPU     | 1300–2200%    | ~850–950%             |
+| backfill throughput                    | ~1.6 blocks/s | ~5.3 blocks/s (≈3×)   |
+| backfill duration (4.2k winner blocks) | ~44 min       | ~13 min               |
+| total validator work (peak × duration) | ~50k core-s   | ~7k core-s (≈7× less) |
+| **steady-state (caught up)**           | ~8%           | **7–18% (near-idle)** |
 
 Conclusion: Phase 1 cut total backfill validator load ~7× (both peak and duration).
 Steady-state after sync is near the idle floor. The heavy load was the one-time
@@ -113,6 +123,7 @@ deviceAccessTimeUs.
 
 Steady-state risk NOT addressed by Phase 1 (relevant if a deployment shows
 sustained high CPU while "caught up"):
+
 - **Flapping sync-gate** (`getSyncState` trusts `system_health.isSyncing`, which
   flaps on a quiet/solo validator even at current==highest) → perpetual
   pause→gap→re-backfill churn. Observed 13 flaps / 500 log lines during initial
