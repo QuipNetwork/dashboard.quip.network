@@ -77,26 +77,32 @@ function render(): void {
 }
 
 describe("EnergyDistributionCard", () => {
-  test("renders the title and the All Nodes | Best Nodes toggle", () => {
+  test("renders the title, the new subtitle, and the All Nodes | Best Nodes toggle", () => {
     render();
     const text = container.textContent ?? "";
     expect(text).toContain("Energy Distribution");
+    expect(text).toContain("Winning energies by type");
+    // Old self-normalisation copy is gone.
+    expect(text).not.toContain("normalised against itself");
     expect(text).toContain("All Nodes");
     expect(text).toContain("Best Nodes");
   });
 
-  test("renders one section per processor type, including empty ones", () => {
+  test("renders a single grouped chart when there are wins", () => {
     useTelemetryStore.setState({
       blocks: [makeBlock({ minerId: "A" })],
       chainMiners: [makeChainMiner("A", "CPU")],
     });
     render();
-    expect(container.querySelector('[data-qa="energy-distribution-CPU"]')).not.toBeNull();
-    expect(container.querySelector('[data-qa="energy-distribution-GPU"]')).not.toBeNull();
-    expect(container.querySelector('[data-qa="energy-distribution-QPU"]')).not.toBeNull();
-    // GPU/QPU have no wins here — empty-state text, not a crash.
-    const gpuPanel = container.querySelector('[data-qa="energy-distribution-GPU"]');
-    expect(gpuPanel?.textContent).toContain("No wins yet");
+    // One grouped chart, not three per-type panels.
+    expect(container.querySelector('[data-qa="chart-energy-distribution"]')).not.toBeNull();
+    expect(container.querySelector('[data-qa="energy-distribution-CPU"]')).toBeNull();
+  });
+
+  test("renders the empty state when no type has any wins", () => {
+    render();
+    expect(container.querySelector('[data-qa="chart-energy-distribution"]')).toBeNull();
+    expect(container.textContent).toContain("No wins yet");
   });
 
   test("switching to Best Nodes re-queries the hook without crashing", () => {

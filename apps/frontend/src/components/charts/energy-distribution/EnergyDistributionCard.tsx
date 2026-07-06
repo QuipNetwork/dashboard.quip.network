@@ -7,26 +7,26 @@ import {
   SegToggle,
   type NodeScope,
 } from "@/components/charts/common/SegToggle";
-import { getSeriesColor } from "@/lib/chart-colors";
-import { displayLabelForCategory, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
-import { EnergyDistributionMiniChart } from "./EnergyDistributionMiniChart";
-import { useEnergyDistributionByType, type TypeDistribution } from "./use-energy-distribution";
+import { EnergyDistributionChart } from "./EnergyDistributionChart";
+import { useEnergyDistributionByType } from "./use-energy-distribution";
 
 /**
- * "Energy Distribution" (WU10, nextsteps.md #6) — three per-type mini
- * histograms (CPU/GPU/QPU) in place of the old single stacked chart, each
- * normalised against ITSELF (its bars sum to ~100% of that type's own wins),
- * plus an All Nodes | Best Nodes scope toggle. Bucket/anchor math lives in
- * ./energy-buckets; the sign-convention writeup for "hardest" is there too.
+ * "Energy Distribution" (WU10, ssf.6) — a single grouped bar chart of winning
+ * energies by processor type (CPU/GPU/QPU) over the shared energy buckets,
+ * plus an All Nodes | Best Nodes scope toggle. Replaces the three separate
+ * per-type mini-histograms. Each type is normalised against ITSELF (its bars
+ * sum to ~100% of that type's own wins); bucket/anchor math and the "which end
+ * is hardest" sign-convention writeup live in ./energy-buckets.
  */
 export function EnergyDistributionCard() {
   const [scope, setScope] = useState<NodeScope>("all");
   const { types } = useEnergyDistributionByType({ scope });
+  const hasWins = types.some((t) => t.totalWins > 0);
 
   return (
     <ChartCard
       title="Energy Distribution"
-      subtitle="Each type's own wins, normalised against itself"
+      subtitle="Winning energies by type"
       bodyClassName="h-[420px]"
       actions={
         <SegToggle
@@ -37,35 +37,13 @@ export function EnergyDistributionCard() {
         />
       }
     >
-      <div className="grid h-full grid-cols-1 gap-3 sm:grid-cols-3">
-        {types.map((t) => (
-          <EnergyDistributionMiniPanel key={t.type} distribution={t} />
-        ))}
-      </div>
+      {hasWins ? (
+        <EnergyDistributionChart types={types} />
+      ) : (
+        <p className="flex h-full items-center justify-center font-accent text-sm text-ink-subtle">
+          No wins yet
+        </p>
+      )}
     </ChartCard>
-  );
-}
-
-function EnergyDistributionMiniPanel({ distribution }: { distribution: TypeDistribution }) {
-  const { type, totalWins } = distribution;
-  const qpuLabel = useQpuDisplayLabel();
-  return (
-    <div
-      className="flex h-full flex-col border border-border p-2"
-      data-qa={`energy-distribution-${type}`}
-    >
-      <p className="mb-1 font-accent text-xs font-semibold" style={{ color: getSeriesColor(type) }}>
-        {type === "QPU" ? qpuLabel : displayLabelForCategory(type)}
-      </p>
-      <div className="min-h-0 flex-1">
-        {totalWins === 0 ? (
-          <p className="flex h-full items-center justify-center font-accent text-xs text-ink-subtle">
-            No wins yet
-          </p>
-        ) : (
-          <EnergyDistributionMiniChart distribution={distribution} />
-        )}
-      </div>
-    </div>
   );
 }
