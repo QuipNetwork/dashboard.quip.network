@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import type { BlockRecord } from "@quip/shared/telemetry";
 
+import { formatNonce } from "@/lib/format-chain";
 import { LastQBlockDetailsCard } from "./LastQBlockDetailsCard";
 
 function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
@@ -62,14 +63,23 @@ describe("LastQBlockDetailsCard", () => {
     });
     const text = container.textContent ?? "";
     expect(text).toContain("Last QBlock Details");
+    expect(text).toContain("QBlock ID");
+    expect(text).toContain("#163");
+    expect(text).toContain("Block #");
     expect(text).toContain("#162");
     expect(text).toContain("12.3 PFLOP·s");
     expect(text).toContain("Solved In");
+    expect(text).toContain("Target Energy");
+    expect(text).toContain("-110");
     expect(text).toContain("Energy");
     expect(text).toContain("-105");
     expect(text).toContain("0.482");
     expect(text).toContain("Solutions");
     expect(text).toContain("3");
+    expect(text).toContain("QBlock Hash");
+    expect(text).toContain("0xhash");
+    expect(text).toContain("Nonce");
+    expect(text).toContain(formatNonce("1"));
   });
 
   test("shows the awaiting-first-block empty state when there is no block yet", () => {
@@ -82,5 +92,22 @@ describe("LastQBlockDetailsCard", () => {
     expect(text).toContain("Last QBlock Details");
     expect(text).toContain("Awaiting first block");
     expect(text).not.toContain("QBlock #");
+  });
+
+  test("renders the title larger and near-black", () => {
+    act(() => {
+      root.render(
+        createElement(LastQBlockDetailsCard, {
+          lastBlock: makeBlock(),
+          lastBlockPflopSeconds: 12.34,
+        }),
+      );
+    });
+    const titleEl = [...container.querySelectorAll("p")].find(
+      (p) => p.textContent === "Last QBlock Details",
+    );
+    expect(titleEl).toBeDefined();
+    expect(titleEl?.className).toContain("text-ink-strong");
+    expect(titleEl?.className).not.toContain("text-[10px]");
   });
 });
