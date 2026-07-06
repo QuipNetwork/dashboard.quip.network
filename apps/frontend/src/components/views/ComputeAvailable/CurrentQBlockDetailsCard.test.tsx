@@ -79,6 +79,7 @@ describe("CurrentQBlockDetailsCard", () => {
     });
     const text = container.textContent ?? "";
     expect(text).toContain("Current QBlock Details");
+    expect(text).toContain("Block #");
     expect(text).toContain("#163");
     expect(text).toContain("5.7 PFLOP·s");
     expect(text).toContain("30s and counting");
@@ -153,5 +154,26 @@ describe("CurrentQBlockDetailsCard", () => {
     );
     expect(notEnforced.length).toBe(2);
     expect(notEnforced.every((dd) => dd.querySelector("span.italic") != null)).toBe(true);
+  });
+
+  test("renders the title larger and near-black", () => {
+    act(() => {
+      root.render(
+        createElement(CurrentQBlockDetailsCard, {
+          lastBlock: makeBlock(),
+          currentBlockPflopSeconds: 5.67,
+          currentBlockElapsedSeconds: 30,
+          currentDifficulty: null,
+          recentDifficulty: [],
+          decays: null,
+        }),
+      );
+    });
+    const titleEl = [...container.querySelectorAll("p")].find(
+      (p) => p.textContent === "Current QBlock Details",
+    );
+    expect(titleEl).toBeDefined();
+    expect(titleEl?.className).toContain("text-ink-strong");
+    expect(titleEl?.className).not.toContain("text-[10px]");
   });
 });

@@ -11,6 +11,11 @@ import type { CurrentRequirements } from "@/components/views/MyNode/use-my-node"
 // card with duplicate thresholds.
 const PRIOR_ENERGY_ROWS = 3;
 
+// Bumped from the shared BlockDetailCard default so this card's headline
+// reads larger and near-black instead of the small uppercase subtle tag
+// every other BlockDetailCard caller uses.
+const TITLE_CLASS_NAME = "font-heading text-lg text-ink-strong";
+
 export function CurrentQBlockDetailsCard({
   lastBlock,
   currentBlockPflopSeconds,
@@ -33,6 +38,7 @@ export function CurrentQBlockDetailsCard({
     return (
       <BlockDetailCard
         label="Current QBlock Details"
+        labelClassName={TITLE_CLASS_NAME}
         rows={[{ label: "Status", value: "Awaiting first block" }]}
       />
     );
@@ -53,7 +59,7 @@ export function CurrentQBlockDetailsCard({
 
   const rows: DetailRow[] = [
     {
-      label: "QBlock",
+      label: "Block #",
       value: lastBlock != null ? `#${Number(lastBlock.substrateBlockNumber) + 1}` : "—",
     },
     {
@@ -98,5 +104,7 @@ export function CurrentQBlockDetailsCard({
     ),
   ];
 
-  return <BlockDetailCard label="Current QBlock Details" rows={rows} />;
+  return (
+    <BlockDetailCard label="Current QBlock Details" labelClassName={TITLE_CLASS_NAME} rows={rows} />
+  );
 }
