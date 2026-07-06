@@ -14,22 +14,22 @@ import {
   type MiningTimeGrouping,
 } from "./use-mining-time";
 
-// Subtitles say "winner's" deliberately: the indexer only records the
-// winning block per qblock, so this is the winner's device time/energy —
-// not a sum over all participants (see use-mining-time's header).
+// Subtitles say "total" deliberately: the value is now summed over every node
+// that raced the qblock (all device kinds), not just the winner — see
+// use-mining-time's header (participation-level data).
 function subtitleFor(grouping: MiningTimeGrouping, metric: MiningMetric): string {
   const noun = metric === "energy" ? "device energy" : "device time";
-  if (grouping === "normalized") return `Share of winner ${noun} at the reference composition`;
-  if (grouping === "byType") return `Winner's ${noun} per qblock by processor type`;
-  return `Winner's ${noun} per qblock across all miners`;
+  if (grouping === "normalized") return `Share of total ${noun} at the reference composition`;
+  if (grouping === "byType") return `Total ${noun} per qblock by processor type`;
+  return `Total ${noun} per qblock across all participants`;
 }
 
 /**
  * "Mining per QBlock" with the difficulty panel's 1H…ALL windowing plus two
  * card-local toggles: grouping "All | By Type | Normalized" (nextsteps #8a —
  * Normalized reuses the charts/common/normalized-composition model) and
- * metric "Time | Energy" (#8b — winner device seconds vs their estimated
- * joules).
+ * metric "Time | Energy" (#8b — total participant device seconds vs their
+ * estimated joules).
  */
 export function MiningTimeCard() {
   const [range, setRange] = useState<TimeRange>("24h");

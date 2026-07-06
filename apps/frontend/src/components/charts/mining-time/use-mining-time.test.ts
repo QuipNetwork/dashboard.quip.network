@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Range-windowed mining-per-qblock series: the hook fetches
-// /api/mining-history for the selected window and groups rows locally —
-// "byType" into CPU/GPU/QPU lines (filtered by the global type selection),
-// "all" into one aggregate line, "normalized" into the fixed-composition
-// shares. The metric is the winner's device access time (seconds) or its
-// estimated energy (joules). x is the on-chain qblock id.
+// /api/mining-history for the selected window (which bounds the in-range
+// qblocks and orders the x-axis) and joins each qblock to its participant
+// totals from store.participationCompute — "byType" into CPU/GPU/QPU lines
+// (filtered by the global type selection), "all" into one aggregate line,
+// "normalized" into the fixed-composition shares. The metric is the TOTAL
+// participant device access time (seconds) or its estimated energy (joules).
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createElement } from "react";
@@ -18,20 +19,18 @@ import {
   NORMALIZED_SERIES_IDS,
   NORMALIZED_SERIES_LABELS,
 } from "@/components/charts/common/normalized-composition";
-import { QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN } from "@/lib/device-access-time";
-import { DEFAULT_CPU_WATTS_PER_CORE } from "@/lib/hardware-flops";
-import { QPU_SYSTEM_WATTS } from "@/lib/hardware-power";
+import { estimateDeviceWatts, estimateEnergyJoules } from "@/lib/hardware-power";
 import { ServicesProvider } from "@/services/services-provider";
 import type { TelemetryClient } from "@/services/telemetry-client";
 import { idleTelemetryClient } from "@/testing/services";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
-import type {
-  BlockRecord,
-  ChainMinerRecord,
-  MinerHardwareRecord,
-  MiningHistoryRow,
-  NodesSnapshot,
+import {
+  QPU_ACCESS_TO_WALL_RATIO,
+  type ChainMinerRecord,
+  type MinerHardwareRecord,
+  type MiningHistoryRow,
+  type ParticipationComputeRow,
 } from "@quip/shared/telemetry";
 
 import {
@@ -46,12 +45,28 @@ import {
 // 2026-07-02T12:00:00.000Z — fixed wall-clock for windowing assertions.
 const NOW = Date.parse("2026-07-02T12:00:00.000Z");
 
-const historyRow = (qblockId: number, minerId: string, miningTime: number): MiningHistoryRow => ({
+// Winner rows only bound the range + order the x-axis now; miningTime is unused
+// for the y-value (that comes from participation), so any value is fine.
+const historyRow = (qblockId: number, minerId = "5GCpu"): MiningHistoryRow => ({
   qblockId: String(qblockId),
   substrateBlockNumber: String(500_000 + qblockId),
   timestamp: 1_751_457_000 + qblockId,
   minerId,
-  miningTime,
+  miningTime: 0,
+});
+
+const part = (
+  qblockId: number,
+  account: string,
+  kind: string,
+  miningSeconds: number,
+  exactQpuAccessUs: number | null = null,
+): ParticipationComputeRow => ({
+  qblockId: String(qblockId),
+  account,
+  kind,
+  miningSeconds,
+  exactQpuAccessUs,
 });
 
 function makeHardware(overrides: Partial<MinerHardwareRecord> = {}): MinerHardwareRecord {
@@ -79,6 +94,7 @@ function makeChainMiner(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRe
   };
 }
 
+// One registered device per type — the normalized census denominator.
 const cpuMiner = makeChainMiner();
 const gpuMiner = makeChainMiner({
   accountId: "5GGpu",
@@ -88,61 +104,6 @@ const gpuMiner = makeChainMiner({
     primaryType: "GPU",
   }),
 });
-const qpuMiner = makeChainMiner({
-  accountId: "5GQpu",
-  hardware: makeHardware({
-    accountId: "5GQpu",
-    miners: [{ id: "node-3-QPU-1", type: "QPU" }],
-    primaryType: "QPU",
-  }),
-});
-
-// A CPU winner joined to a telemetry node whose brand misses the FLOPS
-// table, so its watt estimate is exactly DEFAULT_CPU_WATTS_PER_CORE × cores.
-const CPU_NODE_CORES = 10;
-const cpuMinerWithNode = makeChainMiner({ telemetryNodeAddress: "node-cpu" });
-const cpuNodesSnapshot: NodesSnapshot = {
-  updatedAt: "2026-07-02T11:59:00Z",
-  nodeCount: 1,
-  activeCount: 1,
-  nodes: {
-    "node-cpu": {
-      address: "node-cpu",
-      status: "active",
-      firstSeen: NOW - 86_400_000,
-      lastSeen: NOW,
-      lastHeartbeat: NOW,
-      systemInfo: { cpu: { brand: "Frobnicator 9000", physicalCores: CPU_NODE_CORES } },
-    },
-  },
-};
-
-function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
-  return {
-    blockHash: "0xhash",
-    substrateBlockNumber: "500001",
-    substrateBlockHash: "0xshash",
-    substrateParentHash: "0xparent",
-    timestamp: 1_751_457_001,
-    minerId: "5GCpu",
-    energy: -14_500,
-    diversity: 0.5,
-    numValidSolutions: 1,
-    miningTime: 10,
-    reward: "1000000000000",
-    qblockId: "1",
-    nonce: "1",
-    numNodes: 100,
-    numEdges: 200,
-    difficultyEnergy: -14_500,
-    minDiversity: 0.1,
-    minSolutions: 1,
-    topologyHash: null,
-    finalized: false,
-    deviceAccessTimeUs: null,
-    ...overrides,
-  };
-}
 
 function makeClient(rows: MiningHistoryRow[]): { client: TelemetryClient; calls: string[] } {
   const calls: string[] = [];
@@ -166,8 +127,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   useTelemetryStore.setState({
-    blocks: [],
-    nodes: null,
+    participationCompute: [],
     chainMiners: [cpuMiner, gpuMiner],
     nodeDescriptors: [],
   });
@@ -177,8 +137,12 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  useTelemetryStore.setState({ blocks: [], nodes: null, chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ participationCompute: [], chainMiners: [], nodeDescriptors: [] });
 });
+
+function setParticipation(rows: ParticipationComputeRow[]): void {
+  useTelemetryStore.setState({ participationCompute: rows });
+}
 
 function renderHook(
   client: TelemetryClient,
@@ -191,8 +155,6 @@ function renderHook(
     result.current = useMiningTime(range, grouping, metric, { now: () => NOW });
     return null;
   }
-  // Only the client is overridden — the stores fall back to the globals the
-  // fixtures drive via setState (same pattern as ComputeAvailableView.test).
   act(() => {
     root.render(createElement(ServicesProvider, { client, children: createElement(Probe) }));
   });
@@ -215,12 +177,14 @@ describe("useMiningTime", () => {
     expect(calls).toEqual(["2026-07-02T11:00:00.000Z"]);
   });
 
-  test("byType groups rows into type series with the qblock id on x", async () => {
-    const { client } = makeClient([
-      historyRow(1, "5GCpu", 10),
-      historyRow(2, "5GGpu", 7),
-      historyRow(3, "5GCpu", 20),
+  test("byType sums participant device time per type per qblock (not winner-only)", async () => {
+    setParticipation([
+      part(1, "A", "Cpu", 10),
+      part(1, "B", "Cpu", 5), // co-racer on the same qblock — both count
+      part(2, "G", "Gpu", 7),
+      part(3, "A", "Cpu", 20),
     ]);
+    const { client } = makeClient([historyRow(1), historyRow(2), historyRow(3)]);
     const result = renderHook(client, "24h", "byType");
     await settle();
     expect(result.current.loading).toBe(false);
@@ -228,7 +192,7 @@ describe("useMiningTime", () => {
       {
         id: "CPU",
         data: [
-          { x: 1, y: 10 },
+          { x: 1, y: 15 },
           { x: 3, y: 20 },
         ],
       },
@@ -238,25 +202,28 @@ describe("useMiningTime", () => {
 
   test("byType respects the global type selection", async () => {
     useUIStore.setState({ selectedTypes: ["GPU"] });
-    const { client } = makeClient([historyRow(1, "5GCpu", 10), historyRow(2, "5GGpu", 7)]);
+    setParticipation([part(1, "A", "Cpu", 10), part(2, "G", "Gpu", 7)]);
+    const { client } = makeClient([historyRow(1), historyRow(2)]);
     const result = renderHook(client, "24h", "byType");
     await settle();
     expect(result.current.series).toEqual([{ id: "GPU", data: [{ x: 2, y: 7 }] }]);
   });
 
-  test("all aggregates every win into a single series", async () => {
-    const { client } = makeClient([
-      historyRow(1, "5GCpu", 10),
-      historyRow(2, "5GGpu", 7),
-      historyRow(3, "5GCpu", 20),
+  test("all aggregates every type into a single per-qblock sum", async () => {
+    setParticipation([
+      part(1, "A", "Cpu", 10),
+      part(1, "G", "Gpu", 3), // same qblock, different type — summed
+      part(2, "G", "Gpu", 7),
+      part(3, "A", "Cpu", 20),
     ]);
+    const { client } = makeClient([historyRow(1), historyRow(2), historyRow(3)]);
     const result = renderHook(client, "24h", "all");
     await settle();
     expect(result.current.series).toEqual([
       {
         id: "All",
         data: [
-          { x: 1, y: 10 },
+          { x: 1, y: 13 },
           { x: 2, y: 7 },
           { x: 3, y: 20 },
         ],
@@ -272,53 +239,57 @@ describe("useMiningTime", () => {
     expect(result.current.series).toEqual([]);
   });
 
-  // ---- Time vs Energy (winner-only metric, see module header) ------------
-
-  test("QPU time uses the fixed access-time estimate, not miningTime", async () => {
-    useTelemetryStore.setState({ chainMiners: [qpuMiner] });
-    const { client } = makeClient([historyRow(1, "5GQpu", 42)]);
-    const result = renderHook(client, "24h", "all", "time");
+  test("qblocks in range but without participation contribute no point", async () => {
+    setParticipation([part(2, "G", "Gpu", 7)]);
+    const { client } = makeClient([historyRow(1), historyRow(2), historyRow(3)]);
+    const result = renderHook(client, "24h", "all");
     await settle();
-    expect(result.current.series).toEqual([
-      { id: "All", data: [{ x: 1, y: QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN }] },
-    ]);
+    expect(result.current.series).toEqual([{ id: "All", data: [{ x: 2, y: 7 }] }]);
   });
 
-  test("energy = winner node's watt estimate × device seconds (CPU)", async () => {
-    useTelemetryStore.setState({ chainMiners: [cpuMinerWithNode], nodes: cpuNodesSnapshot });
-    const { client } = makeClient([historyRow(1, "5GCpu", 10)]);
+  // ---- Time vs Energy ----------------------------------------------------
+
+  test("QPU device time uses the exact self-reported access when present", async () => {
+    setParticipation([part(1, "Q", "Qpu", 999, 42_000_000)]); // 42s exact, not 999 wall
+    const { client } = makeClient([historyRow(1, "5GQpu")]);
+    const result = renderHook(client, "24h", "all", "time");
+    await settle();
+    expect(result.current.series).toEqual([{ id: "All", data: [{ x: 1, y: 42 }] }]);
+  });
+
+  test("QPU device time falls back to the wall/ratio estimate", async () => {
+    setParticipation([part(1, "Q", "Qpu", QPU_ACCESS_TO_WALL_RATIO * 2)]);
+    const { client } = makeClient([historyRow(1, "5GQpu")]);
+    const result = renderHook(client, "24h", "all", "time");
+    await settle();
+    const point = result.current.series[0]!.data[0]!;
+    expect(point.x).toBe(1);
+    expect(point.y).toBeCloseTo(2, 6);
+  });
+
+  test("energy = category default watts × device seconds (CPU)", async () => {
+    setParticipation([part(1, "A", "Cpu", 10)]);
+    const { client } = makeClient([historyRow(1)]);
     const result = renderHook(client, "24h", "all", "energy");
     await settle();
-    // No table match for "Frobnicator 9000" → default watts/core × cores.
-    const expected = DEFAULT_CPU_WATTS_PER_CORE * CPU_NODE_CORES * 10;
+    const expected = estimateEnergyJoules(estimateDeviceWatts("CPU", null), 10);
     expect(result.current.series).toEqual([{ id: "All", data: [{ x: 1, y: expected }] }]);
   });
 
-  test("energy = QPU system watts × fixed access estimate (QPU, no node)", async () => {
-    useTelemetryStore.setState({ chainMiners: [qpuMiner] });
-    const { client } = makeClient([historyRow(1, "5GQpu", 42)]);
+  test("energy = QPU system watts × exact access seconds", async () => {
+    setParticipation([part(1, "Q", "Qpu", 999, 42_000_000)]);
+    const { client } = makeClient([historyRow(1, "5GQpu")]);
     const result = renderHook(client, "24h", "all", "energy");
     await settle();
-    expect(result.current.series).toEqual([
-      { id: "All", data: [{ x: 1, y: QPU_SYSTEM_WATTS * QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN }] },
-    ]);
-  });
-
-  test("reported deviceAccessTimeUs in the recent-blocks window overrides miningTime", async () => {
-    useTelemetryStore.setState({
-      chainMiners: [cpuMiner, gpuMiner],
-      blocks: [makeBlock({ qblockId: "1", deviceAccessTimeUs: 2_500_000 })],
-    });
-    const { client } = makeClient([historyRow(1, "5GCpu", 10)]);
-    const result = renderHook(client, "24h", "all", "time");
-    await settle();
-    expect(result.current.series).toEqual([{ id: "All", data: [{ x: 1, y: 2.5 }] }]);
+    const expected = estimateEnergyJoules(estimateDeviceWatts("QPU", null), 42);
+    expect(result.current.series).toEqual([{ id: "All", data: [{ x: 1, y: expected }] }]);
   });
 
   // ---- Normalized (canonical composition module) --------------------------
 
   test("normalized emits the canonical series ids and labels", async () => {
-    const { client } = makeClient([historyRow(1, "5GCpu", 10), historyRow(2, "5GGpu", 7)]);
+    setParticipation([part(1, "A", "Cpu", 10), part(2, "G", "Gpu", 7)]);
+    const { client } = makeClient([historyRow(1), historyRow(2)]);
     const result = renderHook(client, "24h", "normalized");
     await settle();
     expect(result.current.series.map((s) => s.id)).toEqual([...NORMALIZED_SERIES_IDS]);
@@ -328,15 +299,17 @@ describe("useMiningTime", () => {
   });
 
   test("normalized shares follow the composition weights", async () => {
-    // 24 alternating wins → bandSize 2, every band holds one CPU (10 s) and
-    // one GPU (7 s) win. With one registered device per type the per-unit
+    // 24 alternating qblocks → bandSize 2, every band holds one CPU (10 s) and
+    // one GPU (7 s) qblock. With one registered device per type the per-unit
     // averages are 10 and 7, so each band's shares come straight from the
     // module's composition counts.
     const rows: MiningHistoryRow[] = [];
+    const participation: ParticipationComputeRow[] = [];
     for (let i = 0; i < 24; i += 2) {
-      rows.push(historyRow(i + 1, "5GCpu", 10));
-      rows.push(historyRow(i + 2, "5GGpu", 7));
+      rows.push(historyRow(i + 1), historyRow(i + 2));
+      participation.push(part(i + 1, "A", "Cpu", 10), part(i + 2, "G", "Gpu", 7));
     }
+    setParticipation(participation);
     const { client } = makeClient(rows);
     const result = renderHook(client, "24h", "normalized");
     await settle();
@@ -353,20 +326,17 @@ describe("useMiningTime", () => {
 
   test("normalized ignores the global type selection (fixed composition)", async () => {
     useUIStore.setState({ selectedTypes: ["GPU"] });
-    const { client } = makeClient([historyRow(1, "5GCpu", 10), historyRow(2, "5GGpu", 7)]);
+    setParticipation([part(1, "A", "Cpu", 10), part(2, "G", "Gpu", 7)]);
+    const { client } = makeClient([historyRow(1), historyRow(2)]);
     const result = renderHook(client, "24h", "normalized");
     await settle();
     const cpu = result.current.series.find((s) => s.id === "CPU")!;
     expect(cpu.data.some((p) => p.y > 0)).toBe(true);
   });
 
-  test("null deviceAccessTimeUs stays finite in every grouping/metric", async () => {
-    useTelemetryStore.setState({ chainMiners: [cpuMiner, gpuMiner, qpuMiner] });
-    const rows = [
-      historyRow(1, "5GCpu", 10),
-      historyRow(2, "5GGpu", 7),
-      historyRow(3, "5GQpu", 42),
-    ];
+  test("QPU estimate stays finite in every grouping/metric", async () => {
+    setParticipation([part(1, "A", "Cpu", 10), part(2, "G", "Gpu", 7), part(3, "Q", "Qpu", 42)]);
+    const rows = [historyRow(1), historyRow(2), historyRow(3, "5GQpu")];
     for (const grouping of ["all", "byType", "normalized"] as const) {
       for (const metric of ["time", "energy"] as const) {
         const { client } = makeClient(rows);

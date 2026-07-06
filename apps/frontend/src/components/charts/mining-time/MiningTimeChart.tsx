@@ -11,7 +11,7 @@ import type { MiningMetric, MiningTimeSeries } from "./use-mining-time";
 
 export interface MiningTimeChartProps {
   data: MiningTimeSeries[];
-  // Which winner metric the series carry — drives axis/tooltip formatting.
+  // Which participant-total metric the series carry — drives axis/tooltip formatting.
   metric?: MiningMetric;
   // Normalized-composition shares (0–100%) rather than raw metric values.
   normalized?: boolean;

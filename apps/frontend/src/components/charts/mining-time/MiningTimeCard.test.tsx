@@ -2,8 +2,8 @@
 //
 // "Mining per QBlock" card chrome: the renamed title, the three-way
 // grouping toggle (All | By Type | Normalized), the Time | Energy metric
-// toggle, and the winner-honest subtitle (the indexer records winners only,
-// so the card never claims all-participant sums).
+// toggle, and the participation subtitle (the value now sums over every node
+// that raced the qblock, so the card reads "total" rather than "winner's").
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, createElement } from "react";
@@ -69,16 +69,16 @@ describe("MiningTimeCard", () => {
     expect(groupButtons("Mining time range").length).toBeGreaterThan(0);
   });
 
-  test("subtitle stays winner-honest and follows the toggles", () => {
+  test("subtitle reflects participant totals and follows the toggles", () => {
     renderCard();
-    expect(container.textContent).toContain("Winner's device time per qblock by processor type");
+    expect(container.textContent).toContain("Total device time per qblock by processor type");
 
     clickButton("Mining metric", "Energy");
-    expect(container.textContent).toContain("Winner's device energy per qblock by processor type");
+    expect(container.textContent).toContain("Total device energy per qblock by processor type");
 
     clickButton("Mining time grouping", "Normalized");
     expect(container.textContent).toContain(
-      "Share of winner device energy at the reference composition",
+      "Share of total device energy at the reference composition",
     );
   });
 });
