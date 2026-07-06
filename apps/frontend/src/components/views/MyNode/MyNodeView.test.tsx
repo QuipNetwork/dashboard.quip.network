@@ -122,7 +122,9 @@ describe("MyNodeView", () => {
     renderView(root);
     const text = container.textContent ?? "";
     expect(text).not.toContain("Current Difficulty");
-    expect(text).not.toContain("Target Energy");
+    // "Target Energy" now legitimately appears in the Last Won QBlock Details
+    // card (bead p66), so it is no longer a proxy for the relocated pane —
+    // the "Current Difficulty" absence above is the check that it moved.
   });
 
   test("still renders QBlocks Won and Rewards Earned tiles", () => {
