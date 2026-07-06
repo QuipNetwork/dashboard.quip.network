@@ -88,32 +88,42 @@ export function withTimeEnergyTotals(
   });
 }
 
-function metricFor(entry: LeaderboardEntry, mode: LeaderboardMode): number {
-  if (mode === "byTime") return entry.totalMiningSeconds ?? 0;
-  if (mode === "byEnergy") return entry.totalEnergyJoules ?? 0;
-  return entry.blockCount;
+// Only meaningful for byTime/byEnergy — applyLeaderboardMode returns early
+// for byCount, so this never needs to report blockCount.
+function metricFor(entry: LeaderboardEntry, mode: LeaderboardMode): number | null {
+  if (mode === "byTime") return entry.totalMiningSeconds ?? null;
+  return entry.totalEnergyJoules ?? null;
 }
 
 /**
  * Re-rank/re-share entries by the active mode's metric. "By Count" passes
  * entries through unchanged — their rank/share already come from
- * `computeLeaderboard`'s chain-authoritative `proofs_won` figures. "By
- * Time"/"By Energy" re-derive rank and share from the indexed-window totals
- * (see `withTimeEnergyTotals`); a miner with no indexed wins contributes 0,
- * never NaN.
+ * `computeLeaderboard`'s chain-authoritative `proofs_won` figures (higher
+ * wins is better there). "By Time"/"By Energy" re-derive rank and share from
+ * the indexed-window totals (see `withTimeEnergyTotals`) and sort ASCENDING
+ * — least energy/time is the best rank (1st), the inverse of "By Count".
+ * A miner with no indexed wins contributes 0 to `share` (never NaN) but
+ * always ranks last: "no data" must never look like "the best score".
  */
 export function applyLeaderboardMode(
   entries: readonly LeaderboardEntry[],
   mode: LeaderboardMode,
 ): LeaderboardEntry[] {
   if (mode === "byCount") return [...entries];
-  const total = entries.reduce((sum, e) => sum + metricFor(e, mode), 0);
+  const total = entries.reduce((sum, e) => sum + (metricFor(e, mode) ?? 0), 0);
   return [...entries]
-    .sort((a, b) => metricFor(b, mode) - metricFor(a, mode))
+    .sort((a, b) => {
+      const av = metricFor(a, mode);
+      const bv = metricFor(b, mode);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return av - bv;
+    })
     .map((e, i) => ({
       ...e,
       rank: i + 1,
-      share: total > 0 ? metricFor(e, mode) / total : 0,
+      share: total > 0 ? (metricFor(e, mode) ?? 0) / total : 0,
     }));
 }
 

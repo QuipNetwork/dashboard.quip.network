@@ -196,8 +196,12 @@ describe("applyLeaderboardMode", () => {
     expect(applyLeaderboardMode(entries, "byCount")).toEqual(entries);
   });
 
-  test("byTime/byEnergy can invert a many-fast-wins-CPU vs few-slow-QPU byCount ranking", () => {
+  test("byTime/byEnergy are lower-is-better and can invert a many-wins-CPU vs one-win-QPU byCount ranking", () => {
     // By Count: CPU wins 100 vs QPU's 1 — CPU ranks first.
+    // But QPU's single win used far less device time/energy than CPU's 100
+    // wins combined (real-world shape: ~0.06s/12kW QPU access vs CPU wall
+    // time accumulated over many wins) — By Time/Energy must rank the
+    // *smaller* total first (least energy/time = best = rank 1).
     const cpu = entry({
       minerId: "5CPU",
       rank: 1,
@@ -209,27 +213,52 @@ describe("applyLeaderboardMode", () => {
       minerId: "5QPU",
       rank: 2,
       blockCount: 1,
-      totalMiningSeconds: 200, // one long self-reported access time
-      totalEnergyJoules: 2_400_000, // dwarfed by QPU's constant 12kW draw
+      totalMiningSeconds: 0.062,
+      totalEnergyJoules: 744,
     });
     const base = [cpu, qpu];
 
     const byTime = applyLeaderboardMode(base, "byTime");
     expect(byTime.map((e) => e.minerId)).toEqual(["5QPU", "5CPU"]);
     expect(byTime[0]?.rank).toBe(1);
-    expect(byTime[0]?.share).toBeCloseTo(200 / 300);
+    expect(byTime[0]?.share).toBeCloseTo(0.062 / 100.062);
 
     const byEnergy = applyLeaderboardMode(base, "byEnergy");
     expect(byEnergy.map((e) => e.minerId)).toEqual(["5QPU", "5CPU"]);
+    expect(byEnergy[0]?.rank).toBe(1);
   });
 
-  test("missing totals contribute 0, never NaN", () => {
+  test("byCount stays higher-is-better (unaffected by the Energy/Time flip)", () => {
+    const few = entry({ minerId: "few", blockCount: 3 });
+    const many = entry({ minerId: "many", blockCount: 10 });
+    const out = applyLeaderboardMode([few, many], "byCount");
+    // byCount passes entries through unchanged (rank/share come from
+    // computeLeaderboard's own descending wins sort) — it must NOT re-sort.
+    expect(out).toEqual([few, many]);
+  });
+
+  test("missing totals contribute 0 to share, never NaN, and rank last (no data isn't 'best')", () => {
     const withTotals = entry({ minerId: "a", totalMiningSeconds: 10, totalEnergyJoules: 10 });
     const withoutTotals = entry({ minerId: "b" });
     const out = applyLeaderboardMode([withTotals, withoutTotals], "byTime");
     expect(out.map((e) => e.minerId)).toEqual(["a", "b"]);
     expect(out[1]?.share).toBe(0);
     expect(Number.isNaN(out[1]?.share)).toBe(false);
+  });
+
+  test("ascending order: smallest total ranks first for byTime and byEnergy", () => {
+    const small = entry({ minerId: "small", totalMiningSeconds: 1, totalEnergyJoules: 5 });
+    const medium = entry({ minerId: "medium", totalMiningSeconds: 5, totalEnergyJoules: 50 });
+    const large = entry({ minerId: "large", totalMiningSeconds: 20, totalEnergyJoules: 500 });
+    const base = [large, medium, small];
+
+    const byTime = applyLeaderboardMode(base, "byTime");
+    expect(byTime.map((e) => e.minerId)).toEqual(["small", "medium", "large"]);
+    expect(byTime.map((e) => e.rank)).toEqual([1, 2, 3]);
+
+    const byEnergy = applyLeaderboardMode(base, "byEnergy");
+    expect(byEnergy.map((e) => e.minerId)).toEqual(["small", "medium", "large"]);
+    expect(byEnergy.map((e) => e.rank)).toEqual([1, 2, 3]);
   });
 
   test("By Count values stay identical to pre-change computeLeaderboard output", () => {
