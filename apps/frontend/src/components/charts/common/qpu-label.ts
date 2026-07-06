@@ -1,13 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Display-only QPU label: the last advertised QPU access budget, per
-// nextsteps.md Compute-By-Type #2. The budget lives on-chain as
-// `NodeMinerEntry.dailyBudget` (packages/shared/telemetry/node.ts) and DOES
-// reach the frontend today — `node_descriptors.descriptor` jsonb is
-// round-tripped verbatim (no field whitelist like the observability parser
-// has), so `descriptors[].descriptor.miners[*].dailyBudget` is already
-// sitting in the telemetry store. This module extracts it and falls back to
-// `QPU_DAILY_BUDGET_MIN` (normalized-composition.ts) when nothing parses.
+// Display-only QPU label. On ordinary by-type/by-node surfaces the QPU
+// series renders under the plain "QPU" label, same as every other miner
+// category — the budget-qualified variant ("QPU20m") reads as a stat, not a
+// name, everywhere it isn't specifically about the budget split.
+//
+// The one place a budget-qualified label IS meaningful is the "Normalized"
+// aggregation mode (see win-rate-by-difficulty and mining-time's
+// `buildNormalizedComposition`/`buildNormalizedSeries`), which splits QPU
+// into two participation regimes ("QPU20m" observed, "QPU100%"
+// extrapolated to full-time). That split is a property of the reference
+// composition model itself — normalized-composition.ts emits its own fixed
+// "QPU20m"/"QPU100%" labels directly on those two series and never calls
+// into this module. The `mode` parameter here exists for API symmetry (and
+// for any live-budget-qualified label a future normalized-mode consumer of
+// a single QPU id might need); it is not currently exercised by any chart.
+//
+// The budget itself lives on-chain as `NodeMinerEntry.dailyBudget`
+// (packages/shared/telemetry/node.ts) and DOES reach the frontend today —
+// `node_descriptors.descriptor` jsonb is round-tripped verbatim (no field
+// whitelist like the observability parser has), so
+// `descriptors[].descriptor.miners[*].dailyBudget` is already sitting in the
+// telemetry store. `latestAdvertisedQpuBudgetMin` extracts it; the
+// budget-qualified label falls back to `QPU_DAILY_BUDGET_MIN`
+// (normalized-composition.ts) when nothing parses.
 //
 // Deliberate divergence: the normalized-composition model's
 // `QPU_DAILY_BUDGET_MIN`/`QPU_BUDGET_FRACTION` stay FIXED at 20m — that
@@ -60,12 +76,24 @@ export function latestAdvertisedQpuBudgetMin(
 }
 
 /**
- * "QPU20m" — the QPU series label, budget-qualified for display. Uses
- * `budgetMin` when it's a finite positive number, else falls back to
- * `QPU_DAILY_BUDGET_MIN`. Zero-arg calls (existing call sites) keep
- * rendering "QPU20m" until converted to pass a live value.
+ * "standard" (the default everywhere) renders the plain "QPU" name, same as
+ * every other miner category. "normalized" renders the budget-qualified
+ * "QPU<N>m" — see the module header for why that split only matters there,
+ * and why no current chart actually passes it.
  */
-export function qpuDisplayLabel(budgetMin?: number | null): string {
+export type QpuLabelMode = "standard" | "normalized";
+
+/**
+ * The QPU series label. In "standard" mode (the default) this is just
+ * "QPU". In "normalized" mode it's budget-qualified — "QPU20m" — using
+ * `budgetMin` when it's a finite positive number, else falling back to
+ * `QPU_DAILY_BUDGET_MIN`.
+ */
+export function qpuDisplayLabel(
+  budgetMin?: number | null,
+  mode: QpuLabelMode = "standard",
+): string {
+  if (mode !== "normalized") return "QPU";
   const min =
     typeof budgetMin === "number" && Number.isFinite(budgetMin) && budgetMin > 0
       ? budgetMin
@@ -80,20 +108,22 @@ export function qpuDisplayLabel(budgetMin?: number | null): string {
  * `string` rather than `MinerCategory` so it drops in at chart call sites
  * that key series by arbitrary ids, not just the miner-category union.
  */
-export function displayLabelForCategory(id: string): string {
-  return id === "QPU" ? qpuDisplayLabel() : id;
+export function displayLabelForCategory(id: string, mode: QpuLabelMode = "standard"): string {
+  return id === "QPU" ? qpuDisplayLabel(undefined, mode) : id;
 }
 
 /**
- * Live "QPU<N>m" label tracking the last advertised QPU dailyBudget from
- * the telemetry store's descriptors, falling back to "QPU20m" when none
- * parses. Memoized on the descriptors array reference, which the store
- * replaces wholesale on each telemetry fetch (see telemetry-store.ts).
+ * The QPU series label for the given `mode` (defaults to "standard", i.e.
+ * plain "QPU"). In "normalized" mode this tracks the last advertised QPU
+ * dailyBudget from the telemetry store's descriptors, falling back to
+ * "QPU20m" when none parses. Memoized on the descriptors array reference,
+ * which the store replaces wholesale on each telemetry fetch (see
+ * telemetry-store.ts).
  */
-export function useQpuDisplayLabel(): string {
+export function useQpuDisplayLabel(mode: QpuLabelMode = "standard"): string {
   const descriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const budgetMin = useMemo(() => latestAdvertisedQpuBudgetMin(descriptors), [descriptors]);
-  return qpuDisplayLabel(budgetMin);
+  return qpuDisplayLabel(budgetMin, mode);
 }
 
 /**
