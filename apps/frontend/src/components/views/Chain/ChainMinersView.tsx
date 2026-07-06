@@ -138,9 +138,11 @@ export function ChainMinersTable() {
           )}
         </p>
       </header>
-      {chainMiners.length === 0 ? (
+      {visibleMiners.length === 0 ? (
         <p className="px-4 py-6 text-center font-accent text-sm text-ink-subtle">
-          No miners registered on chain yet.
+          {chainMiners.length === 0
+            ? "No miners registered on chain yet."
+            : "All registered miners are inactive never-miners (hidden)."}
         </p>
       ) : (
         <>

@@ -144,6 +144,23 @@ describe("ChainMinersTable stale never-miner prune", () => {
     expect(text).toContain("On-chain miners (1)");
     expect(text).toContain("1 inactive never-miner");
   });
+
+  it("shows an all-hidden message, not a bogus empty-search miss, when every miner is pruned", () => {
+    const staleTs = Math.floor((Date.now() - FOURTEEN_DAYS_MS - 86_400_000) / 1000);
+    renderWith(
+      [miner("5StaleA"), miner("5StaleB")],
+      [
+        stampedDescriptor("5StaleA", "a-rig", staleTs),
+        stampedDescriptor("5StaleB", "b-rig", staleTs),
+      ],
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("On-chain miners (0)");
+    expect(text).toContain("2 inactive never-miners");
+    expect(text).toContain("All registered miners are inactive");
+    // The user typed no query — never show a "no search results" message.
+    expect(text).not.toContain("No miners match");
+  });
 });
 
 describe("ChainMinersTable sorting", () => {
