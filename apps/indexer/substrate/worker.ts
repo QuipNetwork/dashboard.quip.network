@@ -11,6 +11,7 @@
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 import {
+  EMPTY,
   Subject,
   type Observable,
   concatMap,
@@ -24,6 +25,8 @@ import {
   startWith,
   takeUntil,
   tap,
+  throwError,
+  timeout,
   timer,
 } from "rxjs";
 
@@ -45,6 +48,20 @@ import { SyncGate } from "./sync-gate";
 const BACKFILL_BLOCKS_PER_SEC = 5;
 const TIP_QUIET_MS = 750;
 
+// Liveness watchdog: the whole self-heal path hinges on the provider's
+// "disconnected" event firing (fromDisconnect → retry → reconnect). A clean
+// server-side WS close (code 1000) at the tip can leave that event unfired or
+// the reconnect's connect() hung half-open, silently parking every
+// subscription. The watchdog is the backstop: if no substrate head has landed
+// for HEAD_LIVENESS_STALE_MS, error the stream so the existing retry rebuilds
+// the connection. Heads arrive every ~6s (BABE slot), so 90s ≈ 15 missed slots.
+const HEAD_LIVENESS_STALE_MS = 90_000;
+const HEAD_LIVENESS_POLL_MS = 15_000;
+// Upper bound on establishing a connection (provider.connect + ApiPromise
+// metadata handshake). The WsProvider timeout is per-request only and does not
+// cover a half-open connect, so a flooded/idle endpoint could hang forever.
+const CONNECT_TIMEOUT_MS = 30_000;
+
 export interface SubstrateWorkerDeps {
   config: IndexerConfig;
   // Round-robined on connect failure for endpoint fallback.
@@ -57,6 +74,10 @@ export interface SubstrateWorkerDeps {
   chainHeadDebounceMs?: number;
   // Sync-gate poll cadence overrides (tests shrink them).
   syncGatePollMs?: { syncing?: number; synced?: number };
+  // Liveness watchdog + connect-timeout overrides (tests shrink them).
+  headLivenessMs?: number;
+  headLivenessPollMs?: number;
+  connectTimeoutMs?: number;
 }
 
 export class SubstrateWorker implements Worker {
@@ -65,6 +86,9 @@ export class SubstrateWorker implements Worker {
   private readonly clientFactory: (url: string) => ChainClient;
   private readonly chainHeadDebounceMs: number;
   private readonly syncGatePollMs?: { syncing?: number; synced?: number };
+  private readonly headLivenessMs: number;
+  private readonly headLivenessPollMs: number;
+  private readonly connectTimeoutMs: number;
 
   constructor(deps: SubstrateWorkerDeps) {
     this.ctx = {
@@ -77,6 +101,29 @@ export class SubstrateWorker implements Worker {
     this.clientFactory = deps.clientFactory;
     this.chainHeadDebounceMs = deps.chainHeadDebounceMs ?? CHAIN_HEAD_DEBOUNCE_DEFAULT_MS;
     this.syncGatePollMs = deps.syncGatePollMs;
+    this.headLivenessMs = deps.headLivenessMs ?? HEAD_LIVENESS_STALE_MS;
+    this.headLivenessPollMs = deps.headLivenessPollMs ?? HEAD_LIVENESS_POLL_MS;
+    this.connectTimeoutMs = deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
+  }
+
+  // Backstop for a silently-dead connection: poll lastSubstrateEventAt and, if
+  // no head has landed within the liveness window, error the stream so the
+  // worker's retry rebuilds the connection (reconnect + full re-subscribe).
+  private livenessWatchdog(): Observable<never> {
+    const staleMs = this.headLivenessMs;
+    return timer(this.headLivenessPollMs, this.headLivenessPollMs).pipe(
+      concatMap(() => {
+        const iso = this.ctx.state.observability.lastSubstrateEventAt;
+        const last = iso ? Date.parse(iso) : NaN;
+        if (Number.isFinite(last) && this.ctx.now() - last > staleMs) {
+          return throwError(
+            () => new Error(`no substrate head for ${staleMs}ms (last ${iso}); forcing reconnect`),
+          );
+        }
+        return EMPTY;
+      }),
+      ignoreElements(),
+    );
   }
 
   async run(signal: AbortSignal): Promise<void> {
@@ -230,9 +277,11 @@ export class SubstrateWorker implements Worker {
         resume$: syncGate.resumed$,
       }),
     ];
-    const merged$ = merge(...streams.map((s) => s.stream()), fromDisconnect(client)).pipe(
-      startWith("connected" as const),
-    );
+    const merged$ = merge(
+      ...streams.map((s) => s.stream()),
+      fromDisconnect(client),
+      this.livenessWatchdog(),
+    ).pipe(startWith("connected" as const));
     // The one deliberate lifecycle change beyond swapping stream contents
     // (spec §3/§7): under --once, the reconciler's done$ tears down the
     // never-completing siblings; retry({delay}) passes clean completion
@@ -240,6 +289,9 @@ export class SubstrateWorker implements Worker {
     const gated$ = ctx.config.once ? merged$.pipe(takeUntil(reconciler.done$)) : merged$;
 
     return defer(() => client.connect()).pipe(
+      // A half-open connect (WS handshake ok, metadata never returns) would
+      // otherwise hang here forever; bound it so retry can rotate/reconnect.
+      timeout({ first: this.connectTimeoutMs }),
       tap(() => {
         this.ctx.state.observability.chainConnected = true;
         this.ctx.state.observability.lastSubstrateEventAt = nowIso(this.ctx);
