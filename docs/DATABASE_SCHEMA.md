@@ -63,6 +63,7 @@ inserted once (`ON CONFLICT DO NOTHING`) and only
 | `min_diversity`          | DOUBLE PRECISION | no   | Diversity requirement in force.                                                                                                                  |
 | `min_solutions`          | INTEGER          | no   | Minimum solutions requirement in force.                                                                                                          |
 | `finalized`              | BOOLEAN          | no   | Whether the block is finalized; flipped monotonically false→true.                                                                                |
+| `topology_hash`          | TEXT             | yes  | Hash of the topology the winning solution was mined against (added in migration 0004); null for pre-0004 rows.                                   |
 
 Indexes: `(substrate_block_number DESC)`, `(miner_id, substrate_block_number DESC)`,
 `(timestamp DESC)`.
