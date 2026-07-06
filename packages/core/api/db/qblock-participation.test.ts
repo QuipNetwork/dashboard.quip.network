@@ -140,8 +140,25 @@ describe("getParticipationCompute (join participation + blocks + submissions)", 
     await db.disconnect();
   });
 
-  it("joins each participant to the qblock's mining time and their exact QPU access", async () => {
-    await db.insertBlock(block({ qblockId: "5", miningTime: 60 }));
+  it("charges each participant the qblock's wall-clock window (block spacing), plus exact QPU access", async () => {
+    // qblock 5's racing window = its timestamp minus the prior qblock's.
+    // Distinct blockHash/substrateBlockNumber so the two rows don't collide.
+    await db.insertBlock(
+      block({
+        qblockId: "4",
+        timestamp: 1_699_999_940,
+        blockHash: "0xb4",
+        substrateBlockNumber: "4",
+      }),
+    );
+    await db.insertBlock(
+      block({
+        qblockId: "5",
+        timestamp: 1_700_000_000,
+        blockHash: "0xb5",
+        substrateBlockNumber: "5",
+      }),
+    );
     await db.upsertQBlockParticipants([
       rec({ qblockId: "5", account: "5A", kind: "Cpu" }),
       rec({ qblockId: "5", account: "5Q", kind: "QpuDwave" }),
@@ -156,7 +173,7 @@ describe("getParticipationCompute (join participation + blocks + submissions)", 
     expect(byAccount.get("5A")).toMatchObject({
       qblockId: "5",
       kind: "Cpu",
-      miningSeconds: 60,
+      miningSeconds: 60, // 1_700_000_000 - 1_699_999_940
       exactQpuAccessUs: null,
     });
     expect(byAccount.get("5Q")).toMatchObject({
@@ -174,8 +191,52 @@ describe("getParticipationCompute (join participation + blocks + submissions)", 
     expect(byCat.get("QPU")).toMatchObject({ deviceAccessSeconds: 0.5, estimated: false });
   });
 
+  it("uses the wall-clock window, not blocks.mining_time, on a QPU-won qblock", async () => {
+    // Regression: on a runtime-112 QPU win, blocks.mining_time is the winner's
+    // ~0.06s chip access, NOT the ~12s the block was open. Every participant
+    // must be charged the wall-clock window, or CPU/GPU racers undercount ~200x.
+    await db.insertBlock(
+      block({
+        qblockId: "7",
+        timestamp: 1_700_000_000,
+        blockHash: "0xb7",
+        substrateBlockNumber: "7",
+      }),
+    );
+    await db.insertBlock(
+      block({
+        qblockId: "8",
+        timestamp: 1_700_000_012, // 12s window
+        blockHash: "0xb8",
+        substrateBlockNumber: "8",
+        miningTime: 0.0613, // winner's QPU device time — must be ignored here
+        deviceAccessTimeUs: 61_300,
+      }),
+    );
+    await db.upsertQBlockParticipants([rec({ qblockId: "8", account: "5Cpu", kind: "Cpu" })]);
+
+    const rows = await db.getParticipationCompute("2000-01-01T00:00:00.000Z");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ account: "5Cpu", kind: "Cpu", miningSeconds: 12 });
+  });
+
   it("excludes participation whose qblock's block row is outside the window", async () => {
-    await db.insertBlock(block({ qblockId: "5", timestamp: 1_600_000_000 }));
+    await db.insertBlock(
+      block({
+        qblockId: "4",
+        timestamp: 1_599_999_940,
+        blockHash: "0xb4",
+        substrateBlockNumber: "4",
+      }),
+    );
+    await db.insertBlock(
+      block({
+        qblockId: "5",
+        timestamp: 1_600_000_000,
+        blockHash: "0xb5",
+        substrateBlockNumber: "5",
+      }),
+    );
     await db.upsertQBlockParticipants([rec({ qblockId: "5", account: "5A" })]);
     // Window starts after the block's timestamp → nothing.
     const rows = await db.getParticipationCompute("2023-11-14T00:00:00.000Z");
