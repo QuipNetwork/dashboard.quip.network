@@ -44,6 +44,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  QBlockParticipant,
   WinnerBlockDecode,
 } from "./types";
 
@@ -484,6 +485,47 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     const codec = await (fn as (id: string) => Promise<unknown>)(qblockId);
     const n = Number((codec as { toString: () => string }).toString());
     return Number.isFinite(n) ? n : null;
+  }
+
+  async getQBlockParticipants(qblockId: string): Promise<QBlockParticipant[]> {
+    const api = this.requireApi();
+    const fn = (api.call as unknown as Record<string, Record<string, unknown> | undefined>)
+      ?.minerRegistryApi?.participantsByQblock;
+    if (typeof fn !== "function") return []; // pre-v0.2 / pallet absent
+    // Runtime API: participants_by_qblock(qblock_id, start_after: Option<AccountId>,
+    // limit: u32) -> Vec<(AccountId, ParticipationRecord)>, sorted by account,
+    // server-capped at 1000. Page until a short page: `start_after` is the last
+    // account seen (exclusive), so no row is fetched twice.
+    type ParticipantTuple = [
+      { toString: () => string },
+      {
+        kind: { type: string };
+        budgetSeconds: { isSome: boolean; unwrap: () => { toNumber: () => number } };
+        updatedAt: { toString: () => string };
+      },
+    ];
+    const call = fn as (id: string, startAfter: string | null, limit: number) => Promise<unknown>;
+    const PAGE = 1000;
+    const out: QBlockParticipant[] = [];
+    let startAfter: string | null = null;
+    for (;;) {
+      const page = (await call(qblockId, startAfter, PAGE)) as unknown as ParticipantTuple[];
+      if (page.length === 0) break;
+      for (const [accountCodec, record] of page) {
+        const account = accountCodec.toString();
+        out.push({
+          account,
+          kind: record.kind.type,
+          budgetSeconds: record.budgetSeconds.isSome
+            ? record.budgetSeconds.unwrap().toNumber()
+            : null,
+          blockNumber: record.updatedAt.toString(),
+        });
+        startAfter = account;
+      }
+      if (page.length < PAGE) break;
+    }
+    return out;
   }
 
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {

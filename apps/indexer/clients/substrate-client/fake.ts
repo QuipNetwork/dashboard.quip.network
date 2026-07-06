@@ -16,6 +16,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  QBlockParticipant,
   WinnerBlockDecode,
 } from "./types";
 
@@ -169,6 +170,12 @@ export class FakeSubstrateClient implements SubstrateClient {
   public qblockParticipantCounts = new Map<string, number>();
   async getQBlockParticipantCount(qblockId: string): Promise<number | null> {
     return this.qblockParticipantCounts.get(qblockId) ?? null;
+  }
+  // Keyed by qblock id string; tests populate the participant set they expect
+  // the participation plugin to read. Absent keys read as an empty set.
+  public qblockParticipants = new Map<string, QBlockParticipant[]>();
+  async getQBlockParticipants(qblockId: string): Promise<QBlockParticipant[]> {
+    return this.qblockParticipants.get(qblockId) ?? [];
   }
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
     return this.runtimeVersion;

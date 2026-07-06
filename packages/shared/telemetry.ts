@@ -7,6 +7,7 @@
 // aggregate counters only — there is no peer-aggregation surface in v0.2/v0.3.
 
 export * from "./telemetry/chain";
+export * from "./telemetry/participation-compute";
 export * from "./telemetry/miner";
 export * from "./telemetry/node";
 export * from "./telemetry/response";

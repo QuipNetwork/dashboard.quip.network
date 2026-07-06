@@ -10,6 +10,7 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptor,
   NodeDescriptorRecord,
+  QBlockParticipationRecord,
 } from "@quip/shared/telemetry";
 
 type Row = Record<string, unknown>;
@@ -53,6 +54,16 @@ export function rowToBlockRecord(r: Row): BlockRecord {
     finalized: Boolean(r.finalized),
     topologyHash: r.topology_hash == null ? null : String(r.topology_hash),
     deviceAccessTimeUs: r.device_access_time_us == null ? null : num(r.device_access_time_us),
+  };
+}
+
+export function rowToQBlockParticipation(r: Row): QBlockParticipationRecord {
+  return {
+    qblockId: String(r.qblock_id),
+    account: String(r.account),
+    kind: String(r.kind),
+    budgetSeconds: r.budget_seconds == null ? null : num(r.budget_seconds),
+    blockNumber: String(r.block_number),
   };
 }
 

@@ -186,6 +186,7 @@ describe("migrator (postgres)", () => {
       "0004_reconcile_descriptors_topology_tags",
       "0005_authorship_blocks_difficulty_source",
       "0006_blocks_device_access_time",
+      "0007_qblock_participation",
     ]);
 
     // The canonical schema is back: a descriptor upsert (block_hash +

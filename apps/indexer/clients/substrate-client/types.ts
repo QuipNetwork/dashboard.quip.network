@@ -162,6 +162,20 @@ export interface QBlockInfo {
   topologyHash: string | null;
 }
 
+// One participant of a qblock, decoded from the miner-registry runtime API
+// `participants_by_qblock`. The qblock id is the query key (known by the
+// caller), so it is not repeated here — the participation plugin stamps it on
+// when composing the QBlockParticipationRecord. `kind` is the raw MinerKind
+// variant name ("Cpu" | "Gpu" | "QpuDwave" | "QpuIbm" | "QpuIonq" |
+// "QpuPasqal"); `budgetSeconds` is null when the participate call omitted it.
+export interface QBlockParticipant {
+  account: string; // SS58 account ID
+  kind: string;
+  budgetSeconds: number | null;
+  // Substrate block number (u64 as string) the record was written at.
+  blockNumber: string;
+}
+
 // Result of the targeted winner decode (`decodeWinnerBlock`): the block's
 // events PLUS the single `winning_solution` fetch that produced them, threaded
 // together so the dispatcher issues EXACTLY ONE `winningSolution` runtime call
@@ -266,6 +280,13 @@ export interface SubstrateClient {
   // `MinerRegistry.participate` (the `participant_count_by_qblock` runtime
   // API). Null when the runtime API is absent (pre-v0.2 / pallet missing).
   getQBlockParticipantCount(qblockId: string): Promise<number | null>;
+
+  // v0.2: the FULL participant set for `qblockId` from the
+  // `participants_by_qblock` runtime API (the `ParticipantsByQBlock` reverse
+  // index), paged internally (server caps each page at 1000) and returned
+  // sorted by account. Empty when the runtime API is absent (pre-v0.2 /
+  // pallet missing) or no node declared participation on that qblock.
+  getQBlockParticipants(qblockId: string): Promise<QBlockParticipant[]>;
 
   getRuntimeVersion(): Promise<RuntimeVersionInfo>;
   getLastRuntimeUpgrade(): Promise<{ blockNumber: string } | null>;

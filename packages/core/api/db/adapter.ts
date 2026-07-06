@@ -16,6 +16,8 @@ import type {
   MiningSubmissionRecord,
   ModeBreakdown,
   NodeDescriptorRecord,
+  ParticipationComputeRow,
+  QBlockParticipationRecord,
 } from "@quip/shared/telemetry";
 import type { MigrationStatusRow } from "./migrator";
 
@@ -477,6 +479,40 @@ export interface DatabaseAdapter {
 
   /** R4 `--reindex winners`: delete all `blocks` rows. Returns the count. */
   deleteAllBlocks(): Promise<number>;
+
+  // --- QBlock participation (participant-level, all miner kinds) ---
+  // One row per (qblock, account) for every node that declared it raced a
+  // qblock — the participant-level counterpart to `blocks` (winner-only).
+  // Written by the `participation` block-plugin from the chain's
+  // `ParticipantsByQBlock` reverse index. Pure chain facts; per-type
+  // compute/energy is derived downstream, never stored.
+
+  /**
+   * Idempotent batch upsert keyed by (qblock_id, account). Re-declaring the
+   * same participant (the chain permits at most one record per account per
+   * qblock, but the plugin may re-fetch on backfill) updates kind /
+   * budget_seconds / block_number in place. An empty batch is a no-op.
+   */
+  upsertQBlockParticipants(records: QBlockParticipationRecord[]): Promise<void>;
+
+  /** Every participant of `qblockId`, sorted by account for stable output. */
+  getQBlockParticipation(qblockId: string): Promise<QBlockParticipationRecord[]>;
+
+  /**
+   * Joined participation facts for the per-type compute aggregate: one row per
+   * (qblock, participant) whose qblock has an indexed `blocks` row with
+   * `timestamp >= sinceIso`, carrying the participant's `kind`, the qblock's
+   * `miningSeconds` (block-active wall clock), and the participant's exact QPU
+   * access from `mining_submissions` (self-polled nodes only; null otherwise).
+   * Reduce with `aggregateParticipationByCategory` / `…ByQblock`.
+   */
+  getParticipationCompute(sinceIso: string): Promise<ParticipationComputeRow[]>;
+
+  /**
+   * R4 `--reindex participation`: delete all `qblock_participation` rows.
+   * Returns the count.
+   */
+  deleteAllQBlockParticipation(): Promise<number>;
 
   // --- Node descriptors (v11) ---
   // Per-account chain-signed identity records — one row per AccountId,
