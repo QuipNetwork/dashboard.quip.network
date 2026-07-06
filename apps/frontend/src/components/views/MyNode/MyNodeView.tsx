@@ -3,7 +3,7 @@
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { displayNodeName, formatBalance } from "@/lib/format-chain";
 import { formatNumber } from "@/lib/format";
-import { selectServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
+import { useServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { useMinerWins } from "@/services/use-miner-wins";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
@@ -33,7 +33,7 @@ export function MyNodeView() {
         : null) ?? null,
   );
   const indexer = useTelemetryStore((s) => s.indexer);
-  const serverNowMs = useTelemetryStore(selectServerNowMs);
+  const serverNowMs = useServerNowMs();
   // Age of the most recent /api/v1/status poll, anchored on the
   // server-stamped `serverTime` so a backgrounded tab can't inflate
   // it via a drifted client clock. Null pre-first-fetch so the panel

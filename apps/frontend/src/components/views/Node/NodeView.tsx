@@ -3,7 +3,7 @@
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { displayNodeName, formatBalance } from "@/lib/format-chain";
 import { formatDuration, formatNumber } from "@/lib/format";
-import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { selectTipBlock, useServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "@/components/views/MyNode/CurrentAttemptsPanel";
@@ -40,7 +40,7 @@ function NodeDetail({ accountId, onBack }: { accountId: string; onBack: () => vo
   const chainHead = useTelemetryStore((s) => s.chainHead);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const tipBlock = useTelemetryStore(selectTipBlock);
-  const serverNowMs = useTelemetryStore(selectServerNowMs);
+  const serverNowMs = useServerNowMs();
 
   const {
     chainMinerEntry,

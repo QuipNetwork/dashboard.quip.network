@@ -15,12 +15,7 @@ import type {
   TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "@quip/shared/telemetry";
-import {
-  createTelemetryStore,
-  selectServerNowMs,
-  selectTipBlock,
-  type TelemetryState,
-} from "./telemetry-store";
+import { createTelemetryStore, selectTipBlock, type TelemetryState } from "./telemetry-store";
 
 // ---- Fixtures ----------------------------------------------------------
 
@@ -305,20 +300,5 @@ describe("selectTipBlock", () => {
   });
 });
 
-// ---- selectServerNowMs -------------------------------------------------
-
-describe("selectServerNowMs", () => {
-  it("falls back to Date.now() when serverTime is null", () => {
-    const before = Date.now();
-    const got = selectServerNowMs(makeState([]));
-    const after = Date.now();
-    expect(got).toBeGreaterThanOrEqual(before);
-    expect(got).toBeLessThanOrEqual(after);
-  });
-
-  it("parses serverTime when present", () => {
-    const iso = "2026-05-19T12:00:00Z";
-    const got = selectServerNowMs(makeState([], { serverTime: iso }));
-    expect(got).toBe(Date.parse(iso));
-  });
-});
+// resolveServerNowMs / useServerNowMs live in ./use-server-now-ms.test.tsx
+// (they need a React render to prove the no-loop regression, bead mrt).

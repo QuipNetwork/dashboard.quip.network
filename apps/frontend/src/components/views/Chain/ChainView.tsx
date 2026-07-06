@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { selectServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
+import { useServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { BabeAuthoritiesPanel } from "./BabeAuthoritiesPanel";
 import { MineableTopologiesPanel } from "./MineableTopologiesPanel";
 import { ValidatorsTable } from "./ValidatorsTable";
@@ -12,7 +12,7 @@ import { ValidatorsTable } from "./ValidatorsTable";
  */
 export function ChainView() {
   const validators = useTelemetryStore((s) => s.validators);
-  const serverNowMs = useTelemetryStore(selectServerNowMs);
+  const serverNowMs = useServerNowMs();
 
   if (validators.length === 0) {
     return (

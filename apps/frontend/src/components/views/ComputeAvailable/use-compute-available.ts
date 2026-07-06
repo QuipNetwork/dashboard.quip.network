@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 
 import { estimateNodeFlops, lookupCpu, lookupGpu } from "@/lib/hardware-flops";
-import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { resolveServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 import type { BlockRecord, NodeInfo } from "@quip/shared/telemetry";
 
 // Window used to decide whether a node counts toward the "live" hardware
@@ -102,18 +102,18 @@ export function useComputeAvailable(): ComputeAvailability {
   const nodes = useTelemetryStore((s) => s.nodes);
   const lastBlock = useTelemetryStore(selectTipBlock);
   const blocks = useTelemetryStore((s) => s.blocks);
-  // Subscribe to the stable `serverTime` string, not `selectServerNowMs` — that
-  // selector falls back to `Date.now()` when serverTime is null, which returns a
-  // fresh number every call and makes the zustand snapshot change on every
-  // render (infinite loop, same trap the `selectTipBlock` doc warns about). The
-  // 14-day window anchor doesn't need to tick, so resolving it once inside the
-  // memo from the stable string is correct.
+  // Subscribe to the stable `serverTime` string and resolve "now" inside the
+  // memo — NOT via a store selector. `resolveServerNowMs` falls back to
+  // `Date.now()` when serverTime is null, which returns a fresh number every
+  // call; as a zustand selector that loops `useSyncExternalStore` (bead mrt).
+  // The 14-day window anchor doesn't need to tick, so resolving it once here
+  // keyed on the stable string is both correct and loop-safe.
   const serverTime = useTelemetryStore((s) => s.serverTime);
 
   return useMemo<ComputeAvailability>(() => {
     if (!nodes) return { ...EMPTY, lastBlock };
 
-    const nowMs = serverTime ? Date.parse(serverTime) : Date.now();
+    const nowMs = resolveServerNowMs(serverTime);
 
     let activeNodeCount = 0;
     let totalCpus = 0;

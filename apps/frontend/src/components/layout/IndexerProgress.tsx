@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { formatEta } from "@/lib/indexer-eta";
 import { computeIndexerProgress } from "@/lib/indexer-progress";
-import { selectServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
+import { useServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 
 const STAGE_LABEL = {
   "node-sync": "Node sync",
@@ -15,7 +15,7 @@ const STAGE_LABEL = {
 // backfill (with a server-computed ETA), then nothing once live.
 export function IndexerProgress() {
   const indexer = useTelemetryStore((s) => s.indexer);
-  const nowMs = useTelemetryStore(selectServerNowMs);
+  const nowMs = useServerNowMs();
   const progress = useMemo(() => computeIndexerProgress(indexer, nowMs), [indexer, nowMs]);
   if (!progress) return null;
   const fmt = (v: number) => v.toLocaleString("en-US");
