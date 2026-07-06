@@ -44,8 +44,10 @@ import type { ChainClient, ConnectionStream } from "./ports";
 import { CHAIN_HEAD_DEBOUNCE_DEFAULT_MS } from "./shared";
 import { SyncGate } from "./sync-gate";
 
-// Spec §13 default: per-lane backfill budget.
-const BACKFILL_BLOCKS_PER_SEC = 5;
+// Spec §13: per-lane backfill budget and block-decode concurrency are
+// operator-tunable via IndexerConfig (substrateBackfillBlocksPerSec /
+// substrateBackfillConcurrency). Lower them when a front door closes the
+// shared websocket under sustained re-walk load.
 const TIP_QUIET_MS = 750;
 
 // Liveness watchdog: the whole self-heal path hinges on the provider's
@@ -207,7 +209,7 @@ export class SubstrateWorker implements Worker {
     });
 
     const queue = new QueueCore({
-      backfillBlocksPerSec: BACKFILL_BLOCKS_PER_SEC,
+      backfillBlocksPerSec: ctx.config.substrateBackfillBlocksPerSec,
       tipQuietMs: TIP_QUIET_MS,
       gated: () => syncGate.gated(),
       lastEventAtMs: () => {
@@ -238,6 +240,7 @@ export class SubstrateWorker implements Worker {
       walker,
       store,
       blockPlugins,
+      backfillConcurrency: ctx.config.substrateBackfillConcurrency,
     });
     const reconciler = new Reconciler({
       db: ctx.db,

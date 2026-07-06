@@ -16,6 +16,8 @@ const TOUCHED_ENV = [
   "QUIP_VALIDATOR_RECONNECT_MAX_BACKOFF_MS",
   "QUIP_VALIDATOR_BABE_POLL_SEC",
   "QUIP_VALIDATOR_CHAIN_POLL_SEC",
+  "QUIP_VALIDATOR_BACKFILL_BLOCKS_PER_SEC",
+  "QUIP_VALIDATOR_BACKFILL_CONCURRENCY",
   "QUIP_OPERATOR_ACCOUNT",
 ] as const;
 
@@ -206,5 +208,32 @@ describe("parseConfig", () => {
     expect(() =>
       parseConfig(["--operator-account=0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIlAB"]),
     ).toThrow(/SS58/);
+  });
+
+  it("defaults substrateBackfillBlocksPerSec to 5 and substrateBackfillConcurrency to 4", () => {
+    const cfg = parseConfig([]);
+    expect(cfg.substrateBackfillBlocksPerSec).toBe(5);
+    expect(cfg.substrateBackfillConcurrency).toBe(4);
+  });
+
+  it("honours --substrate-backfill-blocks-per-sec and its env", () => {
+    expect(
+      parseConfig(["--substrate-backfill-blocks-per-sec=2"]).substrateBackfillBlocksPerSec,
+    ).toBe(2);
+    process.env.QUIP_VALIDATOR_BACKFILL_BLOCKS_PER_SEC = "3";
+    expect(parseConfig([]).substrateBackfillBlocksPerSec).toBe(3);
+  });
+
+  it("honours --substrate-backfill-concurrency and its env", () => {
+    expect(parseConfig(["--substrate-backfill-concurrency=1"]).substrateBackfillConcurrency).toBe(
+      1,
+    );
+    process.env.QUIP_VALIDATOR_BACKFILL_CONCURRENCY = "2";
+    expect(parseConfig([]).substrateBackfillConcurrency).toBe(2);
+  });
+
+  it("rejects a non-positive backfill rate or concurrency", () => {
+    expect(() => parseConfig(["--substrate-backfill-blocks-per-sec=0"])).toThrow(/> 0/);
+    expect(() => parseConfig(["--substrate-backfill-concurrency=0"])).toThrow(/> 0/);
   });
 });
