@@ -16,6 +16,7 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptorRecord,
   NodesSnapshot,
+  ParticipationComputeRow,
   ValidatorAuthorshipRecord,
 } from "@quip/shared/telemetry";
 
@@ -56,6 +57,12 @@ export interface TelemetryState {
   // hasn't dispatched or both probes failed. Drives the
   // "Current Attempts" panel above Mining Performance.
   currentDispatch: CurrentDispatch | null;
+  // Participant-level compute facts (one row per qblock × participant, all
+  // device kinds) for the server's recent window. Reduced by
+  // aggregateParticipationByCategory / aggregateParticipationByQblock to drive
+  // the Total-Compute pie and Mining-per-QBlock charts. Empty until the
+  // indexer has recorded participation for an in-window qblock.
+  participationCompute: ParticipationComputeRow[];
   loading: boolean;
   error: string | null;
 
@@ -85,6 +92,7 @@ const createTelemetryState =
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
     currentDispatch: null,
+    participationCompute: [],
     loading: true,
     error: null,
     fetchTelemetry: async () => {
@@ -118,6 +126,7 @@ const createTelemetryState =
           recentMiningSubmissions: data.recentMiningSubmissions ?? [],
           selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
           currentDispatch: data.currentDispatch ?? null,
+          participationCompute: data.participationCompute ?? [],
           loading: false,
           error: null,
         });

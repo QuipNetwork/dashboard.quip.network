@@ -143,6 +143,9 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
     currentDispatch: null,
+    participationCompute: [
+      { qblockId: "1", account: "5GPP", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
+    ],
     ...overrides,
   };
 }
@@ -165,6 +168,7 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
     currentDispatch: null,
+    participationCompute: [],
     loading: false,
     error: null,
     fetchTelemetry: async () => {},
@@ -242,6 +246,9 @@ describe("fetchTelemetry", () => {
     expect(s.chainMiners).toEqual([MOCK_CHAIN_MINER]);
     expect(s.recentDifficulty).toEqual([MOCK_DIFFICULTY]);
     expect(s.validators).toEqual([MOCK_VALIDATOR]);
+    expect(s.participationCompute).toEqual([
+      { qblockId: "1", account: "5GPP", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
+    ]);
     expect(s.loading).toBe(false);
     expect(s.error).toBeNull();
   });

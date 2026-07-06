@@ -6,7 +6,7 @@ const sampleData: ComputeUsedEntry[] = [
   { minerType: "CPU", compute: 4520, displayCompute: 4520, floored: false, estimated: true },
   { minerType: "GPU", compute: 1230, displayCompute: 1230, floored: false, estimated: false },
   // Real QPU total is tiny next to CPU/GPU wall-clock — floored to a
-  // visible minimum height, as it would be live (see use-compute-used.ts).
+  // visible minimum slice, as it would be live (see use-compute-used.ts).
   { minerType: "QPU", compute: 6.8, displayCompute: 135.6, floored: true, estimated: true },
 ];
 

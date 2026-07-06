@@ -35,6 +35,13 @@ const VALIDATOR_ONLINE_WINDOW_MS = 3 * 60 * 1000;
 // of the `no-store` header below, which only stops *browsers* from caching.
 const DEFAULT_CACHE_TTL_MS = 1000;
 
+// Look-back window for the participant-level compute facts
+// (getParticipationCompute) shipped in every snapshot. The recent-blocks page
+// isn't time-scoped (it's a fixed 500-row page), so we window participation on
+// its own cutoff: 14 days comfortably covers every in-UI range that plots it
+// (Total Compute Used, Mining per QBlock) while bounding the join's row count.
+const PARTICIPATION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
 const SNAPSHOT_KEY = "telemetry";
 
 interface TelemetryDeps {
@@ -81,6 +88,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       authorship,
       nodeDescriptors,
       mineableTopologies,
+      participationCompute,
     ] = await Promise.all([
       // Page-1 default; the UI can request later pages once pagination lands.
       db.getRecentBlocks(500, 0),
@@ -95,6 +103,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       db.getValidatorAuthorship(),
       db.getAllNodeDescriptors(),
       db.getMineableTopologies(),
+      db.getParticipationCompute(new Date(now() - PARTICIPATION_WINDOW_MS).toISOString()),
     ]);
 
     // Recent submissions by the locally-polled miner — drives the
@@ -209,6 +218,7 @@ export function registerTelemetryRoute(app: Hono, deps: TelemetryDeps): void {
       recentMiningSubmissions,
       selfProblemsAttempted,
       currentDispatch,
+      participationCompute,
     } satisfies TelemetryResponse;
   }
 

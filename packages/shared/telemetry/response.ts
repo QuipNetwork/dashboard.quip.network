@@ -19,6 +19,7 @@ import type {
   ModeBreakdown,
 } from "./miner";
 import type { NodeDescriptorRecord, NodesSnapshot } from "./node";
+import type { ParticipationComputeRow } from "./participation-compute";
 
 /**
  * Observability snapshot written by the indexer on every successful poll.
@@ -233,6 +234,14 @@ export interface TelemetryResponse {
   // `recentMiningSubmissions` to surface the chain outcome (e.g.
   // chain_error vs submitted_inblock).
   currentDispatch: CurrentDispatch | null;
+  // Participant-level compute facts for the recent window: one row per
+  // (qblock, participant) across every device kind — not winner-only. Joined
+  // server-side from qblock_participation + blocks + mining_submissions (see
+  // db.getParticipationCompute). The frontend reduces these with
+  // aggregateParticipationByCategory / aggregateParticipationByQblock to drive
+  // the Total-Compute pie and Mining-per-QBlock charts. Empty until the
+  // indexer has recorded participation for at least one in-window qblock.
+  participationCompute: ParticipationComputeRow[];
 }
 
 export interface ErrorResponse {

@@ -78,6 +78,33 @@ const MOCK_RESPONSE: TelemetryResponse = {
   recentMiningSubmissions: [],
   selfProblemsAttempted: 0,
   currentDispatch: null,
+  // The mining-time and compute-used charts are now driven by participant
+  // compute (aggregateParticipationBy*), not winner blocks — give qblock "1"
+  // (the in-range qblock the mining-history mock bounds) a row per category so
+  // both charts have data to render.
+  participationCompute: [
+    {
+      qblockId: "1",
+      account: "cpu-miner-1",
+      kind: "Cpu",
+      miningSeconds: 12,
+      exactQpuAccessUs: null,
+    },
+    {
+      qblockId: "1",
+      account: "gpu-miner-1",
+      kind: "Gpu",
+      miningSeconds: 12,
+      exactQpuAccessUs: null,
+    },
+    {
+      qblockId: "1",
+      account: "qpu-miner-1",
+      kind: "QpuDwave",
+      miningSeconds: 12,
+      exactQpuAccessUs: null,
+    },
+  ],
 };
 
 let container: HTMLDivElement;
