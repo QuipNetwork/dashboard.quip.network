@@ -23,8 +23,8 @@ export function NetworkView() {
   return (
     <>
       <ChartCard
-        title="Node Locations"
-        subtitle={`${compute.locatedNodes.length} of ${compute.totalNodes} nodes geo-located via publicHost`}
+        title="Node Locations (last 2 weeks)"
+        subtitle={`${compute.locatedNodes.length} of ${compute.activeNodeCount} active nodes geo-located via publicHost`}
         bodyClassName="h-[440px]"
       >
         <NodeLocationMap nodes={compute.locatedNodes} unlocatedCount={compute.unlocatedCount} />
@@ -50,35 +50,35 @@ export function NetworkView() {
               sublabel="Per-node p50"
             />
             <StatTile
-              label="Est. PFLOPS"
+              label="Est. PFLOPS (last 2 weeks)"
               value={compute.totalPetaflops.toFixed(2)}
-              sublabel={`Across ${compute.totalNodes} nodes`}
+              sublabel={`Across ${compute.activeNodeCount} active nodes`}
             />
           </>
         ) : (
           <>
             <StatTile
-              label="Total CPUs"
+              label="Total CPUs (last 2 weeks)"
               value={formatNumber(compute.totalCpus)}
-              sublabel="Utilized CPUs across network"
+              sublabel="Utilized CPUs across network, active in the last 2 weeks"
               accent={SERIES_COLORS.CPU}
             />
             <StatTile
-              label="Total GPUs"
+              label="Total GPUs (last 2 weeks)"
               value={formatNumber(compute.totalGpus)}
-              sublabel="Devices across network"
+              sublabel="Devices across network, active in the last 2 weeks"
               accent={SERIES_COLORS.GPU}
             />
             <StatTile
-              label="Total QPUs"
+              label="Total QPUs (last 2 weeks)"
               value={formatNumber(compute.totalQpus)}
-              sublabel="Active quantum miners"
+              sublabel="Quantum miners active in the last 2 weeks"
               accent={SERIES_COLORS.QPU}
             />
             <StatTile
-              label="Est. PFLOPS"
+              label="Est. PFLOPS (last 2 weeks)"
               value={compute.totalPetaflops.toFixed(2)}
-              sublabel={`Across ${compute.totalNodes} nodes`}
+              sublabel={`Across ${compute.activeNodeCount} active nodes`}
             />
           </>
         )}
@@ -100,8 +100,8 @@ export function NetworkView() {
       ) : (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <ChartCard
-            title="CPU Model Breakdown"
-            subtitle="Logical CPU populations on the network"
+            title="CPU Model Breakdown (last 2 weeks)"
+            subtitle="Logical CPU populations on nodes active in the last 2 weeks"
             bodyClassName="max-h-[420px] overflow-y-auto"
           >
             <HardwareBreakdown
@@ -112,8 +112,8 @@ export function NetworkView() {
           </ChartCard>
 
           <ChartCard
-            title="GPU Model Breakdown"
-            subtitle="Devices by model across all nodes"
+            title="GPU Model Breakdown (last 2 weeks)"
+            subtitle="Devices by model on nodes active in the last 2 weeks"
             bodyClassName="max-h-[420px] overflow-y-auto"
           >
             <HardwareBreakdown
