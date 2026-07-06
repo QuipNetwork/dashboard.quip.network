@@ -24,7 +24,7 @@ export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
         theme={nivoTheme}
         colors={(bar) => getSeriesColor(String(bar.id))}
         groupMode="grouped"
-        margin={{ top: 10, right: 20, bottom: 50, left: 60 }}
+        margin={{ top: 10, right: 20, bottom: 58, left: 60 }}
         padding={0.15}
         innerPadding={0}
         enableLabel={false}
@@ -36,7 +36,9 @@ export function TimeToSolutionChart({ data }: TimeToSolutionChartProps) {
         layers={["grid", "axes", OverlappingBarsLayer, "markers", "legends"]}
         axisBottom={{
           legend: "Time (seconds)",
-          legendOffset: 40,
+          // Sits below the -45° rotated tick labels; a larger offset (with the
+          // widened bottom margin) drops the title clear of the ticks (ssf.7).
+          legendOffset: 48,
           legendPosition: "middle",
           tickRotation: -45,
         }}
