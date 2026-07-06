@@ -51,7 +51,7 @@ describe("Dashboard page with sample telemetry", () => {
     renderDashboard("compute");
     expect(container.querySelector('[data-qa="chart-blocks-over-time"]')).not.toBeNull();
     expect(container.textContent).toContain("Mining Leaderboard");
-    expect(container.textContent).toContain("Recent QBlocks");
+    expect(container.textContent).toContain("Historical QBlocks");
   });
 
   it("renders the Chain view populated", () => {

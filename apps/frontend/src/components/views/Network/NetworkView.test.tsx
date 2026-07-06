@@ -136,6 +136,36 @@ describe("NetworkView", () => {
     expect(text).toContain("On-chain miners");
   });
 
+  // ---- relocated compute charts (bead 1o0.1) ------------------------------
+
+  test("hosts Total Compute Used above the On-chain miners table", () => {
+    useUIStore.setState({ aggregationMode: "byType" });
+    useTelemetryStore.setState({ nodes: makeSnapshot({ "5GAlice": makeNode() }) });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Total Compute Used");
+    // Placement: the relocated chart sits above the On-chain miners section.
+    expect(text.indexOf("Total Compute Used")).toBeLessThan(text.indexOf("On-chain miners"));
+  });
+
+  test("shows Mining Nodes by Type in byType mode and hides it in byNode mode", () => {
+    useTelemetryStore.setState({ nodes: makeSnapshot({ "5GAlice": makeNode() }) });
+
+    useUIStore.setState({ aggregationMode: "byType" });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    expect(container.textContent ?? "").toContain("Mining Nodes by Type");
+
+    useUIStore.setState({ aggregationMode: "byNode" });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    expect(container.textContent ?? "").not.toContain("Mining Nodes by Type");
+  });
+
   // ---- 14-day activity window (bead 1o0.3) --------------------------------
 
   const NOW_ISO = "2026-07-06T00:00:00.000Z";

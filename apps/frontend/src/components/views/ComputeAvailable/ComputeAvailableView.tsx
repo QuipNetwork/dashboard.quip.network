@@ -7,9 +7,7 @@ import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 import { DifficultyChart } from "@/components/views/Chain/DifficultyChart";
 import { RecentBlocksTable } from "@/components/views/Network/RecentBlocksTable";
-import { ActiveNodesChart } from "@/components/charts/active-nodes/ActiveNodesChart";
 import { BlocksOverTimeCard } from "@/components/charts/blocks-over-time/BlocksOverTimeCard";
-import { ComputeUsedChart } from "@/components/charts/compute-used/ComputeUsedChart";
 import { CumulativeBlocksThresholdChart } from "@/components/charts/cumulative-blocks-threshold/CumulativeBlocksThresholdChart";
 import { EnergyCdfChart } from "@/components/charts/energy-cdf/EnergyCdfChart";
 import { EnergyDistributionCard } from "@/components/charts/energy-distribution/EnergyDistributionCard";
@@ -18,8 +16,6 @@ import { MiningTimeCard } from "@/components/charts/mining-time/MiningTimeCard";
 import { MiningTimeByDifficultyChart } from "@/components/charts/mining-time-by-difficulty/MiningTimeByDifficultyChart";
 import { TimeToSolutionCard } from "@/components/charts/time-to-solution/TimeToSolutionCard";
 import { WinRateByDifficultyChart } from "@/components/charts/win-rate-by-difficulty/WinRateByDifficultyChart";
-import { useActiveNodes } from "@/components/charts/active-nodes/use-active-nodes";
-import { useComputeUsed } from "@/components/charts/compute-used/use-compute-used";
 import { CurrentQBlockDetailsCard } from "./CurrentQBlockDetailsCard";
 import { LastQBlockDetailsCard } from "./LastQBlockDetailsCard";
 import { useComputeAvailable } from "./use-compute-available";
@@ -72,9 +68,6 @@ export function ComputeAvailableView() {
     compute.lastBlock ? compute.lastBlock.substrateBlockNumber : null,
   );
 
-  const computeUsed = useComputeUsed();
-  const activeNodes = useActiveNodes();
-
   return (
     <>
       {/* Block-ceiling FLOPS + live difficulty — orthogonal to By Node / By
@@ -94,7 +87,10 @@ export function ComputeAvailableView() {
         />
       </div>
 
-      <ChartCard title="Recent QBlocks" subtitle="Last 10 mined qblocks on the current chain tip">
+      <ChartCard
+        title="Historical QBlocks"
+        subtitle="Last 10 mined qblocks on the current chain tip"
+      >
         <RecentBlocksTable blocks={blocks} indexer={indexer} totalProofsWon={totalProofsWon} />
       </ChartCard>
 
@@ -111,16 +107,6 @@ export function ComputeAvailableView() {
       <DifficultyChart />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ChartCard title="Total Compute Used" subtitle="Reported or estimated device time per win">
-          <ComputeUsedChart data={computeUsed} />
-        </ChartCard>
-
-        {byType && (
-          <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
-            <ActiveNodesChart data={activeNodes} />
-          </ChartCard>
-        )}
-
         <EnergyDistributionCard />
 
         <TimeToSolutionCard />

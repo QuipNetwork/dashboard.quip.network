@@ -53,12 +53,22 @@ describe("ComputeAvailableView", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Last QBlock Details");
     expect(text).toContain("Current QBlock Details");
-    expect(text).toContain("Recent QBlocks");
+    expect(text).toContain("Historical QBlocks");
     expect(text).toContain("Mining Leaderboard");
     expect(text).toContain("QBlocks Mined Over Time");
     expect(text).toContain("Energy Distribution");
     expect(text).toContain("Time to QBlock");
     expect(text).toContain("Difficulty over time");
+  });
+
+  test("no longer hosts the node-inventory charts — they moved to Network (bead 1o0.1)", () => {
+    // Total Compute Used and Mining Nodes by Type are node-inventory views;
+    // they now live in the Network tab above On-chain miners. byType is the
+    // default (afterEach resets it), the mode where both were visible here.
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Total Compute Used");
+    expect(text).not.toContain("Mining Nodes by Type");
   });
 
   test("merges difficulty rows into Current QBlock Details, no standalone tile", () => {
@@ -114,7 +124,6 @@ describe("ComputeAvailableView", () => {
     useUIStore.setState({ aggregationMode: "byNode" });
     renderView(root);
     const text = container.textContent ?? "";
-    expect(text).not.toContain("Mining Nodes by Type");
     expect(text).not.toContain("Win Rate by Difficulty");
   });
 });

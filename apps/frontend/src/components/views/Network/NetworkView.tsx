@@ -5,6 +5,10 @@ import { SERIES_COLORS } from "@/lib/colors";
 import { formatNumber } from "@/lib/format";
 import { useUIStore } from "@/store/ui-store";
 import { StatTile } from "@/components/views/MyNode/StatTile";
+import { ActiveNodesChart } from "@/components/charts/active-nodes/ActiveNodesChart";
+import { ComputeUsedChart } from "@/components/charts/compute-used/ComputeUsedChart";
+import { useActiveNodes } from "@/components/charts/active-nodes/use-active-nodes";
+import { useComputeUsed } from "@/components/charts/compute-used/use-compute-used";
 import { ChainMinersTable } from "@/components/views/Chain/ChainMinersView";
 import { HardwareBreakdown } from "@/components/views/ComputeAvailable/HardwareBreakdown";
 import { NodeLeaderboard } from "@/components/views/ComputeAvailable/NodeLeaderboard";
@@ -18,7 +22,13 @@ import { useComputeAvailable } from "@/components/views/ComputeAvailable/use-com
  */
 export function NetworkView() {
   const compute = useComputeAvailable();
-  const byNode = useUIStore((s) => s.aggregationMode) === "byNode";
+  const aggregationMode = useUIStore((s) => s.aggregationMode);
+  const byNode = aggregationMode === "byNode";
+  const byType = aggregationMode === "byType";
+  // Node-inventory charts relocated here from the Compute tab (bead 1o0.1):
+  // they describe the network's device population, not a mining race.
+  const computeUsed = useComputeUsed();
+  const activeNodes = useActiveNodes();
 
   return (
     <>
@@ -81,6 +91,21 @@ export function NetworkView() {
               sublabel={`Across ${compute.activeNodeCount} active nodes`}
             />
           </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <ChartCard
+          title="Total Compute Used"
+          subtitle="Reported or estimated device time across all participants"
+        >
+          <ComputeUsedChart data={computeUsed} />
+        </ChartCard>
+
+        {byType && (
+          <ChartCard title="Mining Nodes by Type" subtitle="Distinct miners observed on network">
+            <ActiveNodesChart data={activeNodes} />
+          </ChartCard>
         )}
       </div>
 

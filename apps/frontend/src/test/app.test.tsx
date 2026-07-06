@@ -178,8 +178,9 @@ describe("App smoke test", () => {
     expect(fetchSpy).toHaveBeenCalledWith("/api/telemetry");
     expect(container.querySelector('[data-qa="chart-blocks-over-time"]')).not.toBeNull();
     expect(container.querySelector('[data-qa="chart-mining-time"]')).not.toBeNull();
-    expect(container.querySelector('[data-qa="chart-compute-used"]')).not.toBeNull();
-    expect(container.querySelector('[data-qa="chart-active-nodes"]')).not.toBeNull();
+    // Total Compute Used (chart-compute-used) and Mining Nodes by Type
+    // (chart-active-nodes) moved to the Network tab (bead 1o0.1), so they are
+    // no longer part of the Compute view's grid.
 
     fetchSpy.mockRestore();
   });
