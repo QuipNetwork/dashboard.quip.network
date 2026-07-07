@@ -30,7 +30,12 @@ import {
 } from "rxjs";
 
 import { StatePrunedError } from "../clients/substrate-client/errors";
-import type { BlockEvents, QBlockInfo, TopologyInfo } from "../clients/substrate-client";
+import type {
+  BlockEvents,
+  QBlockInfo,
+  QBlockParticipant,
+  TopologyInfo,
+} from "../clients/substrate-client";
 import type { IndexerState } from "../core/state";
 import type { ChainClient, ConnectionStream } from "../substrate/ports";
 import {
@@ -301,6 +306,7 @@ export class DispatcherStream implements ConnectionStream {
       let qblockMemo: Promise<QBlockInfo | null> | null = null;
       let lastProofMemo: Promise<number> | null = null;
       let topoAtMemo: Promise<string | null> | null = null;
+      let participantsMemo: Promise<QBlockParticipant[]> | null = null;
       const ctx: BlockContext = {
         number: block,
         source: item.source,
@@ -342,6 +348,13 @@ export class DispatcherStream implements ConnectionStream {
                   throw err;
                 })),
         topology: () => this.topology(),
+        // Keyed by the winner's qblock id — non-winner blocks have none, so
+        // resolve empty without a chain call. Failures degrade to [] (the
+        // participation plugin then no-ops) rather than failing the block.
+        participants: () =>
+          (participantsMemo ??= events.winner
+            ? deps.client.getQBlockParticipants(events.winner.qblockId).catch(() => [])
+            : Promise.resolve<QBlockParticipant[]>([])),
       };
 
       for (const name of item.pending) {

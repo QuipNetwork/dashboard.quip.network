@@ -3,7 +3,7 @@
 // Range-windowed mining history: slim winner-block rows at/after `since`
 // (ascending, ready to chart left-to-right). Mirrors /api/difficulty-history's
 // windowing but needs no anchor — mining time is a scatter of discrete wins,
-// not a step function. Feeds the "Mining Time per QBlock" range selector.
+// not a step function. Feeds the "Mining per QBlock" range selector.
 
 import type { Hono } from "hono";
 

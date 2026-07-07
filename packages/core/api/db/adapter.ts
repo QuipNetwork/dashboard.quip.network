@@ -16,6 +16,8 @@ import type {
   MiningSubmissionRecord,
   ModeBreakdown,
   NodeDescriptorRecord,
+  ParticipationComputeRow,
+  QBlockParticipationRecord,
 } from "@quip/shared/telemetry";
 import type { MigrationStatusRow } from "./migrator";
 
@@ -70,6 +72,10 @@ export function parseIndexerObservability(raw: string): IndexerObservability | n
     minerStats: parseMinerStats(p.minerStats),
     modes: parseModeBreakdownMap(p.modes),
     indexer: parseIndexerProgress(p.indexer),
+    deviceAccessTimeBackfill:
+      p.deviceAccessTimeBackfill === "triggered" || p.deviceAccessTimeBackfill === "not-needed"
+        ? p.deviceAccessTimeBackfill
+        : undefined,
   };
 }
 
@@ -340,6 +346,28 @@ export interface DatabaseAdapter {
   /** Write coverage only when the stamped generation is still current. */
   setCoverageIfGeneration(name: string, gen: number, json: string): Promise<boolean>;
 
+  // --- device_access_time one-shot backfill (startup auto-reindex) ---
+  // Durable latch in the meta KV for the startup missing-data detection.
+  // The field is self-reported and usually absent, so "every row is null"
+  // can be legitimate forever — the marker's PRESENCE (not the data) is
+  // what guarantees the auto-reindex runs at most once per deployment.
+
+  /**
+   * The recorded backfill decision ("triggered" | "not-needed"), or null
+   * when the startup detection has never run against this DB.
+   */
+  getDeviceAccessTimeBackfillMarker(): Promise<string | null>;
+
+  /** Latch the backfill decision. Written BEFORE the reindex is started. */
+  setDeviceAccessTimeBackfillMarker(value: string): Promise<void>;
+
+  /**
+   * Startup probe for the detection: whether any `blocks` rows exist, and
+   * whether any carries a non-null `device_access_time_us`. Two LIMIT-1
+   * lookups — cheap at any table size.
+   */
+  probeDeviceAccessTimeData(): Promise<{ hasBlocks: boolean; hasReported: boolean }>;
+
   // Current per-topology difficulty snapshot for the chain's mineable
   // whitelist (`quantum_pow` runtime APIs). Current-state, not history:
   // `setMineableTopologies` replaces the whole set each poll, stored as a
@@ -451,6 +479,40 @@ export interface DatabaseAdapter {
 
   /** R4 `--reindex winners`: delete all `blocks` rows. Returns the count. */
   deleteAllBlocks(): Promise<number>;
+
+  // --- QBlock participation (participant-level, all miner kinds) ---
+  // One row per (qblock, account) for every node that declared it raced a
+  // qblock — the participant-level counterpart to `blocks` (winner-only).
+  // Written by the `participation` block-plugin from the chain's
+  // `ParticipantsByQBlock` reverse index. Pure chain facts; per-type
+  // compute/energy is derived downstream, never stored.
+
+  /**
+   * Idempotent batch upsert keyed by (qblock_id, account). Re-declaring the
+   * same participant (the chain permits at most one record per account per
+   * qblock, but the plugin may re-fetch on backfill) updates kind /
+   * budget_seconds / block_number in place. An empty batch is a no-op.
+   */
+  upsertQBlockParticipants(records: QBlockParticipationRecord[]): Promise<void>;
+
+  /** Every participant of `qblockId`, sorted by account for stable output. */
+  getQBlockParticipation(qblockId: string): Promise<QBlockParticipationRecord[]>;
+
+  /**
+   * Joined participation facts for the per-type compute aggregate: one row per
+   * (qblock, participant) whose qblock has an indexed `blocks` row with
+   * `timestamp >= sinceIso`, carrying the participant's `kind`, the qblock's
+   * `miningSeconds` (block-active wall clock), and the participant's exact QPU
+   * access from `mining_submissions` (self-polled nodes only; null otherwise).
+   * Reduce with `aggregateParticipationByCategory` / `…ByQblock`.
+   */
+  getParticipationCompute(sinceIso: string): Promise<ParticipationComputeRow[]>;
+
+  /**
+   * R4 `--reindex participation`: delete all `qblock_participation` rows.
+   * Returns the count.
+   */
+  deleteAllQBlockParticipation(): Promise<number>;
 
   // --- Node descriptors (v11) ---
   // Per-account chain-signed identity records — one row per AccountId,

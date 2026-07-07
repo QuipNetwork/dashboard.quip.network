@@ -7,7 +7,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { ServicesProvider } from "@/services/services-provider";
 import { createTestServices, type TestServices } from "@/testing/services";
 import type { ChainMinerRecord, NodeDescriptorRecord } from "@quip/shared/telemetry";
-import { ChainMinersTable, filterChainMiners } from "./ChainMinersView";
+import { ChainMinersTable, filterChainMiners, isStaleNeverMiner } from "./ChainMinersView";
+import { FOURTEEN_DAYS_MS } from "@/components/views/ComputeAvailable/use-compute-available";
 
 function miner(accountId: string): ChainMinerRecord {
   return {
@@ -66,6 +67,102 @@ describe("filterChainMiners", () => {
   });
 });
 
+describe("isStaleNeverMiner", () => {
+  const NOW = 1_700_000_000_000;
+  const staleSec = Math.floor((NOW - FOURTEEN_DAYS_MS - 1000) / 1000);
+  const recentSec = Math.floor((NOW - 1000) / 1000);
+
+  it("prunes a zero-win miner whose last participation is older than 2 weeks", () => {
+    expect(isStaleNeverMiner(miner("5X"), staleSec, NOW)).toBe(true);
+  });
+
+  it("keeps a zero-win miner seen within the last 2 weeks", () => {
+    expect(isStaleNeverMiner(miner("5X"), recentSec, NOW)).toBe(false);
+  });
+
+  it("keeps a miner that has ever won, however stale", () => {
+    expect(isStaleNeverMiner({ ...miner("5X"), proofsWon: "3" }, staleSec, NOW)).toBe(false);
+  });
+
+  it("keeps a zero-win miner with unknown activity (null timestamp)", () => {
+    // A registered miner that never announced a descriptor and never won has
+    // no activity timestamp — we cannot prove it is stale, so we keep it.
+    expect(isStaleNeverMiner(miner("5X"), null, NOW)).toBe(false);
+  });
+});
+
+describe("ChainMinersTable stale never-miner prune", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  function stampedDescriptor(accountId: string, name: string, ts: number): NodeDescriptorRecord {
+    return {
+      accountId,
+      blockTimestamp: ts,
+      descriptor: { nodeName: name },
+    } as unknown as NodeDescriptorRecord;
+  }
+
+  function renderWith(miners: ChainMinerRecord[], descriptors: NodeDescriptorRecord[]) {
+    const services = createTestServices({
+      telemetry: { chainMiners: miners, nodeDescriptors: descriptors },
+    });
+    act(() => {
+      root.render(
+        <ServicesProvider {...services}>
+          <ChainMinersTable />
+        </ServicesProvider>,
+      );
+    });
+  }
+
+  it("hides a zero-win miner idle 2+ weeks and notes the hidden count", () => {
+    const staleTs = Math.floor((Date.now() - FOURTEEN_DAYS_MS - 86_400_000) / 1000);
+    const recentTs = Math.floor((Date.now() - 86_400_000) / 1000);
+    renderWith(
+      [miner("5Stale"), miner("5Fresh")],
+      [
+        stampedDescriptor("5Stale", "stale-rig", staleTs),
+        stampedDescriptor("5Fresh", "fresh-rig", recentTs),
+      ],
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("fresh-rig");
+    expect(text).not.toContain("stale-rig");
+    // Header count reflects the visible (pruned) set, and the hidden ones are
+    // disclosed rather than silently dropped.
+    expect(text).toContain("On-chain miners (1)");
+    expect(text).toContain("1 inactive never-miner");
+  });
+
+  it("shows an all-hidden message, not a bogus empty-search miss, when every miner is pruned", () => {
+    const staleTs = Math.floor((Date.now() - FOURTEEN_DAYS_MS - 86_400_000) / 1000);
+    renderWith(
+      [miner("5StaleA"), miner("5StaleB")],
+      [
+        stampedDescriptor("5StaleA", "a-rig", staleTs),
+        stampedDescriptor("5StaleB", "b-rig", staleTs),
+      ],
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("On-chain miners (0)");
+    expect(text).toContain("2 inactive never-miners");
+    expect(text).toContain("All registered miners are inactive");
+    // The user typed no query — never show a "no search results" message.
+    expect(text).not.toContain("No miners match");
+  });
+});
+
 describe("ChainMinersTable sorting", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -118,10 +215,14 @@ describe("ChainMinersTable sorting", () => {
     } as unknown as NodeDescriptorRecord;
   }
 
+  // 5Old/5New carry a win (proofsWon "1") so the 2-week never-miner prune
+  // (see isStaleNeverMiner) keeps them despite their ancient descriptor
+  // timestamps; the sort assertions are about participation ordering, not the
+  // prune. 5Never has no timestamp at all, so it is kept (unknown activity).
   const SORT_MINERS = [
     miner("5Never"),
-    { ...miner("5Old"), deposit: "900" },
-    { ...miner("5New"), deposit: "100" },
+    { ...miner("5Old"), deposit: "900", proofsWon: "1" },
+    { ...miner("5New"), deposit: "100", proofsWon: "1" },
   ];
   const SORT_DESCRIPTORS = [
     stampedDescriptor("5Old", "old-rig", 100),

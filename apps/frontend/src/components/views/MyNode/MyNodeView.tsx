@@ -2,12 +2,11 @@
 
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { displayNodeName, formatBalance } from "@/lib/format-chain";
-import { formatDuration, formatNumber } from "@/lib/format";
-import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { formatNumber } from "@/lib/format";
+import { useServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { useMinerWins } from "@/services/use-miner-wins";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
-import { CurrentDifficultyCard } from "./CurrentDifficultyCard";
 import { LastQBlockCard } from "./LastQBlockCard";
 import { MinerStatsPanel } from "./MinerStatsPanel";
 import { NeighborsList } from "./NeighborsList";
@@ -21,9 +20,7 @@ export function MyNodeView() {
   // on this page agrees with them.
   const minerWins = useMinerWins();
   const stats = useMyNode(minerWins.rows);
-  const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
   const chainHead = useTelemetryStore((s) => s.chainHead);
-  const tipBlock = useTelemetryStore(selectTipBlock);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
@@ -36,7 +33,7 @@ export function MyNodeView() {
         : null) ?? null,
   );
   const indexer = useTelemetryStore((s) => s.indexer);
-  const serverNowMs = useTelemetryStore(selectServerNowMs);
+  const serverNowMs = useServerNowMs();
   // Age of the most recent /api/v1/status poll, anchored on the
   // server-stamped `serverTime` so a backgrounded tab can't inflate
   // it via a drifted client clock. Null pre-first-fetch so the panel
@@ -66,7 +63,6 @@ export function MyNodeView() {
     lastWonBlock,
     lastWonProblemNumber,
     blocksMined,
-    currentRequirements,
     selfAvgMiningTimeSec,
     self,
     neighbors,
@@ -74,7 +70,6 @@ export function MyNodeView() {
     effectiveMinerStats,
     effectiveProblemsAttempted,
   } = stats;
-  const lastWonAgoMs = lastWonBlock != null ? Date.now() - lastWonBlock.timestamp * 1000 : null;
   // Correlate the chain-side winning BlockRecord with the miner-side
   // submission by chain_block_number to pull the winning dispatch's attempt
   // count, which the chain has no equivalent for.
@@ -104,43 +99,29 @@ export function MyNodeView() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <StatTile
-          label="QBlocks Won"
-          value={formatNumber(Number(blocksMined))}
-          sublabel={
-            chainMinerEntry
-              ? `${chainMinerEntry.proofsSubmitted} proofs submitted · chain-confirmed`
-              : "Not registered on chain"
-          }
-        />
-        <StatTile
-          label="Rewards Earned"
-          value={chainMinerEntry ? formatBalance(chainMinerEntry.rewardsEarned) : "—"}
-          sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
-        />
-        <StatTile
-          label="Last QBlock Won"
-          value={
-            lastWonBlock != null && lastWonProblemNumber != null
-              ? `QBlock #${formatNumber(lastWonProblemNumber)}`
-              : "—"
-          }
-          sublabel={
-            lastWonBlock != null && lastWonAgoMs != null
-              ? `${formatDuration(lastWonAgoMs)} ago · win ${formatNumber(Number(blocksMined))} of yours · block #${lastWonBlock.substrateBlockNumber}`
-              : "No wins yet"
-          }
-        />
-      </div>
-
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <LastQBlockCard lastWonBlock={lastWonBlock} lastWonSubmission={lastWonSubmission} />
-        <CurrentDifficultyCard
-          currentRequirements={currentRequirements}
-          recentDifficulty={recentDifficulty}
-          chainHead={chainHead}
-          tipBlock={tipBlock}
+        <div className="flex flex-col gap-5">
+          <StatTile
+            className="flex-1"
+            label="QBlocks Won"
+            value={formatNumber(Number(blocksMined))}
+            sublabel={
+              chainMinerEntry
+                ? `${chainMinerEntry.proofsSubmitted} proofs submitted · chain-confirmed`
+                : "Not registered on chain"
+            }
+          />
+          <StatTile
+            className="flex-1"
+            label="Rewards Earned"
+            value={chainMinerEntry ? formatBalance(chainMinerEntry.rewardsEarned) : "—"}
+            sublabel={chainMinerEntry ? "lifetime, on-chain" : "Awaiting first win"}
+          />
+        </div>
+        <LastQBlockCard
+          lastWonBlock={lastWonBlock}
+          lastWonSubmission={lastWonSubmission}
+          lastWonProblemNumber={lastWonProblemNumber}
         />
       </div>
 

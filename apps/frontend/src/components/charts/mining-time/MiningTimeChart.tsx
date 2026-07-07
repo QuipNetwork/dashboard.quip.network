@@ -1,47 +1,76 @@
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "@/theme/nivo-theme";
-import { SERIES_GRADIENT } from "@/lib/colors";
-import { getSeriesColor } from "@/lib/chart-colors";
-import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
-import type { MiningTimeSeries } from "./use-mining-time";
-
-const tooltip = createLineTooltip({
-  xLabel: "QBlock",
-  yLabel: "Mining Time",
-  yFormat: (v) => `${v.toFixed(1)}s`,
-});
-
-const gradientLines = createGradientLines(
-  Object.fromEntries(
-    Object.entries(SERIES_GRADIENT).map(([id, [from, to]]) => [
-      id,
-      [
-        { offset: "0%", color: from },
-        { offset: "100%", color: to },
-      ],
-    ]),
-  ),
-);
+import {
+  colorForNormalizedSeries as colorFor,
+  normalizedSeriesGradientLines as gradientLines,
+} from "@/components/charts/common/normalized-series-colors";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
+import { formatJoules } from "@/lib/format";
+import type { MiningMetric, MiningTimeSeries } from "./use-mining-time";
 
 export interface MiningTimeChartProps {
   data: MiningTimeSeries[];
+  // Which participant-total metric the series carry — drives axis/tooltip formatting.
+  metric?: MiningMetric;
+  // Normalized-composition shares (0–100%) rather than raw metric values.
+  normalized?: boolean;
 }
 
-export function MiningTimeChart({ data }: MiningTimeChartProps) {
+export function MiningTimeChart({
+  data,
+  metric = "time",
+  normalized = false,
+}: MiningTimeChartProps) {
+  const qpuLabel = useQpuDisplayLabel();
   if (data.length === 0) return null;
+
+  // Normalized series carry display labels ("QPU100" -> "QPU100%"); nivo's
+  // legend and tooltip show the id, so render under the label. Raw byType/all
+  // series have no label — labelFor covers the plain "QPU" case (-> live
+  // "QPU<N>m", which colorForNormalizedSeries already resolves a color for).
+  const labelFor = labelForCategoryWith(qpuLabel);
+  const chartSeries = data.map((s) => ({
+    id: s.label ?? labelFor(s.id),
+    data: s.data,
+  }));
+
+  const yLabel = normalized ? "Share" : metric === "energy" ? "Energy" : "Device Time";
+  const yFormat = normalized
+    ? (v: number) => `${v.toFixed(1)}%`
+    : metric === "energy"
+      ? formatJoules
+      : (v: number) => `${v.toFixed(1)}s`;
+  const axisLegend = normalized
+    ? metric === "energy"
+      ? "Share of Energy (%)"
+      : "Share of Device Time (%)"
+    : metric === "energy"
+      ? "Energy per QBlock"
+      : "Device Time (seconds)";
+  const tooltip = createLineTooltip({
+    xLabel: "QBlock",
+    yLabel,
+    xFormat: (v) => String(Math.round(v)),
+    yFormat,
+    colorFor,
+  });
 
   return (
     <div data-qa="chart-mining-time" style={{ width: "100%", height: "100%" }}>
       <ResponsiveLine
-        data={data}
+        data={chartSeries}
         theme={nivoTheme}
-        colors={(series) => getSeriesColor(String(series.id))}
+        colors={(series) => colorFor(String(series.id))}
         margin={{ top: 20, right: 20, bottom: 50, left: 60 }}
         // min "auto" hugs the windowed data — nivo's default of 0 would
         // stretch the axis back to qblock #0 on every range.
         xScale={{ type: "linear", min: "auto", max: "auto" }}
-        yScale={{ type: "linear", min: 0, stacked: false }}
+        yScale={
+          normalized
+            ? { type: "linear", min: 0, max: 100, stacked: false }
+            : { type: "linear", min: 0, stacked: false }
+        }
         curve="monotoneX"
         enablePoints={true}
         pointSize={4}
@@ -70,7 +99,9 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
           legendPosition: "middle",
         }}
         axisLeft={{
-          legend: "Mining Time (seconds)",
+          // Joule ticks carry their own unit ladder (J/kJ/MJ).
+          format: !normalized && metric === "energy" ? (v) => formatJoules(Number(v)) : undefined,
+          legend: axisLegend,
           legendOffset: -50,
           legendPosition: "middle",
         }}
@@ -78,12 +109,13 @@ export function MiningTimeChart({ data }: MiningTimeChartProps) {
         useMesh={true}
         enableCrosshair={true}
         legends={
-          data.length <= 5
+          chartSeries.length <= 5
             ? [
                 {
                   anchor: "top-left",
                   direction: "row",
-                  itemWidth: 70,
+                  // Four items in normalized mode, incl. "QPU100%".
+                  itemWidth: normalized ? 78 : 70,
                   itemHeight: 20,
                   symbolSize: 10,
                   symbolShape: "circle",

@@ -5,6 +5,7 @@ import { SetAggregationMode, SetViewMode, ToggleMinerType } from "@/event-bus/ui
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore, type AggregationMode, type ViewMode } from "@/store/ui-store";
 import { SERIES_COLORS } from "@/lib/colors";
+import { displayLabelForCategory, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { shortAddress } from "@/lib/format-chain";
 import type { MinerCategory } from "@quip/shared/telemetry";
 import { BabeEpochProgress } from "./BabeEpochProgress";
@@ -44,6 +45,9 @@ export function Header() {
         ? s.nodeDescriptors.find((d) => d.accountId === s.selfAddress)?.descriptor.nodeName
         : null) ?? null,
   );
+
+  // Live-tracks the last advertised QPU dailyBudget, falling back to "QPU20m".
+  const qpuLabel = useQpuDisplayLabel();
 
   const showAggregation = viewMode === "network" || viewMode === "compute";
   // The chips filter the per-type chart series, which live on Compute.
@@ -164,7 +168,7 @@ export function Header() {
                   className="inline-block h-2.5 w-2.5 rounded-full"
                   style={{ backgroundColor: active ? SERIES_COLORS[type] : "#d4d4d8" }}
                 />
-                {type}
+                {type === "QPU" ? qpuLabel : displayLabelForCategory(type)}
               </button>
             );
           })}

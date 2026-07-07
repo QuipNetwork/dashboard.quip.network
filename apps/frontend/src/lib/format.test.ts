@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { formatDuration, formatNumber, formatSeconds } from "./format";
+import { formatDuration, formatJoules, formatNumber, formatSeconds } from "./format";
 
 describe("formatSeconds", () => {
   it("uses appropriate unit for the magnitude", () => {
@@ -42,5 +42,13 @@ describe("formatDuration", () => {
   it("handles invalid input", () => {
     expect(formatDuration(Number.NaN)).toBe("—");
     expect(formatDuration(-5)).toBe("—");
+  });
+});
+
+describe("formatJoules", () => {
+  it("ladders J → kJ → MJ", () => {
+    expect(formatJoules(999)).toBe("999.0 J");
+    expect(formatJoules(1_500)).toBe("1.5 kJ");
+    expect(formatJoules(2_500_000)).toBe("2.5 MJ");
   });
 });

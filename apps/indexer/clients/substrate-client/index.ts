@@ -44,6 +44,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  QBlockParticipant,
   WinnerBlockDecode,
 } from "./types";
 
@@ -484,6 +485,47 @@ export class PolkadotSubstrateClient implements SubstrateClient {
     const codec = await (fn as (id: string) => Promise<unknown>)(qblockId);
     const n = Number((codec as { toString: () => string }).toString());
     return Number.isFinite(n) ? n : null;
+  }
+
+  async getQBlockParticipants(qblockId: string): Promise<QBlockParticipant[]> {
+    const api = this.requireApi();
+    const fn = (api.call as unknown as Record<string, Record<string, unknown> | undefined>)
+      ?.minerRegistryApi?.participantsByQblock;
+    if (typeof fn !== "function") return []; // pre-v0.2 / pallet absent
+    // Runtime API: participants_by_qblock(qblock_id, start_after: Option<AccountId>,
+    // limit: u32) -> Vec<(AccountId, ParticipationRecord)>, sorted by account,
+    // server-capped at 1000. Page until a short page: `start_after` is the last
+    // account seen (exclusive), so no row is fetched twice.
+    type ParticipantTuple = [
+      { toString: () => string },
+      {
+        kind: { type: string };
+        budgetSeconds: { isSome: boolean; unwrap: () => { toNumber: () => number } };
+        updatedAt: { toString: () => string };
+      },
+    ];
+    const call = fn as (id: string, startAfter: string | null, limit: number) => Promise<unknown>;
+    const PAGE = 1000;
+    const out: QBlockParticipant[] = [];
+    let startAfter: string | null = null;
+    for (;;) {
+      const page = (await call(qblockId, startAfter, PAGE)) as unknown as ParticipantTuple[];
+      if (page.length === 0) break;
+      for (const [accountCodec, record] of page) {
+        const account = accountCodec.toString();
+        out.push({
+          account,
+          kind: record.kind.type,
+          budgetSeconds: record.budgetSeconds.isSome
+            ? record.budgetSeconds.unwrap().toNumber()
+            : null,
+          blockNumber: record.updatedAt.toString(),
+        });
+        startAfter = account;
+      }
+      if (page.length < PAGE) break;
+    }
+    return out;
   }
 
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
@@ -1070,7 +1112,7 @@ function discreteMeanAbs(min: number, max: number): number | null {
 /**
  * Map a `toJSON()`-coerced `WinningSolution`/`QBlock` struct + its derived
  * nonce into a {@link QBlockInfo}. Exported so the field mapping (including
- * the spec-111 `device_access_time_us` tail) can be unit-tested without a
+ * the runtime-112 `device_access_time_us` tail) can be unit-tested without a
  * live chain.
  */
 /**
@@ -1104,7 +1146,7 @@ export function qblockInfoFromSolution(sol: Record<string, unknown>, nonce: stri
     submittedAt: String(sol.submittedAt ?? sol.submitted_at ?? "0"),
     nonce,
     difficulty: decodeDifficulty(sol.difficulty),
-    // null = absent (pre-111) or undecodable; 0 = present-but-unreported.
+    // null = absent (pre-112) or undecodable; 0 = present-but-unreported.
     deviceAccessTimeUs: rawDevice == null || !Number.isFinite(device) ? null : device,
     // The solution carries the mined-against topology hash directly; null when
     // absent (pre-topology runtime) so the winner path degrades to null tagging.

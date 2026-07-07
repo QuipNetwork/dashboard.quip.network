@@ -29,6 +29,12 @@ export interface IndexerConfig {
   // Cadence at which we re-poll the bigger chain surfaces — quantum_pow.Miners,
   // quantum_pow.Difficulty, session.validators. More expensive: O(miners) RPCs.
   substrateChainPollSec: number;
+  // Backfill throttle (spec §13). The historical re-walk (incl. a full
+  // --reindex) shares ONE websocket with tip-following; each block decode fans
+  // out to several RPC calls. Lower these when a front door / node closes the
+  // socket under sustained backfill load. Rate is per lane (W + D).
+  substrateBackfillBlocksPerSec: number;
+  substrateBackfillConcurrency: number;
 
   // --- Node descriptor indexer (v0.2) ---
   // Operator SS58 to seed `self_address` on first start. Optional escape
@@ -67,6 +73,9 @@ const DEFAULTS = {
   // storage hits and the UI's "Problems Won" tile would otherwise show a
   // ~5min stale snapshot of `quantum_pow.Miners`.
   substrateChainPollSec: 6,
+  // Per-lane pull rate and concurrent block-decode fan-out for backfill.
+  substrateBackfillBlocksPerSec: 5,
+  substrateBackfillConcurrency: 4,
 };
 
 function parseIntStrict(name: string, raw: string): number {
@@ -221,6 +230,30 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     throw new Error(`[indexer] --substrate-chain-poll must be > 0, got: ${substrateChainPollSec}`);
   }
 
+  const substrateBackfillBlocksPerSec = parseIntOption(
+    argv,
+    "--substrate-backfill-blocks-per-sec",
+    "QUIP_VALIDATOR_BACKFILL_BLOCKS_PER_SEC",
+    DEFAULTS.substrateBackfillBlocksPerSec,
+  );
+  if (substrateBackfillBlocksPerSec <= 0) {
+    throw new Error(
+      `[indexer] --substrate-backfill-blocks-per-sec must be > 0, got: ${substrateBackfillBlocksPerSec}`,
+    );
+  }
+
+  const substrateBackfillConcurrency = parseIntOption(
+    argv,
+    "--substrate-backfill-concurrency",
+    "QUIP_VALIDATOR_BACKFILL_CONCURRENCY",
+    DEFAULTS.substrateBackfillConcurrency,
+  );
+  if (substrateBackfillConcurrency <= 0) {
+    throw new Error(
+      `[indexer] --substrate-backfill-concurrency must be > 0, got: ${substrateBackfillConcurrency}`,
+    );
+  }
+
   const operatorFlag = takeFlag(argv, "--operator-account");
   const operatorAccountRaw =
     (typeof operatorFlag === "string" ? operatorFlag : undefined) ??
@@ -254,6 +287,8 @@ export function parseConfig(argv: string[] = Bun.argv.slice(2)): IndexerConfig {
     substrateReconnectMaxBackoffMs,
     substrateBabePollSec,
     substrateChainPollSec,
+    substrateBackfillBlocksPerSec,
+    substrateBackfillConcurrency,
     operatorAccount,
     reindex,
     listIndexables,

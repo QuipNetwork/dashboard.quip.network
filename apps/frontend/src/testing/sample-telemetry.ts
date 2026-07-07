@@ -162,6 +162,7 @@ function buildBlocks(nowSec: number): BlockRecord[] {
       minSolutions: 1,
       topologyHash: null,
       finalized: i > 2,
+      deviceAccessTimeUs: null,
     };
   });
 }

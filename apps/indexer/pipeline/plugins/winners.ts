@@ -71,14 +71,19 @@ export function winnersPlugin(): BlockIndexable {
       // LastProofBlock is read at the PARENT hash: on_finalize updates it
       // in-block, so the parent's value is the prior tip.
       const miningTimeBlocks = lastProofBlock > 0 ? Math.max(1, e.blockNumber - lastProofBlock) : 0;
-      // Spec-111 qblocks carry the winner's self-reported compute time
+      // Runtime-112 qblocks carry the winner's self-reported compute time
       // (QPU access time for QPU wins, wall clock for CPU/GPU), in µs.
       // Prefer it — the derived block-spacing wall clock below remains
       // recomputable from chain data by anyone, so nothing is lost.
-      // Falsy (null = pre-111, 0 = unreported) falls back to the spacing.
+      // Falsy (null = pre-112, 0 = unreported) falls back to the spacing.
       const miningTime = qblock?.deviceAccessTimeUs
         ? qblock.deviceAccessTimeUs / 1_000_000
         : miningTimeBlocks * BABE_SLOT_DURATION_SEC;
+      // Persisted separately from miningTime (which always has a value, real
+      // or derived) so consumers can tell a real report from an estimate.
+      // Falsy (null = pre-112, 0 = unreported) both normalize to null — the
+      // normal case for most blocks.
+      const deviceAccessTimeUs = qblock?.deviceAccessTimeUs ? qblock.deviceAccessTimeUs : null;
       // Post-v0.2 the qblock carries the mined-against difficulty; pre-v0.2
       // winners get the stated sentinel (spec §10.2).
       const difficulty = qblock?.difficulty ?? ZERO_DIFFICULTY;
@@ -104,6 +109,7 @@ export function winnersPlugin(): BlockIndexable {
         minSolutions: difficulty.minSolutions,
         finalized: true, // tip + backfill are both finalized-only
         topologyHash,
+        deviceAccessTimeUs,
       };
       await db.insertBlock(record);
     },

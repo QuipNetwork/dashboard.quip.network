@@ -3,8 +3,28 @@
 import { useMemo } from "react";
 
 import { estimateNodeFlops, lookupCpu, lookupGpu } from "@/lib/hardware-flops";
-import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { resolveServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 import type { BlockRecord, NodeInfo } from "@quip/shared/telemetry";
+
+// Window used to decide whether a node counts toward the "live" hardware
+// inventory (locations, CPU/GPU/QPU totals, Est. PFLOPS, model breakdowns).
+// A node that hasn't refreshed its on-chain descriptor in 14+ days is
+// treated as gone dark rather than contributing capacity — see
+// `isNodeActive`.
+export const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether `node` has been seen recently enough to count toward the
+ * network's "live" hardware inventory. `NodeInfo.lastSeen` is a Unix
+ * *seconds* timestamp sourced from the most recent `MinerRegistry.
+ * NodeDescriptors` block the node re-announced on (see
+ * `apps/server/routes/telemetry.ts`'s `projectDescriptorsToSnapshot`); it
+ * is NOT a heartbeat, so "active" here means "re-announced within the
+ * window", not "currently online".
+ */
+export function isNodeActive(node: NodeInfo, nowMs: number): boolean {
+  return nowMs - node.lastSeen * 1000 <= FOURTEEN_DAYS_MS;
+}
 
 export interface ModelBreakdown {
   model: string;
@@ -36,6 +56,11 @@ export interface LocatedNode {
 
 export interface ComputeAvailability {
   totalNodes: number;
+  // Nodes last seen (re-announced their descriptor) within the last 14
+  // days — see `isNodeActive`. totalCpus/totalGpus/totalQpus/
+  // totalPetaflops/cpuModels/gpuModels/locatedNodes/unlocatedCount are all
+  // scoped to this set; totalNodes above is NOT (it's the all-time count).
+  activeNodeCount: number;
   totalCpus: number;
   totalGpus: number;
   totalQpus: number;
@@ -52,7 +77,7 @@ export interface ComputeAvailability {
   lastBlock: BlockRecord | null;
   // PFLOP·s poured into the last block (networkTflops × wall-clock block
   // spacing / 1000). Uses timestamp delta between the two most recent winner
-  // blocks — NOT miningTime, which on spec-111+ carries device compute time
+  // blocks — NOT miningTime, which on spec-112+ carries device compute time
   // (e.g. ~60ms for QPU) rather than wall-clock block duration. Null when
   // fewer than two blocks are available.
   lastBlockPflopSeconds: number | null;
@@ -77,14 +102,30 @@ export function useComputeAvailable(): ComputeAvailability {
   const nodes = useTelemetryStore((s) => s.nodes);
   const lastBlock = useTelemetryStore(selectTipBlock);
   const blocks = useTelemetryStore((s) => s.blocks);
+  // Subscribe to the stable `serverTime` string and resolve "now" inside the
+  // memo — NOT via a store selector. `resolveServerNowMs` falls back to
+  // `Date.now()` when serverTime is null, which returns a fresh number every
+  // call; as a zustand selector that loops `useSyncExternalStore` (bead mrt).
+  // The 14-day window anchor doesn't need to tick, so resolving it once here
+  // keyed on the stable string is both correct and loop-safe.
+  const serverTime = useTelemetryStore((s) => s.serverTime);
 
   return useMemo<ComputeAvailability>(() => {
     if (!nodes) return { ...EMPTY, lastBlock };
 
+    const nowMs = resolveServerNowMs(serverTime);
+
+    let activeNodeCount = 0;
     let totalCpus = 0;
     let totalGpus = 0;
     let totalQpus = 0;
-    let totalTflops = 0;
+    // All-time total across every known node — feeds the block-ceiling
+    // PFLOP·s estimates below, which are about "the network" broadly and
+    // are intentionally NOT windowed to the 14-day active set.
+    let totalTflopsAll = 0;
+    // 14-day-active total — feeds the "Est. PFLOPS" tile, which IS windowed
+    // (see `isNodeActive`).
+    let totalTflopsActive = 0;
     const cpuCounts = new Map<string, { count: number; tflops: number }>();
     const gpuCounts = new Map<string, { count: number; tflops: number }>();
     const perNode: PerNodeTflops[] = [];
@@ -92,12 +133,8 @@ export function useComputeAvailable(): ComputeAvailability {
     let unlocatedCount = 0;
 
     for (const node of Object.values(nodes.nodes)) {
-      totalCpus += countCpus(node);
-      totalGpus += node.systemInfo?.gpus?.length ?? 0;
-      totalQpus += countQpus(node);
-
       const flops = estimateNodeFlops(node);
-      totalTflops += flops.totalTflops;
+      totalTflopsAll += flops.totalTflops;
 
       const displayName = node.nodeName ?? node.address.slice(0, 10);
       perNode.push({
@@ -105,6 +142,19 @@ export function useComputeAvailable(): ComputeAvailability {
         nodeName: displayName,
         tflops: flops.totalTflops,
       });
+
+      // Everything below this line is windowed to nodes seen in the last 14
+      // days — Node Locations, CPU/GPU/QPU totals, Est. PFLOPS, and the
+      // CPU/GPU model breakdowns. A node that's gone dark shouldn't inflate
+      // the "hardware currently available" picture even though it still
+      // counts toward the all-time `totalNodes`/`perNodeTflops` above.
+      if (!isNodeActive(node, nowMs)) continue;
+
+      activeNodeCount++;
+      totalCpus += countCpus(node);
+      totalGpus += node.systemInfo?.gpus?.length ?? 0;
+      totalQpus += countQpus(node);
+      totalTflopsActive += flops.totalTflops;
 
       if (node.location) {
         located.push({
@@ -148,7 +198,7 @@ export function useComputeAvailable(): ComputeAvailability {
     //
     // lastBlockWallClock: derive from timestamp delta between the two most
     // recent winner blocks instead of miningTime. miningTime now carries the
-    // winner's self-reported device compute time on spec-111+ wins (e.g. ~60ms
+    // winner's self-reported device compute time on spec-112+ wins (e.g. ~60ms
     // for a QPU), which would collapse the PFLOP·s tile ~1000×. Wall-clock
     // block spacing (tip.timestamp − prev.timestamp) is always valid for this
     // "how long did the network run at full throughput" metric.
@@ -160,24 +210,27 @@ export function useComputeAvailable(): ComputeAvailability {
     // When there is only one block, we cannot derive a delta — show null so
     // the tile renders "—" rather than a meaningless value.
     const lastBlockPflopSeconds =
-      lastBlockWallClock != null ? (totalTflops * lastBlockWallClock) / 1000 : null;
+      lastBlockWallClock != null ? (totalTflopsAll * lastBlockWallClock) / 1000 : null;
     const currentBlockElapsedSeconds =
       lastBlock != null ? Math.max(0, Date.now() / 1000 - lastBlock.timestamp) : null;
     const currentBlockPflopSeconds =
-      currentBlockElapsedSeconds != null ? (totalTflops * currentBlockElapsedSeconds) / 1000 : null;
+      currentBlockElapsedSeconds != null
+        ? (totalTflopsAll * currentBlockElapsedSeconds) / 1000
+        : null;
 
     return {
       totalNodes: Object.keys(nodes.nodes).length,
+      activeNodeCount,
       totalCpus,
       totalGpus,
       totalQpus,
-      totalPetaflops: totalTflops / 1000,
+      totalPetaflops: totalTflopsActive / 1000,
       cpuModels: toBreakdown(cpuCounts),
       gpuModels: toBreakdown(gpuCounts),
       perNodeTflops: perNode,
       topNode: perNode[0] ?? null,
       medianNodeTflops: median(perNode.map((n) => n.tflops)),
-      networkTflops: totalTflops,
+      networkTflops: totalTflopsAll,
       lastBlock,
       lastBlockPflopSeconds,
       currentBlockPflopSeconds,
@@ -185,11 +238,12 @@ export function useComputeAvailable(): ComputeAvailability {
       locatedNodes: located,
       unlocatedCount,
     };
-  }, [nodes, lastBlock, blocks]);
+  }, [nodes, lastBlock, blocks, serverTime]);
 }
 
 const EMPTY: ComputeAvailability = {
   totalNodes: 0,
+  activeNodeCount: 0,
   totalCpus: 0,
   totalGpus: 0,
   totalQpus: 0,

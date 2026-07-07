@@ -6,6 +6,13 @@ export function formatSeconds(s: number): string {
   return `${(s / 3600).toFixed(1)}h`;
 }
 
+/** J → kJ → MJ laddering, mirroring formatSeconds' unit steps. */
+export function formatJoules(j: number): string {
+  if (j < 1_000) return `${j.toFixed(1)} J`;
+  if (j < 1_000_000) return `${(j / 1_000).toFixed(1)} kJ`;
+  return `${(j / 1_000_000).toFixed(1)} MJ`;
+}
+
 export function formatNumber(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 1 });
 }

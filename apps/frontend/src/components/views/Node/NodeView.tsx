@@ -3,7 +3,7 @@
 import { winningSolutionsSolved } from "@/lib/chain-solutions";
 import { displayNodeName, formatBalance } from "@/lib/format-chain";
 import { formatDuration, formatNumber } from "@/lib/format";
-import { selectServerNowMs, selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
+import { selectTipBlock, useServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "@/components/views/MyNode/CurrentAttemptsPanel";
@@ -40,7 +40,7 @@ function NodeDetail({ accountId, onBack }: { accountId: string; onBack: () => vo
   const chainHead = useTelemetryStore((s) => s.chainHead);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const tipBlock = useTelemetryStore(selectTipBlock);
-  const serverNowMs = useTelemetryStore(selectServerNowMs);
+  const serverNowMs = useServerNowMs();
 
   const {
     chainMinerEntry,
@@ -118,7 +118,11 @@ function NodeDetail({ accountId, onBack }: { accountId: string; onBack: () => vo
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <LastQBlockCard lastWonBlock={lastWonBlock} lastWonSubmission={lastWonSubmission} />
+        <LastQBlockCard
+          lastWonBlock={lastWonBlock}
+          lastWonSubmission={lastWonSubmission}
+          lastWonProblemNumber={lastWonProblemNumber}
+        />
         <CurrentDifficultyCard
           currentRequirements={currentRequirements}
           recentDifficulty={recentDifficulty}

@@ -45,7 +45,7 @@ export function RecentMiningPanel({
 }: {
   submissions: MiningSubmissionRecord[];
   // Wall-clock used for "Age" — prop-injected to match the rest of MyNode
-  // and stay swap-friendly for `selectServerNowMs`.
+  // and stay swap-friendly for `useServerNowMs`.
   nowMs: number;
 }) {
   const [openSolutionNumber, setOpenSolutionNumber] = useState<number | null>(null);

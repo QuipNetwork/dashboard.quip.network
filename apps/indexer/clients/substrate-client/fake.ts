@@ -16,6 +16,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  QBlockParticipant,
   WinnerBlockDecode,
 } from "./types";
 
@@ -62,7 +63,18 @@ export class FakeSubstrateClient implements SubstrateClient {
   };
   public lastRuntimeUpgrade: { blockNumber: string } | null = null;
 
+  // Test knobs for reconnect behaviour: `connectCount` counts every connect
+  // ATTEMPT (incremented before any hang), and `hangNextConnect` makes the
+  // next connect() never resolve — simulating a half-open socket whose
+  // connect neither succeeds nor rejects.
+  public connectCount = 0;
+  public hangNextConnect = false;
   async connect(): Promise<void> {
+    this.connectCount += 1;
+    if (this.hangNextConnect) {
+      this.hangNextConnect = false;
+      await new Promise<void>(() => {});
+    }
     this.connected = true;
     for (const cb of this.connectedCbs) cb();
   }
@@ -158,6 +170,12 @@ export class FakeSubstrateClient implements SubstrateClient {
   public qblockParticipantCounts = new Map<string, number>();
   async getQBlockParticipantCount(qblockId: string): Promise<number | null> {
     return this.qblockParticipantCounts.get(qblockId) ?? null;
+  }
+  // Keyed by qblock id string; tests populate the participant set they expect
+  // the participation plugin to read. Absent keys read as an empty set.
+  public qblockParticipants = new Map<string, QBlockParticipant[]>();
+  async getQBlockParticipants(qblockId: string): Promise<QBlockParticipant[]> {
+    return this.qblockParticipants.get(qblockId) ?? [];
   }
   async getRuntimeVersion(): Promise<RuntimeVersionInfo> {
     return this.runtimeVersion;

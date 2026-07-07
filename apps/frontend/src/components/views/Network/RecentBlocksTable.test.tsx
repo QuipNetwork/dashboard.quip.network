@@ -40,6 +40,7 @@ function makeBlock(i: number, tsSec: number): BlockRecord {
     minSolutions: 1,
     topologyHash: null,
     finalized: false,
+    deviceAccessTimeUs: null,
   };
 }
 

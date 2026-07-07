@@ -34,6 +34,7 @@ const sampleBlock = (overrides: Partial<BlockRecord> = {}): BlockRecord => ({
   minSolutions: 1,
   finalized: false,
   topologyHash: null,
+  deviceAccessTimeUs: 45_500_000,
   ...overrides,
 });
 
@@ -124,6 +125,12 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         await db.insertBlock(sampleBlock({ finalized: true }));
         const [b] = await db.getRecentBlocks(10);
         expect(b).toEqual(sampleBlock({ finalized: true }));
+      });
+
+      it("round-trips a null deviceAccessTimeUs (the normal, unreported case)", async () => {
+        await db.insertBlock(sampleBlock({ deviceAccessTimeUs: null }));
+        const [b] = await db.getRecentBlocks(10);
+        expect(b?.deviceAccessTimeUs).toBeNull();
       });
 
       it("ignores duplicate block_hash", async () => {
@@ -269,6 +276,23 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
         expect(await db.getMiningHistorySince("2026-01-01T00:00:00.000Z")).toEqual([]);
       });
 
+      it("probeDeviceAccessTimeData distinguishes empty / all-null / reported", async () => {
+        expect(await db.probeDeviceAccessTimeData()).toEqual({
+          hasBlocks: false,
+          hasReported: false,
+        });
+        await db.insertBlock(sampleBlock({ blockHash: "0x1", deviceAccessTimeUs: null }));
+        expect(await db.probeDeviceAccessTimeData()).toEqual({
+          hasBlocks: true,
+          hasReported: false,
+        });
+        await db.insertBlock(sampleBlock({ blockHash: "0x2", deviceAccessTimeUs: 45_500_000 }));
+        expect(await db.probeDeviceAccessTimeData()).toEqual({
+          hasBlocks: true,
+          hasReported: true,
+        });
+      });
+
       it("getExistingBlockNumbers handles a lookup larger than the bind-parameter ceiling", async () => {
         // Seed a handful of real blocks, then ask about 70k numbers (> the
         // 65535 single-statement ceiling) — the adapter must chunk the IN-list.
@@ -303,6 +327,32 @@ function runSuite(label: string, make: () => Promise<PgliteHarness>): void {
           chainConnected: true,
           bestBlockHeight: "200",
         });
+      });
+
+      it("roundtrips deviceAccessTimeBackfill through the observability whitelist", async () => {
+        // Regression guard for the strict-whitelist gotcha: a field missing
+        // from parseIndexerObservability is silently stripped on read.
+        const obs = {
+          chainHeadFromNode: null,
+          lastStatusFetchAt: "2026-01-01T00:00:00.000Z",
+          lastBlockInsertAt: null,
+          lastSubstrateEventAt: null,
+          bestBlockHeight: null,
+          finalizedBlockHeight: null,
+          chainConnected: false,
+          minerStats: null,
+          deviceAccessTimeBackfill: "triggered",
+        } as IndexerObservability;
+        await db.setIndexerObservability(obs);
+        expect((await db.getIndexerObservability())?.deviceAccessTimeBackfill).toBe("triggered");
+      });
+
+      it("roundtrips the device_access_time backfill marker", async () => {
+        expect(await db.getDeviceAccessTimeBackfillMarker()).toBeNull();
+        await db.setDeviceAccessTimeBackfillMarker("not-needed");
+        expect(await db.getDeviceAccessTimeBackfillMarker()).toBe("not-needed");
+        await db.setDeviceAccessTimeBackfillMarker("triggered");
+        expect(await db.getDeviceAccessTimeBackfillMarker()).toBe("triggered");
       });
 
       it("roundtrips backfillEtaSeconds through the indexer progress whitelist", async () => {

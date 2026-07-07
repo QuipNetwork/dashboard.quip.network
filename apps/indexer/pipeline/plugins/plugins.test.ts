@@ -10,7 +10,12 @@ import { beforeEach, describe, expect, it, test } from "bun:test";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
-import type { BlockEvents, QBlockInfo, TopologyInfo } from "../../clients/substrate-client";
+import type {
+  BlockEvents,
+  QBlockInfo,
+  QBlockParticipant,
+  TopologyInfo,
+} from "../../clients/substrate-client";
 import { IndexerState } from "../../core/state";
 import { newInMemoryAdapter } from "../../core/test-helpers";
 import type { ChainClient } from "../../substrate/ports";
@@ -21,6 +26,7 @@ import { chainStatePlugin } from "./chain-state";
 import { difficultyPlugin } from "./difficulty";
 import { difficultyCurrentPlugin } from "./difficulty-current";
 import { nodeDescriptorsPlugin } from "./node-descriptors";
+import { participationPlugin } from "./participation";
 import { winnersPlugin } from "./winners";
 
 const NOW_MS = 1_750_000_000_000;
@@ -75,6 +81,7 @@ function makeCtx(
     lastProof: number;
     topologyHash: string | null;
     source: "tip" | "backfill";
+    participants: QBlockParticipant[];
   }> = {},
 ): BlockContext {
   const events = overrides.events ?? makeEvents();
@@ -87,6 +94,7 @@ function makeCtx(
     defaultTopologyAt: async () =>
       overrides.topologyHash === undefined ? "0xTOPO" : overrides.topologyHash,
     topology: async () => TOPOLOGY,
+    participants: async () => overrides.participants ?? [],
   };
 }
 
@@ -121,6 +129,7 @@ describe("winners plugin", () => {
       minSolutions: 2,
       finalized: true,
       topologyHash: "0xTOPO",
+      deviceAccessTimeUs: null,
     });
   });
 
@@ -153,25 +162,93 @@ describe("winners plugin", () => {
     expect(await db.getRecentBlocks(10)).toHaveLength(0);
   });
 
-  test("spec-111 reported compute time replaces the derived wall clock", async () => {
+  test("runtime-112 reported compute time replaces the derived wall clock", async () => {
     await winnersPlugin().onBlock(
       makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 45_500_000 }) }),
       db,
     );
     const [b] = await db.getRecentBlocks(10);
     expect(b?.miningTime).toBe(45.5); // µs → float seconds, not floored
+    expect(b?.deviceAccessTimeUs).toBe(45_500_000); // persisted distinct from miningTime
   });
 
   test("deviceAccessTimeUs 0 (present but unreported) keeps the derived value", async () => {
     await winnersPlugin().onBlock(makeCtx({ qblock: makeQBlock({ deviceAccessTimeUs: 0 }) }), db);
     const [b] = await db.getRecentBlocks(10);
     expect(b?.miningTime).toBe(60); // (500000 - 499990) blocks × 6s
+    expect(b?.deviceAccessTimeUs).toBeNull(); // 0 normalizes to null, not 0
+  });
+
+  test("deviceAccessTimeUs absent (pre-112 qblock) persists as null", async () => {
+    await winnersPlugin().onBlock(makeCtx({ qblock: null }), db);
+    const [b] = await db.getRecentBlocks(10);
+    expect(b?.deviceAccessTimeUs).toBeNull();
   });
 
   it("dropState deletes blocks rows", async () => {
     await winnersPlugin().onBlock(makeCtx(), db);
     await winnersPlugin().dropState(db);
     expect(await db.getRecentBlocks(10)).toHaveLength(0);
+  });
+});
+
+const participant = (overrides: Partial<QBlockParticipant> = {}): QBlockParticipant => ({
+  account: "5GAlice",
+  kind: "Cpu",
+  budgetSeconds: null,
+  blockNumber: "500000",
+  ...overrides,
+});
+
+describe("participation plugin", () => {
+  it("stamps the winner's qblock id onto every participant and stores them all", async () => {
+    // qblockId 3900 comes from makeEvents().winner. Three device kinds, none
+    // of them the winner — the whole point is aggregating beyond the winner.
+    await participationPlugin().onBlock(
+      makeCtx({
+        participants: [
+          participant({ account: "5GCpu", kind: "Cpu" }),
+          participant({ account: "5GGpu", kind: "Gpu", budgetSeconds: 30 }),
+          participant({ account: "5GQpu", kind: "QpuDwave", budgetSeconds: 90 }),
+        ],
+      }),
+      db,
+    );
+    const rows = await db.getQBlockParticipation("3900");
+    expect(rows.map((r) => r.account)).toEqual(["5GCpu", "5GGpu", "5GQpu"]);
+    expect(rows.map((r) => r.kind)).toEqual(["Cpu", "Gpu", "QpuDwave"]);
+    expect(rows.map((r) => r.budgetSeconds)).toEqual([null, 30, 90]);
+    expect(rows.every((r) => r.qblockId === "3900")).toBe(true);
+  });
+
+  it("skips non-winner blocks (no qblock id to key on)", async () => {
+    await participationPlugin().onBlock(
+      makeCtx({
+        events: makeEvents({ winner: null }),
+        participants: [participant()],
+      }),
+      db,
+    );
+    expect(await db.getQBlockParticipation("3900")).toEqual([]);
+  });
+
+  it("is idempotent: re-running a block leaves one row per participant", async () => {
+    const plugin = participationPlugin();
+    const ctx = makeCtx({ participants: [participant({ account: "5GCpu" })] });
+    await plugin.onBlock(ctx, db);
+    await plugin.onBlock(ctx, db);
+    expect(await db.getQBlockParticipation("3900")).toHaveLength(1);
+  });
+
+  it("handles a qblock with no declared participants", async () => {
+    await participationPlugin().onBlock(makeCtx({ participants: [] }), db);
+    expect(await db.getQBlockParticipation("3900")).toEqual([]);
+  });
+
+  it("dropState deletes all participation rows", async () => {
+    await participationPlugin().onBlock(makeCtx({ participants: [participant()] }), db);
+    await participationPlugin().dropState(db);
+    expect(await db.getQBlockParticipation("3900")).toEqual([]);
   });
 });
 

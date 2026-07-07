@@ -11,12 +11,17 @@ import type { NodeInfo, NodesSnapshot } from "@quip/shared/telemetry";
 
 import { NetworkView } from "./NetworkView";
 
+// Default lastSeen is anchored to the real wall clock (not a fixed
+// timestamp) so fixtures stay inside the 14-day activity window
+// (`isNodeActive` in use-compute-available.ts) regardless of when the
+// suite runs. Tests exercising the window itself override `lastSeen`
+// explicitly alongside a fixed `serverTime` in the store.
 function makeNode(overrides: Partial<NodeInfo> = {}): NodeInfo {
   return {
     address: "5GAlice",
     status: "active",
     firstSeen: 1_700_000_000,
-    lastSeen: 1_700_001_000,
+    lastSeen: Math.floor(Date.now() / 1000) - 3600,
     lastHeartbeat: 1_700_001_000,
     nodeName: "alice",
     systemInfo: {
@@ -71,10 +76,10 @@ describe("NetworkView", () => {
     });
     const text = container.textContent ?? "";
     expect(text).toContain("Est. PFLOPS");
-    // No nodes ⇒ totalPetaflops=0.00. Use the surrounding "Across 0 nodes"
-    // sublabel as the canonical empty-state signal — "0.00" alone could
-    // match other tiles.
-    expect(text).toContain("Across 0 nodes");
+    // No nodes ⇒ totalPetaflops=0.00. Use the surrounding "Across 0 active
+    // nodes" sublabel as the canonical empty-state signal — "0.00" alone
+    // could match other tiles.
+    expect(text).toContain("Across 0 active nodes");
   });
 
   test("aggregates TFLOPS into the PFLOPS tile from NodesSnapshot", () => {
@@ -129,5 +134,103 @@ describe("NetworkView", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Node Locations");
     expect(text).toContain("On-chain miners");
+  });
+
+  // ---- relocated compute charts (bead 1o0.1) ------------------------------
+
+  test("hosts Total Compute Used above the On-chain miners table", () => {
+    useUIStore.setState({ aggregationMode: "byType" });
+    useTelemetryStore.setState({ nodes: makeSnapshot({ "5GAlice": makeNode() }) });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Total Compute Used");
+    // Placement: the relocated chart sits above the On-chain miners section.
+    expect(text.indexOf("Total Compute Used")).toBeLessThan(text.indexOf("On-chain miners"));
+  });
+
+  test("shows Mining Nodes by Type in byType mode and hides it in byNode mode", () => {
+    useTelemetryStore.setState({ nodes: makeSnapshot({ "5GAlice": makeNode() }) });
+
+    useUIStore.setState({ aggregationMode: "byType" });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    expect(container.textContent ?? "").toContain("Mining Nodes by Type");
+
+    useUIStore.setState({ aggregationMode: "byNode" });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    expect(container.textContent ?? "").not.toContain("Mining Nodes by Type");
+  });
+
+  // ---- 14-day activity window (bead 1o0.3) --------------------------------
+
+  const NOW_ISO = "2026-07-06T00:00:00.000Z";
+  const NOW_MS = Date.parse(NOW_ISO);
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const RECENT_SEC = Math.floor((NOW_MS - 3 * DAY_MS) / 1000);
+  const STALE_SEC = Math.floor((NOW_MS - 20 * DAY_MS) / 1000);
+
+  test("labels the windowed surfaces with a last-2-weeks qualifier", () => {
+    useUIStore.setState({ aggregationMode: "byType" });
+    useTelemetryStore.setState({
+      serverTime: NOW_ISO,
+      nodes: makeSnapshot({ "5GAlice": makeNode({ lastSeen: RECENT_SEC }) }),
+    });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Node Locations (last 2 weeks)");
+    expect(text).toContain("Total CPUs (last 2 weeks)");
+    expect(text).toContain("Total GPUs (last 2 weeks)");
+    expect(text).toContain("Total QPUs (last 2 weeks)");
+    expect(text).toContain("Est. PFLOPS (last 2 weeks)");
+    expect(text).toContain("CPU Model Breakdown (last 2 weeks)");
+    expect(text).toContain("GPU Model Breakdown (last 2 weeks)");
+  });
+
+  test("excludes nodes stale for 14+ days from Total CPUs/GPUs/QPUs and hardware breakdowns", () => {
+    useUIStore.setState({ aggregationMode: "byType" });
+    useTelemetryStore.setState({
+      serverTime: NOW_ISO,
+      nodes: makeSnapshot({
+        "5GAlice": makeNode({
+          address: "5GAlice",
+          lastSeen: RECENT_SEC,
+          systemInfo: {
+            cpu: { logicalCores: 4, brand: "Intel Core i9-13900K" },
+            gpus: [{ name: "NVIDIA RTX 4090" }],
+          },
+          miners: {
+            "alice-CPU-1": { kind: "CPU", minerId: "alice-CPU-1", numCpus: 4 },
+          },
+        }),
+        "5GStale": makeNode({
+          address: "5GStale",
+          lastSeen: STALE_SEC,
+          systemInfo: {
+            cpu: { logicalCores: 99, brand: "AMD EPYC" },
+            gpus: [{ name: "NVIDIA RTX 3060" }],
+          },
+          miners: {
+            "stale-CPU-1": { kind: "CPU", minerId: "stale-CPU-1", numCpus: 99 },
+          },
+        }),
+      }),
+    });
+    act(() => {
+      root.render(createElement(NetworkView));
+    });
+    const text = container.textContent ?? "";
+    // The stale node's 99 declared CPUs must not appear in the total.
+    expect(text).not.toContain("103");
+    expect(text).toContain("4");
+    // Stale node's GPU/CPU models are excluded from the breakdown charts.
+    expect(text).not.toContain("EPYC");
+    expect(text).not.toContain("3060");
   });
 });

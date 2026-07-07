@@ -23,13 +23,20 @@ export interface BlockRecord {
   energy: number;
   diversity: number;
   numValidSolutions: number;
-  // Seconds of compute behind the winning proof. Spec-111+ blocks carry the
-  // winner's self-reported device_access_time_us (QPU access time for QPU
-  // wins, wall clock for CPU/GPU), converted µs → s. Pre-111 blocks and
+  // Seconds of compute behind the winning proof. Runtime-112+ blocks carry
+  // the winner's self-reported device_access_time_us (QPU access time for
+  // QPU wins, wall clock for CPU/GPU), converted µs → s. Pre-112 blocks and
   // unreported (0) wins fall back to derived block spacing
   // ((win − last proof) × slot seconds) — which stays recomputable from
   // chain data either way.
   miningTime: number;
+  // Self-reported µs of device compute behind the winning proof — QPU access
+  // time for QPU wins, wall clock for CPU/GPU. `null` when absent (pre-
+  // runtime-112 chain OR simply unreported — the normal case for most
+  // blocks); a reported `0` is normalized to `null` at the write path. This
+  // is the raw distinct value `miningTime` is derived from when present;
+  // unlike `miningTime` it carries no derived fallback.
+  deviceAccessTimeUs: number | null;
   // u128 as string (token amount).
   reward: string;
   // Monotonic 1-based qblock id this win was assigned on chain (u64 as
@@ -50,6 +57,39 @@ export interface BlockRecord {
   // default topology so the charts reset when the default topology changes,
   // without destroying history.
   topologyHash: string | null;
+}
+
+/**
+ * One node's declared participation in a qblock, sourced from the
+ * `pallet-miner-registry` `ParticipantsByQBlock` reverse index (runtime API
+ * `participants_by_qblock`). Unlike `BlockRecord` — which only ever holds the
+ * single WINNER per qblock — there is one of these per (qblock, account) for
+ * EVERY node that declared it was racing that qblock, across all device kinds.
+ * This is the raw chain fact the per-type compute/energy aggregate is built
+ * from; it carries no derived time or energy (those are computed downstream).
+ *
+ * Two structural caveats bound completeness: participation is opt-in (only
+ * miners running the `participate` path declare, so pre-feature qblocks are
+ * empty) and node-level write-once (a box running CPU+QPU records only its
+ * first-declared `kind` for a given qblock).
+ */
+export interface QBlockParticipationRecord {
+  // Monotonic 1-based qblock id this participation was declared for (u64 as
+  // string) — the network-wide "solution number", matching `BlockRecord.qblockId`.
+  qblockId: string;
+  // SS58 account id of the participating node.
+  account: string;
+  // Raw `MinerKind` variant name as reported on chain: "Cpu" | "Gpu" |
+  // "QpuDwave" | "QpuIbm" | "QpuIonq" | "QpuPasqal". Kept raw here; the
+  // CPU/GPU/QPU/OTHER `MinerCategory` is derived at read time, never stored.
+  kind: string;
+  // The node's declared compute-time budget for this qblock, seconds. `null`
+  // when the participate call omitted it (common for CPU/GPU). Not the basis
+  // for device-access time — recorded as the raw declared signal only.
+  budgetSeconds: number | null;
+  // Substrate block number (u64 as string) the participation record was
+  // written at — provenance for ordering, mirroring `NodeDescriptorRecord`.
+  blockNumber: string;
 }
 
 export interface RuntimeVersion {
@@ -252,7 +292,8 @@ export interface MiningHistoryRow {
   timestamp: number;
   minerId: string;
   // Seconds of compute behind the winning proof (see BlockRecord.miningTime:
-  // reported device time on spec-111+ wins, derived block spacing otherwise).
+  // reported device time on runtime-112+ wins, derived block spacing
+  // otherwise).
   miningTime: number;
 }
 

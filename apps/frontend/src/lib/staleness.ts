@@ -144,7 +144,7 @@ export function computeChainHealth(inputs: ChainHealthInputs): ChainHealth {
  *   - "stale": Last event > 30s but < 5m ago (transient slowdown).
  *   - "offline": Either chainConnected=false, or last event > 5m ago.
  *
- * `nowMs` is server-anchored (see selectServerNowMs) so backgrounded tabs
+ * `nowMs` is server-anchored (see resolveServerNowMs) so backgrounded tabs
  * don't show inflated ages.
  */
 export function computeSubstrateHealth(
