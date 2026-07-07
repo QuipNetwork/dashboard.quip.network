@@ -3,3 +3,14 @@ node_modules
 bun.lock
 src/data/stub-telemetry.ts
 telemetry
+
+# Tool-managed / generated — rewritten by bd and Claude Code, not hand-authored.
+# Formatting them fights the tools and breaks CI format:check on every churn
+# (same rationale as bun.lock above).
+.beads/
+.claude/
+
+# Local build artifacts (CI checks out a fresh tree without these; they only
+# exist locally and make repo-wide `prettier --write .` hang).
+builds/
+cache/
