@@ -34,6 +34,7 @@ function recentBlock(): BlockRecord {
     minSolutions: 1,
     topologyHash: null,
     finalized: false,
+    deviceAccessTimeUs: null,
   };
 }
 

@@ -31,6 +31,7 @@ function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId"
     minSolutions: 1,
     topologyHash: null,
     finalized: false,
+    deviceAccessTimeUs: null,
     ...overrides,
   };
 }
@@ -77,6 +78,33 @@ const MOCK_RESPONSE: TelemetryResponse = {
   recentMiningSubmissions: [],
   selfProblemsAttempted: 0,
   currentDispatch: null,
+  // The mining-time and compute-used charts are now driven by participant
+  // compute (aggregateParticipationBy*), not winner blocks — give qblock "1"
+  // (the in-range qblock the mining-history mock bounds) a row per category so
+  // both charts have data to render.
+  participationCompute: [
+    {
+      qblockId: "1",
+      account: "cpu-miner-1",
+      kind: "Cpu",
+      miningSeconds: 12,
+      exactQpuAccessUs: null,
+    },
+    {
+      qblockId: "1",
+      account: "gpu-miner-1",
+      kind: "Gpu",
+      miningSeconds: 12,
+      exactQpuAccessUs: null,
+    },
+    {
+      qblockId: "1",
+      account: "qpu-miner-1",
+      kind: "QpuDwave",
+      miningSeconds: 12,
+      exactQpuAccessUs: null,
+    },
+  ],
 };
 
 let container: HTMLDivElement;
@@ -150,8 +178,9 @@ describe("App smoke test", () => {
     expect(fetchSpy).toHaveBeenCalledWith("/api/telemetry");
     expect(container.querySelector('[data-qa="chart-blocks-over-time"]')).not.toBeNull();
     expect(container.querySelector('[data-qa="chart-mining-time"]')).not.toBeNull();
-    expect(container.querySelector('[data-qa="chart-compute-used"]')).not.toBeNull();
-    expect(container.querySelector('[data-qa="chart-active-nodes"]')).not.toBeNull();
+    // Total Compute Used (chart-compute-used) and Mining Nodes by Type
+    // (chart-active-nodes) moved to the Network tab (bead 1o0.1), so they are
+    // no longer part of the Compute view's grid.
 
     fetchSpy.mockRestore();
   });

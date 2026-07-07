@@ -12,7 +12,12 @@
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
 
-import type { BlockEvents, QBlockInfo, TopologyInfo } from "../clients/substrate-client";
+import type {
+  BlockEvents,
+  QBlockInfo,
+  QBlockParticipant,
+  TopologyInfo,
+} from "../clients/substrate-client";
 import type { IndexerConfig } from "../core/config";
 import type { IndexerState } from "../core/state";
 import type { ChainClient } from "../substrate/ports";
@@ -23,6 +28,7 @@ import { difficultyPlugin } from "./plugins/difficulty";
 import { difficultyCurrentPlugin } from "./plugins/difficulty-current";
 import { minerLocalPlugin } from "./plugins/miner-local";
 import { nodeDescriptorsPlugin } from "./plugins/node-descriptors";
+import { participationPlugin } from "./plugins/participation";
 import { winnersPlugin } from "./plugins/winners";
 
 // Which blocks a block indexable must see: every finalized block (validator
@@ -48,6 +54,13 @@ export interface BlockContext {
    * (`blocks.ts:207-217`). Feeds `blocks.num_nodes` / `num_edges`.
    */
   readonly topology: () => Promise<TopologyInfo>;
+  /**
+   * The full participant set for this block's qblock, memoized per block.
+   * Resolves to `[]` for a non-winner block (no qblock id) or when the chain
+   * doesn't expose the participation runtime API. Keyed by the winner event's
+   * `qblockId` — the `participation` plugin is its only consumer.
+   */
+  readonly participants: () => Promise<readonly QBlockParticipant[]>;
 }
 
 export interface BlockIndexable {
@@ -99,6 +112,7 @@ export function buildRegistry(
 ): Indexable[] {
   return [
     winnersPlugin(),
+    participationPlugin(),
     difficultyPlugin(),
     authorshipPlugin(),
     chainStatePlugin(),

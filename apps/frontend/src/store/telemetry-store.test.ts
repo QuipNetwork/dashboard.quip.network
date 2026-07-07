@@ -15,12 +15,7 @@ import type {
   TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "@quip/shared/telemetry";
-import {
-  createTelemetryStore,
-  selectServerNowMs,
-  selectTipBlock,
-  type TelemetryState,
-} from "./telemetry-store";
+import { createTelemetryStore, selectTipBlock, type TelemetryState } from "./telemetry-store";
 
 // ---- Fixtures ----------------------------------------------------------
 
@@ -46,6 +41,7 @@ function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
     minSolutions: 1,
     topologyHash: null,
     finalized: false,
+    deviceAccessTimeUs: null,
     ...overrides,
   };
 }
@@ -142,6 +138,9 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
     currentDispatch: null,
+    participationCompute: [
+      { qblockId: "1", account: "5GPP", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
+    ],
     ...overrides,
   };
 }
@@ -164,6 +163,7 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
     currentDispatch: null,
+    participationCompute: [],
     loading: false,
     error: null,
     fetchTelemetry: async () => {},
@@ -241,6 +241,9 @@ describe("fetchTelemetry", () => {
     expect(s.chainMiners).toEqual([MOCK_CHAIN_MINER]);
     expect(s.recentDifficulty).toEqual([MOCK_DIFFICULTY]);
     expect(s.validators).toEqual([MOCK_VALIDATOR]);
+    expect(s.participationCompute).toEqual([
+      { qblockId: "1", account: "5GPP", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
+    ]);
     expect(s.loading).toBe(false);
     expect(s.error).toBeNull();
   });
@@ -297,20 +300,5 @@ describe("selectTipBlock", () => {
   });
 });
 
-// ---- selectServerNowMs -------------------------------------------------
-
-describe("selectServerNowMs", () => {
-  it("falls back to Date.now() when serverTime is null", () => {
-    const before = Date.now();
-    const got = selectServerNowMs(makeState([]));
-    const after = Date.now();
-    expect(got).toBeGreaterThanOrEqual(before);
-    expect(got).toBeLessThanOrEqual(after);
-  });
-
-  it("parses serverTime when present", () => {
-    const iso = "2026-05-19T12:00:00Z";
-    const got = selectServerNowMs(makeState([], { serverTime: iso }));
-    expect(got).toBe(Date.parse(iso));
-  });
-});
+// resolveServerNowMs / useServerNowMs live in ./use-server-now-ms.test.tsx
+// (they need a React render to prove the no-loop regression, bead mrt).

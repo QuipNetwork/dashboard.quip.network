@@ -1,84 +1,81 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo } from "react";
-import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
+import type { MinerCategory } from "@quip/shared/telemetry";
+import { aggregateParticipationByCategory } from "@quip/shared/telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
-import { useFilteredBlocks } from "@/store/use-filtered-blocks";
-import { useUIStore } from "@/store/ui-store";
+
+// QPU's true device-access time is real D-Wave anneal+readout seconds, not
+// comparable in magnitude to a CPU/GPU wall-clock total — a healthy network
+// can have a QPU total that's genuinely <1% of the CPU total. Floor QPU's
+// *rendered* slice value to this fraction of the largest slice so a
+// nonzero-but-tiny total still reads as a wedge instead of vanishing next to
+// CPU/GPU. Labels/tooltips always report the true `compute` value, never this
+// floor — see `displayCompute`/`floored` below.
+const MIN_VISIBLE_FRACTION = 0.03;
+
+// Stable slice order so the pie renders deterministically regardless of the
+// order participation rows arrive in.
+const CATEGORY_ORDER: readonly MinerCategory[] = ["CPU", "GPU", "QPU", "OTHER"];
 
 export interface ComputeUsedEntry {
-  [key: string]: string | number;
+  [key: string]: string | number | boolean;
   minerType: string;
+  /** True total seconds of device access time this slice accounts for. */
   compute: number;
+  /**
+   * Value to render as the slice's arc. Equal to `compute` unless floored for
+   * visibility (QPU only, see `MIN_VISIBLE_FRACTION`) — labels/tooltips should
+   * read `compute`, not this field.
+   */
+  displayCompute: number;
+  /** True when `displayCompute` was raised above the true `compute` to stay visible. */
+  floored: boolean;
+  /**
+   * True when any participant contributing to this slice used an estimated
+   * (rather than self-reported) access time. CPU/GPU/OTHER and estimated QPU
+   * are all estimated; only exact QPU telemetry clears it. A single estimated
+   * contribution taints the whole slice's certainty, so this is a
+   * wholly-or-partly flag, not a fraction.
+   */
+  estimated: boolean;
 }
 
 /**
- * Total compute accounted for, in seconds, grouped by `aggregationMode`.
+ * Total device access time accounted for, in seconds, grouped by processor
+ * category — the "Total Compute Used" pie's data.
  *
- * Two source paths, picked per block by the *winning miner's* category:
- *
- *   - CPU/GPU blocks → `block.miningTime` (reported device compute time on
- *     spec-111+ wins; derived block spacing — wall-clock seconds between
- *     winner blocks — as fallback for pre-111/unreported wins).
- *     Originally meant to be multiplied by parallel worker count, but
- *     the v0.3 hardware-snapshot drop took unitCount with it — for now
- *     this is the reported (or derived) time directly.
- *
- *   - QPU blocks → sum of `qpuAccessTimeUs` from the matching
- *     mining_submissions row (joined by `chainBlockNumber`). Captures
- *     the actual D-Wave annealing+readout time. Wall-clock is
- *     unusable for QPU because D-Wave cloud RTT dominates it by 100x+.
- *
- * QPU blocks without a matching local mining_submissions row (i.e.
- * other operators' QPU wins, where the indexer has no iteration data)
- * are *omitted* from the QPU aggregation rather than counted with
- * wall-clock as a fallback — undercounting beats overcounting by an
- * order of magnitude. Self-QPU operators see accurate numbers; the
- * network-wide QPU bar accurately reflects every QPU miner whose
- * dashboard is the source of truth.
+ * Sourced from the participant-level aggregate
+ * (`aggregateParticipationByCategory`): every node that raced a qblock across
+ * every device kind, NOT just the winning proof. CPU/GPU/OTHER are charged the
+ * full block-active window; QPU uses exact self-reported chip access when
+ * present, else the wall/ratio estimate (see participation-compute.ts). QPU's
+ * tiny-but-nonzero total is floored to a visible slice via
+ * `MIN_VISIBLE_FRACTION` while its label keeps the true seconds.
  */
 export function useComputeUsed(): ComputeUsedEntry[] {
-  const blocks = useFilteredBlocks();
-  const chainMiners = useTelemetryStore((s) => s.chainMiners);
-  const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
-  const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
-  const selectedTypes = useUIStore((s) => s.selectedTypes);
-  const mode = useUIStore((s) => s.aggregationMode);
+  const participationCompute = useTelemetryStore((s) => s.participationCompute);
 
   return useMemo(() => {
-    const catIndex = buildMinerCategoryIndex(chainMiners, nodeDescriptors);
-    // Map from chain_block_number → sum of qpu_access_time in seconds.
-    // Only populated for submissions the local indexer has seen
-    // (self-only today); other QPU miners contribute nothing and are
-    // excluded from the QPU bar.
-    const qpuSecondsByBlock = new Map<string, number>();
-    for (const s of recentMiningSubmissions) {
-      if (s.chainBlockNumber == null) continue;
-      if (s.qpuAccessTimeUs <= 0) continue;
-      qpuSecondsByBlock.set(s.chainBlockNumber, s.qpuAccessTimeUs / 1_000_000);
-    }
-    const totals: Record<string, number> = {};
-    const getKey = (b: (typeof blocks)[0]) =>
-      mode === "byType" ? categoryFor(b.minerId, catIndex) : b.minerId;
+    const byCategory = aggregateParticipationByCategory(participationCompute);
+    const rows = [...byCategory]
+      .sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category))
+      .map((c) => ({
+        minerType: c.category,
+        compute: c.deviceAccessSeconds,
+        estimated: c.estimated,
+      }));
 
-    for (const block of blocks) {
-      const category = categoryFor(block.minerId, catIndex);
-      if (mode === "byType" && !selectedTypes.includes(category)) continue;
-      let contribution: number;
-      if (category === "QPU") {
-        const qpuSec = qpuSecondsByBlock.get(block.substrateBlockNumber);
-        if (qpuSec == null) continue; // Skip: no local data for this QPU block.
-        contribution = qpuSec;
-      } else {
-        contribution = block.miningTime;
-      }
-      const key = getKey(block);
-      totals[key] = (totals[key] ?? 0) + contribution;
-    }
+    const maxCompute = Math.max(0, ...rows.map((r) => r.compute));
+    const floor = maxCompute * MIN_VISIBLE_FRACTION;
 
-    const keys = mode === "byType" ? [...selectedTypes] : Object.keys(totals);
-    return keys
-      .filter((k) => totals[k] !== undefined)
-      .map((k) => ({ minerType: k, compute: totals[k]! }));
-  }, [blocks, chainMiners, nodeDescriptors, recentMiningSubmissions, selectedTypes, mode]);
+    return rows.map((r) => {
+      const floored = r.minerType === "QPU" && r.compute > 0 && r.compute < floor;
+      return {
+        ...r,
+        displayCompute: floored ? floor : r.compute,
+        floored,
+      };
+    });
+  }, [participationCompute]);
 }

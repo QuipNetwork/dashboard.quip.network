@@ -5,10 +5,12 @@ import { SearchInput } from "@/components/common/SearchInput";
 import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
 import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
 import { SERIES_COLORS } from "@/lib/colors";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { displayNodeName, formatEnergy } from "@/lib/format-chain";
-import { formatSeconds, formatNumber } from "@/lib/format";
+import { formatDuration, formatSeconds, formatNumber } from "@/lib/format";
 import { useTableSort, type SortAccessors } from "@/lib/table-sort";
 import { useMinerColors } from "@/store/miner-colors";
+import { formatEnergyJoules, type LeaderboardMode } from "./leaderboard-modes";
 import { filterLeaderboardEntries, type LeaderboardEntry } from "./use-leaderboard";
 
 type LeaderboardSortColumn =
@@ -18,6 +20,7 @@ type LeaderboardSortColumn =
   | "qblocks"
   | "avgTime"
   | "bestEnergy"
+  | "metric"
   | "share";
 
 const RANK_STYLES: Record<number, string> = {
@@ -68,11 +71,18 @@ function ShareBar({ share, color }: { share: number; color: string }) {
 
 interface LeaderboardProps {
   data: LeaderboardEntry[];
+  // Which metric ranked `data` — "byCount" (default) shows the same columns
+  // as before; "byTime"/"byEnergy" add the totalled metric behind the active
+  // ranking (see leaderboard-modes.ts). Purely presentational: `data` is
+  // assumed already sorted/ranked/shared for `mode` by the caller.
+  mode?: LeaderboardMode;
 }
 
-export function Leaderboard({ data }: LeaderboardProps) {
+export function Leaderboard({ data, mode = "byCount" }: LeaderboardProps) {
   const [query, setQuery] = useState("");
   const { open, nameOf, modal } = useNodeIdentityModal();
+  const qpuLabel = useQpuDisplayLabel();
+  const labelFor = labelForCategoryWith(qpuLabel);
 
   const sortAccessors = useMemo<SortAccessors<LeaderboardEntry, LeaderboardSortColumn>>(
     () => ({
@@ -82,9 +92,10 @@ export function Leaderboard({ data }: LeaderboardProps) {
       qblocks: (e) => e.blockCount,
       avgTime: (e) => e.avgMiningTime,
       bestEnergy: (e) => e.bestEnergy,
+      metric: (e) => (mode === "byTime" ? e.totalMiningSeconds : e.totalEnergyJoules) ?? null,
       share: (e) => e.share,
     }),
-    [nameOf],
+    [nameOf, mode],
   );
   const filtered = filterLeaderboardEntries(data, query);
   const { sorted, sort, onSort } = useTableSort(filtered, sortAccessors, {
@@ -160,6 +171,17 @@ export function Leaderboard({ data }: LeaderboardProps) {
                   align="right"
                   className="hidden pb-2 pr-3 md:table-cell"
                 />
+                {mode !== "byCount" && (
+                  <SortableHeaderCell
+                    label={mode === "byTime" ? "Total Time" : "Total Energy"}
+                    column="metric"
+                    sort={sort}
+                    onClick={onSort}
+                    align="right"
+                    className="hidden pb-2 pr-3 lg:table-cell"
+                    title="Summed over this miner's indexed qblocks, not lifetime"
+                  />
+                )}
                 <SortableHeaderCell
                   label="Share"
                   column="share"
@@ -211,7 +233,7 @@ export function Leaderboard({ data }: LeaderboardProps) {
                           border: `1px solid ${typeColor}33`,
                         }}
                       >
-                        {entry.minerCategory}
+                        {labelFor(entry.minerCategory)}
                       </span>
                     </td>
                     <td className="py-2 pr-3 text-right font-heading text-sm text-ink-strong">
@@ -225,6 +247,25 @@ export function Leaderboard({ data }: LeaderboardProps) {
                     <td className="hidden py-2 pr-3 text-right font-accent text-xs text-ink-subtle md:table-cell">
                       {entry.bestEnergy != null ? formatEnergy(entry.bestEnergy) : "—"}
                     </td>
+                    {mode !== "byCount" && (
+                      <td className="hidden py-2 pr-3 text-right font-accent text-xs text-ink-subtle lg:table-cell">
+                        {mode === "byTime"
+                          ? entry.totalMiningSeconds != null
+                            ? formatDuration(entry.totalMiningSeconds * 1000)
+                            : "—"
+                          : entry.totalEnergyJoules != null
+                            ? formatEnergyJoules(entry.totalEnergyJoules)
+                            : "—"}
+                        {entry.estimated && (
+                          <span
+                            className="ml-1 text-ink-subtle/70"
+                            title="Estimated, not self-reported"
+                          >
+                            (est.)
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="w-28 py-2 pr-1 sm:w-36">
                       <ShareBar share={entry.share} color={minerColor} />
                     </td>

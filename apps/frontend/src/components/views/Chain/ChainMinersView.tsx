@@ -9,7 +9,26 @@ import type { ChainMinerRecord, NodeDescriptorRecord } from "@quip/shared/teleme
 import { SearchInput } from "@/components/common/SearchInput";
 import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
 import { useNodeIdentityModal } from "@/components/common/use-node-identity-modal";
+import { FOURTEEN_DAYS_MS } from "@/components/views/ComputeAvailable/use-compute-available";
 import { useChainMinerSort, type MinerSortKeys } from "./use-chain-miner-sort";
+
+/**
+ * Whether an on-chain miner should be pruned from the table: it has never won
+ * a qblock (`proofsWon === "0"`) AND its last participation is known to be
+ * older than two weeks (bead 1o0.4). `participationTsSec` is the account's most
+ * recent win, else its descriptor's last-update time (Unix seconds), else null.
+ * A null timestamp means activity is unknown — we cannot prove staleness, so
+ * the miner is kept rather than hidden from the authoritative on-chain list.
+ */
+export function isStaleNeverMiner(
+  miner: ChainMinerRecord,
+  participationTsSec: number | null,
+  nowMs: number,
+): boolean {
+  if (miner.proofsWon !== "0") return false;
+  if (participationTsSec == null) return false;
+  return nowMs - participationTsSec * 1000 > FOURTEEN_DAYS_MS;
+}
 
 export function filterChainMiners(
   miners: readonly ChainMinerRecord[],
@@ -84,9 +103,15 @@ export function ChainMinersTable() {
     [descriptorsByAccount, lastWonByAccount],
   );
 
-  const filtered = filterChainMiners(chainMiners, descriptorsByAccount, query);
-  const { sorted, sort, onSort } = useChainMinerSort(filtered, sortKeys);
   const now = Date.now();
+  // Prune abandoned registrations: zero-win miners idle 2+ weeks (bead 1o0.4).
+  // The hidden count is disclosed in the header so the list stays honest.
+  const visibleMiners = chainMiners.filter(
+    (m) => !isStaleNeverMiner(m, sortKeys.participationTsFor(m.accountId), now),
+  );
+  const hiddenCount = chainMiners.length - visibleMiners.length;
+  const filtered = filterChainMiners(visibleMiners, descriptorsByAccount, query);
+  const { sorted, sort, onSort } = useChainMinerSort(filtered, sortKeys);
 
   const participationLabel = (m: ChainMinerRecord): string => {
     const tsSec = sortKeys.participationTsFor(m.accountId);
@@ -98,17 +123,26 @@ export function ChainMinersTable() {
     <div className="border border-border bg-white">
       <header className="border-b border-border px-4 py-3">
         <h2 className="font-heading text-lg text-ink-strong">
-          On-chain miners ({chainMiners.length})
+          On-chain miners ({visibleMiners.length})
         </h2>
         <p className="mt-1 font-accent text-xs text-ink-subtle">
           From <code>quantum_pow.Miners</code> storage. Click a column header to sort. Identity
           columns (rig name, version) joined from <code>MinerRegistry.NodeDescriptors</code>. Click
           a row for full node identity.
+          {hiddenCount > 0 && (
+            <>
+              {" "}
+              {hiddenCount} inactive never-miner{hiddenCount === 1 ? "" : "s"} (idle 2+ weeks, no
+              wins) hidden.
+            </>
+          )}
         </p>
       </header>
-      {chainMiners.length === 0 ? (
+      {visibleMiners.length === 0 ? (
         <p className="px-4 py-6 text-center font-accent text-sm text-ink-subtle">
-          No miners registered on chain yet.
+          {chainMiners.length === 0
+            ? "No miners registered on chain yet."
+            : "All registered miners are inactive never-miners (hidden)."}
         </p>
       ) : (
         <>

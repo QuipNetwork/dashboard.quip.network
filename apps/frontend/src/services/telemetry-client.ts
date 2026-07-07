@@ -36,7 +36,7 @@ export interface TelemetryClient {
   // shared dataset behind every "qblocks won" surface (see MinerWinsRow).
   fetchMinerWins(signal?: AbortSignal): Promise<MinerWinsResponse>;
   // Range-windowed slim winner-block rows at/after `sinceIso`, ascending.
-  // Feeds the "Mining Time per QBlock" range selector.
+  // Feeds the "Mining per QBlock" range selector.
   fetchMiningHistory(sinceIso: string, signal?: AbortSignal): Promise<MiningHistoryResponse>;
 }
 

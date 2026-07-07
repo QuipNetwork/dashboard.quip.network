@@ -32,6 +32,7 @@ export interface BlocksTable {
   min_solutions: number;
   finalized: Bool;
   topology_hash: string | null;
+  device_access_time_us: Big | null;
 }
 
 export interface MetaTable {
@@ -155,8 +156,17 @@ export interface MiningSubmissionsTable {
   observed_at: Iso;
 }
 
+export interface QBlockParticipationTable {
+  qblock_id: string;
+  account: string;
+  kind: string;
+  budget_seconds: number | null;
+  block_number: string;
+}
+
 export interface DB {
   blocks: BlocksTable;
+  qblock_participation: QBlockParticipationTable;
   meta: MetaTable;
   miner_hardware: MinerHardwareTable;
   chain_head: ChainHeadTable;

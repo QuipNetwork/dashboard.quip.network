@@ -18,6 +18,8 @@ import type {
   MiningHistoryRow,
   MiningSubmissionRecord,
   NodeDescriptorRecord,
+  ParticipationComputeRow,
+  QBlockParticipationRecord,
 } from "@quip/shared/telemetry";
 import { chunk } from "@quip/shared/array";
 import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
@@ -36,6 +38,7 @@ import {
   rowToMinerHardware,
   rowToMiningSubmission,
   rowToNodeDescriptor,
+  rowToQBlockParticipation,
   rowToValidatorAuthorship,
 } from "./row-mappers";
 import type { DB } from "./schema-types";
@@ -47,6 +50,8 @@ const MINEABLE_TOPOLOGIES_KEY = "mineable_topologies";
 const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
 // Pipeline coverage cursors + authorship cutover flag (spec §7 / §9.2).
 const AUTHORSHIP_CUTOVER_KEY = "indexer.authorship.cutover";
+// One-shot device_access_time backfill latch (pipeline/device-access-backfill).
+const DEVICE_ACCESS_BACKFILL_KEY = "indexer.device_access_time.backfill";
 const coverageKey = (name: string): string => `indexer.coverage.${name}`;
 const generationKey = (name: string): string => `indexer.generation.${name}`;
 
@@ -157,6 +162,7 @@ export class KyselyAdapter implements DatabaseAdapter {
         min_solutions: b.minSolutions,
         finalized: b.finalized,
         topology_hash: b.topologyHash,
+        device_access_time_us: b.deviceAccessTimeUs,
       })
       .onConflict((oc) => oc.column("block_hash").doNothing())
       .execute();
@@ -659,6 +665,29 @@ export class KyselyAdapter implements DatabaseAdapter {
       });
   }
 
+  // --- device_access_time one-shot backfill latch ---
+
+  async getDeviceAccessTimeBackfillMarker(): Promise<string | null> {
+    return this.getMeta(DEVICE_ACCESS_BACKFILL_KEY);
+  }
+
+  async setDeviceAccessTimeBackfillMarker(value: string): Promise<void> {
+    await this.setMeta(DEVICE_ACCESS_BACKFILL_KEY, value);
+  }
+
+  async probeDeviceAccessTimeData(): Promise<{ hasBlocks: boolean; hasReported: boolean }> {
+    const db = this.requireDb();
+    const anyBlock = await db.selectFrom("blocks").select("block_hash").limit(1).executeTakeFirst();
+    if (!anyBlock) return { hasBlocks: false, hasReported: false };
+    const reported = await db
+      .selectFrom("blocks")
+      .select("block_hash")
+      .where("device_access_time_us", "is not", null)
+      .limit(1)
+      .executeTakeFirst();
+    return { hasBlocks: true, hasReported: reported !== undefined };
+  }
+
   async getRecentDifficulty(limit: number): Promise<DifficultyRecord[]> {
     const rows = await this.requireDb()
       .selectFrom("difficulty_history")
@@ -893,6 +922,109 @@ export class KyselyAdapter implements DatabaseAdapter {
   async deleteAllBlocks(): Promise<number> {
     const res = await this.requireDb().deleteFrom("blocks").executeTakeFirst();
     return Number(res.numDeletedRows ?? 0);
+  }
+
+  async upsertQBlockParticipants(records: QBlockParticipationRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    const db = this.requireDb();
+    // Chunk to stay under Postgres' bind-parameter ceiling on a large
+    // participant set (5 cols/row), mirroring the descriptor/submission upserts.
+    for (const batch of chunk(records, 500)) {
+      await db
+        .insertInto("qblock_participation")
+        .values(
+          batch.map((r) => ({
+            qblock_id: r.qblockId,
+            account: r.account,
+            kind: r.kind,
+            budget_seconds: r.budgetSeconds,
+            block_number: r.blockNumber,
+          })),
+        )
+        .onConflict((oc) =>
+          oc.columns(["qblock_id", "account"]).doUpdateSet({
+            kind: sql`excluded.kind`,
+            budget_seconds: sql`excluded.budget_seconds`,
+            block_number: sql`excluded.block_number`,
+          }),
+        )
+        .execute();
+    }
+  }
+
+  async getQBlockParticipation(qblockId: string): Promise<QBlockParticipationRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("qblock_participation")
+      .selectAll()
+      .where("qblock_id", "=", qblockId)
+      .orderBy("account", "asc")
+      .execute();
+    return rows.map(rowToQBlockParticipation);
+  }
+
+  async deleteAllQBlockParticipation(): Promise<number> {
+    const res = await this.requireDb().deleteFrom("qblock_participation").executeTakeFirst();
+    return Number(res.numDeletedRows ?? 0);
+  }
+
+  async getParticipationCompute(sinceIso: string): Promise<ParticipationComputeRow[]> {
+    // `blocks.timestamp` is unix seconds — convert the ISO cutoff once so the
+    // window stays an index-friendly numeric comparison (mirrors
+    // getMiningHistorySince).
+    //
+    // miningSeconds MUST be the qblock's block-active WALL-CLOCK window (the
+    // time every racer had to work the problem), NOT `blocks.mining_time`.
+    // `mining_time` is the WINNER's self-reported device time on runtime-112+
+    // wins — for a QPU winner that's ~0.06 s of chip access, not the ~12 s the
+    // block was open (see pipeline/plugins/winners.ts). Feeding it to every
+    // participant would undercount CPU/GPU racers ~200x and double-discount
+    // non-winner QPUs. Derive the true window from block spacing instead:
+    // `timestamp - lag(timestamp) over (order by qblock_id)`. The `spaced` CTE
+    // is computed over ALL blocks first, so the lag is correct even for the
+    // first block inside the window (its predecessor is just outside it). The
+    // very first block ever has a null lag and drops out (`wall_seconds > 0`).
+    //
+    // INNER JOIN spaced: a participant's compute is undefined until its qblock's
+    // block row is indexed. LEFT JOIN mining_submissions: exact QPU access
+    // exists only for self-polled nodes; everyone else falls to the wall-window
+    // estimate downstream.
+    const sinceEpochSeconds = Math.floor(Date.parse(sinceIso) / 1000);
+    const rows = await this.requireDb()
+      .with("spaced", (eb) =>
+        eb
+          .selectFrom("blocks")
+          .select([
+            "qblock_id",
+            "timestamp",
+            sql<number | null>`"timestamp" - lag("timestamp") over (order by "qblock_id")`.as(
+              "wall_seconds",
+            ),
+          ]),
+      )
+      .selectFrom("qblock_participation as p")
+      .innerJoin("spaced as s", "s.qblock_id", "p.qblock_id")
+      .leftJoin("mining_submissions as ms", (join) =>
+        join.onRef("ms.miner_id", "=", "p.account").onRef("ms.solution_number", "=", "p.qblock_id"),
+      )
+      .where("s.timestamp", ">=", sinceEpochSeconds)
+      .where("s.wall_seconds", ">", 0)
+      .select([
+        "p.qblock_id as qblock_id",
+        "p.account as account",
+        "p.kind as kind",
+        "s.wall_seconds as mining_seconds",
+        "ms.qpu_access_time_us as qpu_access_time_us",
+      ])
+      .orderBy("p.qblock_id", "asc")
+      .orderBy("p.account", "asc")
+      .execute();
+    return rows.map((r) => ({
+      qblockId: String(r.qblock_id),
+      account: String(r.account),
+      kind: String(r.kind),
+      miningSeconds: Number(r.mining_seconds),
+      exactQpuAccessUs: r.qpu_access_time_us == null ? null : Number(r.qpu_access_time_us),
+    }));
   }
 
   async isAuthorshipCutover(): Promise<boolean> {

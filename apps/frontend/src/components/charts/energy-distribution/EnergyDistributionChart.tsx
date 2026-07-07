@@ -1,61 +1,98 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// One grouped bar chart of winning energies by processor type over the shared
+// energy buckets (WU10, ssf.6): replaces the three separate self-normalised
+// mini-histograms. Each type keeps its own-normalised percentages (its bars
+// sum to ~100% of that type's own wins), rendered side-by-side per bucket so
+// the distribution shapes are directly comparable across types.
+
 import { ResponsiveBar } from "@nivo/bar";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { getSeriesColor } from "@/lib/chart-colors";
-import { OverlappingBarsLayer } from "@/components/charts/common/OverlappingBarsLayer";
-import type { HistogramData } from "@/lib/histogram";
+import { displayLabelForCategory, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
+import type { MinerCategory } from "@quip/shared/telemetry";
+import type { TypeDistribution } from "./use-energy-distribution";
 
 export interface EnergyDistributionChartProps {
-  data: HistogramData;
+  types: TypeDistribution[];
 }
 
-export function EnergyDistributionChart({ data }: EnergyDistributionChartProps) {
-  if (data.data.length === 0) return null;
+export function EnergyDistributionChart({ types }: EnergyDistributionChartProps) {
+  const qpuLabel = useQpuDisplayLabel();
+  // Buckets are the same shared grid across every type (see energy-buckets).
+  const buckets = types[0]?.buckets ?? [];
+  if (buckets.length === 0) return null;
 
-  // Bins are built ascending (most-negative first). The energy axis reads
-  // "harder = more negative on the right", so reverse the band order to put
-  // the most-negative bin on the right edge.
-  const bars = [...data.data].reverse();
+  const keys = types.map((t) => t.type);
+  const data = buckets.map((b, i) => {
+    const row: Record<string, string | number> = { bin: b.label };
+    for (const t of types) row[t.type] = t.percentages[i] ?? 0;
+    return row;
+  });
+
+  const labelFor = (k: string): string =>
+    k === "QPU" ? qpuLabel : displayLabelForCategory(k as MinerCategory);
 
   return (
     <div data-qa="chart-energy-distribution" style={{ width: "100%", height: "100%" }}>
       <ResponsiveBar
-        data={bars}
-        keys={data.keys}
+        data={data}
+        keys={keys}
         indexBy="bin"
+        groupMode="grouped"
         theme={nivoTheme}
         colors={(bar) => getSeriesColor(String(bar.id))}
-        groupMode="grouped"
-        margin={{ top: 10, right: 20, bottom: 50, left: 60 }}
-        padding={0.15}
-        innerPadding={0}
+        margin={{ top: 24, right: 20, bottom: 64, left: 48 }}
+        padding={0.25}
+        innerPadding={1}
         enableLabel={false}
         enableGridY={true}
-        layers={["grid", "axes", OverlappingBarsLayer, "markers", "legends"]}
+        gridYValues={4}
         axisBottom={{
-          // Show the difficulty energy itself (rounded), not a per-mille
-          // position. Bins are already energy lower-bounds.
-          legend: "Difficulty energy (lower == more difficult)",
-          legendOffset: 40,
-          legendPosition: "middle",
           tickRotation: -45,
-          format: (v) => String(Math.round(Number(v))),
+          legend: "Winning energy",
+          legendOffset: 54,
+          legendPosition: "middle",
         }}
         axisLeft={{
-          legend: "Frequency / Unit",
-          legendOffset: -50,
+          tickValues: 4,
+          format: (v) => `${v}%`,
+          legend: "Share of type's wins",
+          legendOffset: -40,
           legendPosition: "middle",
         }}
+        legendLabel={(d) => labelFor(String(d.id))}
         legends={[
           {
             dataFrom: "keys",
             anchor: "top-right",
-            direction: "column",
-            itemWidth: 60,
-            itemHeight: 18,
+            direction: "row",
+            translateY: -18,
+            itemWidth: 64,
+            itemHeight: 16,
             symbolSize: 10,
-            symbolShape: "square",
+            symbolShape: "circle",
           },
         ]}
+        tooltip={({ id, value, indexValue, color }) => (
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid #d4d4d8",
+              borderRadius: 6,
+              padding: "8px 12px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+              fontFamily: "'ABC Favotit Mono', monospace",
+              fontSize: 12,
+              color: "#27272a",
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4, color }}>{labelFor(String(id))}</div>
+            <div>
+              {value}% of wins in {String(indexValue)}
+            </div>
+          </div>
+        )}
       />
     </div>
   );

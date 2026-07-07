@@ -16,6 +16,7 @@ import type {
   MiningSubmissionRecord,
   NodeDescriptorRecord,
   NodesSnapshot,
+  ParticipationComputeRow,
   ValidatorAuthorshipRecord,
 } from "@quip/shared/telemetry";
 
@@ -56,6 +57,12 @@ export interface TelemetryState {
   // hasn't dispatched or both probes failed. Drives the
   // "Current Attempts" panel above Mining Performance.
   currentDispatch: CurrentDispatch | null;
+  // Participant-level compute facts (one row per qblock × participant, all
+  // device kinds) for the server's recent window. Reduced by
+  // aggregateParticipationByCategory / aggregateParticipationByQblock to drive
+  // the Total-Compute pie and Mining-per-QBlock charts. Empty until the
+  // indexer has recorded participation for an in-window qblock.
+  participationCompute: ParticipationComputeRow[];
   loading: boolean;
   error: string | null;
 
@@ -85,6 +92,7 @@ const createTelemetryState =
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
     currentDispatch: null,
+    participationCompute: [],
     loading: true,
     error: null,
     fetchTelemetry: async () => {
@@ -118,6 +126,7 @@ const createTelemetryState =
           recentMiningSubmissions: data.recentMiningSubmissions ?? [],
           selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
           currentDispatch: data.currentDispatch ?? null,
+          participationCompute: data.participationCompute ?? [],
           loading: false,
           error: null,
         });
@@ -148,15 +157,27 @@ export const useTelemetryStore: typeof useTelemetryStoreBase & StoreApi<Telemetr
 // --- Selectors ---
 
 /**
- * Server-anchored "now" in ms. Returns the parsed `serverTime` from the most
- * recent telemetry response, or `Date.now()` if no response has landed yet
- * (initial connect). Use this in place of `Date.now()` when computing ages
- * relative to indexer/server fields — fixes audit #3 (backgrounded tab shows
- * inflated heartbeat ages because the cached response's lastStatusFetchAt is
+ * Server-anchored "now" in ms: the parsed `serverTime` from the most recent
+ * telemetry response, or `Date.now()` if none has landed yet (initial
+ * connect). Use in place of `Date.now()` when computing ages relative to
+ * indexer/server fields — fixes audit #3 (backgrounded tab shows inflated
+ * heartbeat ages because the cached response's lastStatusFetchAt is
  * server-stamped but the comparison anchor was client-clock).
+ *
+ * Takes the `serverTime` STRING, not the store state, precisely so it can't be
+ * passed to `useTelemetryStore()` as a selector: the `Date.now()` fallback
+ * returns a fresh number every call, and a store selector that returns an
+ * unstable value loops `useSyncExternalStore` forever when serverTime is null
+ * (bead mrt). Subscribe to the stable string and call this in render via
+ * {@link useServerNowMs}.
  */
-export const selectServerNowMs = (s: TelemetryState): number =>
-  s.serverTime ? Date.parse(s.serverTime) : Date.now();
+export const resolveServerNowMs = (serverTime: string | null): number =>
+  serverTime ? Date.parse(serverTime) : Date.now();
+
+/** Server-anchored "now" hook — see {@link resolveServerNowMs}. */
+export function useServerNowMs(): number {
+  return resolveServerNowMs(useTelemetryStore((s) => s.serverTime));
+}
 
 /**
  * The tip block, or null when no blocks are loaded. The API ships blocks

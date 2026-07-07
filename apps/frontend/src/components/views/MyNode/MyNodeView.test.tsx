@@ -1,0 +1,199 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+
+import type { BlockRecord, ChainMinerRecord } from "@quip/shared/telemetry";
+import { ServicesProvider } from "@/services/services-provider";
+import { idleTelemetryClient } from "@/testing/services";
+import { useTelemetryStore } from "@/store/telemetry-store";
+
+import { MyNodeView } from "./MyNodeView";
+
+const SELF = "5GAlice";
+
+function makeBlock(overrides: Partial<BlockRecord> = {}): BlockRecord {
+  return {
+    blockHash: "0xhash",
+    substrateBlockNumber: "100",
+    substrateBlockHash: "0xshash",
+    substrateParentHash: "0xparent",
+    timestamp: 1_700_000_000,
+    minerId: SELF,
+    energy: -100,
+    diversity: 0.5,
+    numValidSolutions: 1,
+    miningTime: 60,
+    deviceAccessTimeUs: null,
+    reward: "1000000000000",
+    qblockId: "42",
+    nonce: "1",
+    numNodes: 100,
+    numEdges: 200,
+    difficultyEnergy: -110,
+    minDiversity: 0.1,
+    minSolutions: 1,
+    topologyHash: null,
+    finalized: false,
+    ...overrides,
+  };
+}
+
+function makeChainMiner(overrides: Partial<ChainMinerRecord> = {}): ChainMinerRecord {
+  return {
+    accountId: SELF,
+    deposit: "1000000000000",
+    proofsSubmitted: "12",
+    proofsWon: "7",
+    rewardsEarned: "7000000000000",
+    telemetryNodeAddress: null,
+    hardware: null,
+    ...overrides,
+  };
+}
+
+// Render against the GLOBAL stores (the tests drive them via setState) but
+// with a hanging client, so useMinerWins doesn't fire a real fetch.
+function renderView(root: Root): void {
+  act(() => {
+    root.render(
+      createElement(ServicesProvider, {
+        client: idleTelemetryClient,
+        children: createElement(MyNodeView),
+      }),
+    );
+  });
+}
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  useTelemetryStore.setState({
+    blocks: [],
+    selfAddress: null,
+    chainMiners: [],
+    recentDifficulty: [],
+    indexer: null,
+    serverTime: null,
+  });
+});
+
+describe("MyNodeView", () => {
+  test("shows the renamed Last Won QBlock Details pane, not the old title", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock()],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Last Won QBlock Details");
+    expect(text).not.toContain("Last QBlock Details");
+  });
+
+  test("no longer renders the Current Difficulty pane — it moved to Compute", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock()],
+      recentDifficulty: [
+        {
+          observedAtBlock: "100",
+          difficultyEnergy: -120,
+          minDiversity: 0.2,
+          minSolutions: 2,
+          observedAt: "2026-01-01T00:00:00.000Z",
+          topologyHash: null,
+          source: "poll",
+        },
+      ],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Current Difficulty");
+    // "Target Energy" now legitimately appears in the Last Won QBlock Details
+    // card (bead p66), so it is no longer a proxy for the relocated pane —
+    // the "Current Difficulty" absence above is the check that it moved.
+  });
+
+  test("still renders QBlocks Won and Rewards Earned tiles", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock()],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).toContain("QBlocks Won");
+    expect(text).toContain("Rewards Earned");
+  });
+
+  test("folds the QBlock number into the details pane and drops the standalone tile", () => {
+    // qblockId "42" is the win the details pane must now surface itself —
+    // the standalone "Last QBlock Won" tile that used to show it is gone.
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock({ qblockId: "42" })],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Last QBlock Won");
+    expect(text).toContain("Last Won QBlock Details");
+    expect(text).toContain("#42");
+  });
+
+  test("preserves the no-wins-yet empty state in the details pane", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner({ proofsWon: "0" })],
+      blocks: [],
+    });
+    renderView(root);
+    const card = findCardByLabel("Last Won QBlock Details");
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("No wins yet");
+    expect(card?.textContent).not.toContain("#");
+  });
+
+  // Walks up from the BlockDetailCard's label paragraph to the card's own
+  // bordered div, so assertions scope to that pane and not sibling panels
+  // that happen to share vocabulary (e.g. CurrentAttemptsPanel's "qblock #N").
+  function findCardByLabel(label: string): HTMLElement | null {
+    const labelParas = Array.from(container.querySelectorAll("p")).filter(
+      (p) => p.textContent === label,
+    );
+    return labelParas[0]?.parentElement ?? null;
+  }
+
+  test("puts QBlocks Won, Rewards Earned, and the details pane on one row", () => {
+    useTelemetryStore.setState({
+      selfAddress: SELF,
+      chainMiners: [makeChainMiner()],
+      blocks: [makeBlock()],
+    });
+    renderView(root);
+    const wonTile = findCardByLabel("QBlocks Won");
+    const detailsCard = findCardByLabel("Last Won QBlock Details");
+    expect(wonTile).not.toBeNull();
+    expect(detailsCard).not.toBeNull();
+    // The two StatTiles share a flex-col wrapper that is itself a sibling
+    // grid cell of the details pane — same row, not stacked one after the
+    // other down the page.
+    const stackedTiles = wonTile?.parentElement;
+    expect(stackedTiles?.className).toContain("flex-col");
+    expect(stackedTiles?.parentElement).toBe(detailsCard?.parentElement);
+    expect(stackedTiles?.parentElement?.className).toContain("sm:grid-cols-2");
+  });
+});

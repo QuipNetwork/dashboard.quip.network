@@ -21,6 +21,7 @@ import type {
   TopologyInfo,
   UnsubFn,
   QBlockInfo,
+  QBlockParticipant,
   WinnerBlockDecode,
 } from "../clients/substrate-client";
 
@@ -52,6 +53,9 @@ export interface BlockSource {
   // Historical default topology for backfill items' topology stamping
   // (tip items resolve live via state.defaultTopologyHash; spec §6).
   getDefaultTopologyAt(blockNumber: string): Promise<string | null>;
+  // Full participant set for a qblock — the participation plugin's only chain
+  // read (keyed by the winner event's qblock id).
+  getQBlockParticipants(qblockId: string): Promise<QBlockParticipant[]>;
 }
 
 export interface BackfillSource {

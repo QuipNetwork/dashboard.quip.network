@@ -18,6 +18,8 @@ export function makeConfig(overrides: Partial<IndexerConfig> = {}): IndexerConfi
     substrateReconnectMaxBackoffMs: 60000,
     substrateBabePollSec: 30,
     substrateChainPollSec: 300,
+    substrateBackfillBlocksPerSec: 5,
+    substrateBackfillConcurrency: 4,
     operatorAccount: null,
     reindex: null,
     listIndexables: false,

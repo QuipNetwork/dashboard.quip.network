@@ -1,18 +1,19 @@
+import { useMemo } from "react";
 import { ResponsiveLine } from "@nivo/line";
 import { nivoTheme } from "@/theme/nivo-theme";
 import { SERIES_GRADIENT } from "@/lib/colors";
 import { getSeriesColor } from "@/lib/chart-colors";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import type { BlocksOverTimeSeries } from "./use-blocks-over-time";
-
-const tooltip = createLineTooltip({
-  xLabel: "Time (min)",
-  yLabel: "Blocks",
-});
 
 export interface BlocksOverTimeChartProps {
   data: BlocksOverTimeSeries[];
+  // Left-axis legend; defaults to the cumulative-count wording used by the
+  // "By Type"/"By Node" presentations. `BlocksOverTimeCard`'s Normalized
+  // mode overrides it to the per-device wording.
+  yAxisLabel?: string;
 }
 
 const gradientLines = createGradientLines(
@@ -27,7 +28,21 @@ const gradientLines = createGradientLines(
   ),
 );
 
-export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
+export function BlocksOverTimeChart({
+  data,
+  yAxisLabel = "Cumulative QBlocks",
+}: BlocksOverTimeChartProps) {
+  const qpuLabel = useQpuDisplayLabel();
+  const labelFor = labelForCategoryWith(qpuLabel);
+  const tooltip = useMemo(
+    () =>
+      createLineTooltip({
+        xLabel: "Time (min)",
+        yLabel: "Blocks",
+        seriesLabel: labelForCategoryWith(qpuLabel),
+      }),
+    [qpuLabel],
+  );
   if (data.length === 0) return null;
 
   return (
@@ -62,7 +77,7 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
           legendPosition: "middle",
         }}
         axisLeft={{
-          legend: "Cumulative QBlocks",
+          legend: yAxisLabel,
           legendOffset: -50,
           legendPosition: "middle",
         }}
@@ -80,6 +95,13 @@ export function BlocksOverTimeChart({ data }: BlocksOverTimeChartProps) {
                   symbolSize: 10,
                   symbolShape: "circle",
                   translateY: -15,
+                  // Override the id-derived default so "QPU" renders under
+                  // the live budget label without touching the series id nivo colors by.
+                  data: data.map((s) => ({
+                    id: s.id,
+                    label: labelFor(s.id),
+                    color: getSeriesColor(s.id),
+                  })),
                 },
               ]
             : []

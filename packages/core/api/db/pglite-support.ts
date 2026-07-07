@@ -95,6 +95,7 @@ const DATA_TABLES = [
   "validator_authorship_blocks",
   "node_descriptors",
   "mining_submissions",
+  "qblock_participation",
 ];
 
 export interface PgliteHarness {

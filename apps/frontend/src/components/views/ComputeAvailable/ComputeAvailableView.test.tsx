@@ -51,13 +51,46 @@ describe("ComputeAvailableView", () => {
   test("hosts the mining analytics: FLOPS tiles, qblock feed, leaderboard, charts", () => {
     renderView(root);
     const text = container.textContent ?? "";
-    expect(text).toContain("Last Block FLOPS");
-    expect(text).toContain("Current Block FLOPS");
-    expect(text).toContain("Current Difficulty");
-    expect(text).toContain("Recent QBlocks");
+    expect(text).toContain("Last QBlock Details");
+    expect(text).toContain("Current QBlock Details");
+    expect(text).toContain("Historical QBlocks");
     expect(text).toContain("Mining Leaderboard");
     expect(text).toContain("QBlocks Mined Over Time");
+    expect(text).toContain("Energy Distribution");
+    expect(text).toContain("Time to QBlock");
     expect(text).toContain("Difficulty over time");
+  });
+
+  test("no longer hosts the node-inventory charts — they moved to Network (bead 1o0.1)", () => {
+    // Total Compute Used and Mining Nodes by Type are node-inventory views;
+    // they now live in the Network tab above On-chain miners. byType is the
+    // default (afterEach resets it), the mode where both were visible here.
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Total Compute Used");
+    expect(text).not.toContain("Mining Nodes by Type");
+  });
+
+  test("merges difficulty rows into Current QBlock Details, no standalone tile", () => {
+    useTelemetryStore.setState({
+      recentDifficulty: [
+        {
+          observedAtBlock: "100",
+          difficultyEnergy: -120,
+          minDiversity: 0.2,
+          minSolutions: 2,
+          observedAt: "2026-01-01T00:00:00.000Z",
+          topologyHash: null,
+          source: "poll",
+        },
+      ],
+    });
+    renderView(root);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Current Difficulty");
+    expect(text).toContain("Target Energy");
+    expect(text).toContain("Min Diversity");
+    expect(text).toContain("Min Solutions");
   });
 
   // Full width = the chart card is a page-level sibling, not a grid cell
@@ -75,7 +108,7 @@ describe("ComputeAvailableView", () => {
     expectFullWidth("h3", "Difficulty over time");
   });
 
-  test("Mining Time per QBlock offers range and grouping toggles", () => {
+  test("Mining per QBlock offers range and grouping toggles", () => {
     renderView(root);
     // Windowing like the difficulty panel (1H…ALL), plus the card-local
     // All | By Type aggregation toggle (docs/ui-layout.md item 5).
@@ -91,7 +124,6 @@ describe("ComputeAvailableView", () => {
     useUIStore.setState({ aggregationMode: "byNode" });
     renderView(root);
     const text = container.textContent ?? "";
-    expect(text).not.toContain("Mining Nodes by Type");
     expect(text).not.toContain("Win Rate by Difficulty");
   });
 });

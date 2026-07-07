@@ -10,8 +10,8 @@ import {
   type SyncStage,
 } from "@/lib/staleness";
 import {
-  selectServerNowMs,
   selectTipBlockTimestampMs,
+  useServerNowMs,
   useTelemetryStore,
 } from "@/store/telemetry-store";
 
@@ -89,7 +89,7 @@ export function SyncIndicator() {
   const tipBlockTimestampMs = useTelemetryStore(selectTipBlockTimestampMs);
   // Server-anchored "now" — audit fix #3. Falls back to Date.now() until
   // the first telemetry response lands.
-  const nowMs = useTelemetryStore(selectServerNowMs);
+  const nowMs = useServerNowMs();
 
   // Depend on the primitive fields computeChainHealth /
   // computeSubstrateHealth actually read, not on the `indexer` object

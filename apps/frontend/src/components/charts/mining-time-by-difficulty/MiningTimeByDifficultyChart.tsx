@@ -10,6 +10,7 @@ import { difficultyAxisSubtitle } from "@/components/charts/common/BottomAxisSub
 import { createDifficultyTickRenderer } from "@/components/charts/common/DifficultyTick";
 import { createGradientLines } from "@/components/charts/common/GradientLines";
 import { createLineTooltip } from "@/components/charts/common/LineTooltip";
+import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import {
   NODE_SCOPE_OPTIONS,
   SegToggle,
@@ -33,6 +34,13 @@ const gradientLines = createGradientLines(
   ),
 );
 
+// QPUWC is the wall-clock line's own id, not the "QPU" miner category — reuse
+// the QPU swatch color for it everywhere a color is resolved by id (line,
+// legend, tooltip), or it falls through to a per-node hash color.
+function colorForSeries(id: string): string {
+  return getSeriesColor(id === "QPUWC" ? "QPU" : id);
+}
+
 const UNITS_OPTIONS: ReadonlyArray<SegOption<CostUnits>> = [
   { value: "time", label: "Time" },
   { value: "attempts", label: "Attempts" },
@@ -43,6 +51,8 @@ export function MiningTimeByDifficultyChart() {
   const [scope, setScope] = useState<NodeScope>("all");
   const { series, xMin, xMax, note } = useMiningTimeByDifficulty({ units, scope });
   const k = useDifficultyCurveK();
+  const qpuLabel = useQpuDisplayLabel();
+  const labelFor = labelForCategoryWith(qpuLabel);
 
   const yLegend = units === "time" ? "Expected time to qblock" : "Expected qblocks to mine";
   const formatY = (v: number) => (units === "time" ? formatDuration(v * 1000) : `${v.toFixed(1)}×`);
@@ -54,10 +64,13 @@ export function MiningTimeByDifficultyChart() {
         yLabel: units === "time" ? "Expected time" : "Expected qblocks",
         xFormat: (v) => formatDifficultyTick(Number(v), k),
         yFormat: formatY,
+        seriesLabel: labelFor,
+        // QPUWC falls back to a per-node hash color without this override.
+        colorFor: colorForSeries,
       }),
     // formatY is derived from units; k only affects the x tooltip label.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [units, k],
+    [units, k, qpuLabel],
   );
 
   return (
@@ -85,7 +98,7 @@ export function MiningTimeByDifficultyChart() {
           <ResponsiveLine
             data={series}
             theme={nivoTheme}
-            colors={(s) => getSeriesColor(s.id === "QPUWC" ? "QPU" : String(s.id))}
+            colors={(s) => colorForSeries(String(s.id))}
             // Left margin fits time-mode tick labels ("22h 13m", "1d 20h")
             // with the axis legend clear of them.
             margin={{ top: 20, right: 20, bottom: 88, left: 92 }}
@@ -139,6 +152,14 @@ export function MiningTimeByDifficultyChart() {
                 symbolSize: 10,
                 symbolShape: "circle",
                 translateY: -15,
+                // Override the id-derived default so "QPU" renders under
+                // the live budget label without touching the series id
+                // nivo colors by.
+                data: series.map((s) => ({
+                  id: s.id,
+                  label: labelFor(s.id),
+                  color: colorForSeries(s.id),
+                })),
               },
             ]}
           />

@@ -1575,3 +1575,115 @@ describe("sync gate integration", () => {
     await loop;
   }, 5000);
 });
+
+describe("substrate worker liveness watchdog", () => {
+  // Fast reconnect backoff so a forced reconnect lands inside the test window
+  // (backoffMs caps at this).
+  const fastReconnect = {
+    substrateBabePollSec: 1000,
+    substrateChainPollSec: 1000,
+    substrateReconnectMaxBackoffMs: 10,
+  };
+
+  test("forces a reconnect when no substrate head arrives within the liveness window", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 1 };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig(fastReconnect),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+        headLivenessMs: 60,
+        headLivenessPollMs: 20,
+      },
+      ac.signal,
+    );
+    await wait(40);
+    expect(client.connectCount).toBe(1); // connected once, no heads yet
+
+    // No heads ever arrive. The watchdog must notice lastSubstrateEventAt has
+    // gone stale and force a reconnect (which the fake counts).
+    await wait(220);
+    ac.abort();
+    await loop;
+    expect(client.connectCount).toBeGreaterThanOrEqual(2);
+  }, 5000);
+
+  test("does not reconnect while substrate heads keep arriving", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 1 };
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig(fastReconnect),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+        headLivenessMs: 80,
+        headLivenessPollMs: 20,
+      },
+      ac.signal,
+    );
+    await wait(40);
+    expect(client.connectCount).toBe(1);
+
+    // A head every 30ms keeps lastSubstrateEventAt fresh (< 80ms threshold) —
+    // the watchdog must stay quiet.
+    for (let i = 0; i < 6; i++) {
+      client.emitFinalized({
+        number: String(200 + i),
+        hash: `0xh${i}`,
+        parentHash: "0x",
+        extrinsicsRoot: "0x",
+        stateRoot: "0x",
+      });
+      await wait(30);
+    }
+    ac.abort();
+    await loop;
+    expect(client.connectCount).toBe(1);
+  }, 5000);
+
+  test("times out a hung connect and retries", async () => {
+    const state = new IndexerState(db);
+    await state.load();
+    const client = new FakeSubstrateClient();
+    client.topology = { nodeCount: 1, edgeCount: 1 };
+    // First connect never resolves (half-open socket); the connect-timeout
+    // must abort it so retry can establish a fresh connection.
+    client.hangNextConnect = true;
+
+    const ac = new AbortController();
+    const loop = runSubstrateLoop(
+      {
+        config: makeConfig(fastReconnect),
+        urls: ["ws://x"],
+        clientFactory: () => client,
+        db,
+        state,
+        chainHeadDebounceMs: 0,
+        connectTimeoutMs: 40,
+        // Keep the liveness watchdog out of this test.
+        headLivenessMs: 100_000,
+        headLivenessPollMs: 100_000,
+      },
+      ac.signal,
+    );
+    await wait(220);
+    ac.abort();
+    await loop;
+    expect(client.connectCount).toBeGreaterThanOrEqual(2);
+  }, 5000);
+});

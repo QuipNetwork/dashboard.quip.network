@@ -33,6 +33,7 @@ describe("v6 telemetry types", () => {
       minSolutions: 5,
       finalized: false,
       topologyHash: null,
+      deviceAccessTimeUs: null,
     };
     expect(b.substrateBlockNumber).toBe("4500");
     // @ts-expect-error - epoch is gone from v0.3
@@ -125,6 +126,7 @@ describe("v6 telemetry types", () => {
       recentMiningSubmissions: [],
       selfProblemsAttempted: 0,
       currentDispatch: null,
+      participationCompute: [],
     };
     // `nodes` is nullable until the descriptor worker observes its first
     // valid `quip-miner identify` extrinsic. `nodeDescriptors` is the raw
