@@ -1,0 +1,26 @@
+{
+  "name": "@quip/server",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./app": "./app.ts"
+  },
+  "dependencies": {
+    "@quip/core": "workspace:*",
+    "@quip/shared": "workspace:*",
+    "hono": "^4.12.14",
+    "geoip-lite": "^2.0.1",
+    "maxmind": "^5.0.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.10",
+    "@types/geoip-lite": "^1.4.4"
+  },
+  "scripts": {
+    "dev": "bun --watch main.ts",
+    "start": "bun main.ts",
+    "migrate": "bun run migrate.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

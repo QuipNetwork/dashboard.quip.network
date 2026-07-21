@@ -1,0 +1,1309 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Kysely, sql, type RawBuilder } from "kysely";
+import { PostgresJSDialect } from "kysely-postgres-js";
+import postgres, { type Sql } from "postgres";
+
+import type {
+  BabeAuthorityRecord,
+  BabeEpochState,
+  BlockRecord,
+  ChainHead,
+  ChainMinerRecord,
+  DifficultyRecord,
+  IndexerObservability,
+  MineableTopologyRecord,
+  MinerHardwareRecord,
+  MinerWinsRow,
+  MiningHistoryRow,
+  MiningSubmissionRecord,
+  NodeDescriptorRecord,
+  ParticipationComputeRow,
+  QBlockParticipationRecord,
+} from "@quip/shared/telemetry";
+import { chunk } from "@quip/shared/array";
+import { parseIndexerObservability, type DatabaseAdapter, type DbConfig } from "./adapter";
+import {
+  migrateToLatest,
+  migrationStatus,
+  pendingMigrations,
+  type MigrationStatusRow,
+} from "./migrator";
+import {
+  rowToBabeEpoch,
+  rowToBlockRecord,
+  rowToChainHead,
+  rowToChainMiner,
+  rowToDifficulty,
+  rowToMinerHardware,
+  rowToMiningSubmission,
+  rowToNodeDescriptor,
+  rowToQBlockParticipation,
+  rowToValidatorAuthorship,
+} from "./row-mappers";
+import type { DB } from "./schema-types";
+
+const DESCRIPTOR_CHECKPOINT_KEY = "descriptor_checkpoint";
+const SELF_ADDRESS_KEY = "self_address";
+const INDEXER_OBSERVABILITY_KEY = "indexer_observability";
+const MINEABLE_TOPOLOGIES_KEY = "mineable_topologies";
+const MINING_CHECKPOINT_KEY_PREFIX = "mining_checkpoint:";
+// Pipeline coverage cursors + authorship cutover flag (spec §7 / §9.2).
+const AUTHORSHIP_CUTOVER_KEY = "indexer.authorship.cutover";
+// One-shot device_access_time backfill latch (pipeline/device-access-backfill).
+const DEVICE_ACCESS_BACKFILL_KEY = "indexer.device_access_time.backfill";
+const coverageKey = (name: string): string => `indexer.coverage.${name}`;
+const generationKey = (name: string): string => `indexer.generation.${name}`;
+
+function miningCheckpointKey(minerId: string): string {
+  return `${MINING_CHECKPOINT_KEY_PREFIX}${minerId}`;
+}
+
+// Postgres encodes a statement's bound-parameter count as an int16, capping it
+// at 65535. Multi-row INSERTs and large IN-lists bind one parameter per value,
+// so they must be split to stay under that ceiling. 10k is well under the limit
+// with generous headroom and keeps each statement's lock/memory footprint small.
+const PG_MAX_BIND_PARAMS = 10_000;
+
+// Split `rows` so each chunk binds at most PG_MAX_BIND_PARAMS parameters, given
+// `columnsPerRow` parameters per row (always at least one row per chunk).
+function chunkForParams<T>(rows: readonly T[], columnsPerRow: number): T[][] {
+  return chunk(rows, Math.max(1, Math.floor(PG_MAX_BIND_PARAMS / Math.max(1, columnsPerRow))));
+}
+
+type ChainMinerLite = Omit<ChainMinerRecord, "telemetryNodeAddress" | "hardware">;
+
+// A Postgres adapter over Kysely (postgres-js). Reads are normalised by the
+// shared row mappers; writes pass JS values straight through.
+const DEFAULT_POOL_MAX = 10;
+
+export class KyselyAdapter implements DatabaseAdapter {
+  private readonly url: string | undefined;
+  private readonly poolMax: number;
+  private db: Kysely<DB> | null = null;
+  private sqlClient: Sql | null = null;
+  // Test seam: an externally-built Kysely (e.g. over pglite). When present,
+  // connect()/disconnect() use it instead of opening a real connection, and
+  // the caller owns its lifecycle via onClose.
+  private readonly injected: { db: Kysely<DB>; onClose?: () => Promise<void> } | null;
+
+  constructor(config: DbConfig, injected?: { db: Kysely<DB>; onClose?: () => Promise<void> }) {
+    this.url = config.databaseUrl ?? process.env.DATABASE_URL;
+    this.poolMax = config.poolMax ?? DEFAULT_POOL_MAX;
+    this.injected = injected ?? null;
+    if (!this.url && !this.injected) {
+      throw new Error("KyselyAdapter requires DATABASE_URL or config.databaseUrl");
+    }
+  }
+
+  async connect(): Promise<void> {
+    if (this.injected) {
+      this.db = this.injected.db;
+      return;
+    }
+    this.sqlClient = postgres(this.url as string, {
+      max: this.poolMax,
+      idle_timeout: 30,
+      // Migrations issue DROP TABLE IF EXISTS; silence the resulting NOTICEs.
+      onnotice: () => {},
+    });
+    await this.sqlClient`SELECT 1`;
+    this.db = new Kysely<DB>({ dialect: new PostgresJSDialect({ postgres: this.sqlClient }) });
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.injected) {
+      await this.injected.onClose?.();
+      this.db = null;
+      return;
+    }
+    if (this.sqlClient) {
+      await this.sqlClient.end({ timeout: 5 });
+      this.sqlClient = null;
+    }
+    this.db = null;
+  }
+
+  async migrate(): Promise<void> {
+    await migrateToLatest(this.migratorDb());
+  }
+
+  async migrationStatus(): Promise<MigrationStatusRow[]> {
+    return migrationStatus(this.migratorDb());
+  }
+
+  async pendingMigrations(): Promise<string[]> {
+    return pendingMigrations(this.migratorDb());
+  }
+
+  // --- Blocks ---
+
+  async insertBlock(b: BlockRecord): Promise<void> {
+    await this.requireDb()
+      .insertInto("blocks")
+      .values({
+        block_hash: b.blockHash,
+        substrate_block_number: b.substrateBlockNumber,
+        substrate_block_hash: b.substrateBlockHash,
+        substrate_parent_hash: b.substrateParentHash,
+        timestamp: b.timestamp,
+        miner_id: b.minerId,
+        energy: b.energy,
+        diversity: b.diversity,
+        num_valid_solutions: b.numValidSolutions,
+        mining_time: b.miningTime,
+        reward: b.reward,
+        qblock_id: b.qblockId,
+        nonce: b.nonce,
+        num_nodes: b.numNodes,
+        num_edges: b.numEdges,
+        difficulty_energy: b.difficultyEnergy,
+        min_diversity: b.minDiversity,
+        min_solutions: b.minSolutions,
+        finalized: b.finalized,
+        topology_hash: b.topologyHash,
+        device_access_time_us: b.deviceAccessTimeUs,
+      })
+      .onConflict((oc) => oc.column("block_hash").doNothing())
+      .execute();
+  }
+
+  async getRecentBlocks(limit: number, offset: number = 0): Promise<BlockRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .selectAll()
+      .orderBy("substrate_block_number", "desc")
+      .limit(limit)
+      .offset(offset)
+      .execute();
+    return rows.map(rowToBlockRecord);
+  }
+
+  async getBlocksByMiner(minerId: string, limit: number): Promise<BlockRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .selectAll()
+      .where("miner_id", "=", minerId)
+      .orderBy("substrate_block_number", "desc")
+      .limit(limit)
+      .execute();
+    return rows.map(rowToBlockRecord);
+  }
+
+  async getMinerWins(): Promise<MinerWinsRow[]> {
+    // Postgres returns COUNT as a bigint string and AVG as numeric-string;
+    // pglite may return numbers. Number() normalises both drivers.
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .select(({ fn }) => [
+        "miner_id",
+        fn.countAll().as("wins"),
+        fn.min("energy").as("best_energy"),
+        fn.avg("mining_time").as("avg_mining_time"),
+        fn.max("timestamp").as("last_won_at"),
+      ])
+      .groupBy("miner_id")
+      .orderBy("wins", "desc")
+      .execute();
+    return rows.map((r) => ({
+      minerId: String(r.miner_id),
+      wins: Number(r.wins),
+      bestEnergy: Number(r.best_energy),
+      avgMiningTime: Number(r.avg_mining_time),
+      lastWonAt: Number(r.last_won_at),
+    }));
+  }
+
+  async getMiningHistorySince(sinceIso: string): Promise<MiningHistoryRow[]> {
+    // `blocks.timestamp` is unix seconds — convert the ISO cutoff once here
+    // so the query stays an index-friendly numeric comparison.
+    const sinceEpochSeconds = Math.floor(Date.parse(sinceIso) / 1000);
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .select(["qblock_id", "substrate_block_number", "timestamp", "miner_id", "mining_time"])
+      .where("timestamp", ">=", sinceEpochSeconds)
+      .orderBy("substrate_block_number", "asc")
+      .execute();
+    return rows.map((r) => ({
+      qblockId: String(r.qblock_id),
+      substrateBlockNumber: String(r.substrate_block_number),
+      timestamp: Number(r.timestamp),
+      minerId: r.miner_id,
+      miningTime: Number(r.mining_time),
+    }));
+  }
+
+  async getBlocksMissingTopology(
+    limit: number,
+  ): Promise<Array<{ blockHash: string; substrateBlockNumber: string }>> {
+    const rows = await this.requireDb()
+      .selectFrom("blocks")
+      .select(["block_hash", "substrate_block_number"])
+      .where("topology_hash", "is", null)
+      .orderBy("substrate_block_number", "desc")
+      .limit(limit)
+      .execute();
+    return rows.map((r) => ({
+      blockHash: String(r.block_hash),
+      substrateBlockNumber: String(r.substrate_block_number),
+    }));
+  }
+
+  async setBlockTopology(blockHash: string, topologyHash: string): Promise<void> {
+    await this.requireDb()
+      .updateTable("blocks")
+      .set({ topology_hash: topologyHash })
+      .where("block_hash", "=", blockHash)
+      .execute();
+  }
+
+  async backfillDifficultyTopology(fromBlock: string, topologyHash: string): Promise<number> {
+    // `observed_at_block` is a numeric column, so the string param compares
+    // numerically (no lexical-ordering hazard).
+    const res = await this.requireDb()
+      .updateTable("difficulty_history")
+      .set({ topology_hash: topologyHash })
+      .where("topology_hash", "is", null)
+      .where("observed_at_block", ">=", fromBlock)
+      .executeTakeFirst();
+    return Number(res?.numUpdatedRows ?? 0);
+  }
+
+  async getExistingBlockNumbers(blockNumbers: string[]): Promise<string[]> {
+    if (blockNumbers.length === 0) return [];
+    const out: string[] = [];
+    // One bind parameter per number, so chunk the IN-list under the ceiling.
+    for (const batch of chunk(blockNumbers, PG_MAX_BIND_PARAMS)) {
+      const rows = await this.requireDb()
+        .selectFrom("blocks")
+        .select("substrate_block_number")
+        .where("substrate_block_number", "in", batch)
+        .execute();
+      for (const r of rows) out.push(String(r.substrate_block_number));
+    }
+    return out;
+  }
+
+  async markBlockFinalized(blockHash: string): Promise<void> {
+    await this.requireDb()
+      .updateTable("blocks")
+      .set({ finalized: true })
+      .where("block_hash", "=", blockHash)
+      .where("finalized", "=", false)
+      .execute();
+  }
+
+  // --- Self-identity ---
+
+  async getSelfAddress(): Promise<string | null> {
+    return this.getMeta(SELF_ADDRESS_KEY);
+  }
+
+  async setSelfAddress(address: string | null): Promise<void> {
+    await this.setMeta(SELF_ADDRESS_KEY, address);
+  }
+
+  // --- Indexer observability ---
+
+  async getIndexerObservability(): Promise<IndexerObservability | null> {
+    const raw = await this.getMeta(INDEXER_OBSERVABILITY_KEY);
+    if (!raw) return null;
+    return parseIndexerObservability(raw);
+  }
+
+  async setIndexerObservability(obs: IndexerObservability): Promise<void> {
+    await this.setMeta(INDEXER_OBSERVABILITY_KEY, JSON.stringify(obs));
+  }
+
+  /** @internal test-only — write a raw value under a meta key. */
+  async setMetaRaw(key: string, value: string): Promise<void> {
+    await this.setMeta(key, value);
+  }
+
+  // --- Substrate-derived state ---
+
+  async upsertChainHead(head: ChainHead): Promise<void> {
+    const distinct = this.distinctOp();
+    await this.requireDb()
+      .insertInto("chain_head")
+      .values({
+        id: 1,
+        best_block_number: head.bestBlockNumber,
+        best_block_hash: head.bestBlockHash,
+        finalized_block_number: head.finalizedBlockNumber,
+        finalized_block_hash: head.finalizedBlockHash,
+        finality_lag: head.finalityLag,
+        winning_solutions_count: head.qblockCount,
+        current_qblock_id: head.currentQBlockId,
+        current_qblock_participants: head.currentQBlockParticipants,
+        spec_name: head.runtime.specName,
+        spec_version: head.runtime.specVersion,
+        transaction_version: head.runtime.transactionVersion,
+        impl_name: head.runtime.implName,
+        last_runtime_upgrade: head.runtime.lastRuntimeUpgrade,
+        updated_at: head.updatedAt,
+      })
+      .onConflict((oc) =>
+        oc
+          .column("id")
+          .doUpdateSet({
+            best_block_number: sql`excluded.best_block_number`,
+            best_block_hash: sql`excluded.best_block_hash`,
+            finalized_block_number: sql`excluded.finalized_block_number`,
+            finalized_block_hash: sql`excluded.finalized_block_hash`,
+            finality_lag: sql`excluded.finality_lag`,
+            winning_solutions_count: sql`excluded.winning_solutions_count`,
+            current_qblock_id: sql`excluded.current_qblock_id`,
+            current_qblock_participants: sql`excluded.current_qblock_participants`,
+            spec_name: sql`excluded.spec_name`,
+            spec_version: sql`excluded.spec_version`,
+            transaction_version: sql`excluded.transaction_version`,
+            impl_name: sql`excluded.impl_name`,
+            last_runtime_upgrade: sql`excluded.last_runtime_upgrade`,
+            updated_at: sql`excluded.updated_at`,
+          })
+          .where(
+            sql<boolean>`
+              chain_head.best_block_number ${distinct} excluded.best_block_number or
+              chain_head.finalized_block_number ${distinct} excluded.finalized_block_number or
+              chain_head.winning_solutions_count ${distinct} excluded.winning_solutions_count or
+              chain_head.current_qblock_id ${distinct} excluded.current_qblock_id or
+              chain_head.current_qblock_participants ${distinct} excluded.current_qblock_participants or
+              chain_head.spec_version ${distinct} excluded.spec_version
+            `,
+          ),
+      )
+      .execute();
+  }
+
+  async getChainHead(): Promise<ChainHead | null> {
+    const row = await this.requireDb()
+      .selectFrom("chain_head")
+      .selectAll()
+      .where("id", "=", 1)
+      .executeTakeFirst();
+    return row ? rowToChainHead(row) : null;
+  }
+
+  async upsertBabeEpoch(epoch: BabeEpochState): Promise<void> {
+    const now = new Date().toISOString();
+    await this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        await trx
+          .updateTable("babe_epochs")
+          .set({ is_current: false })
+          .where("is_current", "=", true)
+          .where("epoch_index", "!=", epoch.epochIndex)
+          .execute();
+        await trx
+          .insertInto("babe_epochs")
+          .values({
+            epoch_index: epoch.epochIndex,
+            current_slot: epoch.currentSlot,
+            epoch_start_slot: epoch.epochStartSlot,
+            slots_per_epoch: epoch.slotsPerEpoch,
+            current_slot_in_epoch: epoch.currentSlotInEpoch,
+            authority_count: epoch.authorityCount,
+            is_current: true,
+            updated_at: now,
+          })
+          .onConflict((oc) =>
+            oc.column("epoch_index").doUpdateSet({
+              current_slot: sql`excluded.current_slot`,
+              epoch_start_slot: sql`excluded.epoch_start_slot`,
+              slots_per_epoch: sql`excluded.slots_per_epoch`,
+              current_slot_in_epoch: sql`excluded.current_slot_in_epoch`,
+              authority_count: sql`excluded.authority_count`,
+              is_current: true,
+              updated_at: sql`excluded.updated_at`,
+            }),
+          )
+          .execute();
+      });
+  }
+
+  async getCurrentBabeEpoch(): Promise<BabeEpochState | null> {
+    const row = await this.requireDb()
+      .selectFrom("babe_epochs")
+      .selectAll()
+      .where("is_current", "=", true)
+      .limit(1)
+      .executeTakeFirst();
+    return row ? rowToBabeEpoch(row) : null;
+  }
+
+  async upsertBabeAuthorities(
+    epochIndex: number,
+    authorities: BabeAuthorityRecord[],
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        const incoming = authorities.map((a) => a.accountId);
+        let demote = trx
+          .updateTable("babe_authorities")
+          .set({ is_active: false, updated_at: now })
+          .where("epoch_index", "=", epochIndex)
+          .where("is_active", "=", true);
+        if (incoming.length > 0) demote = demote.where("account_id", "not in", incoming);
+        await demote.execute();
+        if (authorities.length === 0) return;
+        for (const batch of chunkForParams(authorities, 5)) {
+          await trx
+            .insertInto("babe_authorities")
+            .values(
+              batch.map((a) => ({
+                account_id: a.accountId,
+                epoch_index: epochIndex,
+                display_name: a.displayName,
+                is_active: true,
+                updated_at: now,
+              })),
+            )
+            .onConflict((oc) =>
+              oc.columns(["account_id", "epoch_index"]).doUpdateSet({
+                display_name: sql`excluded.display_name`,
+                is_active: true,
+                updated_at: sql`excluded.updated_at`,
+              }),
+            )
+            .execute();
+        }
+      });
+  }
+
+  async getActiveBabeAuthorities(): Promise<BabeAuthorityRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("babe_authorities")
+      .select(["account_id", "display_name"])
+      .where("epoch_index", "=", (eb) =>
+        eb.selectFrom("babe_epochs").select("epoch_index").where("is_current", "=", true).limit(1),
+      )
+      .where("is_active", "=", true)
+      .orderBy("account_id")
+      .execute();
+    return rows.map((r) => ({ accountId: r.account_id, displayName: r.display_name }));
+  }
+
+  async upsertChainMiners(miners: ChainMinerLite[]): Promise<void> {
+    if (miners.length === 0) return;
+    const distinct = this.distinctOp();
+    const now = new Date().toISOString();
+    // chain_miners grows with the network, so a single multi-row INSERT can
+    // exceed Postgres' bind-parameter ceiling. Chunk by column count (6/row);
+    // the transaction keeps the whole set's update atomic across chunks.
+    await this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        for (const batch of chunkForParams(miners, 6)) {
+          await trx
+            .insertInto("chain_miners")
+            .values(
+              batch.map((m) => ({
+                account_id: m.accountId,
+                deposit: m.deposit,
+                proofs_submitted: m.proofsSubmitted,
+                proofs_won: m.proofsWon,
+                rewards_earned: m.rewardsEarned,
+                updated_at: now,
+              })),
+            )
+            .onConflict((oc) =>
+              oc
+                .column("account_id")
+                .doUpdateSet({
+                  deposit: sql`excluded.deposit`,
+                  proofs_submitted: sql`excluded.proofs_submitted`,
+                  proofs_won: sql`excluded.proofs_won`,
+                  rewards_earned: sql`excluded.rewards_earned`,
+                  updated_at: sql`excluded.updated_at`,
+                })
+                .where(
+                  sql<boolean>`
+                    chain_miners.deposit ${distinct} excluded.deposit or
+                    chain_miners.proofs_submitted ${distinct} excluded.proofs_submitted or
+                    chain_miners.proofs_won ${distinct} excluded.proofs_won or
+                    chain_miners.rewards_earned ${distinct} excluded.rewards_earned
+                  `,
+                ),
+            )
+            .execute();
+        }
+      });
+  }
+
+  async getChainMiners(): Promise<ChainMinerLite[]> {
+    const rows = await this.requireDb()
+      .selectFrom("chain_miners")
+      .selectAll()
+      .orderBy("rewards_earned", "desc")
+      .execute();
+    return rows.map(rowToChainMiner);
+  }
+
+  async insertDifficultySnapshot(snapshot: DifficultyRecord): Promise<void> {
+    const values = {
+      observed_at_block: snapshot.observedAtBlock,
+      difficulty_energy: snapshot.difficultyEnergy,
+      min_diversity: snapshot.minDiversity,
+      min_solutions: snapshot.minSolutions,
+      observed_at: snapshot.observedAt,
+      topology_hash: snapshot.topologyHash,
+      source: snapshot.source,
+    };
+    const insert = this.requireDb().insertInto("difficulty_history").values(values);
+    if (snapshot.source === "block") {
+      // Block-wins precedence (spec §9.3): a poll row can occupy a winner
+      // number (the poll stamps the finalized head, which is sometimes the
+      // winner block itself; every pre-0005 row is 'poll'). Converting it
+      // keeps winner numbers deterministically owned by the block series —
+      // required for the drift check and `--reindex difficulty` to converge.
+      // Still idempotent: a second run sees source='block' and no-ops.
+      await insert
+        .onConflict((oc) =>
+          oc
+            .column("observed_at_block")
+            .doUpdateSet({
+              difficulty_energy: sql`excluded.difficulty_energy`,
+              min_diversity: sql`excluded.min_diversity`,
+              min_solutions: sql`excluded.min_solutions`,
+              observed_at: sql`excluded.observed_at`,
+              topology_hash: sql`excluded.topology_hash`,
+              source: sql`excluded.source`,
+            })
+            .where(sql<boolean>`difficulty_history.source = 'poll'`),
+        )
+        .execute();
+      return;
+    }
+    // Poll rows never overwrite anything — first-writer-wins vs other polls,
+    // always-loses vs block rows.
+    await insert.onConflict((oc) => oc.column("observed_at_block").doNothing()).execute();
+  }
+
+  async deleteDifficultyHistoryBySource(source: "block" | "poll"): Promise<number> {
+    const res = await this.requireDb()
+      .deleteFrom("difficulty_history")
+      .where("source", "=", source)
+      .executeTakeFirst();
+    return Number(res.numDeletedRows ?? 0);
+  }
+
+  async getDifficultyAnchorBefore(sinceIso: string): Promise<DifficultyRecord | null> {
+    // Strictly before: a row exactly AT the cutoff belongs to the window
+    // query (`getDifficultySince` is >= inclusive), so the anchor never
+    // duplicates it (spec §10.5).
+    const row = await this.requireDb()
+      .selectFrom("difficulty_history")
+      .selectAll()
+      .where("observed_at", "<", sinceIso)
+      .orderBy("observed_at", "desc")
+      .limit(1)
+      .executeTakeFirst();
+    return row ? rowToDifficulty(row) : null;
+  }
+
+  // --- Pipeline coverage cursors (spec §7) ---
+
+  async getCoverage(name: string): Promise<string | null> {
+    return this.getMeta(coverageKey(name));
+  }
+
+  async clearCoverage(name: string): Promise<void> {
+    await this.requireDb().deleteFrom("meta").where("key", "=", coverageKey(name)).execute();
+  }
+
+  async getIndexerGeneration(name: string): Promise<number> {
+    const raw = await this.getMeta(generationKey(name));
+    const n = raw === null ? NaN : Number(raw);
+    return Number.isInteger(n) && n >= 1 ? n : 1;
+  }
+
+  async bumpIndexerGeneration(name: string): Promise<number> {
+    return this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        const row = await trx
+          .selectFrom("meta")
+          .select("value")
+          .where("key", "=", generationKey(name))
+          .executeTakeFirst();
+        const current =
+          row?.value != null && Number.isInteger(Number(row.value)) ? Number(row.value) : 1;
+        const next = current + 1;
+        await trx
+          .insertInto("meta")
+          .values({ key: generationKey(name), value: String(next) })
+          .onConflict((oc) => oc.column("key").doUpdateSet({ value: sql`excluded.value` }))
+          .execute();
+        return next;
+      });
+  }
+
+  async setCoverageIfGeneration(name: string, gen: number, json: string): Promise<boolean> {
+    // Conditional flush: a stale in-flight write stamped with a pre-reindex
+    // generation can never resurrect dropped coverage (spec §7).
+    return this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        const row = await trx
+          .selectFrom("meta")
+          .select("value")
+          .where("key", "=", generationKey(name))
+          .executeTakeFirst();
+        const current =
+          row?.value != null && Number.isInteger(Number(row.value)) ? Number(row.value) : 1;
+        if (current !== gen) return false;
+        await trx
+          .insertInto("meta")
+          .values({ key: coverageKey(name), value: json })
+          .onConflict((oc) => oc.column("key").doUpdateSet({ value: sql`excluded.value` }))
+          .execute();
+        return true;
+      });
+  }
+
+  // --- device_access_time one-shot backfill latch ---
+
+  async getDeviceAccessTimeBackfillMarker(): Promise<string | null> {
+    return this.getMeta(DEVICE_ACCESS_BACKFILL_KEY);
+  }
+
+  async setDeviceAccessTimeBackfillMarker(value: string): Promise<void> {
+    await this.setMeta(DEVICE_ACCESS_BACKFILL_KEY, value);
+  }
+
+  async probeDeviceAccessTimeData(): Promise<{ hasBlocks: boolean; hasReported: boolean }> {
+    const db = this.requireDb();
+    const anyBlock = await db.selectFrom("blocks").select("block_hash").limit(1).executeTakeFirst();
+    if (!anyBlock) return { hasBlocks: false, hasReported: false };
+    const reported = await db
+      .selectFrom("blocks")
+      .select("block_hash")
+      .where("device_access_time_us", "is not", null)
+      .limit(1)
+      .executeTakeFirst();
+    return { hasBlocks: true, hasReported: reported !== undefined };
+  }
+
+  async getRecentDifficulty(limit: number): Promise<DifficultyRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("difficulty_history")
+      .selectAll()
+      .orderBy("observed_at", "desc")
+      .limit(limit)
+      .execute();
+    return rows.map(rowToDifficulty);
+  }
+
+  async getDifficultySince(sinceIso: string): Promise<DifficultyRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("difficulty_history")
+      .selectAll()
+      .where("observed_at", ">=", sinceIso)
+      .orderBy("observed_at", "asc")
+      .execute();
+    return rows.map(rowToDifficulty);
+  }
+
+  // --- Mineable topologies (current-state snapshot in `meta`) ---
+
+  async setMineableTopologies(records: MineableTopologyRecord[]): Promise<void> {
+    await this.setMeta(MINEABLE_TOPOLOGIES_KEY, JSON.stringify(records));
+  }
+
+  async getMineableTopologies(): Promise<MineableTopologyRecord[]> {
+    const raw = await this.getMeta(MINEABLE_TOPOLOGIES_KEY);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as MineableTopologyRecord[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  // --- Miner hardware ---
+
+  async upsertMinerHardware(record: MinerHardwareRecord): Promise<void> {
+    await this.requireDb()
+      .insertInto("miner_hardware")
+      .values({
+        account_id: record.accountId,
+        node_id: record.nodeId,
+        miners: this.jsonVal(record.miners),
+        primary_type: record.primaryType,
+        source: record.source,
+        observed_at: record.observedAt,
+      })
+      .onConflict((oc) =>
+        oc.column("account_id").doUpdateSet({
+          node_id: sql`excluded.node_id`,
+          miners: sql`excluded.miners`,
+          primary_type: sql`excluded.primary_type`,
+          source: sql`excluded.source`,
+          observed_at: sql`excluded.observed_at`,
+        }),
+      )
+      .execute();
+  }
+
+  async getMinerHardware(accountId: string): Promise<MinerHardwareRecord | null> {
+    const row = await this.requireDb()
+      .selectFrom("miner_hardware")
+      .selectAll()
+      .where("account_id", "=", accountId)
+      .executeTakeFirst();
+    return row ? rowToMinerHardware(row) : null;
+  }
+
+  async getAllMinerHardware(): Promise<MinerHardwareRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("miner_hardware")
+      .selectAll()
+      .orderBy("observed_at", "desc")
+      .execute();
+    return rows.map(rowToMinerHardware);
+  }
+
+  // --- Validator authorship ---
+
+  async recordValidatorAuthorship(
+    accountId: string,
+    blockNumber: string,
+    blockTimestamp: number,
+    hasPow: boolean,
+  ): Promise<void> {
+    // Row-per-(validator, block): idempotent under crash replays, reconnect
+    // replays, and reconciler re-visits — the old `blocks_authored + 1`
+    // counter double-counted on every one of those paths (spec §9.1).
+    await this.requireDb()
+      .insertInto("validator_authorship_blocks")
+      .values({
+        validator: accountId,
+        block_number: blockNumber,
+        timestamp: new Date(blockTimestamp * 1000).toISOString(),
+        had_winner: hasPow,
+      })
+      .onConflict((oc) => oc.columns(["validator", "block_number"]).doNothing())
+      .execute();
+  }
+
+  /** Per-validator aggregate over the row-per-block table. */
+  private newAuthorshipAggregate(): Promise<
+    Array<{
+      validator: string;
+      cnt: string | number | bigint;
+      pow_cnt: string | number | bigint;
+      last_block: string | number | null;
+      last_at: string | Date | null;
+    }>
+  > {
+    return this.requireDb()
+      .selectFrom("validator_authorship_blocks")
+      .select((eb) => [
+        "validator",
+        eb.fn.countAll().as("cnt"),
+        sql<string>`count(*) filter (where had_winner)`.as("pow_cnt"),
+        eb.fn.max("block_number").as("last_block"),
+        // timestamps are monotone with block numbers, so max(timestamp) is
+        // the max-block row's timestamp (spec §9.2).
+        eb.fn.max("timestamp").as("last_at"),
+      ])
+      .groupBy("validator")
+      .execute() as Promise<
+      Array<{
+        validator: string;
+        cnt: string | number | bigint;
+        pow_cnt: string | number | bigint;
+        last_block: string | number | null;
+        last_at: string | Date | null;
+      }>
+    >;
+  }
+
+  async getValidatorAuthorship(): Promise<
+    Array<{
+      accountId: string;
+      blocksAuthored: number;
+      blocksAuthoredWithPow: number;
+      lastAuthoredBlock: string;
+      lastAuthoredAt: string;
+    }>
+  > {
+    // Post-cutover: the counter table is the derived summary cache, kept
+    // fresh by recomputeAuthorshipSummary — O(#validators), exactly today's
+    // read (spec §9.2).
+    const summaryRead = async () => {
+      const rows = await this.requireDb()
+        .selectFrom("validator_authorship")
+        .selectAll()
+        .orderBy("blocks_authored", "desc")
+        .execute();
+      return rows.map(rowToValidatorAuthorship);
+    };
+    if ((await this.getMeta(AUTHORSHIP_CUTOVER_KEY)) === "1") return summaryRead();
+
+    // During the walk: per-validator union of the frozen legacy counters and
+    // the live aggregate — values never stale (tip lands in the new table
+    // immediately) and never regress (legacy floors the counts).
+    const [legacy, fresh] = await Promise.all([
+      this.requireDb().selectFrom("validator_authorship").selectAll().execute(),
+      this.newAuthorshipAggregate(),
+    ]);
+    const merged = new Map<
+      string,
+      {
+        accountId: string;
+        blocksAuthored: number;
+        blocksAuthoredWithPow: number;
+        lastAuthoredBlock: string;
+        lastAuthoredAt: string;
+      }
+    >();
+    for (const r of legacy) merged.set(String(r.account_id), rowToValidatorAuthorship(r));
+    for (const n of fresh) {
+      const cnt = Number(n.cnt);
+      const powCnt = Number(n.pow_cnt);
+      const lastBlock = n.last_block === null ? "0" : String(n.last_block);
+      const lastAt = n.last_at instanceof Date ? n.last_at.toISOString() : String(n.last_at ?? "");
+      const old = merged.get(n.validator);
+      if (!old) {
+        merged.set(n.validator, {
+          accountId: n.validator,
+          blocksAuthored: cnt,
+          blocksAuthoredWithPow: powCnt,
+          lastAuthoredBlock: lastBlock,
+          lastAuthoredAt: lastAt,
+        });
+        continue;
+      }
+      const newerSide = Number(lastBlock) >= Number(old.lastAuthoredBlock);
+      merged.set(n.validator, {
+        accountId: n.validator,
+        blocksAuthored: Math.max(old.blocksAuthored, cnt),
+        blocksAuthoredWithPow: Math.max(old.blocksAuthoredWithPow, powCnt),
+        lastAuthoredBlock: newerSide ? lastBlock : old.lastAuthoredBlock,
+        lastAuthoredAt: newerSide ? lastAt : old.lastAuthoredAt,
+      });
+    }
+    return [...merged.values()].sort((a, b) => b.blocksAuthored - a.blocksAuthored);
+  }
+
+  async recomputeAuthorshipSummary(): Promise<void> {
+    // Full idempotent recompute (never increment) of the summary cache from
+    // the row-per-block source of truth (spec §9.2).
+    await sql`
+      insert into validator_authorship
+        (account_id, blocks_authored, blocks_authored_with_pow, last_authored_block, last_authored_at)
+      select validator, count(*), count(*) filter (where had_winner),
+             max(block_number), max("timestamp")
+      from validator_authorship_blocks
+      group by validator
+      on conflict (account_id) do update set
+        blocks_authored = excluded.blocks_authored,
+        blocks_authored_with_pow = excluded.blocks_authored_with_pow,
+        last_authored_block = excluded.last_authored_block,
+        last_authored_at = excluded.last_authored_at
+    `.execute(this.requireDb());
+  }
+
+  async resetAuthorshipHistory(): Promise<void> {
+    await this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        await trx.deleteFrom("validator_authorship_blocks").execute();
+        await trx.deleteFrom("meta").where("key", "=", AUTHORSHIP_CUTOVER_KEY).execute();
+      });
+  }
+
+  async deleteAllBlocks(): Promise<number> {
+    const res = await this.requireDb().deleteFrom("blocks").executeTakeFirst();
+    return Number(res.numDeletedRows ?? 0);
+  }
+
+  async upsertQBlockParticipants(records: QBlockParticipationRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    const db = this.requireDb();
+    // Chunk to stay under Postgres' bind-parameter ceiling on a large
+    // participant set (5 cols/row), mirroring the descriptor/submission upserts.
+    for (const batch of chunk(records, 500)) {
+      await db
+        .insertInto("qblock_participation")
+        .values(
+          batch.map((r) => ({
+            qblock_id: r.qblockId,
+            account: r.account,
+            kind: r.kind,
+            budget_seconds: r.budgetSeconds,
+            block_number: r.blockNumber,
+          })),
+        )
+        .onConflict((oc) =>
+          oc.columns(["qblock_id", "account"]).doUpdateSet({
+            kind: sql`excluded.kind`,
+            budget_seconds: sql`excluded.budget_seconds`,
+            block_number: sql`excluded.block_number`,
+          }),
+        )
+        .execute();
+    }
+  }
+
+  async getQBlockParticipation(qblockId: string): Promise<QBlockParticipationRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("qblock_participation")
+      .selectAll()
+      .where("qblock_id", "=", qblockId)
+      .orderBy("account", "asc")
+      .execute();
+    return rows.map(rowToQBlockParticipation);
+  }
+
+  async deleteAllQBlockParticipation(): Promise<number> {
+    const res = await this.requireDb().deleteFrom("qblock_participation").executeTakeFirst();
+    return Number(res.numDeletedRows ?? 0);
+  }
+
+  async getParticipationCompute(sinceIso: string): Promise<ParticipationComputeRow[]> {
+    // `blocks.timestamp` is unix seconds — convert the ISO cutoff once so the
+    // window stays an index-friendly numeric comparison (mirrors
+    // getMiningHistorySince).
+    //
+    // miningSeconds MUST be the qblock's block-active WALL-CLOCK window (the
+    // time every racer had to work the problem), NOT `blocks.mining_time`.
+    // `mining_time` is the WINNER's self-reported device time on runtime-112+
+    // wins — for a QPU winner that's ~0.06 s of chip access, not the ~12 s the
+    // block was open (see pipeline/plugins/winners.ts). Feeding it to every
+    // participant would undercount CPU/GPU racers ~200x and double-discount
+    // non-winner QPUs. Derive the true window from block spacing instead:
+    // `timestamp - lag(timestamp) over (order by qblock_id)`. The `spaced` CTE
+    // is computed over ALL blocks first, so the lag is correct even for the
+    // first block inside the window (its predecessor is just outside it). The
+    // very first block ever has a null lag and drops out (`wall_seconds > 0`).
+    //
+    // INNER JOIN spaced: a participant's compute is undefined until its qblock's
+    // block row is indexed. LEFT JOIN mining_submissions: exact QPU access
+    // exists only for self-polled nodes; everyone else falls to the wall-window
+    // estimate downstream.
+    const sinceEpochSeconds = Math.floor(Date.parse(sinceIso) / 1000);
+    const rows = await this.requireDb()
+      .with("spaced", (eb) =>
+        eb
+          .selectFrom("blocks")
+          .select([
+            "qblock_id",
+            "timestamp",
+            sql<number | null>`"timestamp" - lag("timestamp") over (order by "qblock_id")`.as(
+              "wall_seconds",
+            ),
+          ]),
+      )
+      .selectFrom("qblock_participation as p")
+      .innerJoin("spaced as s", "s.qblock_id", "p.qblock_id")
+      .leftJoin("mining_submissions as ms", (join) =>
+        join.onRef("ms.miner_id", "=", "p.account").onRef("ms.solution_number", "=", "p.qblock_id"),
+      )
+      .where("s.timestamp", ">=", sinceEpochSeconds)
+      .where("s.wall_seconds", ">", 0)
+      .select([
+        "p.qblock_id as qblock_id",
+        "p.account as account",
+        "p.kind as kind",
+        "s.wall_seconds as mining_seconds",
+        "ms.qpu_access_time_us as qpu_access_time_us",
+      ])
+      .orderBy("p.qblock_id", "asc")
+      .orderBy("p.account", "asc")
+      .execute();
+    return rows.map((r) => ({
+      qblockId: String(r.qblock_id),
+      account: String(r.account),
+      kind: String(r.kind),
+      miningSeconds: Number(r.mining_seconds),
+      exactQpuAccessUs: r.qpu_access_time_us == null ? null : Number(r.qpu_access_time_us),
+    }));
+  }
+
+  async isAuthorshipCutover(): Promise<boolean> {
+    return (await this.getMeta(AUTHORSHIP_CUTOVER_KEY)) === "1";
+  }
+
+  async getExistingDifficultyBlockNumbers(blockNumbers: string[]): Promise<string[]> {
+    if (blockNumbers.length === 0) return [];
+    const rows = await this.requireDb()
+      .selectFrom("difficulty_history")
+      .select("observed_at_block")
+      .where("observed_at_block", "in", blockNumbers)
+      .where("source", "=", "block")
+      .execute();
+    return rows.map((r) => String(r.observed_at_block));
+  }
+
+  async countAuthorshipBlocksInRange(fromBlock: string, toBlock: string): Promise<number> {
+    const row = await this.requireDb()
+      .selectFrom("validator_authorship_blocks")
+      .select((eb) => eb.fn.countAll().as("cnt"))
+      .where("block_number", ">=", fromBlock)
+      .where("block_number", "<=", toBlock)
+      .executeTakeFirst();
+    return Number(row?.cnt ?? 0);
+  }
+
+  async tryAuthorshipCutover(): Promise<boolean> {
+    if ((await this.getMeta(AUTHORSHIP_CUTOVER_KEY)) === "1") return true;
+
+    // Per-validator count gate: values can only jump up at the flip, never
+    // regress. On pruned deployments where the walk can't reach the legacy
+    // totals, this simply never fires and the union read stays (spec §9.2).
+    const [legacy, fresh] = await Promise.all([
+      this.requireDb()
+        .selectFrom("validator_authorship")
+        .select(["account_id", "blocks_authored"])
+        .execute(),
+      this.newAuthorshipAggregate(),
+    ]);
+    const freshCnt = new Map(fresh.map((n) => [n.validator, Number(n.cnt)]));
+    for (const o of legacy) {
+      if ((freshCnt.get(String(o.account_id)) ?? 0) < Number(o.blocks_authored)) return false;
+    }
+
+    await this.requireDb()
+      .transaction()
+      .execute(async (trx) => {
+        await sql`
+          insert into validator_authorship
+            (account_id, blocks_authored, blocks_authored_with_pow, last_authored_block, last_authored_at)
+          select validator, count(*), count(*) filter (where had_winner),
+                 max(block_number), max("timestamp")
+          from validator_authorship_blocks
+          group by validator
+          on conflict (account_id) do update set
+            blocks_authored = excluded.blocks_authored,
+            blocks_authored_with_pow = excluded.blocks_authored_with_pow,
+            last_authored_block = excluded.last_authored_block,
+            last_authored_at = excluded.last_authored_at
+        `.execute(trx);
+        await trx
+          .insertInto("meta")
+          .values({ key: AUTHORSHIP_CUTOVER_KEY, value: "1" })
+          .onConflict((oc) => oc.column("key").doUpdateSet({ value: sql`excluded.value` }))
+          .execute();
+      });
+    return true;
+  }
+
+  // --- Node descriptors ---
+
+  async upsertNodeDescriptor(record: NodeDescriptorRecord): Promise<void> {
+    const lt = sql<boolean>`(node_descriptors.block_number, node_descriptors.extrinsic_index) < (excluded.block_number, excluded.extrinsic_index)`;
+    await this.requireDb()
+      .insertInto("node_descriptors")
+      .values({
+        account_id: record.accountId,
+        block_number: record.blockNumber,
+        block_hash: record.blockHash,
+        extrinsic_index: record.extrinsicIndex,
+        block_timestamp: record.blockTimestamp,
+        first_block_timestamp: record.blockTimestamp,
+        descriptor: this.jsonVal(record.descriptor),
+        observed_at: record.observedAt,
+      })
+      .onConflict((oc) =>
+        oc
+          .column("account_id")
+          .doUpdateSet({
+            block_number: sql`excluded.block_number`,
+            block_hash: sql`excluded.block_hash`,
+            extrinsic_index: sql`excluded.extrinsic_index`,
+            block_timestamp: sql`excluded.block_timestamp`,
+            descriptor: sql`excluded.descriptor`,
+            observed_at: sql`excluded.observed_at`,
+          })
+          .where(lt),
+      )
+      .execute();
+  }
+
+  async getAllNodeDescriptors(): Promise<NodeDescriptorRecord[]> {
+    const order = sql`coalesce(descriptor->>'nodeName', account_id)`;
+    const rows = await this.requireDb()
+      .selectFrom("node_descriptors")
+      .selectAll()
+      .orderBy(order)
+      .execute();
+    return rows.map(rowToNodeDescriptor);
+  }
+
+  async getNodeDescriptor(accountId: string): Promise<NodeDescriptorRecord | null> {
+    const row = await this.requireDb()
+      .selectFrom("node_descriptors")
+      .selectAll()
+      .where("account_id", "=", accountId)
+      .executeTakeFirst();
+    return row ? rowToNodeDescriptor(row) : null;
+  }
+
+  async backfillNodeDescriptorFirstSeen(
+    accountId: string,
+    firstBlockTimestamp: number,
+  ): Promise<void> {
+    await this.requireDb()
+      .updateTable("node_descriptors")
+      .set({
+        first_block_timestamp: sql`least(node_descriptors.first_block_timestamp, ${firstBlockTimestamp})`,
+      })
+      .where("account_id", "=", accountId)
+      .execute();
+  }
+
+  async getDescriptorCheckpoint(): Promise<string | null> {
+    return this.getMeta(DESCRIPTOR_CHECKPOINT_KEY);
+  }
+
+  async setDescriptorCheckpoint(blockNumber: string): Promise<void> {
+    await this.setMetaMonotonic(DESCRIPTOR_CHECKPOINT_KEY, blockNumber);
+  }
+
+  // --- Mining submissions ---
+
+  async insertMiningSubmission(record: MiningSubmissionRecord): Promise<void> {
+    await this.requireDb()
+      .insertInto("mining_submissions")
+      .values({
+        miner_id: record.minerId,
+        solution_number: record.solutionNumber,
+        ts_ns: record.tsNs,
+        energy_milli: record.energyMilli,
+        diversity_milli: record.diversityMilli,
+        threshold_milli: record.thresholdMilli,
+        last_proof_block_hash: record.lastProofBlockHash,
+        extrinsic_hash: record.extrinsicHash,
+        chain_block_hash: record.chainBlockHash,
+        chain_block_number: record.chainBlockNumber,
+        pow_sequence: record.powSequence,
+        outcome: record.outcome,
+        attempt_count: record.attemptCount,
+        best_energy_milli: record.bestEnergyMilli,
+        num_valid: record.numValid,
+        miner_type: record.minerType,
+        qpu_access_time_us: record.qpuAccessTimeUs,
+        observed_at: record.observedAt,
+      })
+      .onConflict((oc) =>
+        oc.columns(["miner_id", "solution_number"]).doUpdateSet({
+          ts_ns: sql`excluded.ts_ns`,
+          energy_milli: sql`excluded.energy_milli`,
+          diversity_milli: sql`excluded.diversity_milli`,
+          threshold_milli: sql`excluded.threshold_milli`,
+          last_proof_block_hash: sql`excluded.last_proof_block_hash`,
+          extrinsic_hash: sql`excluded.extrinsic_hash`,
+          chain_block_hash: sql`excluded.chain_block_hash`,
+          chain_block_number: sql`excluded.chain_block_number`,
+          pow_sequence: sql`excluded.pow_sequence`,
+          outcome: sql`excluded.outcome`,
+          attempt_count: sql`excluded.attempt_count`,
+          best_energy_milli: sql`excluded.best_energy_milli`,
+          num_valid: sql`excluded.num_valid`,
+          miner_type: sql`excluded.miner_type`,
+          qpu_access_time_us: sql`excluded.qpu_access_time_us`,
+          observed_at: sql`excluded.observed_at`,
+        }),
+      )
+      .execute();
+  }
+
+  async getRecentMiningSubmissions(
+    minerId: string,
+    limit: number,
+  ): Promise<MiningSubmissionRecord[]> {
+    const rows = await this.requireDb()
+      .selectFrom("mining_submissions")
+      .selectAll()
+      .where("miner_id", "=", minerId)
+      .orderBy("solution_number", "desc")
+      .limit(limit)
+      .execute();
+    return rows.map(rowToMiningSubmission);
+  }
+
+  async countMiningSubmissionsWithAttempts(minerId: string): Promise<number> {
+    const row = await this.requireDb()
+      .selectFrom("mining_submissions")
+      .select((eb) => eb.fn.countAll().as("n"))
+      .where("miner_id", "=", minerId)
+      .where("attempt_count", ">", 0)
+      .executeTakeFirst();
+    return Number(row?.n ?? 0);
+  }
+
+  async getMiningCheckpoint(minerId: string): Promise<number | null> {
+    const raw = await this.getMeta(miningCheckpointKey(minerId));
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async setMiningCheckpoint(minerId: string, solutionNumber: number): Promise<void> {
+    await this.setMetaMonotonic(miningCheckpointKey(minerId), String(solutionNumber));
+  }
+
+  async resetMiningHistory(minerId: string): Promise<void> {
+    const db = this.requireDb();
+    await db.deleteFrom("mining_submissions").where("miner_id", "=", minerId).execute();
+    await db.deleteFrom("meta").where("key", "=", miningCheckpointKey(minerId)).execute();
+  }
+
+  // --- internals ---
+
+  private async getMeta(key: string): Promise<string | null> {
+    const row = await this.requireDb()
+      .selectFrom("meta")
+      .select("value")
+      .where("key", "=", key)
+      .executeTakeFirst();
+    return row?.value ?? null;
+  }
+
+  private async setMeta(key: string, value: string | null): Promise<void> {
+    await this.requireDb()
+      .insertInto("meta")
+      .values({ key, value })
+      .onConflict((oc) => oc.column("key").doUpdateSet({ value: sql`excluded.value` }))
+      .execute();
+  }
+
+  private async setMetaMonotonic(key: string, value: string): Promise<void> {
+    await this.requireDb()
+      .insertInto("meta")
+      .values({ key, value })
+      .onConflict((oc) =>
+        oc
+          .column("key")
+          .doUpdateSet({ value: sql`excluded.value` })
+          .where(sql<boolean>`cast(meta.value as numeric) < cast(excluded.value as numeric)`),
+      )
+      .execute();
+  }
+
+  private jsonVal(v: unknown): RawBuilder<unknown> {
+    return sql`${JSON.stringify(v)}::jsonb`;
+  }
+
+  private distinctOp(): RawBuilder<unknown> {
+    return sql.raw("is distinct from");
+  }
+
+  private requireDb(): Kysely<DB> {
+    if (!this.db) {
+      throw new Error("KyselyAdapter not connected. Call connect() first.");
+    }
+    return this.db;
+  }
+
+  private migratorDb(): Kysely<unknown> {
+    return this.requireDb() as unknown as Kysely<unknown>;
+  }
+}

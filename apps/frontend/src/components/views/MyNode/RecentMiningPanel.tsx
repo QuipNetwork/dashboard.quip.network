@@ -1,0 +1,272 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+
+import { formatDuration, formatNumber } from "@/lib/format";
+import { ChartCard } from "@/components/layout/ChartCard";
+import { SortableHeaderCell } from "@/components/common/SortableHeaderCell";
+import { useTableSort, type SortAccessors } from "@/lib/table-sort";
+import type { MiningSubmissionRecord } from "@quip/shared/telemetry";
+import { MiningAttemptsModal } from "./MiningAttemptsModal";
+import { OutcomeBadge } from "./mining-badges";
+import { tsNsToMs } from "./mining-shared";
+
+type MiningSortColumn =
+  | "qblock"
+  | "backend"
+  | "bestEnergy"
+  | "diversity"
+  | "solutions"
+  | "attempts"
+  | "outcome"
+  | "block"
+  | "age";
+
+const RECENT_SUBMISSIONS_VISIBLE = 20;
+
+// Row-per-submission view of the operator's recent mining activity.
+// Two row sources merged upstream in `use-my-node`:
+//   - Local: `mining_submissions` rows (fetched via
+//     `/api/v1/mining/attempts?solution_number=N`). Full fidelity —
+//     solutionNumber, attemptCount, outcome.
+//   - Chain-only: synthetic rows for self-won blocks the local table
+//     doesn't cover (older wins outside the indexer's recent window).
+//     Identified by `s.chainOnly === true`; the panel renders an
+//     em-dash for attemptCount and suppresses the modal click on those
+//     rows (no local attempts log to fetch). Their "Sol #" shows the
+//     win's solution_number ordinal (derived from its rank among all
+//     winning blocks in use-my-node), and "Block" shows the block height.
+//
+// Hidden when no submissions of either kind have been observed yet: a
+// fresh miner that hasn't won AND hasn't logged a local row.
+export function RecentMiningPanel({
+  submissions,
+  nowMs,
+}: {
+  submissions: MiningSubmissionRecord[];
+  // Wall-clock used for "Age" — prop-injected to match the rest of MyNode
+  // and stay swap-friendly for `useServerNowMs`.
+  nowMs: number;
+}) {
+  const [openSolutionNumber, setOpenSolutionNumber] = useState<number | null>(null);
+  // Window first, then sort: the panel's contract is "the last N
+  // submissions" — sorting rearranges that window, it doesn't widen it.
+  const shown = submissions.slice(0, RECENT_SUBMISSIONS_VISIBLE);
+  // Sentinel/absent values (chain-only rows without attempts logs, qblock id
+  // 0, unparseable timestamps) return null and sort last in any direction —
+  // matching the em-dashes their cells render.
+  const sortAccessors = useMemo<SortAccessors<MiningSubmissionRecord, MiningSortColumn>>(
+    () => ({
+      qblock: (s) => (s.solutionNumber > 0 ? s.solutionNumber : null),
+      backend: (s) => (s.minerType ? s.minerType : null),
+      bestEnergy: (s) => s.bestEnergyMilli,
+      diversity: (s) => s.diversityMilli,
+      solutions: (s) => s.numValid,
+      attempts: (s) => (s.chainOnly === true ? null : s.attemptCount),
+      outcome: (s) => s.outcome,
+      block: (s) => (s.chainBlockNumber ? BigInt(s.chainBlockNumber) : null),
+      age: (s) => {
+        const tsMs = tsNsToMs(s.tsNs);
+        return tsMs === null ? null : nowMs - tsMs;
+      },
+    }),
+    [nowMs],
+  );
+  const { sorted, sort, onSort } = useTableSort(shown, sortAccessors, {
+    column: "qblock",
+    direction: "desc",
+  });
+  if (shown.length === 0) return null;
+
+  return (
+    <>
+      <ChartCard
+        title="Recent Performance"
+        subtitle={`Last ${shown.length} submissions by this miner. Click a row to see the per-iteration trajectory.`}
+        bodyClassName="h-auto"
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full font-accent text-xs tabular-nums">
+            <thead>
+              <tr className="border-b border-border text-left text-ink-subtle">
+                <SortableHeaderCell
+                  label="QBlock#"
+                  column="qblock"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                  title="The chain QBlock ID (qblock_id from the BlockWinner event) — the global 1-based ordinal of this winning solution, matching the network-wide QBlock numbering. Distinct from the substrate block height where the win landed (the 'Block' column)."
+                />
+                <SortableHeaderCell
+                  label="Backend"
+                  column="backend"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                  title="Backend that produced this submission (CPU / CUDA / METAL / MODAL / QPU). Multi-backend rigs run one quip-miner process per active config group; this column shows which one won."
+                />
+                <SortableHeaderCell
+                  label="Best Energy"
+                  column="bestEnergy"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Diversity"
+                  column="diversity"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Solutions"
+                  column="solutions"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                  title="Submission-level num_valid (quip-protocol MR !105) — count of unique samples meeting the energy threshold at submit time, i.e. the count the chain accepts (≥ min_solutions below max_energy). Falls back to the submitted iteration's solution_meta.n_unique_total (sampler productivity) for pre-!105 miners; 0 when the miner publishes no count anywhere."
+                />
+                <SortableHeaderCell
+                  label="Attempts"
+                  column="attempts"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Outcome"
+                  column="outcome"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Block"
+                  column="block"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2 pr-4"
+                />
+                <SortableHeaderCell
+                  label="Age"
+                  column="age"
+                  sort={sort}
+                  onClick={onSort}
+                  className="py-2"
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((s, idx) => {
+                const ageMs = ageFromTsNs(s.tsNs, nowMs);
+                const isChainOnly = s.chainOnly === true;
+                // Chain-only rows have no real solutionNumber (sentinel 0)
+                // and no local attempts log, so don't open the modal.
+                // Key falls back to chain block + index because synthetic
+                // rows share solutionNumber=0.
+                const rowKey = isChainOnly
+                  ? `chain-${s.chainBlockNumber ?? idx}`
+                  : `${s.minerId}-${s.solutionNumber}`;
+                const handleOpen = () => {
+                  if (!isChainOnly) setOpenSolutionNumber(s.solutionNumber);
+                };
+                return (
+                  <tr
+                    key={rowKey}
+                    {...(isChainOnly
+                      ? {}
+                      : {
+                          onClick: handleOpen,
+                          role: "button" as const,
+                          tabIndex: 0,
+                          onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleOpen();
+                            }
+                          },
+                        })}
+                    className={
+                      isChainOnly
+                        ? "border-b border-border last:border-0"
+                        : "cursor-pointer border-b border-border last:border-0 hover:bg-white"
+                    }
+                  >
+                    <td className="py-1.5 pr-4 text-ink-strong">{solDisplay(s)}</td>
+                    <td className="py-1.5 pr-4 text-ink-strong">
+                      {s.minerType ? s.minerType : <span className="text-ink-subtle">—</span>}
+                    </td>
+                    <td className="py-1.5 pr-4 text-ink-strong">
+                      {milliToFixed(s.bestEnergyMilli, 3)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-ink-strong">
+                      {milliToFixed(s.diversityMilli, 3)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-ink-strong">{formatNumber(s.numValid)}</td>
+                    <td className="py-1.5 pr-4 text-ink-strong">
+                      {isChainOnly ? (
+                        <span className="text-ink-subtle">—</span>
+                      ) : (
+                        formatNumber(s.attemptCount)
+                      )}
+                    </td>
+                    <td className="py-1.5 pr-4">
+                      <OutcomeBadge outcome={s.outcome} />
+                    </td>
+                    <td className="py-1.5 pr-4 text-ink-body">
+                      {s.chainBlockNumber ? `#${s.chainBlockNumber}` : "—"}
+                    </td>
+                    <td className="py-1.5 text-ink-body">
+                      {ageMs !== null && ageMs > 0 ? `${formatDuration(ageMs)} ago` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </ChartCard>
+
+      {openSolutionNumber !== null && (
+        <MiningAttemptsModal
+          solutionNumber={openSolutionNumber}
+          onClose={() => setOpenSolutionNumber(null)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * "QBlock#" = the global chain QBlock ID for this winning solution. Distinct
+ * from the substrate block height where the win landed — that's the separate
+ * "Block" column. Local rows carry the miner's solution_number directly;
+ * chain-only synthetic rows use the block's chain `qblockId` (see use-my-node),
+ * so both sources share one numbering. Em-dash only for the sentinel-zero case
+ * (a synthetic row whose block carries no positive qblockId).
+ */
+function solDisplay(s: MiningSubmissionRecord): ReactNode {
+  if (s.solutionNumber > 0) return `#${formatNumber(s.solutionNumber)}`;
+  return <span className="text-ink-subtle">—</span>;
+}
+
+/**
+ * Convert milli-units to a fixed-decimal string. Handles negative
+ * values (energy is typically negative in this codebase) and returns
+ * an em-dash sentinel for non-finite numbers.
+ */
+function milliToFixed(milli: number, digits: number): string {
+  if (!Number.isFinite(milli)) return "—";
+  return (milli / 1000).toFixed(digits);
+}
+
+/**
+ * Age in milliseconds from a u128 nanosecond timestamp string. Returns
+ * null if the input doesn't parse — better to render an em-dash than to
+ * surface NaN durations.
+ */
+function ageFromTsNs(tsNs: string, nowMs: number): number | null {
+  const tsMs = tsNsToMs(tsNs);
+  return tsMs === null ? null : nowMs - tsMs;
+}

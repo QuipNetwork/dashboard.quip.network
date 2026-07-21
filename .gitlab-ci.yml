@@ -1,12 +1,17 @@
 # GitLab CI/CD for Quip Dashboard
 #
 # Triggers:
-#   - merge_request_event  →  test + build (SHA-tagged only, for verification)
-#   - push to main       →  build + publish (:latest)
-#   - push to v0.2         →  build + publish (:v0.2)   # rolling v0.2 line
-#   - git tag vX.Y.Z       →  build + publish (:latest, :vX.Y, :<tag>)
-#   - git tag vX.Y.Z<pre>  →  build + publish (:vX.Y, :<tag>)   # no :latest
-#                             (pre-release: rc/alpha/beta suffix, e.g. v0.2.0rc1)
+#   - merge_request_event  →  test
+#   - push to any branch   →  test (no image build/publish — merging into
+#                             main/v0.2 must NOT roll the floating tags the
+#                             deployed stacks pull; releases are cut by tagging)
+#   - git tag vX.Y.Z       →  build + publish (:<tag>, :sha); also :vX.Y and
+#                             :latest only when the commit is reachable from
+#                             origin/main (see resolve-floating-tags)
+#   - git tag vX.Y.Z-<pre> →  build + publish (:<tag>, :sha) only
+#                             (pre-release tags are hyphenated SemVer, e.g.
+#                             v0.2.1-rc18 — see AGENTS.md "Versioning & release
+#                             tags" / quip-protocol/docs/VERSIONING.md)
 
 stages:
   - test
@@ -18,7 +23,8 @@ variables:
   KANIKO_IMAGE: gcr.io/kaniko-project/executor:v1.23.2-debug
 
 # ---------------------------------------------------------------------------
-# Tests (branches + MRs — main/tags skip straight to build)
+# Tests (branches + MRs — tags skip straight to build; the tagged commit is a
+# branch head that already passed this job)
 # ---------------------------------------------------------------------------
 
 test:
@@ -26,14 +32,12 @@ test:
   image: oven/bun:1
   tags: [linux, amd64]
   script:
-    - bun install --frozen-lockfile
-    - bunx tsc --noEmit
+    - bun install
+    - bun run typecheck
     - bun run format:check
     - bun test
   rules:
     - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == "main"
       when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
@@ -47,7 +51,9 @@ test:
 # OCI manifest list under the canonical tags.
 #
 # Runner mapping (see Settings → CI/CD → Runners):
-#   amd64 → `lovelace`  — Linux docker executor; kaniko runs as the job image.
+#   amd64 → `lovelace` (linux,amd64,docker,cuda) — kaniko runs as the job image.
+#   arm64 → `cray-docker` (arm64,docker) — the only arm64 docker runner;
+#           `tesla-arm`/`cray` are macOS (no docker executor for kaniko).
 # ---------------------------------------------------------------------------
 
 build-image-amd64:
@@ -75,15 +81,80 @@ build-image-amd64:
   script:
     - /kaniko/executor
       --context $CI_PROJECT_DIR
-      --dockerfile Dockerfile
+      --dockerfile deploy/Dockerfile
       --destination $IMAGE:$CI_COMMIT_SHA-$ARCH
       --ignore-path=/lib
 
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+build-image-arm64:
+  stage: build
+  image:
+    name: $KANIKO_IMAGE
+    entrypoint: [""]
+  tags: [docker, arm64]
+  variables:
+    ARCH: arm64
+    # Stream layers to disk: kaniko's default compressed caching holds layers
+    # in RAM during snapshotting and can OOM the constrained arm64 runner.
+    KANIKO_EXTRA: "--compressed-caching=false"
+  before_script:
+    # No GPU /lib shim — the arm64 runner (cray-docker) is not a cuda host, so
+    # there are no firmware bind-mounts blocking kaniko's rootfs extraction.
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n ${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD} | base64)\"}}}" > /kaniko/.docker/config.json
+  script:
+    - /kaniko/executor
+      --context $CI_PROJECT_DIR
+      --dockerfile deploy/Dockerfile
+      --destination $IMAGE:$CI_COMMIT_SHA-$ARCH
+      $KANIKO_EXTRA
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# ---------------------------------------------------------------------------
+# Resolve floating tags (:vX.Y, :latest) for stable releases on main.
+#
+# Tag pipelines have no CI_COMMIT_BRANCH, so commit ancestry decides. The
+# manifest-tool image has no git and jobs may be shallow; this job uses a
+# full clone (GIT_DEPTH 0) + alpine/git to run merge-base, then passes the
+# result to manifest via dotenv. Immutable :$CI_COMMIT_SHA and :$CI_COMMIT_TAG
+# are always published by manifest regardless of this job's output.
+# ---------------------------------------------------------------------------
+
+resolve-floating-tags:
+  stage: build
+  needs: []
+  image:
+    name: alpine/git:latest
+    entrypoint: [""]
+  tags: [linux, amd64]
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - git fetch origin main
+    - |
+      # :vX.Y and :latest only for stable tags reachable from origin/main.
+      # rc/pre-release tags and stable tags not on main get neither.
+      PUBLISH_FLOATING=0
+      MINOR_TAG=""
+      if printf '%s' "$CI_COMMIT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+        if git merge-base --is-ancestor "$CI_COMMIT_SHA" origin/main; then
+          PUBLISH_FLOATING=1
+          MINOR_TAG="$(printf '%s' "$CI_COMMIT_TAG" | sed -E 's/^(v[0-9]+\.[0-9]+).*/\1/')"
+        fi
+      fi
+      {
+        echo "PUBLISH_FLOATING=$PUBLISH_FLOATING"
+        echo "MINOR_TAG=$MINOR_TAG"
+      } > floating-tags.env
+      echo "resolved PUBLISH_FLOATING=$PUBLISH_FLOATING MINOR_TAG='$MINOR_TAG' for $CI_COMMIT_TAG ($CI_COMMIT_SHA)"
+  artifacts:
+    reports:
+      dotenv: floating-tags.env
+  rules:
+    - if: $CI_COMMIT_TAG
 
 # ---------------------------------------------------------------------------
 # Manifest list — combine the two per-arch images under the canonical tags.
@@ -98,43 +169,25 @@ manifest:
   tags: [linux, amd64]
   needs:
     - build-image-amd64
+    - build-image-arm64
+    - resolve-floating-tags
   script:
-    # Tag pipelines leave CI_COMMIT_BRANCH unset and branch pipelines leave
-    # CI_COMMIT_TAG unset — default each to empty so the checks are safe.
     - |
-      TARGETS="$IMAGE:$CI_COMMIT_SHA"
-      if [ "${CI_COMMIT_BRANCH:-}" = "main" ]; then
-        TARGETS="$TARGETS $IMAGE:latest"
-      fi
-      if [ "${CI_COMMIT_BRANCH:-}" = "v0.2" ]; then
-        # The active v0.2 line: each branch push rolls the floating :v0.2 tag
-        # that the stack pulls. A release tag (vX.Y.Z<pre>) later re-pins :v0.2
-        # and adds the immutable :<tag>.
-        TARGETS="$TARGETS $IMAGE:v0.2"
-      fi
-      if [ -n "${CI_COMMIT_TAG:-}" ]; then
-        # Immutable, exact-version tag (e.g. v0.2.0rc1).
-        TARGETS="$TARGETS $IMAGE:$CI_COMMIT_TAG"
-        # Floating minor-line tag: v0.2.0rc1 -> v0.2.
-        MINOR="$(printf '%s' "$CI_COMMIT_TAG" | sed -E 's/^(v[0-9]+\.[0-9]+).*/\1/')"
-        if [ "$MINOR" != "$CI_COMMIT_TAG" ]; then
-          TARGETS="$TARGETS $IMAGE:$MINOR"
-        fi
-        # :latest only for stable releases — never for rc/alpha/beta pre-releases.
-        if printf '%s' "$CI_COMMIT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-          TARGETS="$TARGETS $IMAGE:latest"
-        fi
+      # Immutable tags always: the exact SHA and the exact release tag
+      # (e.g. v0.2.1-rc18 or v0.2.1).
+      TARGETS="$IMAGE:$CI_COMMIT_SHA $IMAGE:$CI_COMMIT_TAG"
+      # Floating :vX.Y and :latest only when resolve-floating-tags decided
+      # the tag is a stable vX.Y.Z reachable from origin/main.
+      if [ "$PUBLISH_FLOATING" = "1" ] && [ -n "$MINOR_TAG" ]; then
+        TARGETS="$TARGETS $IMAGE:$MINOR_TAG $IMAGE:latest"
       fi
       for T in $TARGETS; do
         manifest-tool \
           --username "$CI_REGISTRY_USER" --password "$CI_REGISTRY_PASSWORD" \
           push from-args \
-          --platforms linux/amd64 \
+          --platforms linux/amd64,linux/arm64 \
           --template "$IMAGE:$CI_COMMIT_SHA-ARCH" \
           --target "$T"
       done
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_BRANCH == "v0.2"
     - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
