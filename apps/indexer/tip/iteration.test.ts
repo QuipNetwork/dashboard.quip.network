@@ -2,7 +2,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
+import {
+  MiningSubmissionNotFoundError,
+  MiningSubmissionUnparsableError,
+} from "@quip/core/miner-api";
 import type {
   MinerStats,
   MiningAttemptsResponse,
@@ -334,5 +337,65 @@ describe("tip-worker v0.3", () => {
     expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(5);
     const rows = await deps.db.getRecentMiningSubmissions("5GPP", 50);
     expect(rows.map((r) => r.solutionNumber)).toEqual([5]);
+  });
+});
+
+// Rule N1 of the quip-miner v0.3 REST contract. Before the guard, a
+// coordinator that served the i64::MAX no-solution sentinel made every insert
+// for that solution_number fail on the BIGINT column. persistAttempt rethrew,
+// which skipped setMiningCheckpoint, so the walk retried the same number on
+// every poll and no later solution was ever indexed.
+describe("runTipIteration — unparsable submissions never stall the walk", () => {
+  test("an unparsable solution_number is skipped and the checkpoint advances", async () => {
+    const poisoned = 803;
+    const client = fakeClient({ solutionExists: () => true });
+    const base = client.getMiningAttempts.bind(client);
+    const deps = await setupDeps({
+      client: {
+        ...client,
+        getMiningAttempts: (n: number) =>
+          n === poisoned
+            ? Promise.reject(
+                new MiningSubmissionUnparsableError(
+                  "missing or out-of-range numeric field `energy_milli` (got 9223372036854775807)",
+                ),
+              )
+            : base(n),
+      },
+    });
+    await seedWinningSolutionsCount(deps, 805);
+    await deps.db.setMiningCheckpoint("5GPP", 801);
+
+    await runTipIteration(deps);
+
+    // The walk cleared the poisoned number and reached the head.
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(805);
+    const nums = (await deps.db.getRecentMiningSubmissions("5GPP", 50)).map(
+      (r) => r.solutionNumber,
+    );
+    expect(nums).not.toContain(poisoned);
+    expect(nums).toContain(805);
+  });
+
+  test("a transport failure still stops the walk at the last good number", async () => {
+    // The opposite case: a 502 is transient, so the checkpoint must hold and
+    // the next poll must retry the same number.
+    const client = fakeClient({ solutionExists: () => true });
+    const base = client.getMiningAttempts.bind(client);
+    const deps = await setupDeps({
+      client: {
+        ...client,
+        getMiningAttempts: (n: number) =>
+          n === 803
+            ? Promise.reject(new Error("[indexer] 502 from /api/v1/mining/attempts"))
+            : base(n),
+      },
+    });
+    await seedWinningSolutionsCount(deps, 805);
+    await deps.db.setMiningCheckpoint("5GPP", 801);
+
+    await runTipIteration(deps);
+
+    expect(await deps.db.getMiningCheckpoint("5GPP")).toBe(802);
   });
 });

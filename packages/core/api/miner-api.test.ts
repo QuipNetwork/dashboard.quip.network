@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parseMiningAttemptsApiResponse } from "./miner-api";
+import { MiningSubmissionUnparsableError, parseMiningAttemptsApiResponse } from "./miner-api";
 
 // Build a minimal valid envelope and let each test override only the
 // pieces it cares about. The parser requires solution_number, miner_id,
@@ -327,5 +327,85 @@ describe("parseMiningAttemptsApiResponse — solutionNumber (!105 global key)", 
     }) as { submission: Record<string, unknown> };
     delete env.submission.solution_number;
     expect(() => parseMiningAttemptsApiResponse(env)).toThrow(/solution_number/);
+  });
+});
+
+// Rule N1 of the quip-miner v0.3 REST contract: an integer that reaches
+// the parser as a JSON number must be inside the IEEE-754 safe integer range.
+// A larger value has already lost precision — `Number(i64::MAX)` becomes
+// 9223372036854775808, which serializes as "9223372036854776000" and PostgreSQL
+// rejects for a BIGINT column. Defence in depth: quip-miner must not emit these
+// (defect D1), and the dashboard must not persist one if it does.
+describe("parseMiningAttemptsApiResponse — safe-integer guard (rule N1)", () => {
+  const I64_MAX = 9223372036854775807n.toString();
+
+  test("rejects an out-of-range energy_milli with a permanent error", () => {
+    const env = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    }) as { submission: Record<string, unknown> };
+    env.submission.energy_milli = Number(I64_MAX);
+    expect(() => parseMiningAttemptsApiResponse(env)).toThrow(MiningSubmissionUnparsableError);
+    expect(() => parseMiningAttemptsApiResponse(env)).toThrow(/energy_milli/);
+  });
+
+  test("rejects an out-of-range threshold_milli", () => {
+    const env = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    }) as { submission: Record<string, unknown> };
+    env.submission.threshold_milli = I64_MAX;
+    expect(() => parseMiningAttemptsApiResponse(env)).toThrow(MiningSubmissionUnparsableError);
+  });
+
+  test("a permanent parse error is distinct from a missing-field error", () => {
+    // Both are permanent for a given body, so both must carry the type the
+    // indexer keys its skip-and-advance behaviour on.
+    const env = envelope({ attempts: [] }) as { submission: Record<string, unknown> };
+    delete env.submission.miner_id;
+    expect(() => parseMiningAttemptsApiResponse(env)).toThrow(MiningSubmissionUnparsableError);
+  });
+
+  test("skips an attempt row whose best_energy_milli is out of range", () => {
+    const env = envelope({
+      attempts: [
+        { type: "attempt", iter: 1, best_energy_milli: Number(I64_MAX), result_kind: "rejected" },
+        { type: "attempt", iter: 2, best_energy_milli: -900, result_kind: "stored" },
+      ],
+    });
+    const out = parseMiningAttemptsApiResponse(env);
+    expect(out.attempts.map((a) => a.iter)).toEqual([2]);
+    expect(out.submission.bestEnergyMilli).toBe(-900);
+  });
+
+  test("treats an out-of-range qpu_access_time_us as unreported", () => {
+    const env = envelope({
+      attempts: [
+        {
+          type: "attempt",
+          iter: 1,
+          best_energy_milli: -1,
+          result_kind: "stored",
+          qpu_access_time_us: 18446744073709551615n.toString(),
+        },
+      ],
+    });
+    expect(parseMiningAttemptsApiResponse(env).submission.qpuAccessTimeUs).toBe(0);
+  });
+
+  test("treats an out-of-range pow_sequence as unreported", () => {
+    const env = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    }) as { submission: Record<string, unknown> };
+    env.submission.pow_sequence = I64_MAX;
+    expect(parseMiningAttemptsApiResponse(env).submission.powSequence).toBeNull();
+  });
+
+  test("accepts the safe-integer boundary itself", () => {
+    const env = envelope({
+      attempts: [{ type: "attempt", iter: 1, best_energy_milli: -1, result_kind: "stored" }],
+    }) as { submission: Record<string, unknown> };
+    env.submission.energy_milli = Number.MAX_SAFE_INTEGER;
+    expect(parseMiningAttemptsApiResponse(env).submission.energyMilli).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
   });
 });

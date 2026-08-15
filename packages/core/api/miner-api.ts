@@ -69,23 +69,25 @@ interface RawEnvelope {
  */
 export function parseMiningAttemptsApiResponse(raw: unknown): MiningAttemptsResponse {
   if (!raw || typeof raw !== "object") {
-    throw new Error("mining-attempts: response is not an object");
+    throw new MiningSubmissionUnparsableError("response is not an object");
   }
   const env = raw as RawEnvelope;
   if (!env.submission || typeof env.submission !== "object") {
-    throw new Error("mining-attempts: missing `submission` field");
+    throw new MiningSubmissionUnparsableError("missing `submission` field");
   }
   const s = env.submission;
   const requireStr = (v: unknown, name: string): string => {
     if (typeof v !== "string" || v.length === 0) {
-      throw new Error(`mining-attempts: missing string field \`${name}\``);
+      throw new MiningSubmissionUnparsableError(`missing string field \`${name}\``);
     }
     return v;
   };
   const requireNum = (v: unknown, name: string): number => {
-    const n = typeof v === "number" ? v : Number(v);
-    if (!Number.isFinite(n)) {
-      throw new Error(`mining-attempts: missing numeric field \`${name}\` (got ${String(v)})`);
+    const n = safeNumber(v);
+    if (n === null) {
+      throw new MiningSubmissionUnparsableError(
+        `missing or out-of-range numeric field \`${name}\` (got ${String(v)})`,
+      );
     }
     return n;
   };
@@ -215,12 +217,29 @@ function sumQpuAccessTimeUs(raw: RawAttempt[] | undefined): number {
   return total;
 }
 
+/**
+ * Coerce a wire scalar to a number the dashboard can persist, or null.
+ *
+ * Rule N1 of the quip-miner v0.3 REST contract: every integer the miner
+ * serializes as a JSON number must fall inside the IEEE-754 safe integer
+ * range. Beyond it, `Number()` has already rounded — the coordinator's
+ * `i64::MAX` no-solution sentinel arrives as 9223372036854775808 and
+ * serializes back out as "9223372036854776000", which PostgreSQL rejects for
+ * the BIGINT columns of `mining_submissions`. Rejecting here keeps a rounded
+ * value from ever reaching the insert.
+ *
+ * The bound is on magnitude rather than `Number.isSafeInteger` so a genuinely
+ * fractional field (none today) still parses.
+ */
+function safeNumber(v: unknown): number | null {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return null;
+  if (Math.abs(n) > Number.MAX_SAFE_INTEGER) return null;
+  return n;
+}
+
 function numericExtra(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
+  if (typeof v === "number" || typeof v === "string") return safeNumber(v);
   return null;
 }
 
@@ -237,8 +256,7 @@ function optionalNum(v: unknown): number | null {
 }
 
 function submissionEnergy(s: RawSubmission): number {
-  const n = typeof s.energy_milli === "number" ? s.energy_milli : Number(s.energy_milli);
-  return Number.isFinite(n) ? n : 0;
+  return safeNumber(s.energy_milli) ?? 0;
 }
 
 function parseAttempts(raw: RawAttempt[] | undefined): MiningAttempt[] {
@@ -246,12 +264,13 @@ function parseAttempts(raw: RawAttempt[] | undefined): MiningAttempt[] {
   const out: MiningAttempt[] = [];
   for (const a of raw) {
     if (!a || typeof a !== "object") continue;
-    const iterN = typeof a.iter === "number" ? a.iter : Number(a.iter);
-    const bestN =
-      typeof a.best_energy_milli === "number" ? a.best_energy_milli : Number(a.best_energy_milli);
+    const iterN = safeNumber(a.iter);
+    const bestN = safeNumber(a.best_energy_milli);
     // Skip malformed rows rather than throw — one bad iteration shouldn't
-    // sink the whole modal payload.
-    if (!Number.isFinite(iterN) || !Number.isFinite(bestN)) continue;
+    // sink the whole modal payload. Out-of-range counts as malformed: the
+    // submission's `bestEnergyMilli` is the minimum across these rows and
+    // lands in a BIGINT column, so a rounded value would poison it.
+    if (iterN === null || bestN === null) continue;
     // miner_type is hoisted to a typed field; exclude it from `extra` so
     // it isn't displayed twice in the modal's "extras" detail rows.
     const extra: Record<string, unknown> = {};
@@ -320,5 +339,23 @@ export class MiningSubmissionNotFoundError extends Error {
   constructor(public readonly solutionNumber: number) {
     super(`mining submission ${solutionNumber} not found`);
     this.name = "MiningSubmissionNotFoundError";
+  }
+}
+
+/**
+ * The miner answered, but the body cannot become a row: a required field is
+ * absent, or a number arrived outside the range PostgreSQL accepts for the
+ * column it lands in (rule N1).
+ *
+ * Permanent for a given body, which is what separates it from a transport
+ * failure. Retrying the same `solution_number` produces the same result, so
+ * the indexer's poll loop skips it and advances the checkpoint — the same
+ * treatment a 404 gets. Without that distinction one unparsable solution
+ * stalls the walk forever and no later solution is ever indexed.
+ */
+export class MiningSubmissionUnparsableError extends Error {
+  constructor(reason: string) {
+    super(`mining-attempts: ${reason}`);
+    this.name = "MiningSubmissionUnparsableError";
   }
 }
