@@ -10,26 +10,6 @@ import { createPgliteHarness, type PgliteHarness } from "./api/db/pglite-support
 let shared: PgliteHarness | null = null;
 
 /**
- * Free the shared pglite. Called once per test process from the
- * `packages/core/test-preload.ts` hook that `bunfig.toml` loads.
- *
- * `closeAdapterOnDisconnect: false` makes `adapter.disconnect()` a no-op, which
- * is what lets 20-odd files share one instance — but it also means nothing ever
- * calls `pg.close()`. The WASM instance then outlives the last test and Bun
- * ends a run where every test passed with exit code 99: a clean result and an
- * unclean exit. Closing here restores a 0.
- *
- * Do NOT call this from a per-file `afterAll`. The next file would pay the
- * pglite init again, and the sharing this helper exists for would be gone.
- */
-export async function closeSharedInMemoryAdapter(): Promise<void> {
-  if (!shared) return;
-  const harness = shared;
-  shared = null;
-  await harness.close();
-}
-
-/**
  * Test factory: a migrated in-memory Postgres adapter (real Postgres semantics
  * via pglite). Each call yields a clean DB. Prefer this over a hand-rolled fake
  * — exercising the real adapter catches schema/migration drift the fake masks.
