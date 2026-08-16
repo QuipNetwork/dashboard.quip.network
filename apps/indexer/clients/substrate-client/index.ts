@@ -365,20 +365,20 @@ export class PolkadotSubstrateClient implements SubstrateClient {
 
   async getDifficulty(): Promise<DifficultyInfo | null> {
     const api = this.requireApi();
-    // Prefer the v0.2 runtime API: it applies on-the-fly decay so the
-    // returned value reflects the threshold the pallet actually checks
-    // proofs against (not the stored baseline, which only refreshes on
-    // sudo updates and can be hours stale through a decay window).
+    // `quantumPowApi.currentDifficulty` is the only source. It applies
+    // on-the-fly decay, so the value reflects the threshold the pallet checks
+    // proofs against, not the stored baseline (which refreshes only on sudo
+    // updates and can be hours stale through a decay window).
+    //
+    // There is no storage fallback. The pallet's `Difficulty` StorageValue is
+    // gone: it is now `Difficulties`, a StorageMap keyed by topology hash, so
+    // an argument-free read can never resolve. A chain old enough to lack the
+    // runtime API is older than anything the dashboard supports — return null
+    // and let the caller show the gap.
     const runtimeFn = (api.call as unknown as Record<string, Record<string, unknown> | undefined>)
       ?.quantumPowApi?.currentDifficulty;
-    if (typeof runtimeFn === "function") {
-      const codec = await (runtimeFn as () => Promise<unknown>)();
-      return decodeDifficulty(codec);
-    }
-    // Capability fallback for pre-v0.2 chains. Drop in a follow-up MR
-    // once the deployed chain is stable on the new runtime API.
-    if (!api.query.quantumPow?.difficulty) return null;
-    const codec = await api.query.quantumPow.difficulty();
+    if (typeof runtimeFn !== "function") return null;
+    const codec = await (runtimeFn as () => Promise<unknown>)();
     return decodeDifficulty(codec);
   }
 

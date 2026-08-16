@@ -9,7 +9,8 @@
 # ---- frontend build stage (prod static SPA) ----
 FROM oven/bun:1 AS frontend
 WORKDIR /app
-# lockfiles are gitignored
+# The manifests are copied without bun.lock, so this stage resolves fresh
+# rather than installing what CI locked. Runtime deps still float here.
 COPY package.json ./
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/server/package.json apps/server/package.json

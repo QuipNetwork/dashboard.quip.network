@@ -8,7 +8,10 @@
 import { concatMap, from, lastValueFrom, range } from "rxjs";
 
 import type { DatabaseAdapter } from "@quip/core/db/adapter";
-import { MiningSubmissionNotFoundError } from "@quip/core/miner-api";
+import {
+  MiningSubmissionNotFoundError,
+  MiningSubmissionUnparsableError,
+} from "@quip/core/miner-api";
 import type { MinerCategory, MinerHardwareRecord, MinerStats } from "@quip/shared/telemetry";
 
 import type { ChainStateReader } from "../core/chain-state";
@@ -193,8 +196,17 @@ async function persistAttempt(
     // is recoverable via the proxy on modal open.
     await db.insertMiningSubmission({ ...env.submission, minerId, observedAt });
   } catch (e) {
-    if (!(e instanceof MiningSubmissionNotFoundError)) throw e;
-    // Sparse gap — skip and advance the checkpoint below.
+    if (e instanceof MiningSubmissionUnparsableError) {
+      // The miner answered, but the body cannot become a row (a missing field,
+      // or a number outside the range the column accepts — see rule N1 in
+      // the quip-miner v0.3 REST contract). Retrying produces the same
+      // body, so treat it like a gap and advance. Warn loudly: this is data
+      // loss for one solution_number, and the fix belongs in the miner.
+      console.warn(`[indexer/tip] solution_number ${n} is unparsable, skipping:`, e.message);
+    } else if (!(e instanceof MiningSubmissionNotFoundError)) {
+      throw e;
+    }
+    // Sparse gap or poisoned body — skip and advance the checkpoint below.
   }
   await db.setMiningCheckpoint(minerId, n);
 }

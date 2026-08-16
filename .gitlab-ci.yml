@@ -32,7 +32,7 @@ test:
   image: oven/bun:1
   tags: [linux, amd64]
   script:
-    - bun install
+    - bun install --frozen-lockfile
     - bun run typecheck
     - bun run format:check
     - bun test
