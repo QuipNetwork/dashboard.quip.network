@@ -38,6 +38,33 @@ pub fn dashboard_rel_path(account: &str) -> PathBuf {
     PathBuf::from(MINERS_DIR).join(account)
 }
 
+/// Atomically write `bytes` to `root.join(rel)`: create parent dirs, write to
+/// a pid-suffixed temp file, then rename over the target. Never leaves a
+/// partial file at `rel`.
+///
+/// # Errors
+/// Returns an I/O error if directory creation, the temp write, or the rename fails.
+pub async fn atomic_write(
+    root: &std::path::Path,
+    rel: &std::path::Path,
+    bytes: &[u8],
+) -> std::io::Result<()> {
+    let abs = root.join(rel);
+    if let Some(parent) = abs.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let tmp = abs.with_file_name(format!(
+        ".{}.{}.tmp",
+        abs.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file"),
+        std::process::id()
+    ));
+    tokio::fs::write(&tmp, bytes).await?;
+    tokio::fs::rename(&tmp, &abs).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,5 +92,32 @@ mod tests {
         let s = rel.to_string_lossy().to_string();
         assert_eq!(s.split('/').count(), 3);
         assert!(s.ends_with("42.json"));
+    }
+    #[tokio::test]
+    async fn atomic_write_replaces_and_creates_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let rel = qblock_rel_path("abc");
+        let abs = dir.path().join(&rel);
+        atomic_write(dir.path(), &rel, b"one").await.unwrap();
+        assert_eq!(tokio::fs::read(&abs).await.unwrap(), b"one");
+        // Re-write overwrites atomically.
+        atomic_write(dir.path(), &rel, b"two").await.unwrap();
+        assert_eq!(tokio::fs::read(&abs).await.unwrap(), b"two");
+        // No temp files left behind.
+        let mut leftovers = vec![];
+        let mut stack = vec![dir.path().to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let mut rd = tokio::fs::read_dir(&d).await.unwrap();
+            while let Some(e) = rd.next_entry().await.unwrap() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.ends_with(".tmp") {
+                    leftovers.push(name);
+                }
+                if e.file_type().await.unwrap().is_dir() {
+                    stack.push(e.path());
+                }
+            }
+        }
+        assert!(leftovers.is_empty(), "temp files: {leftovers:?}");
     }
 }
