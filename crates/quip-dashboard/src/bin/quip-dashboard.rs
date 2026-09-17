@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use dashboard_model::DecimalString;
 use dashboard_store::{Indexable, Store};
-use quip_dashboard::{config::Config, lifecycle};
+use quip_dashboard::{config::Config, indexer::file_writer::FileWriter, lifecycle};
 use std::{
     error::Error,
     io::{self, Write},
@@ -418,13 +418,8 @@ async fn run_indexer(
         tracing::warn!(%error, "device-access-time backfill startup check failed");
         return Err(error.to_string());
     }
-    let (indexer, mut progress) = Indexer::with_writer(
-        store,
-        chain,
-        Some(quip_dashboard::indexer::file_writer::FileWriter::new(
-            config.data_dir.clone(),
-        )),
-    );
+    let (indexer, mut progress) =
+        Indexer::with_writer(store, chain, Some(FileWriter::new(config.data_dir.clone())));
     let monitor = async {
         let mut prior = quip_dashboard::indexer::Progress::default();
         loop {
@@ -478,6 +473,72 @@ fn permanent_identity_error(error: &(dyn Error + Send + Sync + 'static)) -> bool
     true
 }
 
+async fn write_miner_telemetry_files(
+    writer: &FileWriter,
+    account: &str,
+    snapshot: &quip_dashboard::miner::MinerSnapshot,
+    attempts_dir: Option<&std::path::Path>,
+    store: &Store,
+    miner: &quip_dashboard::miner::MinerService,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Best-effort miner telemetry files; failures never fail the poll.
+    if let Ok(status) = &snapshot.status
+        && let Err(error) = writer
+            .write_miner_status(
+                account,
+                &serde_json::to_value(&status.data).unwrap_or_default(),
+            )
+            .await
+    {
+        tracing::warn!(%error, "miner status file write failed");
+    }
+    if let Ok(stats) = &snapshot.stats
+        && let Err(error) = writer
+            .write_miner_stats(
+                account,
+                &serde_json::to_value(&stats.data).unwrap_or_default(),
+            )
+            .await
+    {
+        tracing::warn!(%error, "miner stats file write failed");
+    }
+    if let Some(attempts_dir) = attempts_dir {
+        if let Err(error) = writer.symlink_miner_attempts(account, attempts_dir).await {
+            tracing::warn!(%error, "miner attempt symlink failed");
+        }
+    } else if let Some(highest) = store
+        .get_chain_head()
+        .await?
+        .and_then(|head| head.qblock_count)
+    {
+        let dispatch_number = highest.saturating_add(1);
+        if let Ok(dispatch) = miner
+            .local_dispatch(i64::try_from(dispatch_number).unwrap_or(i64::MAX))
+            .await
+        {
+            let dispatch_doc = match dispatch.data.as_ref() {
+                Some(current) => serde_json::to_value(current).unwrap_or(serde_json::Value::Null),
+                None => serde_json::Value::Null,
+            };
+            if let Err(error) = writer
+                .write_miner_current_dispatch(account, &dispatch_doc)
+                .await
+            {
+                tracing::warn!(%error, "miner current-dispatch file write failed");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "assembly keeps the miner poll's shared ownership in one visible scope"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the miner poll loop wires persistence, observability, and file output in one tick"
+)]
 async fn poll_miner(
     store: Arc<Store>,
     miner: Arc<quip_dashboard::miner::MinerService>,
@@ -485,6 +546,8 @@ async fn poll_miner(
     bound: tokio::sync::watch::Receiver<bool>,
     interval: Duration,
     chain_slot: SharedChain,
+    writer: Option<FileWriter>,
+    miner_attempts_dir: Option<std::path::PathBuf>,
     cancellation: tokio_util::sync::CancellationToken,
 ) -> Result<(), String> {
     let mut ticks = tokio::time::interval(interval);
@@ -513,6 +576,19 @@ async fn poll_miner(
                 &now,
             )
             .await?;
+            if let Some(account) = &identity
+                && let Some(writer) = &writer
+            {
+                write_miner_telemetry_files(
+                    writer,
+                    account,
+                    &snapshot,
+                    miner_attempts_dir.as_deref(),
+                    &store,
+                    &miner,
+                )
+                .await?;
+            }
             if let Some(mut observability) = store.get_indexer_observability().await? {
                 let snapshot = health.snapshot();
                 observability.chain_connected = snapshot.chain_connected;
@@ -552,6 +628,7 @@ async fn poll_miner(
                     .await?
                     .and_then(|head| head.qblock_count)
             {
+                let co_located = miner_attempts_dir.is_some();
                 for solution in lifecycle::mining_catchup_range(&store, &account, highest).await? {
                     let attempt = miner
                         .local_attempts(solution)
@@ -570,6 +647,21 @@ async fn poll_miner(
                             tracing::warn!(%error, "miner catch-up paused at current checkpoint");
                             break;
                         }
+                    }
+                    // Best-effort per-attempt file. Re-pinned over the network only when
+                    // the miner is not co-located; a co-located poll reads the symlinked tree.
+                    if !co_located
+                        && let Some(writer) = &writer
+                        && let Ok(attempt) = miner.local_attempts(solution).await
+                        && let Err(error) = writer
+                            .write_miner_attempt(
+                                &account,
+                                &solution.to_string(),
+                                &serde_json::to_value(&attempt.data).unwrap_or_default(),
+                            )
+                            .await
+                    {
+                        tracing::warn!(%error, "miner attempt file write failed");
                     }
                 }
             }
@@ -672,6 +764,8 @@ async fn serve(config: Config) -> CommandResult {
                 bound_receiver,
                 interval,
                 chain_slot.clone(),
+                Some(FileWriter::new(config.data_dir.clone())),
+                config.miner_attempts_dir.clone(),
                 cancellation.clone(),
             ),
         );

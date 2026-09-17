@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Best-effort per-qblock and per-miner file writer.
-use crate::qblock_path::{QBLOCKS_DIR, atomic_write, qblock_rel_path};
+use crate::qblock_path::{MINERS_DIR, QBLOCKS_DIR, atomic_write, qblock_rel_path};
 use dashboard_model::QBlockParticipationRecord;
 use serde_json::{Value, json};
 
@@ -45,6 +45,88 @@ impl FileWriter {
             .join(qblock_rel_path(id));
         let bytes = serde_json::to_vec(payload).map_err(std::io::Error::other)?;
         atomic_write(&self.root, &rel, &bytes).await
+    }
+
+    /// Write a whole miner telemetry document to
+    /// `miners/<account>/<name>.json`.
+    ///
+    /// # Errors
+    /// Returns an I/O or serialization error, leaving no partial file.
+    async fn write_miner_doc(
+        &self,
+        account: &str,
+        name: &str,
+        payload: &Value,
+    ) -> std::io::Result<()> {
+        let rel = std::path::PathBuf::from("miners")
+            .join(account)
+            .join(format!("{name}.json"));
+        let bytes = serde_json::to_vec(payload).map_err(std::io::Error::other)?;
+        atomic_write(&self.root, &rel, &bytes).await
+    }
+
+    /// Write one `/api/v1/status` snapshot to `miners/<account>/status.json`.
+    ///
+    /// # Errors
+    /// Returns an I/O or serialization error, leaving no partial file.
+    pub async fn write_miner_status(&self, account: &str, payload: &Value) -> std::io::Result<()> {
+        self.write_miner_doc(account, "status", payload).await
+    }
+
+    /// Write one `/api/v1/stats` snapshot to `miners/<account>/stats.json`.
+    ///
+    /// # Errors
+    /// Returns an I/O or serialization error, leaving no partial file.
+    pub async fn write_miner_stats(&self, account: &str, payload: &Value) -> std::io::Result<()> {
+        self.write_miner_doc(account, "stats", payload).await
+    }
+
+    /// Write the in-flight dispatch probe to
+    /// `miners/<account>/current-dispatch.json`.
+    ///
+    /// # Errors
+    /// Returns an I/O or serialization error, leaving no partial file.
+    pub async fn write_miner_current_dispatch(
+        &self,
+        account: &str,
+        payload: &Value,
+    ) -> std::io::Result<()> {
+        self.write_miner_doc(account, "current-dispatch", payload)
+            .await
+    }
+
+    /// Symlink the miner's own attempt tree at `source` into this writer's
+    /// `miners/<account>/mining-attempts` so co-located polls need no network
+    /// re-pinning. Creates the link only when the target does not yet exist;
+    /// a pre-existing target (a real link or dir) is left untouched.
+    ///
+    /// # Errors
+    /// Returns an I/O error when the link cannot be read or created.
+    pub async fn symlink_miner_attempts(
+        &self,
+        account: &str,
+        source: &std::path::Path,
+    ) -> std::io::Result<()> {
+        let target = self
+            .root
+            .join(MINERS_DIR)
+            .join(account)
+            .join("mining-attempts");
+        match tokio::fs::symlink_metadata(&target).await {
+            Ok(_) => Ok(()), // already linked or otherwise present
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(parent) = target.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                let source_abs = if source.is_absolute() {
+                    source.to_path_buf()
+                } else {
+                    std::env::current_dir()?.join(source)
+                };
+                tokio::fs::symlink(source_abs, &target).await
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Merge one batch of committed records into the per-qblock file tree.
@@ -248,7 +330,7 @@ mod tests {
         clippy::indexing_slicing,
         reason = "serde JSON fixture indexing returns null for absent object keys"
     )]
-    use super::{FileWriter, QBLOCKS_DIR, qblock_rel_path};
+    use super::{FileWriter, MINERS_DIR, QBLOCKS_DIR, qblock_rel_path};
     use dashboard_model::QBlockParticipationRecord;
     use serde_json::{Value, json};
     use std::str::FromStr;
@@ -393,6 +475,69 @@ mod tests {
         let bytes = tokio::fs::read(&abs).await?;
         let parsed: Value = serde_json::from_slice(&bytes)?;
         assert_eq!(parsed["solutionNumber"], 42);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn write_miner_status_lands_in_miner_tree() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let w = FileWriter::new(dir.path().to_path_buf());
+        w.write_miner_status("5GPP", &json!({ "ss58Address": "5GPP" }))
+            .await?;
+        let abs = dir.path().join("miners/5GPP/status.json");
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&abs).await?)?;
+        assert_eq!(parsed["ss58Address"], "5GPP");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn write_miner_stats_lands_in_miner_tree() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let w = FileWriter::new(dir.path().to_path_buf());
+        w.write_miner_stats("5GPP", &json!({ "proofsSubmitted": 12 }))
+            .await?;
+        let abs = dir.path().join("miners/5GPP/stats.json");
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&abs).await?)?;
+        assert_eq!(parsed["proofsSubmitted"], 12);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn write_miner_current_dispatch_lands_in_miner_tree()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let w = FileWriter::new(dir.path().to_path_buf());
+        w.write_miner_current_dispatch("5GPP", &json!({ "solutionNumber": 9 }))
+            .await?;
+        let abs = dir.path().join("miners/5GPP/current-dispatch.json");
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&abs).await?)?;
+        assert_eq!(parsed["solutionNumber"], 9);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn symlink_miner_attempts_links_source_once() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let w = FileWriter::new(dir.path().to_path_buf());
+        // A co-located miner owns `data/attempts` with a leaf file.
+        let source = dir.path().join("data/attempts");
+        tokio::fs::create_dir_all(&source).await?;
+        tokio::fs::write(source.join("attempts.json"), b"{}").await?;
+        w.symlink_miner_attempts("5GPP", &source).await?;
+        let link = dir
+            .path()
+            .join(MINERS_DIR)
+            .join("5GPP")
+            .join("mining-attempts");
+        let meta = tokio::fs::symlink_metadata(&link).await?;
+        assert!(meta.file_type().is_symlink(), "expected a symlink");
+        // The linked tree exposes the miner's own file.
+        let via_link = tokio::fs::read(link.join("attempts.json")).await?;
+        assert_eq!(via_link, b"{}");
+        // A second call is idempotent: the existing link is left untouched.
+        w.symlink_miner_attempts("5GPP", &source).await?;
+        let text = tokio::fs::read_link(&link).await?;
+        assert_eq!(text, source);
         Ok(())
     }
 
