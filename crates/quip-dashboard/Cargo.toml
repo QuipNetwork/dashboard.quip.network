@@ -25,6 +25,7 @@ thiserror.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 hex = "0.4.3"
+sha2 = "0.10.9"
 blake2 = "0.10.6"
 bs58 = "0.5.1"
 nix = { version = "0.31.3", features = ["signal", "process"] }

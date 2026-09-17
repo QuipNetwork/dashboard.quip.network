@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Stable filesystem paths for qblock and miner data files.
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 /// Directory holding the fan-out qblock tree and its manifest.
@@ -9,9 +10,9 @@ pub const MINERS_DIR: &str = "miners";
 
 /// First 8 hex chars of a stable hash of `id`, split 4/4.
 fn hash_prefix(id: &str) -> (String, String) {
-    let digest = blake3_or_sha256(id);
-    let hex_: String = digest.chars().take(8).collect();
-    (hex_[..4].to_string(), hex_[4..8].to_string())
+    let digest = Sha256::digest(id.as_bytes());
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    (hex[..4].to_string(), hex[4..8].to_string())
 }
 
 /// Leaf file name: the id tail plus `.json`.
@@ -22,23 +23,19 @@ pub fn qblock_filename(id: &str) -> String {
 /// Relative path `<hhhh>/<llll>/<tail>.json`.
 pub fn qblock_rel_path(id: &str) -> PathBuf {
     let (a, b) = hash_prefix(id);
-    let tail = id.chars().skip(8).collect::<String>();
+    // The id tail is the id with its first 8 characters removed; an id
+    // shorter than 8 characters keeps its full id as the readable tail.
+    let tail = if id.len() < 8 {
+        id.to_string()
+    } else {
+        id.chars().skip(8).collect::<String>()
+    };
     PathBuf::from(a).join(b).join(format!("{tail}.json"))
 }
 
 /// Relative path for a miner's directory.
 pub fn dashboard_rel_path(account: &str) -> PathBuf {
     PathBuf::from(MINERS_DIR).join(account)
-}
-
-// Placeholder — replaced in Task 2 by a concrete hasher.
-fn blake3_or_sha256(id: &str) -> String {
-    // TODO(Task 2): real hash. For now a stable dummy for test determinism.
-    let mut x: u128 = 0;
-    for b in id.as_bytes() {
-        x = x.wrapping_mul(31).wrapping_add(*b as u128);
-    }
-    format!("{x:016x}")
 }
 
 #[cfg(test)]
@@ -60,5 +57,13 @@ mod tests {
     #[test]
     fn same_id_same_path() {
         assert_eq!(qblock_rel_path("42"), qblock_rel_path("42"));
+    }
+    #[test]
+    fn short_id_full_tail() {
+        // An id shorter than 8 chars: bucket comes from the hash, tail is full id.
+        let rel = qblock_rel_path("42");
+        let s = rel.to_string_lossy().to_string();
+        assert_eq!(s.split('/').count(), 3);
+        assert!(s.ends_with("42.json"));
     }
 }
