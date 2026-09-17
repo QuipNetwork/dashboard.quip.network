@@ -139,6 +139,18 @@ impl FileWriter {
         let bytes = serde_json::to_vec(&existing).map_err(std::io::Error::other)?;
         atomic_write(&self.root, &rel, &bytes).await
     }
+
+    /// Atomically write the manifest `qblocks/metadata.json` as
+    /// `{ "qblocks": [path, ...] }`.
+    ///
+    /// # Errors
+    /// Returns an I/O or serialization error, leaving no partial file.
+    pub async fn update_manifest(&self, entries: &[String]) -> std::io::Result<()> {
+        let rel = std::path::PathBuf::from(QBLOCKS_DIR).join("metadata.json");
+        let payload = json!({ "qblocks": entries });
+        let bytes = serde_json::to_vec(&payload).map_err(std::io::Error::other)?;
+        atomic_write(&self.root, &rel, &bytes).await
+    }
 }
 
 #[cfg(test)]
@@ -286,5 +298,17 @@ mod tests {
         let bytes = tokio::fs::read(&abs).await.unwrap();
         let parsed: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(parsed["solutionNumber"], 42);
+    }
+
+    #[tokio::test]
+    async fn manifest_is_atomic_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let w = FileWriter::new(dir.path().to_path_buf());
+        w.update_manifest(&["qblocks/ab/cd/ef.json".to_string()])
+            .await
+            .unwrap();
+        let abs = dir.path().join("qblocks/metadata.json");
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&abs).await.unwrap()).unwrap();
+        assert!(parsed["qblocks"].is_array());
     }
 }
