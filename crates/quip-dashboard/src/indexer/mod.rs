@@ -3,6 +3,7 @@
 pub mod admission;
 mod backfill;
 pub mod coverage;
+pub mod file_writer;
 mod live;
 mod reconcile;
 pub mod sync_gate;
