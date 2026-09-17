@@ -411,6 +411,13 @@ async fn run_indexer(
     *chain_slot.lock().await = Some(chain.clone());
     let _ = bound.send_replace(true);
     health.set_phase(Phase::Ready);
+    // Restore the one-shot device-access-time backfill decision at startup,
+    // before the indexer workers begin indexing (mirrors the prior TypeScript
+    // one-shot). The decision surfaces as `deviceAccessTimeBackfill` on the API.
+    if let Err(error) = lifecycle::ensure_device_access_time_backfill(&store).await {
+        tracing::warn!(%error, "device-access-time backfill startup check failed");
+        return Err(error.to_string());
+    }
     let (indexer, mut progress) = Indexer::new(store, chain);
     let monitor = async {
         let mut prior = quip_dashboard::indexer::Progress::default();
