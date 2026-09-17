@@ -35,7 +35,62 @@ test:
     - bun install --frozen-lockfile
     - bun run typecheck
     - bun run format:check
+    - bun run build
     - bun test
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# Rust workspace checks. The JavaScript job covers the frontend SPA and shared
+# contract only; the Rust tree is the server implementation.
+rust:
+  stage: test
+  image: rust:1.98.1-bookworm
+  tags: [linux, amd64]
+  services:
+    - name: postgres:16
+      alias: postgres
+  variables:
+    CARGO_TERM_COLOR: always
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: dashboard-ci-only
+    POSTGRES_DB: postgres
+    PGHOST: 127.0.0.1
+    PGUSER: postgres
+    PGPASSWORD: dashboard-ci-only
+    STORE_TEST_POSTGRES_URL: postgresql://postgres:dashboard-ci-only@127.0.0.1:5432/postgres
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends python3 postgresql-client socat
+    - rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+    - rustup default 1.98.1
+    - rustc --version
+    # Destructive test helpers only accept loopback URLs and unique test databases.
+    - socat TCP-LISTEN:5432,bind=127.0.0.1,reuseaddr,fork TCP:postgres:5432 &
+    - for _attempt in $(seq 1 30); do pg_isready && break; sleep 1; done
+    - pg_isready
+  script:
+    - cargo install cargo-deny --locked --version 0.20.2
+    - cargo deny check
+    - cargo fmt --all -- --check
+    - cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+    - cargo test --locked --workspace
+    - cargo test --locked -p dashboard-store -- --ignored --test-threads=1
+    - |
+      for test_case in head pressure; do
+        test_database="quip_indexer_pressure_${CI_JOB_ID}_${test_case}"
+        createdb "$test_database"
+        trap 'dropdb --if-exists --force "$test_database"' EXIT
+        export QUIP_INDEXER_TEST_POSTGRES_URL="postgresql://postgres:dashboard-ci-only@127.0.0.1:5432/$test_database"
+        if [ "$test_case" = head ]; then
+          cargo test --locked -p quip-dashboard --lib received_finalized_head_remains_visible_while_target_write_is_blocked -- --ignored
+        else
+          cargo test --locked -p quip-dashboard --test indexer_replay postgres_pressure_keeps_all_permits_until_database_commit -- --ignored
+        fi
+        dropdb --force "$test_database"
+        trap - EXIT
+      done
   rules:
     - if: $CI_COMMIT_TAG
       when: never
@@ -65,17 +120,9 @@ build-image-amd64:
   variables:
     ARCH: amd64
   before_script:
-    # The cuda runners' NVIDIA container runtime bind-mounts host GPU driver
-    # firmware into every job container at /lib/firmware/nvidia/. kaniko's
-    # rootfs extraction cannot replace /lib with the usr-merge symlink while
-    # those mounts are busy, so the executor runs with --ignore-path=/lib,
-    # which skips that replacement and preserves /lib as a plain directory.
-    # The ELF interpreter resolves through /lib/x86_64-linux-gnu (via the
-    # /lib64 → /usr/lib64 → /lib/x86_64-linux-gnu symlink chain), so RUN
-    # commands need this shim. It dangles until kaniko unpacks the rootfs,
-    # and never reaches the image: /lib is excluded from snapshots and the
-    # final image's /lib symlink comes from the base layers.
-    - mkdir -p /lib && ln -sfn /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
+    # Every build stage uses Alpine, so /lib stays a directory across stages.
+    # Exclude only the mounted GPU firmware subtree. Excluding all of /lib
+    # would also prevent Kaniko from extracting Alpine's musl loader.
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n ${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD} | base64)\"}}}" > /kaniko/.docker/config.json
   script:
@@ -83,7 +130,7 @@ build-image-amd64:
       --context $CI_PROJECT_DIR
       --dockerfile deploy/Dockerfile
       --destination $IMAGE:$CI_COMMIT_SHA-$ARCH
-      --ignore-path=/lib
+      --ignore-path=/lib/firmware/nvidia
 
   rules:
     - if: $CI_COMMIT_TAG

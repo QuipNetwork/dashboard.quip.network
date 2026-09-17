@@ -1,186 +1,185 @@
 # Quip Dashboard
 
-Post-quantum mining telemetry dashboard for the Quip network. Visualises block
-production, mining times, compute usage, and active nodes across CPU, GPU, and
-QPU miners.
+Post-quantum mining telemetry dashboard for the Quip network. The service
+visualises block production, mining times, compute usage, and active nodes
+across CPU, GPU, and QPU miners.
 
-**Stack:** React, Vite, Tailwind CSS v4, Nivo charts, Zustand, Hono, Bun.
-Organised as a Bun-workspaces monorepo (`apps/*` + `packages/*`).
+The backend is a single Rust binary. It runs a chain indexer, a miner poller,
+and the telemetry HTTP API. A lightweight React single-page app (SPA) reads
+that API. The combined production image runs the backend, the Caddy front
+door, and the syslog collector under one supervisor.
 
-## Architecture
+## Storage model
 
-```
-  ┌──────────────┐     poll /api/v1/telemetry/*     ┌──────────────┐
-  │  quip-node   │ ───────────────────────────────▶ │   indexer    │
-  │  (REST API)  │                                  │  (long-run)  │
-  └──────────────┘                                  └──────┬───────┘
-                                                           │ writes
-                                                           ▼
-                               ┌──────────────────────────────────────┐
-                               │  datastore (postgres)                │
-                               └──────────────────┬───────────────────┘
-                                                  │ reads
-                                                  ▼
-                                   ┌─────────────────────────────┐
-                                   │  Hono app — createApp()     │   one implementation
-                                   │  GET /api/telemetry, /health│   (@quip/server)
-                                   └──────┬───────────────┬──────┘
-                          Bun adapter     │               │     serverless adapter
-                       (apps/server/      ▼               ▼      (apps/server/
-                        main.ts, docker)  ─               ─       netlify/, prod)
-                                          └───────┬───────┘
-                                                  ▼
-                                       ┌──────────────────────┐
-                                       │  React dashboard SPA │  (@quip/frontend)
-                                       └──────────────────────┘
-```
+The default storage engine is Turso. With no `DATABASE_URL`, the backend opens a
+local Turso database file at `/data/dashboard.db`. When `DATABASE_URL` is a
+valid Postgres URL, the backend opens that Postgres server instead. The two
+backends use the same domain operations and the same serialized single-writer
+boundary. A Postgres advisory lock guards the writer, and a local file lock
+guards the embedded database.
 
-The **indexer** is a long-running process that polls a quip node's v0.1 telemetry
-REST API and writes blocks + node snapshots to a Postgres datastore. The SPA
-reads from that datastore through one HTTP endpoint — `GET /api/telemetry` —
-served by a **single Hono app** (`createApp()` in `@quip/server`). That one app
-is fronted by two thin adapters: `apps/server/main.ts` (`Bun.serve`, used in
-docker) and `apps/server/netlify/telemetry.ts` (a Netlify function that just
-calls `app.fetch`, used in production). They are the same implementation, not two.
+An empty `DATABASE_URL` selects Turso. A valid Postgres URL selects Postgres.
+Any other value fails startup. An invalid URL never falls back to local
+storage. The migration ledger preserves the historical Kysely names and
+execution timestamps, so an existing database migrates forward without a wipe.
+`docker compose -f deploy/docker-compose.yml -f
+deploy/docker-compose.postgres.yml up --build` starts a local Postgres overlay.
 
-## Setup paths
+## Runtime modes
 
-There are two supported deployment paths.
+Two modes run from the same binary.
 
-### 1. Netlify + Supabase (production)
+**Full mode (default).** The backend runs the HTTP API, the indexer, miner
+polling, and the watchdog. It opens storage, binds to the selected chain, and
+polls the local miner.
 
-The SPA ships on Netlify; telemetry lives in Supabase Postgres; the indexer runs
-on a separate always-on host (VM, fly.io, Railway, etc.).
+**API-only mode.** Set `RUN_INDEXER=false`. This requires Postgres. The backend
+opens a read-only Postgres pool and takes no writer lease. It contacts no chain
+or miner worker. Its HTTP API and watchdog tasks remain active. It needs a
+current schema. Use it to serve a shared telemetry database deployed
+elsewhere.
 
-**One-time setup**
+## Components
 
-1. **Supabase project.** Create a project at [supabase.com](https://supabase.com)
-   and copy the Postgres connection string (Settings → Database → Connection
-   string, "URI" format).
-2. **Migrate schema.** From a machine with `DATABASE_URL` set:
-   ```sh
-   DATABASE_URL="postgresql://..." bun run migrate
-   ```
-3. **Netlify site config.** Because this is a monorepo, set:
-   - **Base directory:** the repository root (leave as default) — so Netlify
-     runs the workspace-aware `bun install` and the function can resolve
-     `@quip/server`/`@quip/core`.
-   - **Package directory:** `apps/frontend` — where Netlify finds `netlify.toml`.
-   - Env var `DATABASE_URL` = the Supabase Postgres URI.
-4. **Deploy.** `git push` to your Netlify-connected branch. Build command is
-   `bun run build`; the function at `apps/server/netlify/telemetry.ts` delegates
-   all `/api/telemetry*` requests to the Hono app, which reads from Supabase.
+Three Rust crates form the workspace. Dependency direction is
+`dashboard-model <- dashboard-store <- quip-dashboard`.
 
-**Indexer host**
+| Crate             | Role                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `dashboard-model` | Public serde types that match the shared telemetry contract.                              |
+| `dashboard-store` | Storage over Turso or Postgres, plus migrations.                                          |
+| `quip-dashboard`  | Chain reader, indexer, miner service, HTTP router, health, supervisor, and both binaries. |
 
-Run the packaged docker image with the server disabled:
+The chain reader uses one WebSocket connection and checks genesis
+before use. The indexer admits at most 64 blocks of work, with eight slots
+reserved for live work. Backfill admits one block per second. RPC operations
+run through four shared slots, with two reserved for backfill. Health exposes
+liveness and readiness decisions over the HTTP API.
+
+The four indexable block domains are winners, difficulty, participation, and
+authorship. Each domain keeps its own persisted generation and coverage.
+Missing historical nonce or difficulty data stays uncovered. The indexer records
+that absence to prevent repeated reads. Explicit reindexing clears those records.
+
+## Production image
+
+The combined image runs three services under one supervisor:
+
+- `quip-dashboard serve`, the backend.
+- `caddy run`, the front door that serves the built SPA and proxies `/api`.
+- `deploy/syslog-ng/rotate.sh`, the log collector, which rotates
+  `/logs/quip-node.log`.
+
+`tini` is PID 1. Its single child is `entrypoint.sh`, which validates the
+`PUID` and `PGID`, prepares `/data` and `/logs`, drops privilege via
+`s6-setuidgid`, and execs `quip-dashboard-supervisor`. The supervisor starts
+the collector, backend, and Caddy in that order. The backend migrates the
+database before it admits API requests.
+
+The image builds the SPA in a locked Bun stage and the Rust binaries in a
+musl Alpine stage. The image includes Postgres support and accepts a `DATABASE_URL`. The frontend static assets install at `/app/frontend`, and
+Caddy serves them without a JavaScript runtime. The image carries no
+TypeScript source or JS tooling.
+
+Build with:
 
 ```sh
-docker run -d --restart=always \
-  -e RUN_SERVER=false \
-  -e DATABASE_URL="postgresql://..." \
-  -e QUIP_VALIDATOR_RPC_URLS=ws://<validator-host>:9944 \
-  registry.gitlab.com/<group>/<project>:latest
+./run build        # builds the production container image
+docker build -f deploy/Dockerfile --target prod -t quip-dashboard .
 ```
-
-### 2. Self-hosted docker (local / contributor / homelab)
-
-One image runs the indexer, the Hono API, and the SPA. It connects to a Postgres
-instance (the dashboard runs only on Postgres).
-
-**Quickstart (docker-compose)**
-
-```yaml
-services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: quip
-      POSTGRES_USER: quip
-      POSTGRES_PASSWORD: quip
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  dashboard:
-    image: registry.gitlab.com/<group>/<project>:latest
-    depends_on: [db]
-    environment:
-      DATABASE_URL: postgresql://quip:quip@db:5432/quip
-      QUIP_VALIDATOR_RPC_URLS: ws://quip-validator:9944
-    ports: ["3001:3001"]
-
-volumes:
-  pgdata:
-```
-
-Then open <http://localhost:3001>. PID 1 is `tini`; its single child is the
-process supervisor (`deploy/entrypoint.ts`), which runs `migrate` before starting
-the server + indexer (toggle either with `RUN_SERVER`/`RUN_INDEXER`). The image
-is built from the `prod` stage of `deploy/Dockerfile` with the repository root as
-the build context (`docker build --target prod -f deploy/Dockerfile .`).
-
-## Configuration reference
-
-Every environment variable — names, defaults, components, and what they do — is
-documented in [`.env.example`](.env.example), the single source of truth. Copy it
-to `.env` (auto-loaded by Bun and `netlify dev`) and uncomment what you need to
-override; each value shown there is the built-in default.
 
 ## Local development
 
-The whole stack runs in containers (the host needs no JS runtime). One command
-brings up Postgres + server + indexer + frontend — supervised by tini +
-`deploy/entrypoint.ts`, the same supervisor as prod — with the source
-bind-mounted for hot reload (`bun --watch` backends, vite HMR for the SPA):
+The host needs no Rust or JS runtime. `./run` builds and runs the stack inside
+containers. It selects Podman when present, otherwise Docker.
 
 ```sh
-./run dev          # build + start everything; open http://localhost:5173
-./run down         # stop it (./run down -v also wipes the postgres volume)
+./run dev          # build + start the backend and the Vite dev frontend
+./run down [-v]    # stop the dev stack; -v also removes the data volume
+./run logs         # follow logs from the running stack
 ```
 
-The SPA is on :5173 and proxies `/api` to the hono server on :3001. Point
-`QUIP_VALIDATOR_RPC_URLS` (in `.env`) at a reachable node to index real chain
-data; left unset, the indexer just retries while the SPA + server still work.
+`./run dev` starts the combined production image (`deploy/docker-compose.yml`)
+and a separate Bun frontend that watches mounted source and proxies API
+requests through the backend's Caddy. The SPA is at `http://localhost:5173`.
+The default embedded database needs no external service. Start the Postgres
+overlay for a real Postgres backend.
 
-To exercise the degraded Netlify function path specifically, use
-`./run bun run dev:netlify`.
+The repository contains the Rust backend in `crates/` and the frontend SPA in
+`apps/frontend`. The old TypeScript backend was removed at cutover; the
+combined image ships the Rust implementation.
 
-## Layout
+Rust development runs through the Rust dev image:
+
+```sh
+./run rust cargo test --locked -p dashboard-model
+./run rust cargo clippy --locked --workspace --all-targets -- -D warnings
+./run rust cargo fmt --all -- --check
+```
+
+## Operator commands
+
+The backend exposes explicit administration commands. Run them against a
+deployed service or a local database.
+
+| Command                         | Purpose                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| `serve`                         | Run HTTP, indexing, miner polling, and the watchdog.                             |
+| `migrate [up\|status\|dry-run]` | Apply additive local migrations without contacting a validator. Default is `up`. |
+| `list-indexables`               | List the four block domains and their persisted generation and coverage.         |
+| `reindex [domains]`             | Drop owned history for the domains. No argument selects all four.                |
+| `reconstruct-firstseen`         | Reconstruct earliest descriptor timestamps from historical chain state.          |
+| `healthcheck`                   | Query the running process liveness endpoint. It never opens the database.        |
+
+`migrate status` and `migrate dry-run` use the read-only inspection path and
+do not open a writer. `healthcheck` probes `/api/live` on `PORT` (default 3001) and never loads configuration or opens storage. `reconstruct-firstseen`
+uses the real bounded indexer code and requires a reachable chain.
+
+The four indexable domains are winners, difficulty, participation, and
+authorship.
+
+## Configuration
+
+[`.env.example`](.env.example) lists the environment variables and their defaults. Configuration debug output redacts Postgres
+URLs and upstream URLs. A malformed value names the key without echoing its
+value.
+
+## Health
+
+The backend exposes two routes over the HTTP API.
+
+`GET /api/live` reports process liveness. It returns 200 when the required
+tasks and the watchdog are alive. It fails after 60 seconds of local startup
+or a 15-second watchdog gap.
+
+`GET /api/health` reports readiness. It follows `/api/live` and adds
+dependencies and progress checks. With indexing on, readiness requires both a
+working chain subscription and a recent successful miner poll. API-only mode
+requires HTTP and the watchdog only.
+
+A required task exit fails liveness. An advancing finalized head without a
+committed block for 90 seconds fails readiness. `HealthSnapshot.ok` follows
+readiness. The live route sets its copied snapshot `ok` field from liveness
+before serialization.
+
+## Project layout
 
 ```
+crates/
+  dashboard-model/     public telemetry types
+  dashboard-store/     storage over Turso or Postgres + migrations
+  quip-dashboard/      chain, indexer, miner, http, health, supervisor
 apps/
-  frontend/   @quip/frontend  React SPA (+ index.html, vite.config.ts, .ladle/, netlify.toml)
-  server/     @quip/server    Hono app — createApp() — + Bun & Netlify adapters (netlify/)
-  indexer/    @quip/indexer   long-running substrate poller (@polkadot/*)
-packages/
-  shared/     @quip/shared    zero-dependency shared code (telemetry types today)
-  core/       @quip/core      DatabaseAdapter (Postgres via Kysely) + miner-api + migrations
-deploy/       Dockerfile (dev+prod stages), docker-compose.yml (dev stack), entrypoint.ts (tini-supervised process manager)
-docs/         schema, plans, API specs, sample telemetry captures
-.gitlab-ci.yml  Lint + typecheck + multi-arch buildx publish
+  frontend/            React SPA
+deploy/
+  Dockerfile           combined production + dev image
+  docker-compose.yml   local dev stack (embedded-first)
+  docker-compose.postgres.yml   optional Postgres overlay
+  entrypoint.sh        privilege drop + supervisor launch
+  Caddyfile            front door for the combined image
+  syslog-ng/           log collector + rotation
+docs/                  schema, plans, API specs, sample telemetry
 ```
-
-Internal packages export their TypeScript source directly (Turborepo's
-"Just-in-Time" pattern) — no build step; Bun, Vite, and esbuild transpile on use.
-The frontend does not declare `@polkadot/*`, so the substrate worker can never
-leak into the SPA bundle (the `verify:no-polkadot-in-bundle` guard backs this up).
-
-## Commands
-
-The host has no JS runtime, so everything runs through `./run` (see the script
-header for the full list):
-
-```sh
-./run dev          # full dev stack (postgres + server + indexer + frontend)
-./run build        # build the production container image (the published artifact)
-./run typecheck    # per-package tsc --noEmit
-./run test         # bun:test across every workspace
-./run format       # prettier --write
-```
-
-Note the two senses of "build": `./run build` builds the deployable **container
-image**, whereas the in-image `bun run build` produces the **SPA**
-(`apps/frontend/dist`) — that's what the Dockerfile's frontend stage runs.
 
 ## License
 

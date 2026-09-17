@@ -5,6 +5,11 @@ import path from "path";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // Emit .vite/manifest.json so the bundle test asserts graph reachability
+    // from the module manifest instead of scanning minified JS substrings.
+    manifest: true,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -12,8 +17,8 @@ export default defineConfig({
   },
   server: {
     // Listen on all interfaces so the container's port is reachable from the
-    // host, and proxy the API to the hono server. Defaults to the sidecar
-    // server in the dev container (see deploy/docker-compose.yml); override
+    // host, and proxy the API to the Rust backend. Defaults to a local
+    // backend (see deploy/docker-compose.yml); override
     // VITE_API_PROXY to point at another running dashboard (e.g. a live node's
     // caddy endpoint) when confirming UI changes against real data.
     host: true,

@@ -1,0 +1,27 @@
+[package]
+name = "dashboard-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["postgres"]
+postgres = ["dep:sqlx"]
+
+[dependencies]
+dashboard-model = { path = "../dashboard-model" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+turso.workspace = true
+turso_core.workspace = true
+sqlx = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

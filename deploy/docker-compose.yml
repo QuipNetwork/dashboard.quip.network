@@ -1,58 +1,87 @@
-# Full local dev stack for the dashboard. `./run dev` brings up Postgres plus
-# the app container (server + indexer + frontend, supervised by tini +
-# deploy/entrypoint.ts in DEV mode) on one network.
+# Local dev stack for the dashboard, embedded-first.
 #
-#   ./run dev          # build + start the whole stack (Ctrl-C to stop)
-#   ./run down         # stop and remove it
+#   ./run dev          # build + start the server and frontend (Ctrl-C to stop)
+#   ./run down [-v]    # stop and remove it
 #
-# The app's source is bind-mounted, so edits hot-reload (bun --watch for the
-# backends, vite HMR for the SPA). Postgres data persists in the named volume
-# `quip-pgdata`; `./run down -v` wipes it (the DB is rebuildable by re-indexing).
-
+# The combined image (deploy/Dockerfile --target prod) runs the Rust backend,
+# Caddy, and the syslog collector under one supervisor. The default (no
+# DATABASE_URL) uses embedded Turso; start the optional Postgres overlay for a
+# real Postgres backend:
+#
+#   docker compose -f deploy/docker-compose.yml \
+#       -f deploy/docker-compose.postgres.yml up --build
+#
+# The backend uses the combined production image. A separate Bun frontend
+# watches mounted source and proxies API requests through the backend's Caddy.
+#
+# Container names here are scoped to this dev stack (quip-dashboard-dev) and do
+# not collide with a live node's quip-dashboard container or volumes.
 services:
-  postgres:
-    image: postgres:16-alpine
+  dashboard:
+    image: quip-dashboard-local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: prod
+    container_name: quip-dashboard-dev
+    stop_grace_period: 30s
     environment:
-      POSTGRES_USER: quip
-      POSTGRES_PASSWORD: quip
-      POSTGRES_DB: quip
-    ports:
-      - "5432:5432"
+      DATABASE_URL: ${DATABASE_URL:-}
+      # Override these URLs to reach a validator and miner from the container.
+      # The defaults leave the API live while upstreams are unavailable.
+      QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://127.0.0.1:9944}
+      QUIP_MINER_REST_URL: ${QUIP_MINER_REST_URL:-http://127.0.0.1:8086}
+      QUIP_HOSTNAME: ${QUIP_HOSTNAME:-:20049}
+      CERT_EMAIL: ${CERT_EMAIL:-hostmaster@localhost}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Caddy state under /data, separate from the embedded database.
+      XDG_DATA_HOME: /data/caddy/data
+      XDG_CONFIG_HOME: /data/caddy/config
     volumes:
-      - quip-pgdata:/var/lib/postgresql/data
+      - dashboard-data:/data
+      - dashboard-logs:/logs
+    ports:
+      - "${NODE_HTTP_PORT:-8080}:20049" # public Caddy (HTTP) -> :20049
+      - "127.0.0.1:${QUIP_LOG_PORT:-5514}:5514/udp" # syslog collector (loopback)
+    # No container-wide capability is added: Caddy carries
+    # cap_net_bind_service as a file capability on its binary (see
+    # deploy/Dockerfile), so it binds the public low ports without a
+    # privileged image.
+    logging:
+      driver: json-file
+      options:
+        max-size: ${QUIP_LOG_MAX_SIZE:-32m}
+        max-file: "${QUIP_LOG_MAX_FILE:-5}"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U quip -d quip"]
-      interval: 5s
+      # Liveness through the backend's process HTTP check; never a second DB.
+      test: ["CMD", "/usr/local/bin/quip-dashboard", "healthcheck"]
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 3
 
-  app:
+  frontend:
+    image: quip-dashboard-dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile
       target: dev
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://quip:quip@postgres:5432/quip
-      # No validator in the dev stack — point this at a reachable node to index
-      # real chain data (e.g. ws://host.containers.internal:9944 or a testnet
-      # RPC). Left unset, the indexer just retries; the SPA + server still work.
-      QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-validator:9944}
-      DEV: "true"
-      RUN_SERVER: "true"
-      RUN_INDEXER: "true"
-      RUN_FRONTEND: "true"
-      # Docker Desktop (macOS) doesn't propagate host filesystem events into the
-      # container, so Vite's chokidar watcher misses host-side edits and serves
-      # stale modules (HMR silently no-ops). Poll instead so edits hot-reload.
-      CHOKIDAR_USEPOLLING: "true"
+      VITE_API_PROXY: ${VITE_API_PROXY:-http://dashboard:20049}
     volumes:
-      - ..:/app:Z
+      - ../apps/frontend/src:/app/apps/frontend/src
+      - ../apps/frontend/public:/app/apps/frontend/public
+      - ../apps/frontend/index.html:/app/apps/frontend/index.html:ro
+      - ../apps/frontend/vite.config.ts:/app/apps/frontend/vite.config.ts:ro
+      - ../apps/frontend/tsconfig.json:/app/apps/frontend/tsconfig.json:ro
+      - ../packages/shared:/app/packages/shared
+      - ../tsconfig.base.json:/app/tsconfig.base.json:ro
     ports:
-      - "5173:5173" # vite (SPA, HMR) — open this in the browser
-      - "3001:3001" # hono server / API
+      - "127.0.0.1:${FRONTEND_DEV_PORT:-5173}:5173"
+    depends_on:
+      - dashboard
+    command: ["bun", "run", "--filter", "@quip/frontend", "dev", "--host", "0.0.0.0"]
 
 volumes:
-  quip-pgdata:
+  dashboard-data:
+  dashboard-logs:

@@ -1,88 +1,149 @@
-# Build from the repository root.
-#   prod (default, what CI publishes):  docker build -f deploy/Dockerfile .
-#   dev  (used by docker-compose):       docker build -f deploy/Dockerfile --target dev .
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Stage graph: frontend (SPA build) → runtime-base (bun + tini) → dev | prod.
-# tini is PID 1 in both runtime targets; deploy/entrypoint.ts is its single
-# child and supervises the app processes.
+# Combined production image for the Quip dashboard.
+#
+# Build from the repository root:
+#   docker build -f deploy/Dockerfile --target prod -t quip-dashboard .
+#   docker build -f deploy/Dockerfile --target dev  -t quip-dashboard-dev .
+#
+# Stage graph:
+#   frontend (locked Bun SPA)          oven/bun:1.4.2-alpine
+#   rust     (musl release binaries)   rust:1.98.1-alpine3.24
+#   caddy    (pinned Caddy binary)     caddy@sha256:...
+#            └─────────────────────────┐
+#   prod     (runtime: syslog-ng +     linuxserver/syslog-ng:4.11.0
+#             tini + supervisor)       ← merges all three stages
+#
+# The runtime image ships no JS runtime (no Bun/Node), no TypeScript sources,
+# and no Cargo/Rust toolchain. It contains only the Rust executables, an
+# official Caddy binary, syslog-ng, Tini, CA certificates, and the built SPA.
+#
+# PID 1 is Tini (no -g: the Rust supervisor assigns process groups itself and
+# must not inherit an altered group). Tini reaps orphans and forwards signals
+# to the single child: /app/deploy/entrypoint.sh, which does narrowly scoped
+# root initialization then drops to the configured non-root user before
+# starting quip-dashboard-supervisor.
 
-# ---- frontend build stage (prod static SPA) ----
-FROM oven/bun:1 AS frontend
+# ---- frontend: locked Bun SPA build -----------------------------------------
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS frontend
 WORKDIR /app
-# The manifests are copied without bun.lock, so this stage resolves fresh
-# rather than installing what CI locked. Runtime deps still float here.
-COPY package.json ./
+# Install from the lockfile only. Bun uses bun.lock to resolve the workspace.
+COPY package.json bun.lock ./
 COPY apps/frontend/package.json apps/frontend/package.json
-COPY apps/server/package.json apps/server/package.json
-COPY apps/indexer/package.json apps/indexer/package.json
-COPY packages/core/package.json packages/core/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN bun install
-# The SPA needs the shared types package + its own sources.
-COPY tsconfig.base.json tsconfig.json ./
+RUN bun install --frozen-lockfile
+COPY tsconfig.base.json ./
 COPY packages/shared packages/shared
 COPY apps/frontend apps/frontend
-# Delegate to the workspace build script, then run the no-@polkadot bundle guard.
-RUN bun run --filter @quip/frontend build
-RUN bun run verify:no-polkadot-in-bundle
+RUN bun run --filter @quip/frontend build && \
+    bun run verify:no-polkadot-in-bundle
 
-# ---- runtime base: tini (PID 1), shared by dev and prod ----
-FROM oven/bun:1 AS runtime-base
+# ---- rust: musl release binaries -------------------------------------------
+# dashboard-store enables Postgres through its default features. The app has
+# no independent `postgres` feature alias. Both database backends stay enabled.
+FROM rust:1.98.1-alpine3.24@sha256:1716b3aa042d735f4566d14dc54e8037de9d69556e2d5dd58131d93a613d173d AS rust
+# Native crypto dependencies compile against the same musl ABI as production.
+RUN apk add --no-cache build-base=0.5-r4 cmake=4.2.3-r0 pkgconf=2.5.1-r0
+WORKDIR /build
+ARG CARGO_BUILD_JOBS=2
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates/ ./crates/
+RUN cargo build \
+        --locked \
+        --release \
+        -p quip-dashboard \
+        --bin quip-dashboard \
+        --bin quip-dashboard-supervisor && \
+    mkdir -p /out/bin && \
+    install -m 0755 \
+        target/release/quip-dashboard \
+        target/release/quip-dashboard-supervisor \
+        /out/bin/
+
+# ---- caddy: pinned official binary ------------------------------------------
+FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS caddy
+# The official Caddy stage provides /usr/bin/caddy (v2.11.4) at a pinned
+# digest. Its musl runtime matches the production Alpine base.
+
+# ---- dev: Bun tooling and the frontend watch server -------------------------
+# ./run overrides the entrypoint with bash and mounts source for one-off tasks.
+# Compose pairs this watch server with the combined production backend.
+FROM frontend AS dev
+# The Bun Alpine stage uses Alpine 3.22 and does not include Bash.
+RUN apk add --no-cache bash=5.2.37-r0
+ENV DEV=true
+ENTRYPOINT []
+CMD ["bun", "run", "--filter", "@quip/frontend", "dev", "--host", "0.0.0.0"]
+
+# ---- prod: combined runtime ---------------------------------------------------
+# linuxserver/syslog-ng:4.11.0 is the deployed collector engine (matches the
+# nodes stack and routing-logging tests) on Alpine. We override its s6-overlay
+# entrypoint with Tini; the Rust supervisor starts syslog-ng itself from
+# /app/deploy/syslog-ng/rotate.sh.
+FROM linuxserver/syslog-ng:4.11.0@sha256:4cfb85ef5c4b2e3a4b94abcf185d12537a1d6bbaf0c95e7f9911cd6b83aedded AS prod
+
+# Tini is PID 1. cap_net_bind_service is granted ONLY to the Caddy binary via
+# a file capability, so a non-root process can bind the public low ports
+# 80/443 without a privileged container or a container-wide capability add.
+# libcap provides setcap/getcap. Versions pinned from the
+# Alpine 3.24 package index (verified on 2026-09-16).
+RUN apk add --no-cache \
+        tini=0.19.0-r3 \
+        ca-certificates=20260611-r0 \
+        libcap=2.78-r0 \
+    && rm -rf /var/cache/apk/*
+
 WORKDIR /app
-# The app runs entirely under bun — the entrypoint, server, indexer, migrations
-# and the @polkadot substrate client all execute via `bun` (see
-# deploy/entrypoint.ts), so no separate Node runtime is installed. That keeps the
-# base arch-clean: apt resolves tini per-arch, so the image builds natively on
-# amd64 and arm64 with no architecture-specific downloads. tini is our PID 1
-# (zombie reaping + signal forwarding); ca-certificates backs runtime TLS (wss to
-# the validator, outbound fetches).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tini \
-    && rm -rf /var/lib/apt/lists/* \
-    && tini --version
-# tini PID 1 → bun supervisor → app processes.
-ENTRYPOINT ["/usr/bin/tini", "--", "bun", "run", "/app/deploy/entrypoint.ts"]
 
-# ---- dev runtime (docker-compose; source bind-mounted at /app) ----
-FROM runtime-base AS dev
-ENV DEV=true \
-    RUN_FRONTEND=true \
-    PORT=3001 \
-    STATIC_DIR=/app/apps/frontend/dist
-# No source COPY and no install here: docker-compose bind-mounts the host
-# checkout over /app and the supervisor runs `bun install` against it on start,
-# so node_modules tracks the working tree. Runs as root so the (rootless-mapped)
-# bind mount stays writable.
-EXPOSE 3001 5173
-CMD []
+COPY --from=rust /out/bin/quip-dashboard /usr/local/bin/quip-dashboard
+COPY --from=rust /out/bin/quip-dashboard-supervisor /usr/local/bin/quip-dashboard-supervisor
+COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
+# Narrowly scoped capability for the public low ports. Only Caddy (the front
+# door) has it; the backend binds 127.0.0.1:3001 and never needs it.
+RUN setcap cap_net_bind_service=+ep /usr/local/bin/caddy && \
+    getcap /usr/local/bin/caddy
 
-# ---- prod runtime (what CI builds + publishes) ----
-FROM runtime-base AS prod
-# Backend-only install: copy the root + backend workspace manifests (NOT the
-# frontend manifest) so `bun install --production` skips the SPA's React/Vite
-# dependency tree. The frontend ships as prebuilt static assets only.
-COPY package.json ./
-COPY apps/server/package.json apps/server/package.json
-COPY apps/indexer/package.json apps/indexer/package.json
-COPY packages/core/package.json packages/core/package.json
-COPY packages/shared/package.json packages/shared/package.json
-RUN bun install --production
-# Backend source (Bun runs .ts directly) + the prebuilt SPA.
-COPY tsconfig.base.json tsconfig.json ./
-COPY packages/shared packages/shared
-COPY packages/core packages/core
-COPY apps/server apps/server
-COPY apps/indexer apps/indexer
-COPY deploy deploy
-COPY --from=frontend /app/apps/frontend/dist ./apps/frontend/dist
-RUN mkdir -p /data && chown -R bun:bun /app /data
-USER bun
-ENV PORT=3001 \
-    STATIC_DIR=/app/apps/frontend/dist \
-    RUN_SERVER=true \
-    RUN_INDEXER=true
-VOLUME /data
-EXPOSE 3001
-# Use bun for the healthcheck so we don't depend on wget/curl being in the image.
+# Runtime configuration, collector rotation, and privilege initialization.
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY deploy/syslog-ng/syslog-ng.conf /config/syslog-ng.conf
+COPY deploy/syslog-ng/rotate.sh /app/deploy/syslog-ng/rotate.sh
+COPY deploy/entrypoint.sh /app/deploy/entrypoint.sh
+COPY --from=frontend /app/apps/frontend/dist /app/frontend
+
+RUN chmod +x /app/deploy/entrypoint.sh /app/deploy/syslog-ng/rotate.sh
+# Execute both real binaries during the build to catch missing interpreters
+# and shared libraries before publishing the image.
+RUN /usr/local/bin/quip-dashboard --help >/dev/null && \
+    /usr/local/bin/quip-dashboard-supervisor --help >/dev/null
+
+# Runtime data lives under /data (embedded DB at /data/dashboard.db, Caddy
+# state at /data/caddy/...), independently of the host-mounted /logs prefix.
+VOLUME ["/data"]
+EXPOSE 80 443 20049 3001 5514/udp
+
+# Default runtime user. Overridable via PUID/PGID at container start; the
+# entrypoint sets the numeric uid/gid and re-chowns only the runtime dirs
+# it owns. Child services run under these IDs after initialization.
+ENV PUID=1000 \
+    PGID=1000 \
+    DATABASE_URL="" \
+    QUIP_VALIDATOR_RPC_URLS="ws://quip-validator:9944" \
+    QUIP_MINER_REST_URL="http://quip-miner:8086" \
+    QUIP_HOSTNAME=":20049" \
+    CERT_EMAIL="hostmaster@localhost" \
+    XDG_DATA_HOME="/data/caddy/data" \
+    XDG_CONFIG_HOME="/data/caddy/config" \
+    QUIP_LOG_MAX_BYTES="10485760" \
+    QUIP_LOG_KEEP="5" \
+    QUIP_LOG_CHECK_INTERVAL="30"
+
+# Docker liveness: probes the Rust backend's process/task liveness endpoint
+# over HTTP. It reflects process and required-task liveness only, never a
+# second database open, and never restarts the container for a temporarily
+# unavailable validator (that is readiness, visible to operators).
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD bun -e "fetch('http://127.0.0.1:'+process.env.PORT+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" || exit 1
+    CMD ["/usr/local/bin/quip-dashboard", "healthcheck"]
+
+# Tini (PID 1) forwards signals to entrypoint.sh, which does root init then
+# drops privilege and execs quip-dashboard-supervisor.
+ENTRYPOINT ["/sbin/tini", "--", "/app/deploy/entrypoint.sh"]

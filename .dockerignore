@@ -10,6 +10,7 @@ data
 dwave_topologies
 minertest
 **/build
+**/target
 *.log
 test_results
 *.md
@@ -25,3 +26,8 @@ tsconfig.tsbuildinfo
 coverage
 .vscode
 .idea
+
+.beads
+.beads-*
+.beads-credential-key
+.dolt

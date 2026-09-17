@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Single entry point for containerised dev/build (the host has no JS runtime).
 #
-#   ./run dev          Build + start the WHOLE dev stack (postgres + server +
-#                      indexer + frontend) via docker-compose. Ctrl-C to stop.
-#   ./run down [-v]    Stop the dev stack (-v also wipes the postgres volume).
+#   ./run dev          Build + start the WHOLE dev stack (Rust backend + Caddy +
+#                      syslog collector + frontend) via docker-compose. Ctrl-C to stop.
+#   ./run down [-v]    Stop the dev stack (-v also wipes the data volume).
 #   ./run logs [svc]   Follow logs from the running stack.
 #   ./run build        Build the production container image (the published artifact).
 #
@@ -13,36 +13,79 @@
 #   ./run format       Prettier --write.
 #   ./run ladle        Component workbench (host network).
 #   ./run bun ...      Arbitrary bun invocation.
+#   ./run rust ...     Run a cargo command in the Rust development image.
 #   ./run <script>     Any other arg runs `bun run <script>` in the dev image.
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKERFILE="$PROJECT_DIR/deploy/Dockerfile"
+RUST_DOCKERFILE="$PROJECT_DIR/deploy/Dockerfile.rust-dev"
 COMPOSE_FILE="$PROJECT_DIR/deploy/docker-compose.yml"
 DEV_IMAGE="quip-dashboard-dev"
 PROD_IMAGE="quip-dashboard"
+RUST_IMAGE="quip-dashboard-rust-dev"
+
+if command -v podman >/dev/null 2>&1; then
+  ENGINE=podman
+elif command -v docker >/dev/null 2>&1; then
+  ENGINE=docker
+else
+  echo "error: docker or podman is required" >&2
+  exit 1
+fi
 
 compose() {
-  if podman compose version >/dev/null 2>&1; then
+  if [ "$ENGINE" = podman ] && podman compose version >/dev/null 2>&1; then
     podman compose -f "$COMPOSE_FILE" "$@"
-  elif command -v docker >/dev/null 2>&1; then
+  elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     docker compose -f "$COMPOSE_FILE" "$@"
-  else
+  elif [ "$ENGINE" = podman ]; then
     podman-compose -f "$COMPOSE_FILE" "$@"
+  else
+    echo "error: docker compose or podman compose is required" >&2
+    exit 1
   fi
 }
 
-stale_image() { # $1 = image tag; true if missing or older than the Dockerfile
-  podman image exists "$1" || return 0
-  local created dockerfile
-  created="$(podman image inspect "$1" --format '{{.Created.Unix}}' 2>/dev/null || echo 0)"
-  dockerfile="$(stat -c %Y "$DOCKERFILE" 2>/dev/null || echo 0)"
-  [ "$dockerfile" -gt "$created" ]
+image_exists() {
+  "$ENGINE" image inspect "$1" >/dev/null 2>&1
+}
+
+image_created_unix() {
+  local image="$1"
+  local created
+  if [ "$ENGINE" = podman ]; then
+    created="$("$ENGINE" image inspect "$image" --format '{{.Created.Unix}}' 2>/dev/null || echo 0)"
+    printf '%s\n' "$created"
+    return
+  fi
+  created="$("$ENGINE" image inspect "$image" --format '{{.Created}}' 2>/dev/null || echo "")"
+  if [ -z "$created" ]; then
+    echo 0
+    return
+  fi
+  date -d "$created" +%s 2>/dev/null || echo 0
+}
+
+stale_image() { # $1 = image tag; $2 = optional dockerfile path
+  local image="$1"
+  local dockerfile="${2:-$DOCKERFILE}"
+  image_exists "$image" || return 0
+  local created dockerfile_mtime
+  created="$(image_created_unix "$image")"
+  dockerfile_mtime="$(stat -c %Y "$dockerfile" 2>/dev/null || echo 0)"
+  [ "$dockerfile_mtime" -gt "$created" ]
 }
 
 ensure_dev_image() {
   if stale_image "$DEV_IMAGE"; then
-    podman build --target dev -t "$DEV_IMAGE" -f "$DOCKERFILE" "$PROJECT_DIR"
+    "$ENGINE" build --target dev -t "$DEV_IMAGE" -f "$DOCKERFILE" "$PROJECT_DIR"
+  fi
+}
+
+ensure_rust_image() {
+  if stale_image "$RUST_IMAGE" "$RUST_DOCKERFILE"; then
+    "$ENGINE" build -t "$RUST_IMAGE" -f "$RUST_DOCKERFILE" "$PROJECT_DIR/deploy"
   fi
 }
 
@@ -50,10 +93,33 @@ ensure_dev_image() {
 # bypassed, deps installed if missing. Host network so dev servers are reachable.
 run_dev() {
   ensure_dev_image
-  exec podman run --rm -it \
+  local run_flags=(--rm)
+  if [ -t 0 ] && [ -t 1 ]; then
+    run_flags+=(-it)
+  fi
+  exec "$ENGINE" run "${run_flags[@]}" \
     -v "$PROJECT_DIR:/app:Z" -w /app --network host \
     --entrypoint bash "$DEV_IMAGE" \
     -lc 'test -d node_modules || bun install; exec "$@"' bash "$@"
+}
+
+# Run a cargo command in the Rust development image. Interactive flags are
+# added only when stdin and stdout are terminals so CI can run this path.
+run_rust() {
+  ensure_rust_image
+  local run_flags=(--rm)
+  if [ -t 0 ] && [ -t 1 ]; then
+    run_flags+=(-it)
+  fi
+  # Run cargo as the host user so bind-mounted target/ artifacts are not
+  # root-owned (the dev image defaults to root). Without this, a host-side
+  # `cargo build` cannot overwrite the container-created files.
+  exec "$ENGINE" run "${run_flags[@]}" \
+    --user "$(id -u):$(id -g)" \
+    -v "$PROJECT_DIR:/app:Z" -w /app \
+    -e CARGO_TERM_COLOR=always \
+    "$RUST_IMAGE" \
+    "$@"
 }
 
 CMD="${1:-help}"
@@ -63,7 +129,7 @@ case "$CMD" in
   dev) compose up --build "$@" ;;
   down) compose down "$@" ;;
   logs) compose logs -f "$@" ;;
-  build) exec podman build --target prod -t "$PROD_IMAGE" -f "$DOCKERFILE" "$PROJECT_DIR" "$@" ;;
+  build) exec "$ENGINE" build --target prod -t "$PROD_IMAGE" -f "$DOCKERFILE" "$PROJECT_DIR" "$@" ;;
 
   sh) run_dev bash ;;
   bun) run_dev bun "$@" ;;
@@ -71,10 +137,17 @@ case "$CMD" in
   typecheck) run_dev bun run typecheck ;;
   test) run_dev bun run test "$@" ;;
   format) run_dev bun run format ;;
-  migrate) run_dev bun run migrate ;;
+  rust)
+    if [ "$#" -eq 0 ]; then
+      echo "usage: ./run rust <command> [args...]" >&2
+      echo "example: ./run rust cargo test --locked -p dashboard-model" >&2
+      exit 2
+    fi
+    run_rust "$@"
+    ;;
 
   help | -h | --help)
-    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *) run_dev bun run "$CMD" "$@" ;;
 esac

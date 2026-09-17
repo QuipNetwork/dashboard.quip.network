@@ -54,6 +54,17 @@ describe("HttpTelemetryClient.fetchTelemetry", () => {
     expect(calls[0]?.url).toBe("https://example.test/api/telemetry");
   });
 
+  it("normalizes a configured API base before requesting routes", async () => {
+    const { fetch, calls } = fakeFetch(() => json(TELEMETRY_BODY));
+    const client = new HttpTelemetryClient({ fetch, baseUrl: "https://example.test/" });
+    await client.fetchTelemetry();
+    await client.fetchBlocks(5, 0);
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://example.test/api/telemetry",
+      "https://example.test/api/blocks?limit=5&offset=0",
+    ]);
+  });
+
   it("forwards an AbortSignal when given", async () => {
     const { fetch, calls } = fakeFetch(() => json(TELEMETRY_BODY));
     const client = new HttpTelemetryClient({ fetch });

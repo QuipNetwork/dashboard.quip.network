@@ -1,0 +1,16 @@
+{
+  "accountId": "5GPeer",
+  "reachable": true,
+  "minerStats": {
+    "headsObserved": 7,
+    "contextsDispatched": 0,
+    "resultsReceived": 0,
+    "proofsSubmitted": 5,
+    "staleDrops": 0,
+    "submissionErrors": 0,
+    "duplicateResultDrops": 0
+  },
+  "modes": {},
+  "currentDispatch": null,
+  "fetchedAt": "2026-07-01T12:00:00.000Z"
+}

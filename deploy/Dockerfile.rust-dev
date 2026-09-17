@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Development image for `./run rust`. Not a production artifact.
+# Pin matches rust-toolchain.toml (stable 1.98.1 as of 2026-09-03).
+
+FROM rust:1.98.1-bookworm
+
+# python3 is the disposable-process fixture interpreter for the supervisor
+# tests (`/usr/bin/python3` shebangs). Dev-only; production Docker is untouched.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy \
+    && rustup default 1.98.1 \
+    && rustc --version \
+    && cargo fmt --version \
+    && cargo clippy --version
+
+# Bind-mounted workspace is owned by the host user. `./run rust` passes
+# --user "$(id -u):$(id -g)" so container-created target/ artifacts stay
+# host-owned and remain writable by a subsequent host-side cargo build.
+# CARGO_HOME=/usr/local/cargo is world-writable, so cargo can cache registry
+# data even as the non-root host user.

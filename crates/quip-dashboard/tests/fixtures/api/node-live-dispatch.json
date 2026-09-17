@@ -1,0 +1,28 @@
+{
+  "accountId": "5GPeer",
+  "reachable": true,
+  "minerStats": {
+    "headsObserved": 7,
+    "contextsDispatched": 0,
+    "resultsReceived": 0,
+    "proofsSubmitted": 5,
+    "staleDrops": 0,
+    "submissionErrors": 0,
+    "duplicateResultDrops": 0
+  },
+  "modes": {},
+  "currentDispatch": {
+    "solutionNumber": 42,
+    "attempts": [
+      {
+        "iter": 0,
+        "bestEnergyMilli": -14000,
+        "resultKind": "stored",
+        "minerType": "cpu",
+        "extra": {}
+      }
+    ],
+    "status": "in-flight"
+  },
+  "fetchedAt": "2026-07-01T12:00:00.000Z"
+}

@@ -51,7 +51,7 @@ export class HttpTelemetryClient implements TelemetryClient {
 
   constructor(options: HttpTelemetryClientOptions = {}) {
     this.fetchImpl = options.fetch;
-    this.baseUrl = options.baseUrl ?? "";
+    this.baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
   }
 
   private fetch(input: string, init?: RequestInit): Promise<Response> {
@@ -133,7 +133,9 @@ export class HttpTelemetryClient implements TelemetryClient {
   }
 }
 
-export const telemetryClient = new HttpTelemetryClient();
+export const telemetryClient = new HttpTelemetryClient({
+  baseUrl: import.meta.env.VITE_API_BASE_URL,
+});
 
 export const TelemetryClientContext = createContext<TelemetryClient>(telemetryClient);
 

@@ -1,0 +1,57 @@
+# cargo-deny configuration. Run `cargo deny check`.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+allow = [
+    "AGPL-3.0-or-later",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# cfg_block ships an Apache-2.0 LICENSE but omits Cargo package license metadata.
+[[licenses.clarify]]
+crate = "cfg_block@0.1.1"
+expression = "Apache-2.0"
+license-files = [{ path = "LICENSE", hash = 0xc9663a1e }]
+
+# These upstream manifests offer Apache-2.0 but use a deprecated GPL SPDX
+# identifier in their alternative. Select Apache-2.0 and pin the declaration.
+[[licenses.clarify]]
+crate = "subxt-core@0.44.3"
+expression = "Apache-2.0"
+license-files = [{ path = "Cargo.toml", hash = 0x0268c6d5 }]
+
+[[licenses.clarify]]
+crate = "subxt-metadata@0.44.3"
+expression = "Apache-2.0"
+license-files = [{ path = "Cargo.toml", hash = 0xa1fab65a }]
+
+[bans]
+# Subxt, Turso, and SQLx require different transitive major versions. Their
+# locked versions still undergo advisory, license, and source checks.
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

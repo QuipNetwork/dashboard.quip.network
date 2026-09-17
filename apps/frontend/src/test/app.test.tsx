@@ -8,6 +8,7 @@ import type { BlockRecord, TelemetryResponse } from "@quip/shared/telemetry";
 import { ServicesProvider } from "@/services/services-provider";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
+import { waitFor } from "@/test/wait-for-act";
 
 function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId">): BlockRecord {
   const n = overrides.substrateBlockNumber ?? "0";
@@ -174,6 +175,7 @@ describe("App smoke test", () => {
     await act(async () => {
       await Promise.resolve();
     });
+    await waitFor(() => container.querySelector('[data-qa="chart-blocks-over-time"]') !== null);
 
     expect(fetchSpy).toHaveBeenCalledWith("/api/telemetry");
     expect(container.querySelector('[data-qa="chart-blocks-over-time"]')).not.toBeNull();

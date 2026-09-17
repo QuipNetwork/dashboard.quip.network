@@ -1,0 +1,41 @@
+# Optional Postgres overlay for local dashboard development.
+#
+# Compose override that adds a Postgres service and points the dashboard at it:
+#
+#   docker compose -f deploy/docker-compose.yml \
+#       -f deploy/docker-compose.postgres.yml up --build
+#
+# The file is intentionally additive: it only adds the `postgres` service and
+# overrides DATABASE_URL on the dashboard service. It defines no fixed volume
+# name that can collide with a live node's volumes. Include both Compose
+# files when stopping this stack so the Postgres service is removed too.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quip
+      POSTGRES_PASSWORD: quip
+      POSTGRES_DB: quip
+    ports:
+      - "127.0.0.1:${POSTGRES_DEV_PORT:-5433}:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quip -d quip"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  dashboard:
+    environment:
+      # Embedded-first default, but the overlay explicitly selects real
+      # Postgres. The service depends on a healthy Postgres so the backend
+      # migrates and serves only after the database is ready.
+      DATABASE_URL: postgresql://quip:quip@postgres:5432/quip
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-dev-data:

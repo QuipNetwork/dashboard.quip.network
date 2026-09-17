@@ -1,0 +1,76 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/dashboard-model",
+    "crates/dashboard-store",
+    "crates/quip-dashboard",
+]
+
+[workspace.package]
+version = "0.2.2"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.98.1"
+
+[workspace.dependencies]
+dashboard-model = { path = "crates/dashboard-model" }
+dashboard-store = { path = "crates/dashboard-store" }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["arbitrary_precision"] }
+thiserror = "2.0.20"
+
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "process", "io-util"] }
+axum = "0.8.9"
+jsonrpsee = "0.26.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "json"] }
+turso = { version = "0.7.2", default-features = false }
+turso_core = { version = "0.7.2", default-features = false }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+parity-scale-codec = "3.7.5"
+
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+tempfile = "3.27.0"
+tokio-util = { version = "0.7.19", features = ["rt"] }
+
+[workspace.lints.rust]
+missing-docs          = "warn"
+nonstandard-style     = "warn"
+redundant-lifetimes   = "warn"
+rust-2018-idioms      = "deny"
+unreachable-pub       = "warn"
+unsafe-code           = "deny"
+unused-extern-crates  = "warn"
+unused-imports        = "warn"
+unused-must-use       = "warn"
+unused-qualifications = "warn"
+unused-results        = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap-used             = "deny"
+expect-used             = "warn"
+panic                   = "deny"
+panic-in-result-fn      = "deny"
+unimplemented           = "deny"
+indexing-slicing        = "warn"
+allow-attributes        = "deny"
+dbg-macro               = "warn"
+todo                    = "deny"
+print-stdout            = "deny"
+print-stderr            = "deny"
+redundant-clone         = "warn"
+uninlined-format-args   = "warn"
+manual-string-new       = "warn"
+use-self                = "warn"
+await-holding-lock      = "deny"
+large-futures           = "deny"
+exit                    = "deny"
+mem-forget              = "deny"
+module-name-repetitions = "allow"
+similar-names           = "allow"
+
+[workspace.lints.rustdoc]
+all = "warn"
