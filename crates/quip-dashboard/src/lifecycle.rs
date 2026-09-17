@@ -291,6 +291,80 @@ fn project<T: serde::de::DeserializeOwned>(
     serde_json::from_value(serde_json::to_value(source)?)
 }
 
+/// One-shot device-access-time backfill: reindex winners when every indexed
+/// winner row predates migration 0006 and none reports access time.
+///
+/// This mirrors the prior TypeScript one-shot (`ensureDeviceAccessTimeBackfill`)
+/// which ran after migrations, before the indexer workers started. The durable
+/// marker is the point, not the probe: the field is self-reported and usually
+/// absent, so "every row is null" is a legitimate steady state. Only the first
+/// boot against a marker-less store may decide, and the decision must stick
+/// across restarts and crashes. The marker is written BEFORE the reindex, so a
+/// crash mid-reindex never schedules a second generation bump on restart; the
+/// cleared coverage and idempotent re-walk complete the recovery.
+///
+/// The decision is surfaced through the persisted observability snapshot, which
+/// the API returns as `deviceAccessTimeBackfill`.
+///
+/// # Errors
+/// Returns persistence or validation errors.
+pub async fn ensure_device_access_time_backfill(
+    store: &dashboard_store::Store,
+) -> Result<Option<dashboard_model::DeviceAccessTimeBackfill>, dashboard_store::StoreError> {
+    use dashboard_model::DeviceAccessTimeBackfill as Decision;
+    let decision = if let Some(marker) = store.get_device_access_time_backfill_marker().await? {
+        if marker == "not-needed" {
+            Some(Decision::NotNeeded)
+        } else {
+            Some(Decision::Triggered)
+        }
+    } else {
+        let probe = store.probe_device_access_time_data().await?;
+        if !probe.has_blocks || probe.has_reported {
+            store
+                .set_device_access_time_backfill_marker("not-needed")
+                .await?;
+            Some(Decision::NotNeeded)
+        } else {
+            store
+                .set_device_access_time_backfill_marker("triggered")
+                .await?;
+            tracing::info!(
+                "[indexer] device_access_time_us missing on every indexed winner row — scheduling one-shot winners reindex to backfill"
+            );
+            let _ = store
+                .reindex(&[dashboard_store::Indexable::Winners])
+                .await?;
+            Some(Decision::Triggered)
+        }
+    };
+    if let Some(decision) = decision {
+        let mut observability = store.get_indexer_observability().await?.unwrap_or_else(|| {
+            use dashboard_model::IndexerObservability;
+            IndexerObservability {
+                chain_head_from_node: None,
+                last_status_fetch_at: String::new(),
+                last_block_insert_at: None,
+                last_substrate_event_at: None,
+                best_block_height: None,
+                finalized_block_height: None,
+                chain_connected: false,
+                node_syncing: None,
+                node_sync_current_block: None,
+                node_sync_highest_block: None,
+                self_identified: Some(false),
+                miner_stats: None,
+                modes: None,
+                indexer: None,
+                device_access_time_backfill: None,
+            }
+        });
+        observability.device_access_time_backfill = Some(decision);
+        store.set_indexer_observability(&observability).await?;
+    }
+    Ok(decision)
+}
+
 /// Project persisted domain coverage without adding chain RPC requests.
 /// `queued` counts waiting scheduler work, excluding workers already executing.
 ///
