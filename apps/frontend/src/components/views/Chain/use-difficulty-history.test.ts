@@ -122,6 +122,7 @@ describe("useDifficultyHistory", () => {
       fetchNodeLive: () => new Promise<never>(() => {}),
       fetchMinerWins: () => new Promise<never>(() => {}),
       fetchMiningHistory: () => new Promise<never>(() => {}),
+      fetchQblocks: () => new Promise<never>(() => {}),
       fetchDifficultyHistory: async (sinceIso: string) => {
         calls.push(sinceIso);
         return {

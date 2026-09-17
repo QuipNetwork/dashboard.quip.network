@@ -24,6 +24,7 @@ export const idleTelemetryClient: TelemetryClient = {
   fetchDifficultyHistory: () => new Promise<never>(() => {}),
   fetchMinerWins: () => new Promise<never>(() => {}),
   fetchMiningHistory: () => new Promise<never>(() => {}),
+  fetchQblocks: () => new Promise<never>(() => {}),
 };
 
 export interface TestServicesOverrides {

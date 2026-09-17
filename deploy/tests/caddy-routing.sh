@@ -7,6 +7,7 @@ set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 CADDYFILE="${ROOT}/deploy/Caddyfile"
 FRONTEND="${ROOT}/deploy/tests/fixtures/frontend"
+DATA="${ROOT}/deploy/tests/fixtures/data"
 MOCK_PY="${ROOT}/deploy/tests/fixtures/mock-upstreams.py"
 
 # Official Caddy v2.11.4 from the local cache. Matches GitHub latest stable
@@ -208,6 +209,7 @@ docker run -d --name "${CADDY}" --pull=never --network "${NET}" \
 	-e XDG_CONFIG_HOME=/data/caddy/config \
 	-v "${CADDYFILE}:/etc/caddy/Caddyfile:ro" \
 	-v "${FRONTEND}:/app/frontend:ro" \
+	-v "${DATA}/qblocks:/data/qblocks:ro" \
 	-v "${WORKDIR}/caddy-data:/data/caddy/data" \
 	-v "${WORKDIR}/caddy-config:/data/caddy/config" \
 	-p 127.0.0.1::8080 \
@@ -289,6 +291,17 @@ assert_status 404 "missing API"
 assert_contains "${BODY}" '"upstream": "dashboard"' "missing API still dashboard"
 assert_contains "$(header_value Content-Type)" "application/json" "missing API type"
 assert_not_contains "${BODY}" "spa-index" "missing API must not be SPA HTML"
+
+log "== /files static data (qblocks manifest)"
+request GET "${BASE}/files/qblocks/metadata.json"
+assert_status 200 "files manifest"
+assert_contains "${BODY}" '"qblocks"' "files manifest body"
+assert_contains "$(header_value Content-Type)" "application/json" "files manifest type"
+assert_contains "$(header_value Cache-Control)" "public" "files manifest cacheable"
+
+request GET "${BASE}/files/qblocks/missing.json"
+assert_status 404 "missing files entry"
+assert_not_contains "${BODY}" "spa-index" "missing files entry must not be SPA HTML"
 
 log "== WebSocket upgrade through /rpc"
 # curl exits with code 52 when, after receiving the 101, the fixture closes

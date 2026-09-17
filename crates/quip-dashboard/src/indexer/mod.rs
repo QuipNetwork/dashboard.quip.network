@@ -3,6 +3,7 @@
 pub mod admission;
 mod backfill;
 pub mod coverage;
+pub mod file_writer;
 mod live;
 mod reconcile;
 pub mod sync_gate;
@@ -27,6 +28,10 @@ const SPARSE: [Indexable; 3] = [
     Indexable::Participation,
 ];
 const PAGE_SIZE: u32 = 256;
+/// How often the file-backed qblock tree is pruned and the manifest rebuilt.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
+/// Retention window for file-backed qblocks, matching the participation window.
+const RETENTION_DAYS: i64 = 14;
 
 /// Observable committed progress. An announced head never counts as a committed head.
 #[derive(Clone, Debug, Default)]
@@ -64,6 +69,7 @@ pub enum IndexerError {
 pub struct Indexer {
     store: Arc<Store>,
     chain: Arc<ChainReader>,
+    writer: Option<file_writer::FileWriter>,
     admission: Admission,
     registry: tokio::sync::Mutex<()>,
     live_work: tokio::sync::Mutex<()>,
@@ -80,11 +86,21 @@ impl Indexer {
     /// Create indexing and its coalesced progress channel.
     #[must_use]
     pub fn new(store: Arc<Store>, chain: Arc<ChainReader>) -> (Self, watch::Receiver<Progress>) {
+        Self::with_writer(store, chain, None)
+    }
+    /// Create indexing with an optional best-effort file writer.
+    #[must_use]
+    pub fn with_writer(
+        store: Arc<Store>,
+        chain: Arc<ChainReader>,
+        writer: Option<file_writer::FileWriter>,
+    ) -> (Self, watch::Receiver<Progress>) {
         let (progress, receiver) = watch::channel(Progress::default());
         (
             Self {
                 store,
                 chain,
+                writer,
                 admission: Admission::default(),
                 registry: tokio::sync::Mutex::new(()),
                 live_work: tokio::sync::Mutex::new(()),
@@ -213,7 +229,8 @@ impl Indexer {
             result=announce=>result,
             result=self.live(receiver.clone())=>result,
             result=self.backfill(receiver.clone())=>result,
-            result=self.reconcile(receiver)=>result,
+            result=self.reconcile(receiver.clone())=>result,
+            result=self.maintain(receiver)=>result,
         }
     }
     async fn initialize(&self, target: Target) -> Result<(), IndexerError> {
@@ -286,6 +303,50 @@ impl Indexer {
             p.admitted = self.admission.active();
             p.last_error = None;
         });
+    }
+    /// Best-effort write of a committed batch's qblock files.
+    ///
+    /// Errors are logged and never fail the store commit that already
+    /// succeeded. Each qblock gets one merged file; see
+    /// [`crate::indexer::file_writer::FileWriter::write_batch`].
+    async fn write_files(
+        &self,
+        winner: Option<&dashboard_model::BlockRecord>,
+        participation: &[dashboard_model::QBlockParticipationRecord],
+    ) {
+        let Some(writer) = &self.writer else {
+            return;
+        };
+        for result in writer.write_batch(winner, participation).await {
+            if let Err(error) = result {
+                tracing::warn!(%error, "file-backed qblock write failed");
+            }
+        }
+    }
+    /// Periodic file maintenance: prune qblock files older than the retention
+    /// window and rebuild the manifest. Runs until the shared `receiver`
+    /// closes. Best-effort; errors are logged and retried next interval.
+    async fn maintain(&self, mut receiver: watch::Receiver<Target>) -> Result<(), IndexerError> {
+        let mut ticker = tokio::time::interval(PRUNE_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                result = receiver.changed() => {
+                    if result.is_err() {
+                        return Ok(());
+                    }
+                }
+                () = async {
+                    let _ = ticker.tick().await;
+                    if let Some(writer) = &self.writer {
+                        let cutoff = chrono::Utc::now().timestamp() - RETENTION_DAYS * 86_400;
+                        if let Err(error) = writer.prune(cutoff).await {
+                            tracing::warn!(%error, "file-backed qblock maintenance failed");
+                        }
+                    }
+                } => {}
+            }
+        }
     }
     /// Evaluate the shared backfill gate against the live validator state.
     ///

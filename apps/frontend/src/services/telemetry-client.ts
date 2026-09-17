@@ -9,6 +9,7 @@ import type {
   MiningAttemptsResponse,
   MiningHistoryResponse,
   NodeLiveData,
+  ParticipationComputeRow,
   TelemetryResponse,
 } from "@quip/shared/telemetry";
 
@@ -38,6 +39,10 @@ export interface TelemetryClient {
   // Range-windowed slim winner-block rows at/after `sinceIso`, ascending.
   // Feeds the "Mining per QBlock" range selector.
   fetchMiningHistory(sinceIso: string, signal?: AbortSignal): Promise<MiningHistoryResponse>;
+  // Fetch the qblock manifest from `manifestUrl`, then each listed qblock
+  // file, and merge their `participation` records into the same shape the
+  // store expects (`ParticipationComputeRow[]`).
+  fetchQblocks(manifestUrl: string, signal?: AbortSignal): Promise<ParticipationComputeRow[]>;
 }
 
 export interface HttpTelemetryClientOptions {
@@ -116,6 +121,24 @@ export class HttpTelemetryClient implements TelemetryClient {
     );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as MiningHistoryResponse;
+  }
+
+  async fetchQblocks(
+    manifestUrl: string,
+    signal?: AbortSignal,
+  ): Promise<ParticipationComputeRow[]> {
+    const manifestRes = await this.fetch(manifestUrl, signal ? { signal } : undefined);
+    if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`);
+    const manifest = (await manifestRes.json()) as { qblocks: string[] };
+    const files = await Promise.all(
+      manifest.qblocks.map(async (p) => {
+        const res = await this.fetch(`${this.baseUrl}/files/${p}`, signal ? { signal } : undefined);
+        if (!res.ok) return [] as ParticipationComputeRow[];
+        const body = (await res.json()) as { participation?: ParticipationComputeRow[] };
+        return body.participation ?? [];
+      }),
+    );
+    return ([] as ParticipationComputeRow[]).concat(...files);
   }
 
   async fetchNodeLive(

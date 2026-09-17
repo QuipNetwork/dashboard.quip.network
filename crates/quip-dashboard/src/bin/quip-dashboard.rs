@@ -418,7 +418,13 @@ async fn run_indexer(
         tracing::warn!(%error, "device-access-time backfill startup check failed");
         return Err(error.to_string());
     }
-    let (indexer, mut progress) = Indexer::new(store, chain);
+    let (indexer, mut progress) = Indexer::with_writer(
+        store,
+        chain,
+        Some(quip_dashboard::indexer::file_writer::FileWriter::new(
+            config.data_dir.clone(),
+        )),
+    );
     let monitor = async {
         let mut prior = quip_dashboard::indexer::Progress::default();
         loop {

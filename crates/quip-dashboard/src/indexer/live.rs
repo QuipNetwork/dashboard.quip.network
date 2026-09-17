@@ -141,6 +141,7 @@ impl Indexer {
         }
         if !batch.completed.is_empty() {
             check(self.store.commit_block(&batch).await?)?;
+            self.write_files(batch.records.winner.as_ref(), &[]).await;
             self.committed(height);
         }
         if let Some(guard) = guards
@@ -413,12 +414,13 @@ impl Indexer {
                 height: block.events.block_number.into(),
                 guards: vec![guard.clone()],
                 records: BlockRecords {
-                    participation: records,
+                    participation: records.clone(),
                     ..BlockRecords::default()
                 },
                 completed,
             };
             check(self.store.commit_block(&batch).await?)?;
+            self.write_files(None, &records).await;
             if exhausted {
                 self.committed(block.events.block_number);
                 return Ok(());

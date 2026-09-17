@@ -50,6 +50,8 @@ pub struct Config {
     pub operator_account: Option<String>,
     /// Optional local `GeoIP` database file.
     pub geoip_db_path: Option<PathBuf>,
+    /// Filesystem root for file-backed qblock and miner data.
+    pub data_dir: PathBuf,
     /// Enforced resource limits and intervals.
     pub limits: Limits,
 }
@@ -215,6 +217,7 @@ impl Config {
             miner_rest_url,
             operator_account,
             geoip_db_path: get("GEOIP_DB_PATH").map(PathBuf::from),
+            data_dir: PathBuf::from(get("QUIP_DATA_DIR").unwrap_or("/data")),
             limits: Limits::new(poll),
         })
     }

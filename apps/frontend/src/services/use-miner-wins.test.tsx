@@ -43,6 +43,7 @@ function makeClient(rows: MinerWinsRow[] | Error): { client: TelemetryClient; ca
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
     fetchMiningHistory: () => new Promise<never>(() => {}),
+    fetchQblocks: () => new Promise<never>(() => {}),
     fetchMinerWins: async () => {
       calls.push(calls.length);
       if (rows instanceof Error) throw rows;

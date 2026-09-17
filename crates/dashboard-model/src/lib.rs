@@ -34,7 +34,8 @@ pub use node::{
 pub use response::{
     DeviceAccessTimeBackfill, DifficultyHistoryResponse, ErrorResponse, IndexerBackfillProgress,
     IndexerObservability, IndexerPluginCoverage, MinerWinsResponse, MiningHistoryResponse,
-    NodeLiveData, ParticipationComputeRow, QPU_ACCESS_TO_WALL_RATIO, TelemetryResponse,
+    NodeLiveData, ParticipationComputeRow, QPU_ACCESS_TO_WALL_RATIO, TelemetryFiles,
+    TelemetryResponse,
 };
 
 #[cfg(test)]
@@ -46,7 +47,7 @@ mod tests {
 
     use super::{
         BlockHash, BlockRecord, DecimalString, HealthResponse, IndexerObservability,
-        MiningSubmissionRecord, TelemetryResponse,
+        MiningSubmissionRecord, TelemetryFiles, TelemetryResponse,
     };
     use std::error::Error;
 
@@ -125,7 +126,9 @@ mod tests {
             recent_mining_submissions: Vec::new(),
             self_problems_attempted: 0,
             current_dispatch: None,
-            participation_compute: Vec::new(),
+            files: TelemetryFiles {
+                qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
+            },
         };
         let json = serde_json::to_value(&body)?;
         assert_eq!(
