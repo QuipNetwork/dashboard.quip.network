@@ -154,3 +154,36 @@ describe("HttpTelemetryClient.fetchMinerWins", () => {
     await expect(client.fetchMinerWins()).rejects.toThrow("HTTP 502");
   });
 });
+
+describe("HttpTelemetryClient.fetchQblocks", () => {
+  it("fetches qblock files from the manifest", async () => {
+    const calls: string[] = [];
+    const client = new HttpTelemetryClient({
+      baseUrl: "http://test",
+      fetch: (async (url: Parameters<typeof globalThis.fetch>[0]) => {
+        const u = typeof url === "string" ? url : url instanceof URL ? url.toString() : "";
+        calls.push(u);
+        if (u === "http://test/files/qblocks/metadata.json") {
+          return new Response(JSON.stringify({ qblocks: ["qblocks/ab/cd/1.json"] }), {
+            status: 200,
+          });
+        }
+        if (u === "http://test/files/qblocks/ab/cd/1.json") {
+          return new Response(
+            JSON.stringify({
+              qblockId: "1",
+              participation: [
+                { account: "A", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response("{}", { status: 404 });
+      }) as typeof globalThis.fetch,
+    });
+    const rows = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    expect(calls).toContain("http://test/files/qblocks/metadata.json");
+    expect(rows).toHaveLength(1);
+  });
+});

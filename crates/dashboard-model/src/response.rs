@@ -178,6 +178,14 @@ pub struct NodeLiveData {
     pub fetched_at: String,
 }
 
+/// Pointer to file-backed time-series data the client downloads directly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TelemetryFiles {
+    /// Absolute static URL of the qblock manifest (`/files/qblocks/metadata.json`).
+    pub qblocks_manifest: String,
+}
+
 /// `GET /api/telemetry` body.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -214,8 +222,8 @@ pub struct TelemetryResponse {
     pub self_problems_attempted: u64,
     /// Current dispatch.
     pub current_dispatch: Option<CurrentDispatch>,
-    /// Participation compute rows for the recent window.
-    pub participation_compute: Vec<ParticipationComputeRow>,
+    /// Pointer to file-backed time-series data.
+    pub files: TelemetryFiles,
 }
 
 /// Error body returned by the HTTP API.

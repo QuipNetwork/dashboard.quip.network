@@ -104,6 +104,20 @@ const createTelemetryState =
       if (firstLoad && !get().loading) set({ loading: true });
       try {
         const data = await deps.client.fetchTelemetry();
+        // Participation facts are file-backed: fetch them from the manifest the
+        // slimmed telemetry points at. A missing or unparseable manifest
+        // degrades to an empty participation array ("no data yet").
+        let participationCompute: ParticipationComputeRow[] = [];
+        const manifest = data.files?.qblocksManifest;
+        if (manifest) {
+          try {
+            participationCompute = await deps.client.fetchQblocks(manifest);
+          } catch (e) {
+            // Best-effort: a 404 on the manifest (indexer hasn't written
+            // files yet) must not fail the whole telemetry poll.
+            console.warn("qblock file fetch failed", e);
+          }
+        }
         // Defensive coercion: a rolling deploy (or a stale dev-server that
         // hasn't been restarted past a schema bump) can return a response
         // missing newly-added fields. Without these defaults, downstream
@@ -126,7 +140,7 @@ const createTelemetryState =
           recentMiningSubmissions: data.recentMiningSubmissions ?? [],
           selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
           currentDispatch: data.currentDispatch ?? null,
-          participationCompute: data.participationCompute ?? [],
+          participationCompute,
           loading: false,
           error: null,
         });

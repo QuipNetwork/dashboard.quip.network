@@ -9,7 +9,7 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-use dashboard_model::{NodeInfo, NodesSnapshot, TelemetryResponse, ValidatorAuthorshipRecord};
+use dashboard_model::{NodeInfo, NodesSnapshot, TelemetryFiles, TelemetryResponse, ValidatorAuthorshipRecord};
 use serde_json::json;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::time::Instant;
@@ -61,8 +61,6 @@ fn capacity_error() -> ApiError {
 )]
 async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
     let db = &state.store;
-    let since = ((state.clock)() - chrono::Duration::days(14))
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let (
         mut blocks,
         self_address,
@@ -76,7 +74,6 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         authorship,
         node_descriptors,
         mineable_topologies,
-        participation_compute,
     ) = tokio::try_join!(
         db.get_recent_blocks(500, 0),
         db.get_self_address(),
@@ -90,7 +87,6 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         db.get_validator_authorship(),
         db.get_all_node_descriptors(),
         db.get_mineable_topologies(),
-        db.get_participation_compute(&since)
     )?;
     let self_address = self_address.or_else(|| state.operator_account.clone());
     let (recent_mining_submissions, self_problems_attempted) = if let Some(account) = &self_address
@@ -219,6 +215,8 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         recent_mining_submissions,
         self_problems_attempted,
         current_dispatch,
-        participation_compute,
+        files: TelemetryFiles {
+            qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
+        },
     })
 }

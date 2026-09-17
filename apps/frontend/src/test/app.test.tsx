@@ -79,33 +79,10 @@ const MOCK_RESPONSE: TelemetryResponse = {
   recentMiningSubmissions: [],
   selfProblemsAttempted: 0,
   currentDispatch: null,
-  // The mining-time and compute-used charts are now driven by participant
-  // compute (aggregateParticipationBy*), not winner blocks — give qblock "1"
-  // (the in-range qblock the mining-history mock bounds) a row per category so
-  // both charts have data to render.
-  participationCompute: [
-    {
-      qblockId: "1",
-      account: "cpu-miner-1",
-      kind: "Cpu",
-      miningSeconds: 12,
-      exactQpuAccessUs: null,
-    },
-    {
-      qblockId: "1",
-      account: "gpu-miner-1",
-      kind: "Gpu",
-      miningSeconds: 12,
-      exactQpuAccessUs: null,
-    },
-    {
-      qblockId: "1",
-      account: "qpu-miner-1",
-      kind: "QpuDwave",
-      miningSeconds: 12,
-      exactQpuAccessUs: null,
-    },
-  ],
+  files: { qblocksManifest: "/files/qblocks/metadata.json" },
+  // The participation facts now ride in the file-backed qblock tree, served
+  // under /files (see the /files route in the fetch mock below). They are no
+  // longer part of the telemetry response.
 };
 
 let container: HTMLDivElement;
@@ -152,6 +129,50 @@ describe("App smoke test", () => {
       // Route by URL: the app fetches /api/miner-wins and /api/mining-history
       // alongside /api/telemetry, and each expects its own response shape.
       const url = String(input);
+      // The store fetches the qblock manifest and qblock files under /files
+      // after the slimmed telemetry response (see fetchQblocks). Route those
+      // to file-shaped fixtures so the participation-driven charts render.
+      if (url.endsWith("/files/qblocks/metadata.json")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ qblocks: ["qblocks/ab/cd/1.json"] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (url.includes("/files/qblocks/")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              qblockId: "1",
+              participation: [
+                {
+                  qblockId: "1",
+                  account: "cpu-miner-1",
+                  kind: "Cpu",
+                  miningSeconds: 12,
+                  exactQpuAccessUs: null,
+                },
+                {
+                  qblockId: "1",
+                  account: "gpu-miner-1",
+                  kind: "Gpu",
+                  miningSeconds: 12,
+                  exactQpuAccessUs: null,
+                },
+                {
+                  qblockId: "1",
+                  account: "qpu-miner-1",
+                  kind: "QpuDwave",
+                  miningSeconds: 12,
+                  exactQpuAccessUs: null,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
       const body = url.endsWith("/api/miner-wins")
         ? { rows: [] }
         : url.includes("/api/mining-history")

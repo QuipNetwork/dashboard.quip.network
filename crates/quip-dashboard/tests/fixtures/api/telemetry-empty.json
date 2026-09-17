@@ -15,5 +15,7 @@
   "recentMiningSubmissions": [],
   "selfProblemsAttempted": 0,
   "currentDispatch": null,
-  "participationCompute": []
+  "files": {
+    "qblocksManifest": "/files/qblocks/metadata.json"
+  }
 }

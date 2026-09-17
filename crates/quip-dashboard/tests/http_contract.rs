@@ -523,8 +523,8 @@ async fn telemetry_cache_is_single_flight_and_charges_held_bodies() -> TestResul
     assert_eq!(second.status(), StatusCode::OK);
     assert_eq!(
         clock_reads.load(Ordering::SeqCst),
-        3,
-        "One build supplies cutoff, validator clock and server timestamp"
+        2,
+        "One build supplies validator clock and server timestamp"
     );
     drop(second);
     tokio::time::sleep(std::time::Duration::from_millis(1010)).await;
@@ -710,8 +710,12 @@ async fn telemetry_preserves_more_than_4096_participation_facts() -> TestResult 
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = to_bytes(response.into_body(), 2 * 1024 * 1024).await?;
     let body: Value = serde_json::from_slice(&bytes)?;
-    assert_eq!(array(&body, "participationCompute")?.len(), 4200);
+    // Participation facts are now file-backed: the slimmed telemetry response
+    // carries a files pointer instead of the 4,200 participation rows, so the
+    // payload stays far under the 2 MiB capacity cap even with a full store.
+    assert_eq!(body["files"]["qblocksManifest"], "/files/qblocks/metadata.json");
     assert!(bytes.len() < 2 * 1024 * 1024);
+    assert!(bytes.len() < 1024 * 1024, "telemetry should be small");
     drop(app);
     Arc::try_unwrap(store)
         .map_err(|_| "store still held")?

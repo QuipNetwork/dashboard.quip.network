@@ -359,34 +359,7 @@
     ],
     "status": "in-flight"
   },
-  "participationCompute": [
-    {
-      "qblockId": "4",
-      "account": "5A",
-      "kind": "Cpu",
-      "miningSeconds": 12,
-      "exactQpuAccessUs": null
-    },
-    {
-      "qblockId": "4",
-      "account": "5GPP",
-      "kind": "QpuDwave",
-      "miningSeconds": 12,
-      "exactQpuAccessUs": null
-    },
-    {
-      "qblockId": "5",
-      "account": "5A",
-      "kind": "Cpu",
-      "miningSeconds": 18,
-      "exactQpuAccessUs": null
-    },
-    {
-      "qblockId": "5",
-      "account": "5GPP",
-      "kind": "QpuDwave",
-      "miningSeconds": 18,
-      "exactQpuAccessUs": 500000
-    }
-  ]
+  "files": {
+    "qblocksManifest": "/files/qblocks/metadata.json"
+  }
 }
