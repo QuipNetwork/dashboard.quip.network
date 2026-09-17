@@ -28,6 +28,10 @@ const SPARSE: [Indexable; 3] = [
     Indexable::Participation,
 ];
 const PAGE_SIZE: u32 = 256;
+/// How often the file-backed qblock tree is pruned and the manifest rebuilt.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
+/// Retention window for file-backed qblocks, matching the participation window.
+const RETENTION_DAYS: i64 = 14;
 
 /// Observable committed progress. An announced head never counts as a committed head.
 #[derive(Clone, Debug, Default)]
@@ -225,7 +229,8 @@ impl Indexer {
             result=announce=>result,
             result=self.live(receiver.clone())=>result,
             result=self.backfill(receiver.clone())=>result,
-            result=self.reconcile(receiver)=>result,
+            result=self.reconcile(receiver.clone())=>result,
+            result=self.maintain(receiver)=>result,
         }
     }
     async fn initialize(&self, target: Target) -> Result<(), IndexerError> {
@@ -315,6 +320,31 @@ impl Indexer {
         for result in writer.write_batch(winner, participation).await {
             if let Err(error) = result {
                 tracing::warn!(%error, "file-backed qblock write failed");
+            }
+        }
+    }
+    /// Periodic file maintenance: prune qblock files older than the retention
+    /// window and rebuild the manifest. Runs until the shared `receiver`
+    /// closes. Best-effort; errors are logged and retried next interval.
+    async fn maintain(&self, mut receiver: watch::Receiver<Target>) -> Result<(), IndexerError> {
+        let mut ticker = tokio::time::interval(PRUNE_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                result = receiver.changed() => {
+                    if result.is_err() {
+                        return Ok(());
+                    }
+                }
+                () = async {
+                    let _ = ticker.tick().await;
+                    if let Some(writer) = &self.writer {
+                        let cutoff = chrono::Utc::now().timestamp() - RETENTION_DAYS * 86_400;
+                        if let Err(error) = writer.prune(cutoff).await {
+                            tracing::warn!(%error, "file-backed qblock maintenance failed");
+                        }
+                    }
+                } => {}
             }
         }
     }

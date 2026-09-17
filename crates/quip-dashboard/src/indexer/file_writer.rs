@@ -151,6 +151,82 @@ impl FileWriter {
         let bytes = serde_json::to_vec(&payload).map_err(std::io::Error::other)?;
         atomic_write(&self.root, &rel, &bytes).await
     }
+
+    /// Walk `data/qblocks` and delete qblock files older than the cutoff,
+    /// then rebuild `metadata.json` with the surviving files (most recent
+    /// first by modified time). `metadata.json` itself is skipped.
+    ///
+    /// # Errors
+    /// Returns an I/O error on a failed walk or manifest write.
+    pub async fn prune(&self, since_unix: i64) -> std::io::Result<()> {
+        let qblocks_root = self.root.join(QBLOCKS_DIR);
+        let mut survivors: Vec<(i64, String)> = Vec::new();
+        let mut stack = vec![qblocks_root.clone()];
+        while let Some(dir) = stack.pop() {
+            let mut rd = tokio::fs::read_dir(&dir).await?;
+            while let Some(entry) = rd.next_entry().await? {
+                let path = entry.path();
+                let meta = entry.metadata().await?;
+                if meta.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "json")
+                    && path.file_name().and_then(|n| n.to_str()) != Some("metadata.json")
+                {
+                    let modified = meta.modified()?.duration_since(std::time::UNIX_EPOCH);
+                    if let Ok(duration) = modified {
+                        let mtime = duration.as_secs() as i64;
+                        if mtime < since_unix {
+                            tokio::fs::remove_file(&path).await?;
+                        } else {
+                            let rel = path
+                                .strip_prefix(&self.root)
+                                .map_err(std::io::Error::other)?
+                                .to_string_lossy()
+                                .into_owned();
+                            survivors.push((mtime, rel));
+                        }
+                    }
+                }
+            }
+        }
+        survivors.sort_by(|a, b| b.0.cmp(&a.0));
+        let listed: Vec<String> = survivors.into_iter().map(|(_, path)| path).collect();
+        self.update_manifest(&listed).await
+    }
+
+    /// Enforce the retention window: write the manifest from `listed` (most
+    /// recent first), then delete any qblock file whose relative path is not
+    /// in `listed`.
+    ///
+    /// # Errors
+    /// Returns an I/O error on a manifest write or walk.
+    pub async fn write_back(&self, listed: &[String]) -> std::io::Result<()> {
+        self.update_manifest(listed).await?;
+        let qblocks_root = self.root.join(QBLOCKS_DIR);
+        let mut stack = vec![qblocks_root.clone()];
+        while let Some(dir) = stack.pop() {
+            let mut rd = tokio::fs::read_dir(&dir).await?;
+            while let Some(entry) = rd.next_entry().await? {
+                let path = entry.path();
+                let meta = entry.metadata().await?;
+                if meta.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "json")
+                    && path.file_name().and_then(|n| n.to_str()) != Some("metadata.json")
+                {
+                    let rel = path
+                        .strip_prefix(&self.root)
+                        .map_err(std::io::Error::other)?
+                        .to_string_lossy()
+                        .into_owned();
+                    if !listed.iter().any(|entry| entry == &rel) {
+                        tokio::fs::remove_file(&path).await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -310,5 +386,64 @@ mod tests {
         let abs = dir.path().join("qblocks/metadata.json");
         let parsed: Value = serde_json::from_slice(&tokio::fs::read(&abs).await.unwrap()).unwrap();
         assert!(parsed["qblocks"].is_array());
+    }
+
+    fn old_mtime(path: &std::path::Path, days_ago: i64) {
+        let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+        let now = std::time::SystemTime::now();
+        let old = now - std::time::Duration::from_secs(days_ago as u64 * 86_400);
+        let times = std::fs::FileTimes::new().set_modified(old);
+        file.set_times(times).unwrap();
+    }
+
+    #[tokio::test]
+    async fn prune_removes_old_files_keeps_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let w = FileWriter::new(dir.path().to_path_buf());
+        w.write_qblock("old", &json!({})).await.unwrap();
+        w.write_qblock("new", &json!({})).await.unwrap();
+        let old_rel = std::path::PathBuf::from(QBLOCKS_DIR).join(qblock_rel_path("old"));
+        let old_abs = dir.path().join(&old_rel);
+        old_mtime(&old_abs, 30);
+        let now = chrono::Utc::now().timestamp();
+        w.prune(now).await.unwrap();
+        assert!(!old_abs.exists(), "old qblock should be pruned");
+        let new_rel = std::path::PathBuf::from(QBLOCKS_DIR).join(qblock_rel_path("new"));
+        let new_abs = dir.path().join(&new_rel);
+        assert!(new_abs.exists(), "new qblock should survive");
+        let manifest_abs = dir.path().join("qblocks/metadata.json");
+        let parsed: Value =
+            serde_json::from_slice(&tokio::fs::read(&manifest_abs).await.unwrap()).unwrap();
+        let listed = parsed["qblocks"].as_array().unwrap();
+        assert!(listed.iter().any(|p| p == &Value::from(
+            new_rel.to_string_lossy().into_owned()
+        )));
+        assert!(!listed.iter().any(|p| p == &Value::from(
+            old_rel.to_string_lossy().into_owned()
+        )));
+    }
+
+    #[tokio::test]
+    async fn write_back_removes_files_outside_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let w = FileWriter::new(dir.path().to_path_buf());
+        w.write_qblock("keep", &json!({})).await.unwrap();
+        w.write_qblock("drop", &json!({})).await.unwrap();
+        let keep_rel = std::path::PathBuf::from(QBLOCKS_DIR).join(qblock_rel_path("keep"));
+        let keep_str = keep_rel.to_string_lossy().into_owned();
+        w.write_back(&[keep_str.clone()]).await.unwrap();
+        let keep_abs = dir.path().join(&keep_rel);
+        let drop_abs = dir
+            .path()
+            .join(QBLOCKS_DIR)
+            .join(qblock_rel_path("drop"));
+        assert!(keep_abs.exists());
+        assert!(!drop_abs.exists(), "file outside window should be removed");
+        let manifest_abs = dir.path().join("qblocks/metadata.json");
+        let parsed: Value =
+            serde_json::from_slice(&tokio::fs::read(&manifest_abs).await.unwrap()).unwrap();
+        let listed = parsed["qblocks"].as_array().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0], Value::from(keep_str));
     }
 }
