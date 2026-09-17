@@ -4,6 +4,11 @@ use crate::qblock_path::{MINERS_DIR, QBLOCKS_DIR, atomic_write, qblock_rel_path}
 use dashboard_model::QBlockParticipationRecord;
 use serde_json::{Value, json};
 
+/// Upper bound on manifest entries, matching the 14-day retention window at
+/// the measured ~461 qblocks/day (~6,500 entries). Capping keeps the manifest
+/// bounded even if pruning is delayed.
+const MAX_MANIFEST_ENTRIES: usize = 10_000;
+
 /// Root directory holding `qblocks/` and `miners/` data trees.
 #[derive(Clone, Debug)]
 pub struct FileWriter {
@@ -158,18 +163,70 @@ impl FileWriter {
             }
         }
         let mut results = Vec::new();
+        let mut written: Vec<String> = Vec::new();
         for id in ids {
             let id_participation: Vec<&QBlockParticipationRecord> = participation
                 .iter()
                 .filter(|p| p.qblock_id.as_str() == id)
                 .collect();
             let id_winner = winner.filter(|w| w.qblock_id.as_str() == id);
+            let rel = std::path::PathBuf::from(QBLOCKS_DIR)
+                .join(qblock_rel_path(id.as_str()))
+                .to_string_lossy()
+                .into_owned();
             results.push(
                 self.write_qblock_merged(&id, id_winner, &id_participation)
                     .await,
             );
+            if !written.iter().any(|existing| existing == &rel) {
+                written.push(rel);
+            }
+        }
+        let all_ok = results.iter().all(Result::is_ok);
+        if all_ok && !written.is_empty() {
+            // Keep the manifest fresh as qblocks land so the client can
+            // discover them without waiting for the hourly prune tick.
+            if let Err(error) = self.add_to_manifest(&written).await {
+                tracing::warn!(%error, "qblock manifest update failed");
+            }
         }
         results
+    }
+
+    /// Prepend `rel_paths` (relative qblock paths, most recent first) to the
+    /// manifest, deduplicate against the existing entries, cap to the
+    /// retention window, and atomically rewrite `metadata.json`. Missing or
+    /// malformed manifests are treated as empty so a fresh deployment still
+    /// produces a valid manifest on the first write.
+    ///
+    /// # Errors
+    /// Returns an I/O error on a manifest read or atomic write.
+    async fn add_to_manifest(&self, rel_paths: &[String]) -> std::io::Result<()> {
+        let rel = std::path::PathBuf::from(QBLOCKS_DIR).join("metadata.json");
+        let abs = self.root.join(&rel);
+        let mut current: Vec<String> = if abs.exists() {
+            tokio::fs::read(&abs).await.ok().and_then(|bytes| {
+                serde_json::from_slice::<Value>(&bytes)
+                    .ok()
+                    .and_then(|v| v.get("qblocks").and_then(Value::as_array).cloned())
+                    .and_then(|arr| {
+                        arr.into_iter()
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect::<Vec<String>>()
+                            .into()
+                    })
+            })
+        } else {
+            None
+        }
+        .unwrap_or_default();
+        for path in rel_paths {
+            if !current.iter().any(|existing| existing == path) {
+                current.insert(0, path.clone());
+            }
+        }
+        current.truncate(MAX_MANIFEST_ENTRIES);
+        self.update_manifest(&current).await
     }
 
     /// Merge a winner and participation rows into one qblock file, preserving
@@ -250,6 +307,11 @@ impl FileWriter {
     /// Returns an I/O error on a failed walk or manifest write.
     pub async fn prune(&self, since_unix: i64) -> std::io::Result<()> {
         let qblocks_root = self.root.join(QBLOCKS_DIR);
+        if !qblocks_root.exists() {
+            // A fresh deployment has no qblocks yet; emit an empty manifest
+            // rather than failing the maintenance tick.
+            return self.update_manifest(&[]).await;
+        }
         let mut survivors: Vec<(i64, String)> = Vec::new();
         let mut stack = vec![qblocks_root.clone()];
         while let Some(dir) = stack.pop() {
@@ -588,6 +650,66 @@ mod tests {
             !listed
                 .iter()
                 .any(|p| p == &Value::from(old_rel.to_string_lossy().into_owned()))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prune_with_missing_qblocks_root_writes_empty_manifest()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let w = FileWriter::new(dir.path().to_path_buf());
+        let now = chrono::Utc::now().timestamp();
+        w.prune(now).await?;
+        let manifest_abs = dir.path().join(QBLOCKS_DIR).join("metadata.json");
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&manifest_abs).await?)?;
+        assert_eq!(parsed["qblocks"].as_array().map(Vec::len), Some(0));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn write_batch_lands_written_paths_in_manifest() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let w = FileWriter::new(dir.path().to_path_buf());
+        let winner = dashboard_model::BlockRecord {
+            block_hash: dashboard_model::BlockHash::from([1; 32]),
+            substrate_block_number: dashboard_model::DecimalString::from_str("100")?,
+            substrate_block_hash: dashboard_model::BlockHash::from([2; 32]),
+            substrate_parent_hash: dashboard_model::BlockHash::from([3; 32]),
+            timestamp: 1_700_000_000,
+            miner_id: "5GPP".into(),
+            energy: -100.0,
+            diversity: 0.5,
+            num_valid_solutions: 1,
+            mining_time: 60.0,
+            device_access_time_us: None,
+            reward: dashboard_model::DecimalString::from_str("1000")?,
+            qblock_id: dashboard_model::DecimalString::from_str("42")?,
+            nonce: dashboard_model::DecimalString::from_str("7")?,
+            num_nodes: 1,
+            num_edges: 1,
+            difficulty_energy: -110.0,
+            min_diversity: 0.1,
+            min_solutions: 1,
+            finalized: true,
+            topology_hash: None,
+        };
+        let results = w.write_batch(Some(&winner), &[]).await;
+        assert!(
+            results.iter().all(Result::is_ok),
+            "write_batch should succeed"
+        );
+        let manifest_abs = dir.path().join(QBLOCKS_DIR).join("metadata.json");
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&manifest_abs).await?)?;
+        let listed = parsed["qblocks"].as_array().ok_or("no array")?;
+        let expected = std::path::PathBuf::from(QBLOCKS_DIR)
+            .join(qblock_rel_path("42"))
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            listed.iter().any(|p| p.as_str() == Some(expected.as_str())),
+            "manifest should list the just-written qblock path"
         );
         Ok(())
     }
