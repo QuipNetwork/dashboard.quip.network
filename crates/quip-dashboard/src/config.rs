@@ -52,6 +52,10 @@ pub struct Config {
     pub geoip_db_path: Option<PathBuf>,
     /// Filesystem root for file-backed qblock and miner data.
     pub data_dir: PathBuf,
+    /// Whether the indexer runs on the same host as the local miner.
+    pub miner_colocated: bool,
+    /// Local miner attempt tree to symlink when co-located.
+    pub miner_attempts_dir: Option<PathBuf>,
     /// Enforced resource limits and intervals.
     pub limits: Limits,
 }
@@ -118,6 +122,10 @@ impl Config {
     ///
     /// # Errors
     /// Returns malformed or unsupported configuration.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "flat environment parsing keeps every recognized key visible in one scope"
+    )]
     pub fn from_pairs<K: Into<String>, V: Into<String>>(
         pairs: impl IntoIterator<Item = (K, V)>,
     ) -> Result<Self, ConfigError> {
@@ -197,6 +205,23 @@ impl Config {
                 ));
             }
         }
+        let miner_colocated = match get("QUIP_MINER_COLOCATED")
+            .unwrap_or("false")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "true" | "1" => true,
+            "false" | "0" => false,
+            _ => {
+                return Err(error(
+                    "QUIP_MINER_COLOCATED",
+                    "expected true, false, 1, or 0",
+                ));
+            }
+        };
+        let miner_attempts_dir = get("QUIP_MINER_ATTEMPTS_DIR")
+            .map(PathBuf::from)
+            .or_else(|| miner_colocated.then(|| PathBuf::from("data/attempts")));
         let operator_account = get("QUIP_OPERATOR_ACCOUNT").map(str::to_owned);
         if let Some(account) = &operator_account
             && (!(46..=50).contains(&account.len())
@@ -218,6 +243,8 @@ impl Config {
             operator_account,
             geoip_db_path: get("GEOIP_DB_PATH").map(PathBuf::from),
             data_dir: PathBuf::from(get("QUIP_DATA_DIR").unwrap_or("/data")),
+            miner_colocated,
+            miner_attempts_dir,
             limits: Limits::new(poll),
         })
     }
@@ -303,5 +330,66 @@ impl Limits {
             stale_progress_sec: 90,
             startup_deadline_sec: 60,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(
+        clippy::panic_in_result_fn,
+        reason = "test assertions report config parsing correctness while propagating errors"
+    )]
+    use super::Config;
+
+    fn config_with(extra: &[(&str, &str)]) -> Result<Config, super::ConfigError> {
+        let mut pairs = vec![
+            ("RUN_INDEXER", "true"),
+            ("QUIP_DATA_DIR", "/d"),
+            ("QUIP_VALIDATOR_RPC_URLS", "ws://validator:9944"),
+            ("QUIP_MINER_REST_URL", "http://miner:8086"),
+        ];
+        pairs.extend_from_slice(extra);
+        Config::from_pairs(pairs)
+    }
+
+    #[test]
+    fn miner_not_colocated_by_default() -> Result<(), super::ConfigError> {
+        let config = config_with(&[])?;
+        assert!(!config.miner_colocated);
+        assert!(config.miner_attempts_dir.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn colocated_defaults_attempts_dir_to_data_attempts() -> Result<(), super::ConfigError> {
+        let config = config_with(&[("QUIP_MINER_COLOCATED", "true")])?;
+        assert!(config.miner_colocated);
+        assert_eq!(
+            config.miner_attempts_dir.as_deref(),
+            Some(std::path::Path::new("data/attempts"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_attempts_dir_overrides_default() -> Result<(), super::ConfigError> {
+        let config = config_with(&[
+            ("QUIP_MINER_COLOCATED", "1"),
+            ("QUIP_MINER_ATTEMPTS_DIR", "/custom/attempts"),
+        ])?;
+        assert_eq!(
+            config.miner_attempts_dir.as_deref(),
+            Some(std::path::Path::new("/custom/attempts"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_colocated_flag_is_rejected() {
+        let rejected = match config_with(&[("QUIP_MINER_COLOCATED", "maybe")]) {
+            Ok(_) => false,
+            Err(error) => error.to_string().contains("QUIP_MINER_COLOCATED"),
+        };
+        assert!(rejected, "invalid flag should be rejected");
     }
 }
