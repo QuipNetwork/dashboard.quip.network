@@ -45,10 +45,31 @@ test:
 
 # Rust workspace checks. The JavaScript job covers the frontend SPA and shared
 # contract only; the Rust tree is the server implementation.
+
+# Heavy Rust jobs keep Cargo state on a host volume, not in the GitLab tar
+# cache. See docs/ci-cache.md for the host setup. The tar cache cannot hold a
+# Rust target/ on this workspace and misses across runner hosts, so it never
+# warmed; the host volume persists between pipelines on one host.
+#
+# CARGO_HOME is shared: the registry is read-mostly and Cargo locks it
+# correctly. CI_CONCURRENT_ID scopes the target dir to the runner execution
+# slot, so two pipelines on one host build in separate directories instead of
+# serializing on Cargo's target lock. Slots are reused across pipelines,
+# which is what keeps a directory warm.
+#
+# Pruning is a host concern — a scheduled CI job only ever lands on one
+# runner. Each host needs its own sweep of the volume; see docs/ci-cache.md.
+.cargo-host-cache:
+  variables:
+    CARGO_HOME: /ci-cache/cargo-home
+    CARGO_TARGET_DIR: /ci-cache/$CI_CONCURRENT_ID/$CI_JOB_NAME/target
+  cache: []
+
 rust:
   stage: test
   image: rust:1.98.1-bookworm
   tags: [linux, amd64]
+  extends: .cargo-host-cache
   services:
     - name: postgres:16
       alias: postgres
