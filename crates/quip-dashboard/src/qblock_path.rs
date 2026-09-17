@@ -11,16 +11,22 @@ pub const MINERS_DIR: &str = "miners";
 /// First 8 hex chars of a stable hash of `id`, split 4/4.
 fn hash_prefix(id: &str) -> (String, String) {
     let digest = Sha256::digest(id.as_bytes());
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let hex: String = digest.iter().fold(String::with_capacity(64), |mut acc, b| {
+        use std::fmt::Write;
+        let _ = write!(acc, "{b:02x}");
+        acc
+    });
     (hex[..4].to_string(), hex[4..8].to_string())
 }
 
 /// Leaf file name: the id tail plus `.json`.
+#[must_use]
 pub fn qblock_filename(id: &str) -> String {
     format!("{id}.json")
 }
 
 /// Relative path `<hhhh>/<llll>/<tail>.json`.
+#[must_use]
 pub fn qblock_rel_path(id: &str) -> PathBuf {
     let (a, b) = hash_prefix(id);
     // The id tail is the id with its first 8 characters removed; an id
@@ -34,6 +40,7 @@ pub fn qblock_rel_path(id: &str) -> PathBuf {
 }
 
 /// Relative path for a miner's directory.
+#[must_use]
 pub fn dashboard_rel_path(account: &str) -> PathBuf {
     PathBuf::from(MINERS_DIR).join(account)
 }
@@ -55,9 +62,7 @@ pub async fn atomic_write(
     }
     let tmp = abs.with_file_name(format!(
         ".{}.{}.tmp",
-        abs.file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("file"),
+        abs.file_name().and_then(|s| s.to_str()).unwrap_or("file"),
         std::process::id()
     ));
     tokio::fs::write(&tmp, bytes).await?;
@@ -67,6 +72,10 @@ pub async fn atomic_write(
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::indexing_slicing,
+        reason = "test fixture indexing is guarded by the preceding length assertion"
+    )]
     use super::*;
     #[test]
     fn fan_out_is_4_hex_per_level() {
@@ -79,7 +88,11 @@ mod tests {
         assert_eq!(parts[1].len(), 4);
         assert!(parts[0].chars().all(|c| c.is_ascii_hexdigit()));
         assert!(parts[1].chars().all(|c| c.is_ascii_hexdigit()));
-        assert!(parts[2].ends_with(".json"));
+        assert!(parts.last().is_some_and(|part| {
+            std::path::Path::new(part)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+        }));
     }
     #[test]
     fn same_id_same_path() {
@@ -94,30 +107,38 @@ mod tests {
         assert!(s.ends_with("42.json"));
     }
     #[tokio::test]
-    async fn atomic_write_replaces_and_creates_dirs() {
-        let dir = tempfile::tempdir().unwrap();
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "test assertions report atomic write correctness"
+    )]
+    async fn atomic_write_replaces_and_creates_dirs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let rel = qblock_rel_path("abc");
         let abs = dir.path().join(&rel);
-        atomic_write(dir.path(), &rel, b"one").await.unwrap();
-        assert_eq!(tokio::fs::read(&abs).await.unwrap(), b"one");
+        atomic_write(dir.path(), &rel, b"one").await?;
+        assert_eq!(tokio::fs::read(&abs).await?, b"one");
         // Re-write overwrites atomically.
-        atomic_write(dir.path(), &rel, b"two").await.unwrap();
-        assert_eq!(tokio::fs::read(&abs).await.unwrap(), b"two");
+        atomic_write(dir.path(), &rel, b"two").await?;
+        assert_eq!(tokio::fs::read(&abs).await?, b"two");
         // No temp files left behind.
         let mut leftovers = vec![];
         let mut stack = vec![dir.path().to_path_buf()];
         while let Some(d) = stack.pop() {
-            let mut rd = tokio::fs::read_dir(&d).await.unwrap();
-            while let Some(e) = rd.next_entry().await.unwrap() {
+            let mut rd = tokio::fs::read_dir(&d).await?;
+            while let Some(e) = rd.next_entry().await? {
                 let name = e.file_name().to_string_lossy().to_string();
-                if name.ends_with(".tmp") {
+                if std::path::Path::new(&name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("tmp"))
+                {
                     leftovers.push(name);
                 }
-                if e.file_type().await.unwrap().is_dir() {
+                if e.file_type().await?.is_dir() {
                     stack.push(e.path());
                 }
             }
         }
         assert!(leftovers.is_empty(), "temp files: {leftovers:?}");
+        Ok(())
     }
 }

@@ -713,7 +713,10 @@ async fn telemetry_preserves_more_than_4096_participation_facts() -> TestResult 
     // Participation facts are now file-backed: the slimmed telemetry response
     // carries a files pointer instead of the 4,200 participation rows, so the
     // payload stays far under the 2 MiB capacity cap even with a full store.
-    assert_eq!(body["files"]["qblocksManifest"], "/files/qblocks/metadata.json");
+    assert_eq!(
+        body["files"]["qblocksManifest"],
+        "/files/qblocks/metadata.json"
+    );
     assert!(bytes.len() < 2 * 1024 * 1024);
     assert!(bytes.len() < 1024 * 1024, "telemetry should be small");
     drop(app);

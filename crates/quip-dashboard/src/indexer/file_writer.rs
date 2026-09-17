@@ -82,8 +82,10 @@ impl FileWriter {
                 .filter(|p| p.qblock_id.as_str() == id)
                 .collect();
             let id_winner = winner.filter(|w| w.qblock_id.as_str() == id);
-            results
-                .push(self.write_qblock_merged(&id, id_winner, &id_participation).await);
+            results.push(
+                self.write_qblock_merged(&id, id_winner, &id_participation)
+                    .await,
+            );
         }
         results
     }
@@ -109,12 +111,6 @@ impl FileWriter {
         } else {
             json!({})
         };
-        existing["qblockId"] = json!(id);
-        if let Some(w) = winner {
-            existing["winner"] = serde_json::to_value(w).map_err(std::io::Error::other)?;
-        } else if existing.get("winner").is_none() {
-            existing["winner"] = Value::Null;
-        }
         let merged: Vec<Value> = {
             let mut rows: Vec<Value> = existing
                 .get("participation")
@@ -135,7 +131,19 @@ impl FileWriter {
             }
             rows
         };
-        existing["participation"] = Value::Array(merged);
+        let obj = existing
+            .as_object_mut()
+            .ok_or_else(|| std::io::Error::other("qblock payload is not an object"))?;
+        let _ = obj.insert("qblockId".to_owned(), json!(id));
+        if let Some(w) = winner {
+            let _ = obj.insert(
+                "winner".to_owned(),
+                serde_json::to_value(w).map_err(std::io::Error::other)?,
+            );
+        } else if !obj.contains_key("winner") {
+            let _ = obj.insert("winner".to_owned(), Value::Null);
+        }
+        let _ = obj.insert("participation".to_owned(), Value::Array(merged));
         let bytes = serde_json::to_vec(&existing).map_err(std::io::Error::other)?;
         atomic_write(&self.root, &rel, &bytes).await
     }
@@ -174,7 +182,8 @@ impl FileWriter {
                 {
                     let modified = meta.modified()?.duration_since(std::time::UNIX_EPOCH);
                     if let Ok(duration) = modified {
-                        let mtime = duration.as_secs() as i64;
+                        let mtime =
+                            i64::try_from(duration.as_secs()).map_err(std::io::Error::other)?;
                         if mtime < since_unix {
                             tokio::fs::remove_file(&path).await?;
                         } else {
@@ -189,7 +198,7 @@ impl FileWriter {
                 }
             }
         }
-        survivors.sort_by(|a, b| b.0.cmp(&a.0));
+        survivors.sort_by_key(|(mtime, _)| std::cmp::Reverse(*mtime));
         let listed: Vec<String> = survivors.into_iter().map(|(_, path)| path).collect();
         self.update_manifest(&listed).await
     }
@@ -231,31 +240,41 @@ impl FileWriter {
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::panic_in_result_fn,
+        reason = "test assertions report file writer correctness while propagating IO errors"
+    )]
+    #![expect(
+        clippy::indexing_slicing,
+        reason = "serde JSON fixture indexing returns null for absent object keys"
+    )]
     use super::{FileWriter, QBLOCKS_DIR, qblock_rel_path};
     use dashboard_model::QBlockParticipationRecord;
     use serde_json::{Value, json};
     use std::str::FromStr;
 
     #[tokio::test]
-    async fn qblock_file_lands_in_fan_out() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn qblock_file_lands_in_fan_out() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let w = FileWriter::new(dir.path().to_path_buf());
         let payload = json!({"qblockId":"abc","winner":"w"});
-        w.write_qblock("abc", &payload).await.unwrap();
+        w.write_qblock("abc", &payload).await?;
         let rel = qblock_rel_path("abc");
         let abs = dir.path().join(QBLOCKS_DIR).join(&rel);
-        let bytes = tokio::fs::read(&abs).await.unwrap();
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap();
+        let bytes = tokio::fs::read(&abs).await?;
+        let parsed: Value = serde_json::from_slice(&bytes)?;
         assert_eq!(parsed["qblockId"], "abc");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn write_batch_merges_winner_and_participation() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn write_batch_merges_winner_and_participation() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
         let w = FileWriter::new(dir.path().to_path_buf());
         let winner = dashboard_model::BlockRecord {
             block_hash: dashboard_model::BlockHash::from([1; 32]),
-            substrate_block_number: dashboard_model::DecimalString::from_str("100").unwrap(),
+            substrate_block_number: dashboard_model::DecimalString::from_str("100")?,
             substrate_block_hash: dashboard_model::BlockHash::from([2; 32]),
             substrate_parent_hash: dashboard_model::BlockHash::from([3; 32]),
             timestamp: 1_700_000_000,
@@ -265,9 +284,9 @@ mod tests {
             num_valid_solutions: 1,
             mining_time: 60.0,
             device_access_time_us: None,
-            reward: dashboard_model::DecimalString::from_str("1000").unwrap(),
-            qblock_id: dashboard_model::DecimalString::from_str("42").unwrap(),
-            nonce: dashboard_model::DecimalString::from_str("7").unwrap(),
+            reward: dashboard_model::DecimalString::from_str("1000")?,
+            qblock_id: dashboard_model::DecimalString::from_str("42")?,
+            nonce: dashboard_model::DecimalString::from_str("7")?,
             num_nodes: 1,
             num_edges: 1,
             difficulty_energy: -110.0,
@@ -277,33 +296,34 @@ mod tests {
             topology_hash: None,
         };
         let part = QBlockParticipationRecord {
-            qblock_id: dashboard_model::DecimalString::from_str("42").unwrap(),
+            qblock_id: dashboard_model::DecimalString::from_str("42")?,
             account: "5GAA".into(),
             kind: "Cpu".into(),
             budget_seconds: Some(60.0),
-            block_number: dashboard_model::DecimalString::from_str("99").unwrap(),
+            block_number: dashboard_model::DecimalString::from_str("99")?,
         };
         w.write_batch(Some(&winner), &[part])
             .await
             .into_iter()
-            .collect::<std::io::Result<()>>()
-            .unwrap();
+            .collect::<std::io::Result<()>>()?;
         let rel = qblock_rel_path("42");
         let abs = dir.path().join(QBLOCKS_DIR).join(&rel);
-        let bytes = tokio::fs::read(&abs).await.unwrap();
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap();
+        let bytes = tokio::fs::read(&abs).await?;
+        let parsed: Value = serde_json::from_slice(&bytes)?;
         assert_eq!(parsed["qblockId"], "42");
         assert_eq!(parsed["winner"]["minerId"], "5GPP");
         assert_eq!(parsed["participation"][0]["account"], "5GAA");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn write_batch_preserves_prior_winner_across_commits() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn write_batch_preserves_prior_winner_across_commits()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let w = FileWriter::new(dir.path().to_path_buf());
         let winner = dashboard_model::BlockRecord {
             block_hash: dashboard_model::BlockHash::from([1; 32]),
-            substrate_block_number: dashboard_model::DecimalString::from_str("100").unwrap(),
+            substrate_block_number: dashboard_model::DecimalString::from_str("100")?,
             substrate_block_hash: dashboard_model::BlockHash::from([2; 32]),
             substrate_parent_hash: dashboard_model::BlockHash::from([3; 32]),
             timestamp: 1_700_000_000,
@@ -313,9 +333,9 @@ mod tests {
             num_valid_solutions: 1,
             mining_time: 60.0,
             device_access_time_us: None,
-            reward: dashboard_model::DecimalString::from_str("1000").unwrap(),
-            qblock_id: dashboard_model::DecimalString::from_str("42").unwrap(),
-            nonce: dashboard_model::DecimalString::from_str("7").unwrap(),
+            reward: dashboard_model::DecimalString::from_str("1000")?,
+            qblock_id: dashboard_model::DecimalString::from_str("42")?,
+            nonce: dashboard_model::DecimalString::from_str("7")?,
             num_nodes: 1,
             num_edges: 1,
             difficulty_energy: -110.0,
@@ -326,124 +346,125 @@ mod tests {
         };
         // First commit: only participation, winner not yet known.
         let part_a = QBlockParticipationRecord {
-            qblock_id: dashboard_model::DecimalString::from_str("42").unwrap(),
+            qblock_id: dashboard_model::DecimalString::from_str("42")?,
             account: "5GAA".into(),
             kind: "Cpu".into(),
             budget_seconds: None,
-            block_number: dashboard_model::DecimalString::from_str("99").unwrap(),
+            block_number: dashboard_model::DecimalString::from_str("99")?,
         };
         w.write_batch(None, &[part_a])
             .await
             .into_iter()
-            .collect::<std::io::Result<()>>()
-            .unwrap();
+            .collect::<std::io::Result<()>>()?;
         // Second commit: winner lands, a new participant joins.
         let part_b = QBlockParticipationRecord {
-            qblock_id: dashboard_model::DecimalString::from_str("42").unwrap(),
+            qblock_id: dashboard_model::DecimalString::from_str("42")?,
             account: "5GBB".into(),
             kind: "Gpu".into(),
             budget_seconds: None,
-            block_number: dashboard_model::DecimalString::from_str("101").unwrap(),
+            block_number: dashboard_model::DecimalString::from_str("101")?,
         };
         w.write_batch(Some(&winner), &[part_b])
             .await
             .into_iter()
-            .collect::<std::io::Result<()>>()
-            .unwrap();
+            .collect::<std::io::Result<()>>()?;
         let rel = qblock_rel_path("42");
         let abs = dir.path().join(QBLOCKS_DIR).join(&rel);
-        let bytes = tokio::fs::read(&abs).await.unwrap();
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap();
+        let bytes = tokio::fs::read(&abs).await?;
+        let parsed: Value = serde_json::from_slice(&bytes)?;
         assert_eq!(parsed["winner"]["minerId"], "5GPP");
-        let participants = parsed["participation"].as_array().unwrap();
+        let participants = parsed["participation"].as_array().ok_or("no array")?;
         assert_eq!(participants.len(), 2);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn write_miner_attempt_keys_on_qblock_fan_out() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn write_miner_attempt_keys_on_qblock_fan_out() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
         let w = FileWriter::new(dir.path().to_path_buf());
         w.write_miner_attempt("5GPP", "42", &json!({"solutionNumber": 42}))
-            .await
-            .unwrap();
+            .await?;
         let rel = std::path::PathBuf::from("miners")
             .join("5GPP")
             .join("mining-attempts")
             .join(qblock_rel_path("42"));
         let abs = dir.path().join(&rel);
-        let bytes = tokio::fs::read(&abs).await.unwrap();
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap();
+        let bytes = tokio::fs::read(&abs).await?;
+        let parsed: Value = serde_json::from_slice(&bytes)?;
         assert_eq!(parsed["solutionNumber"], 42);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn manifest_is_atomic_json() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn manifest_is_atomic_json() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let w = FileWriter::new(dir.path().to_path_buf());
         w.update_manifest(&["qblocks/ab/cd/ef.json".to_string()])
-            .await
-            .unwrap();
+            .await?;
         let abs = dir.path().join("qblocks/metadata.json");
-        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&abs).await.unwrap()).unwrap();
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&abs).await?)?;
         assert!(parsed["qblocks"].is_array());
+        Ok(())
     }
 
-    fn old_mtime(path: &std::path::Path, days_ago: i64) {
-        let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    fn old_mtime(path: &std::path::Path, days_ago: u64) -> std::io::Result<()> {
+        let file = std::fs::OpenOptions::new().write(true).open(path)?;
         let now = std::time::SystemTime::now();
-        let old = now - std::time::Duration::from_secs(days_ago as u64 * 86_400);
+        let old = now - std::time::Duration::from_secs(days_ago * 86_400);
         let times = std::fs::FileTimes::new().set_modified(old);
-        file.set_times(times).unwrap();
+        file.set_times(times)
     }
 
     #[tokio::test]
-    async fn prune_removes_old_files_keeps_manifest() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn prune_removes_old_files_keeps_manifest() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let w = FileWriter::new(dir.path().to_path_buf());
-        w.write_qblock("old", &json!({})).await.unwrap();
-        w.write_qblock("new", &json!({})).await.unwrap();
+        w.write_qblock("old", &json!({})).await?;
+        w.write_qblock("new", &json!({})).await?;
         let old_rel = std::path::PathBuf::from(QBLOCKS_DIR).join(qblock_rel_path("old"));
         let old_abs = dir.path().join(&old_rel);
-        old_mtime(&old_abs, 30);
+        old_mtime(&old_abs, 30)?;
         let now = chrono::Utc::now().timestamp();
-        w.prune(now).await.unwrap();
+        w.prune(now).await?;
         assert!(!old_abs.exists(), "old qblock should be pruned");
         let new_rel = std::path::PathBuf::from(QBLOCKS_DIR).join(qblock_rel_path("new"));
         let new_abs = dir.path().join(&new_rel);
         assert!(new_abs.exists(), "new qblock should survive");
         let manifest_abs = dir.path().join("qblocks/metadata.json");
-        let parsed: Value =
-            serde_json::from_slice(&tokio::fs::read(&manifest_abs).await.unwrap()).unwrap();
-        let listed = parsed["qblocks"].as_array().unwrap();
-        assert!(listed.iter().any(|p| p == &Value::from(
-            new_rel.to_string_lossy().into_owned()
-        )));
-        assert!(!listed.iter().any(|p| p == &Value::from(
-            old_rel.to_string_lossy().into_owned()
-        )));
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&manifest_abs).await?)?;
+        let listed = parsed["qblocks"].as_array().ok_or("no array")?;
+        assert!(
+            listed
+                .iter()
+                .any(|p| p == &Value::from(new_rel.to_string_lossy().into_owned()))
+        );
+        assert!(
+            !listed
+                .iter()
+                .any(|p| p == &Value::from(old_rel.to_string_lossy().into_owned()))
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn write_back_removes_files_outside_window() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn write_back_removes_files_outside_window() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let w = FileWriter::new(dir.path().to_path_buf());
-        w.write_qblock("keep", &json!({})).await.unwrap();
-        w.write_qblock("drop", &json!({})).await.unwrap();
+        w.write_qblock("keep", &json!({})).await?;
+        w.write_qblock("drop", &json!({})).await?;
         let keep_rel = std::path::PathBuf::from(QBLOCKS_DIR).join(qblock_rel_path("keep"));
         let keep_str = keep_rel.to_string_lossy().into_owned();
-        w.write_back(&[keep_str.clone()]).await.unwrap();
+        w.write_back(std::slice::from_ref(&keep_str)).await?;
         let keep_abs = dir.path().join(&keep_rel);
-        let drop_abs = dir
-            .path()
-            .join(QBLOCKS_DIR)
-            .join(qblock_rel_path("drop"));
+        let drop_abs = dir.path().join(QBLOCKS_DIR).join(qblock_rel_path("drop"));
         assert!(keep_abs.exists());
         assert!(!drop_abs.exists(), "file outside window should be removed");
         let manifest_abs = dir.path().join("qblocks/metadata.json");
-        let parsed: Value =
-            serde_json::from_slice(&tokio::fs::read(&manifest_abs).await.unwrap()).unwrap();
-        let listed = parsed["qblocks"].as_array().unwrap();
+        let parsed: Value = serde_json::from_slice(&tokio::fs::read(&manifest_abs).await?)?;
+        let listed = parsed["qblocks"].as_array().ok_or("no array")?;
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0], Value::from(keep_str));
+        Ok(())
     }
 }

@@ -9,7 +9,9 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-use dashboard_model::{NodeInfo, NodesSnapshot, TelemetryFiles, TelemetryResponse, ValidatorAuthorshipRecord};
+use dashboard_model::{
+    NodeInfo, NodesSnapshot, TelemetryFiles, TelemetryResponse, ValidatorAuthorshipRecord,
+};
 use serde_json::json;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::time::Instant;
