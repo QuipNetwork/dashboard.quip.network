@@ -411,7 +411,13 @@ async fn run_indexer(
     *chain_slot.lock().await = Some(chain.clone());
     let _ = bound.send_replace(true);
     health.set_phase(Phase::Ready);
-    let (indexer, mut progress) = Indexer::new(store, chain);
+    let (indexer, mut progress) = Indexer::with_writer(
+        store,
+        chain,
+        Some(quip_dashboard::indexer::file_writer::FileWriter::new(
+            config.data_dir.clone(),
+        )),
+    );
     let monitor = async {
         let mut prior = quip_dashboard::indexer::Progress::default();
         loop {

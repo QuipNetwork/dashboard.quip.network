@@ -65,6 +65,7 @@ pub enum IndexerError {
 pub struct Indexer {
     store: Arc<Store>,
     chain: Arc<ChainReader>,
+    writer: Option<file_writer::FileWriter>,
     admission: Admission,
     registry: tokio::sync::Mutex<()>,
     live_work: tokio::sync::Mutex<()>,
@@ -81,11 +82,21 @@ impl Indexer {
     /// Create indexing and its coalesced progress channel.
     #[must_use]
     pub fn new(store: Arc<Store>, chain: Arc<ChainReader>) -> (Self, watch::Receiver<Progress>) {
+        Self::with_writer(store, chain, None)
+    }
+    /// Create indexing with an optional best-effort file writer.
+    #[must_use]
+    pub fn with_writer(
+        store: Arc<Store>,
+        chain: Arc<ChainReader>,
+        writer: Option<file_writer::FileWriter>,
+    ) -> (Self, watch::Receiver<Progress>) {
         let (progress, receiver) = watch::channel(Progress::default());
         (
             Self {
                 store,
                 chain,
+                writer,
                 admission: Admission::default(),
                 registry: tokio::sync::Mutex::new(()),
                 live_work: tokio::sync::Mutex::new(()),
@@ -287,6 +298,25 @@ impl Indexer {
             p.admitted = self.admission.active();
             p.last_error = None;
         });
+    }
+    /// Best-effort write of a committed batch's qblock files.
+    ///
+    /// Errors are logged and never fail the store commit that already
+    /// succeeded. Each qblock gets one merged file; see
+    /// [`crate::indexer::file_writer::FileWriter::write_batch`].
+    async fn write_files(
+        &self,
+        winner: Option<&dashboard_model::BlockRecord>,
+        participation: &[dashboard_model::QBlockParticipationRecord],
+    ) {
+        let Some(writer) = &self.writer else {
+            return;
+        };
+        for result in writer.write_batch(winner, participation).await {
+            if let Err(error) = result {
+                tracing::warn!(%error, "file-backed qblock write failed");
+            }
+        }
     }
     /// Evaluate the shared backfill gate against the live validator state.
     ///
