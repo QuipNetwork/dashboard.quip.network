@@ -1,0 +1,392 @@
+{
+  "blocks": [
+    {
+      "blockHash": "0x5a9c562521bae2b7da8a93e62eac1ee9022441671187bca5c45bef70c2a15799",
+      "substrateBlockNumber": "5",
+      "substrateBlockHash": "0x373dcddaaa0782c99f7072de447016fedfc7c76e8a5fe0458183d807c6ac3905",
+      "substrateParentHash": "0x87581a9a56638ed9a73af5a1173afe7bc78e98810540499cb220c2c0e104dcfc",
+      "timestamp": 1782864030,
+      "minerId": "5A",
+      "energy": -14.5,
+      "diversity": 0.4,
+      "numValidSolutions": 2,
+      "miningTime": 0.0613,
+      "reward": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "qblockId": "5",
+      "nonce": "18446744073709551615",
+      "numNodes": 64,
+      "numEdges": 128,
+      "difficultyEnergy": -14.4,
+      "minDiversity": 0.1,
+      "minSolutions": 1,
+      "finalized": true,
+      "topologyHash": "0xf65bd8a6c3930eab0493c054ffbe8a155fcd65f6bc7887cdd4b1b6662060e57b",
+      "deviceAccessTimeUs": 61300
+    },
+    {
+      "blockHash": "0xa6b9bf0f0ce2599b5c880971132cb8f3a017583163bc1ad341608e8ff4a0c85f",
+      "substrateBlockNumber": "4",
+      "substrateBlockHash": "0x87581a9a56638ed9a73af5a1173afe7bc78e98810540499cb220c2c0e104dcfc",
+      "substrateParentHash": "0x6a46506098e1d285a9b356277a2984388988a96a53ab34429c36403a0ae2d278",
+      "timestamp": 1782864012,
+      "minerId": "5B",
+      "energy": -1.5,
+      "diversity": 0.1,
+      "numValidSolutions": 1,
+      "miningTime": 12,
+      "reward": "1000000000000",
+      "qblockId": "4",
+      "nonce": "1",
+      "numNodes": 2,
+      "numEdges": 3,
+      "difficultyEnergy": -1,
+      "minDiversity": 0,
+      "minSolutions": 1,
+      "finalized": true,
+      "topologyHash": "0xf65bd8a6c3930eab0493c054ffbe8a155fcd65f6bc7887cdd4b1b6662060e57b",
+      "deviceAccessTimeUs": null
+    },
+    {
+      "blockHash": "0x18b125a76661ab2943e4b9118ab3e292b5dc2ec642ac66355903d2371fe226b5",
+      "substrateBlockNumber": "3",
+      "substrateBlockHash": "0x6a46506098e1d285a9b356277a2984388988a96a53ab34429c36403a0ae2d278",
+      "substrateParentHash": "0xfcd79f4b89faef4b69614c93b525bd1070e6a53298e023dff82456981fd27a48",
+      "timestamp": 1782864000,
+      "minerId": "5A",
+      "energy": -1.5,
+      "diversity": 0.1,
+      "numValidSolutions": 1,
+      "miningTime": 20,
+      "reward": "1000000000000",
+      "qblockId": "3",
+      "nonce": "1",
+      "numNodes": 2,
+      "numEdges": 3,
+      "difficultyEnergy": -1,
+      "minDiversity": 0,
+      "minSolutions": 1,
+      "finalized": true,
+      "topologyHash": "0xf65bd8a6c3930eab0493c054ffbe8a155fcd65f6bc7887cdd4b1b6662060e57b",
+      "deviceAccessTimeUs": null
+    }
+  ],
+  "selfAddress": "5GPP",
+  "indexer": {
+    "chainHeadFromNode": "4939",
+    "lastStatusFetchAt": "2026-04-22T12:00:00.000Z",
+    "lastBlockInsertAt": "2026-04-22T11:58:33.000Z",
+    "lastSubstrateEventAt": "2026-04-22T11:58:30.000Z",
+    "bestBlockHeight": "4939",
+    "finalizedBlockHeight": "4937",
+    "chainConnected": true,
+    "minerStats": null,
+    "modes": {}
+  },
+  "serverTime": "2026-07-01T12:00:00.000Z",
+  "chainHead": {
+    "bestBlockNumber": "100",
+    "bestBlockHash": "0xeb4b9e8905923468a20ce3dc86bcdefef67f743a8156f44ca52e548e62e2c8f0",
+    "finalizedBlockNumber": "98",
+    "finalizedBlockHash": "0x6d1bf4c3db76b4899ad783fb086e519ca85db287d257ede7fa11cd78cd008728",
+    "finalityLag": 2,
+    "qblockCount": 5,
+    "currentQBlockId": "6",
+    "currentQBlockParticipants": 3,
+    "runtime": {
+      "specName": "quip",
+      "specVersion": 101,
+      "transactionVersion": 2,
+      "implName": "quip",
+      "lastRuntimeUpgrade": null
+    },
+    "updatedAt": "2026-05-15T00:00:00.000Z"
+  },
+  "babeEpoch": {
+    "epochIndex": 7,
+    "currentSlot": "16801",
+    "epochStartSlot": "16800",
+    "slotsPerEpoch": 2400,
+    "currentSlotInEpoch": 1,
+    "authorityCount": 3
+  },
+  "babeAuthorities": [
+    {
+      "accountId": "5Active",
+      "displayName": null
+    },
+    {
+      "accountId": "5Idle",
+      "displayName": null
+    },
+    {
+      "accountId": "5Stale",
+      "displayName": null
+    }
+  ],
+  "chainMiners": [
+    {
+      "accountId": "5GPP",
+      "deposit": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "proofsSubmitted": "10",
+      "proofsWon": "3",
+      "rewardsEarned": "3000",
+      "telemetryNodeAddress": "quip-miner-pow",
+      "hardware": {
+        "accountId": "5GPP",
+        "nodeId": "quip-miner-pow",
+        "miners": [
+          {
+            "id": "quip-miner-pow-CPU-1",
+            "type": "CPU"
+          }
+        ],
+        "primaryType": "CPU",
+        "source": "self",
+        "observedAt": "2026-05-19T00:00:00.000Z"
+      }
+    },
+    {
+      "accountId": "5A",
+      "deposit": "1000",
+      "proofsSubmitted": "4",
+      "proofsWon": "2",
+      "rewardsEarned": "2000",
+      "telemetryNodeAddress": null,
+      "hardware": null
+    }
+  ],
+  "recentDifficulty": [
+    {
+      "observedAtBlock": "30",
+      "difficultyEnergy": -30,
+      "minDiversity": 0,
+      "minSolutions": 1,
+      "observedAt": "2026-07-01T00:00:00.000Z",
+      "topologyHash": "0xf65bd8a6c3930eab0493c054ffbe8a155fcd65f6bc7887cdd4b1b6662060e57b",
+      "source": "poll"
+    }
+  ],
+  "mineableTopologies": [
+    {
+      "topologyHash": "0xf65bd8a6c3930eab0493c054ffbe8a155fcd65f6bc7887cdd4b1b6662060e57b",
+      "isDefault": true,
+      "difficultyEnergy": -1,
+      "minDiversity": 0,
+      "minSolutions": 1,
+      "nodeCount": 2,
+      "edgeCount": 3,
+      "curveConstant": null
+    },
+    {
+      "topologyHash": "0xc4b45f8df293685fba55923cc44a0ddae7f515b34e1d7d4f30e8ab92db963a5c",
+      "isDefault": false,
+      "difficultyEnergy": -1,
+      "minDiversity": 0,
+      "minSolutions": 1,
+      "nodeCount": 2,
+      "edgeCount": 3,
+      "curveConstant": null
+    }
+  ],
+  "validators": [
+    {
+      "accountId": "5Active",
+      "blocksAuthored": 5,
+      "blocksAuthoredWithPow": 3,
+      "lastAuthoredBlock": "104",
+      "lastAuthoredAt": "2026-07-01T12:00:00.000Z",
+      "online": true
+    },
+    {
+      "accountId": "5Idle",
+      "blocksAuthored": 0,
+      "blocksAuthoredWithPow": 0,
+      "lastAuthoredBlock": null,
+      "lastAuthoredAt": null,
+      "online": false
+    },
+    {
+      "accountId": "5Stale",
+      "blocksAuthored": 1,
+      "blocksAuthoredWithPow": 1,
+      "lastAuthoredBlock": "50",
+      "lastAuthoredAt": "2026-07-01T11:00:00.000Z",
+      "online": false
+    }
+  ],
+  "nodes": {
+    "updatedAt": "2026-07-01T00:00:00.000Z",
+    "nodeCount": 4,
+    "activeCount": 4,
+    "nodes": {
+      "5GDown": {
+        "address": "5GDown",
+        "status": "active",
+        "firstSeen": 0,
+        "lastSeen": 0,
+        "lastHeartbeat": null,
+        "nodeName": "down",
+        "publicHost": "10.0.0.9",
+        "publicPort": 8088
+      },
+      "5GPP": {
+        "address": "5GPP",
+        "status": "active",
+        "firstSeen": 1780272000,
+        "lastSeen": 1782864000,
+        "lastHeartbeat": null,
+        "nodeName": "local-operator",
+        "publicHost": "127.0.0.1",
+        "publicPort": 8086
+      },
+      "5GNoHost": {
+        "address": "5GNoHost",
+        "status": "active",
+        "firstSeen": 0,
+        "lastSeen": 0,
+        "lastHeartbeat": null,
+        "nodeName": "no-host"
+      },
+      "5GPeer": {
+        "address": "5GPeer",
+        "status": "active",
+        "firstSeen": 0,
+        "lastSeen": 0,
+        "lastHeartbeat": null,
+        "nodeName": "peer",
+        "publicHost": "1.2.3.4",
+        "publicPort": 8088
+      }
+    }
+  },
+  "nodeDescriptors": [
+    {
+      "accountId": "5GDown",
+      "blockNumber": "1",
+      "blockHash": "0x72de068f6d6fdbfbb004185ee28488b6a140d2035777e84087f61b77be838d4e",
+      "extrinsicIndex": 0,
+      "blockTimestamp": 0,
+      "firstBlockTimestamp": 0,
+      "descriptor": {
+        "schema": "quip.node_descriptor.v1",
+        "nodeName": "down",
+        "publicHost": "10.0.0.9",
+        "publicPort": 8088,
+        "descriptorVersion": 1
+      },
+      "observedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "accountId": "5GPP",
+      "blockNumber": "120",
+      "blockHash": "0xcb9d19be11633a93af9e6e8237fab72a8da315257b36dd7a154c809d42e7f022",
+      "extrinsicIndex": 2,
+      "blockTimestamp": 1782864000,
+      "firstBlockTimestamp": 1780272000,
+      "descriptor": {
+        "schema": "quip.node_descriptor.v1",
+        "nodeName": "local-operator",
+        "publicHost": "127.0.0.1",
+        "publicPort": 8086,
+        "descriptorVersion": 1
+      },
+      "observedAt": "2026-07-01T00:00:00.000Z"
+    },
+    {
+      "accountId": "5GNoHost",
+      "blockNumber": "1",
+      "blockHash": "0x466e6be19a5e1bd8ad9aa60fb8e5b90fb4fc889431445c0f2234b9d043a02cda",
+      "extrinsicIndex": 0,
+      "blockTimestamp": 0,
+      "firstBlockTimestamp": 0,
+      "descriptor": {
+        "schema": "quip.node_descriptor.v1",
+        "nodeName": "no-host",
+        "descriptorVersion": 1
+      },
+      "observedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "accountId": "5GPeer",
+      "blockNumber": "1",
+      "blockHash": "0x15ebe35e117f2469bbad9e8f3da78ec4c490bd15beefde1b00d587a2f09f28aa",
+      "extrinsicIndex": 0,
+      "blockTimestamp": 0,
+      "firstBlockTimestamp": 0,
+      "descriptor": {
+        "schema": "quip.node_descriptor.v1",
+        "nodeName": "peer",
+        "publicHost": "1.2.3.4",
+        "publicPort": 8088,
+        "descriptorVersion": 1
+      },
+      "observedAt": "2026-06-30T00:00:00.000Z"
+    }
+  ],
+  "recentMiningSubmissions": [
+    {
+      "minerId": "5GPP",
+      "solutionNumber": 5,
+      "tsNs": "1700000000000000000",
+      "energyMilli": -1,
+      "diversityMilli": 0,
+      "thresholdMilli": 0,
+      "lastProofBlockHash": "0x",
+      "extrinsicHash": null,
+      "chainBlockHash": null,
+      "chainBlockNumber": null,
+      "powSequence": null,
+      "outcome": "submitted_inblock",
+      "attemptCount": 1,
+      "bestEnergyMilli": -1,
+      "numValid": 1,
+      "minerType": "QPU",
+      "qpuAccessTimeUs": 500000,
+      "observedAt": "2023-11-14T00:00:00.000Z"
+    }
+  ],
+  "selfProblemsAttempted": 1,
+  "currentDispatch": {
+    "solutionNumber": 6,
+    "attempts": [
+      {
+        "iter": 0,
+        "bestEnergyMilli": -14000,
+        "resultKind": "stored",
+        "minerType": "cpu",
+        "extra": {}
+      }
+    ],
+    "status": "in-flight"
+  },
+  "participationCompute": [
+    {
+      "qblockId": "4",
+      "account": "5A",
+      "kind": "Cpu",
+      "miningSeconds": 12,
+      "exactQpuAccessUs": null
+    },
+    {
+      "qblockId": "4",
+      "account": "5GPP",
+      "kind": "QpuDwave",
+      "miningSeconds": 12,
+      "exactQpuAccessUs": null
+    },
+    {
+      "qblockId": "5",
+      "account": "5A",
+      "kind": "Cpu",
+      "miningSeconds": 18,
+      "exactQpuAccessUs": null
+    },
+    {
+      "qblockId": "5",
+      "account": "5GPP",
+      "kind": "QpuDwave",
+      "miningSeconds": 18,
+      "exactQpuAccessUs": 500000
+    }
+  ]
+}
