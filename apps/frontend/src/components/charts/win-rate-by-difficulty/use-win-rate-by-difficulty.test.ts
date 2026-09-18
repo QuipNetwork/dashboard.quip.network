@@ -104,7 +104,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  useTelemetryStore.setState({ blocks: [], chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], chainMiners: [], nodeDescriptors: [] });
   useUIStore.setState({ aggregationMode: "byType", selectedTypes: ["CPU", "GPU", "QPU"] });
 });
 
@@ -120,7 +120,7 @@ describe("useWinRateByDifficulty", () => {
     const blocks = [...hard, ...warmup].map((d, i) =>
       makeBlock({ blockHash: `0x${i}`, difficultyEnergy: d, energy: d }),
     );
-    useTelemetryStore.setState({ blocks, chainMiners: [makeChainMiner()] });
+    useTelemetryStore.setState({ wonBlocks: blocks, chainMiners: [makeChainMiner()] });
 
     const { xMax } = renderHook().current;
     expect(xMax).toBeLessThanOrEqual(DIFFICULTY_DATA_FLOOR_ENERGY);
@@ -131,7 +131,7 @@ describe("useWinRateByDifficulty", () => {
     // so band midpoints differ from the raw min/max difficulties. The domain
     // must equal the span of plotted points, not the raw extremes.
     useTelemetryStore.setState({
-      blocks: [...blocksFor("A", -14_600, 12), ...blocksFor("B", -14_480, 12)],
+      wonBlocks: [...blocksFor("A", -14_600, 12), ...blocksFor("B", -14_480, 12)],
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "GPU")],
     });
 
@@ -148,7 +148,7 @@ describe("useWinRateByDifficulty", () => {
   test("best scope narrows each type to its single top winner", () => {
     // CPU: A wins 6, B wins 3 -> best CPU node is A. GPU: only G.
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         ...blocksFor("A", -14_600, 6),
         ...blocksFor("B", -14_540, 3),
         ...blocksFor("G", -14_510, 3),
@@ -175,7 +175,7 @@ describe("useWinRateByDifficulty", () => {
   describe("normalized mode", () => {
     beforeEach(() => {
       useTelemetryStore.setState({
-        blocks: [
+        wonBlocks: [
           ...blocksFor("A", -14_600, 6),
           ...blocksFor("G", -14_540, 3),
           ...blocksFor("Q", -14_510, 3),

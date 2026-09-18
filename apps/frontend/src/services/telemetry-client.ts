@@ -45,15 +45,21 @@ export interface TelemetryClient {
   // Feeds the "Mining per QBlock" range selector.
   fetchMiningHistory(sinceIso: string, signal?: AbortSignal): Promise<MiningHistoryResponse>;
   // Fetch the qblock manifest from `manifestUrl` and the recent qblock files
-  // it lists. The rows cover every qblock file loaded so far, recent and history.
+  // it lists. The data covers every qblock file loaded so far, recent and history.
   fetchQblocks(manifestUrl: string, signal?: AbortSignal): Promise<QblockSnapshot>;
-  // Load one day of older qblocks named in `QblockSnapshot.history`. The rows
-  // cover every qblock file loaded so far.
-  fetchQblockHistoryDay(dayPath: string, signal?: AbortSignal): Promise<ParticipationComputeRow[]>;
+  // Load one day of older qblocks named in `QblockSnapshot.history`. The data
+  // covers every qblock file loaded so far.
+  fetchQblockHistoryDay(dayPath: string, signal?: AbortSignal): Promise<QblockData>;
 }
 
-export interface QblockSnapshot {
+// What the loaded qblock files hold, across every file loaded so far.
+export interface QblockData {
   rows: ParticipationComputeRow[];
+  // The winner block of each loaded qblock that has one, in no set order.
+  winners: BlockRecord[];
+}
+
+export interface QblockSnapshot extends QblockData {
   // Day manifests (relative to /files, newest first) not yet loaded.
   history: string[];
 }
@@ -169,15 +175,12 @@ export class HttpTelemetryClient implements TelemetryClient {
     const manifest = (await manifestRes.json()) as QblockManifest;
     await this.loadQblockFiles(manifest.qblocks, signal);
     return {
-      rows: this.participationRows(),
+      ...this.qblockData(),
       history: (manifest.history ?? []).filter((day) => !this.loadedHistoryDays.has(day)),
     };
   }
 
-  async fetchQblockHistoryDay(
-    dayPath: string,
-    signal?: AbortSignal,
-  ): Promise<ParticipationComputeRow[]> {
+  async fetchQblockHistoryDay(dayPath: string, signal?: AbortSignal): Promise<QblockData> {
     const res = await this.fetch(
       `${this.baseUrl}/files/${dayPath}`,
       signal ? { signal } : undefined,
@@ -186,11 +189,15 @@ export class HttpTelemetryClient implements TelemetryClient {
     const day = (await res.json()) as QblockManifest;
     await this.loadQblockFiles(day.qblocks, signal);
     this.loadedHistoryDays.add(dayPath);
-    return this.participationRows();
+    return this.qblockData();
   }
 
-  private participationRows(): ParticipationComputeRow[] {
-    return participationFromQblockFiles([...this.qblockFiles.values()]);
+  private qblockData(): QblockData {
+    const files = [...this.qblockFiles.values()];
+    return {
+      rows: participationFromQblockFiles(files),
+      winners: files.flatMap((file) => (file.winner ? [file.winner] : [])),
+    };
   }
 
   // Fetch every listed file that has not settled, through a small pool.

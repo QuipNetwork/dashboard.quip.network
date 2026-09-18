@@ -64,7 +64,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  useTelemetryStore.setState({ blocks: [], chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], chainMiners: [], nodeDescriptors: [] });
 });
 
 afterEach(() => {
@@ -90,7 +90,7 @@ describe("EnergyDistributionCard", () => {
 
   test("renders a single grouped chart when there are wins", () => {
     useTelemetryStore.setState({
-      blocks: [makeBlock({ minerId: "A" })],
+      wonBlocks: [makeBlock({ minerId: "A" })],
       chainMiners: [makeChainMiner("A", "CPU")],
     });
     render();
@@ -107,7 +107,7 @@ describe("EnergyDistributionCard", () => {
 
   test("switching to Best Nodes re-queries the hook without crashing", () => {
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         makeBlock({ blockHash: "0xa1", minerId: "A", energy: -15_620 }),
         makeBlock({ blockHash: "0xb1", minerId: "B", energy: -15_400 }),
       ],

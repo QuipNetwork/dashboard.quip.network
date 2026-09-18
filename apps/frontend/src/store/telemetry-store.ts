@@ -21,7 +21,12 @@ import type {
 } from "@quip/shared/telemetry";
 
 export interface TelemetryState {
+  // The newest winner blocks from /api/telemetry (at most 500), DESC.
   blocks: BlockRecord[];
+  // Every winner block known: `blocks` plus the winner of each loaded qblock
+  // file, DESC by substrate block number. Grows as qblock history loads, so
+  // charts over it cover every qblock rather than the telemetry window.
+  wonBlocks: BlockRecord[];
   selfAddress: string | null;
   indexer: IndexerObservability | null;
   // ISO 8601 server timestamp from the last /api/telemetry response.
@@ -80,11 +85,19 @@ const createTelemetryState =
     // the first render. A failed walk stops; the next poll resumes it from
     // the days the client has not loaded.
     let historyLoading = false;
+    // Winners from the qblock files loaded so far; kept across polls so a
+    // failed manifest fetch does not drop the loaded history.
+    let fileWinners: BlockRecord[] = [];
     const loadQblockHistory = async (days: readonly string[]): Promise<void> => {
       historyLoading = true;
       try {
         for (const day of days) {
-          set({ participationCompute: await deps.client.fetchQblockHistoryDay(day) });
+          const { rows, winners } = await deps.client.fetchQblockHistoryDay(day);
+          fileWinners = winners;
+          set({
+            participationCompute: rows,
+            wonBlocks: mergeWonBlocks(get().blocks, fileWinners),
+          });
         }
       } catch (e) {
         console.warn("qblock history fetch failed", e);
@@ -94,6 +107,7 @@ const createTelemetryState =
     };
     return {
       blocks: [],
+      wonBlocks: [],
       selfAddress: null,
       indexer: null,
       serverTime: null,
@@ -130,6 +144,7 @@ const createTelemetryState =
             try {
               const snapshot = await deps.client.fetchQblocks(manifest);
               participationCompute = snapshot.rows;
+              fileWinners = snapshot.winners;
               if (!historyLoading && snapshot.history.length > 0) {
                 void loadQblockHistory(snapshot.history);
               }
@@ -144,8 +159,10 @@ const createTelemetryState =
           // missing newly-added fields. Without these defaults, downstream
           // hooks crash on `undefined.map` / `undefined.length` instead of
           // gracefully degrading to "no data yet".
+          const blocks = data.blocks ?? [];
           set({
-            blocks: data.blocks ?? [],
+            blocks,
+            wonBlocks: mergeWonBlocks(blocks, fileWinners),
             selfAddress: data.selfAddress ?? null,
             indexer: data.indexer ?? null,
             serverTime: data.serverTime,
@@ -171,6 +188,25 @@ const createTelemetryState =
       },
     };
   };
+
+/**
+ * Union of the telemetry blocks and the qblock-file winners, one entry per
+ * block hash, DESC by substrate block number like `blocks`. A telemetry copy
+ * wins over a file copy of the same block, since telemetry is newer.
+ */
+export function mergeWonBlocks(
+  blocks: readonly BlockRecord[],
+  fileWinners: readonly BlockRecord[],
+): BlockRecord[] {
+  const byHash = new Map<string, BlockRecord>();
+  for (const block of fileWinners) byHash.set(block.blockHash, block);
+  for (const block of blocks) byHash.set(block.blockHash, block);
+  return [...byHash.values()].sort((a, b) => {
+    const left = BigInt(a.substrateBlockNumber);
+    const right = BigInt(b.substrateBlockNumber);
+    return left === right ? 0 : left > right ? -1 : 1;
+  });
+}
 
 export const createTelemetryStore = (deps: TelemetryStoreDeps): StoreApi<TelemetryState> =>
   createStore<TelemetryState>(createTelemetryState(deps));

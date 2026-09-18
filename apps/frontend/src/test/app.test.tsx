@@ -157,11 +157,12 @@ describe("App smoke test", () => {
           new Response(
             JSON.stringify({
               qblockId,
-              winner: {
+              winner: makeBlock({
                 qblockId,
+                substrateBlockNumber: qblockId,
                 minerId: "qpu-miner-1",
                 timestamp: qblockId === "0" ? 988 : 1_000,
-              },
+              }),
               participation: [
                 participant("cpu-miner-1", "Cpu"),
                 participant("gpu-miner-1", "Gpu"),

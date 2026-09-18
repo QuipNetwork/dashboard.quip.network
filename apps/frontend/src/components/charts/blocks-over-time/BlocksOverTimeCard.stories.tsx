@@ -4,7 +4,7 @@ import { StoryServices } from "@/testing/services";
 import { sampleTelemetry } from "@/testing/sample-telemetry";
 import { BlocksOverTimeCard } from "./BlocksOverTimeCard";
 
-// BlocksOverTimeCard reads blocks/nodeDescriptors off the Zustand telemetry
+// BlocksOverTimeCard reads wonBlocks/nodeDescriptors off the Zustand telemetry
 // store and aggregationMode off the UI store, rather than taking props, so
 // stories seed both stores through StoryServices — same mechanism
 // Dashboard.stories.tsx uses.
@@ -23,7 +23,7 @@ export const ByNode: Story = () => (
 );
 
 export const Empty: Story = () => (
-  <StoryServices telemetry={{ blocks: [], chainMiners: [], nodeDescriptors: [] }}>
+  <StoryServices telemetry={{ wonBlocks: [], chainMiners: [], nodeDescriptors: [] }}>
     <BlocksOverTimeCard />
   </StoryServices>
 );

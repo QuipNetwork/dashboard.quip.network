@@ -310,7 +310,9 @@ describe("HttpTelemetryClient.fetchQblocks", () => {
     const snapshot = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
     expect(snapshot.rows).toEqual([]);
     expect(snapshot.history).toEqual(["qblocks/days/2026-09-03.json"]);
-    const rows = await client.fetchQblockHistoryDay("qblocks/days/2026-09-03.json");
+    expect(snapshot.winners.map((w) => w.qblockId)).toEqual(["3"]);
+    const { rows, winners } = await client.fetchQblockHistoryDay("qblocks/days/2026-09-03.json");
+    expect(winners.map((w) => w.qblockId).sort()).toEqual(["1", "2", "3"]);
     expect(rows.map((r) => [r.qblockId, r.miningSeconds])).toEqual([
       ["2", 100],
       ["3", 200],

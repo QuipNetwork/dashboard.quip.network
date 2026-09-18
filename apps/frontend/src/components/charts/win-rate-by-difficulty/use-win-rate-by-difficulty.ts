@@ -112,7 +112,7 @@ export function useWinRateByDifficulty(
   opts: WinRateByDifficultyOptions = {},
 ): WinRateByDifficultyResult {
   const mode = opts.mode ?? "all";
-  const allBlocks = useTelemetryStore((s) => s.blocks);
+  const allBlocks = useTelemetryStore((s) => s.wonBlocks);
   const blocks = useFilteredBlocks();
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);

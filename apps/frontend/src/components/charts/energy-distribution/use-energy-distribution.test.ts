@@ -87,7 +87,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  useTelemetryStore.setState({ blocks: [], chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], chainMiners: [], nodeDescriptors: [] });
 });
 
 afterEach(() => {
@@ -112,7 +112,7 @@ describe("useEnergyDistributionByType", () => {
 
   test("a type with zero wins comes back as an explicit empty state, not a crash", () => {
     useTelemetryStore.setState({
-      blocks: [makeBlock({ minerId: "A", substrateBlockNumber: "100" })],
+      wonBlocks: [makeBlock({ minerId: "A", substrateBlockNumber: "100" })],
       chainMiners: [makeChainMiner("A", "CPU")],
     });
 
@@ -130,7 +130,7 @@ describe("useEnergyDistributionByType", () => {
       makeBlock({ blockHash: "0xb1", substrateBlockNumber: "100", minerId: "B", energy: -15_610 }),
     ]);
     useTelemetryStore.setState({
-      blocks,
+      wonBlocks: blocks,
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "GPU")],
     });
 
@@ -149,7 +149,7 @@ describe("useEnergyDistributionByType", () => {
       makeBlock({ blockHash: "0xb1", substrateBlockNumber: "101", minerId: "B", energy: -15_400 }),
     ]);
     useTelemetryStore.setState({
-      blocks,
+      wonBlocks: blocks,
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "GPU")],
     });
 
@@ -182,7 +182,7 @@ describe("useEnergyDistributionByType", () => {
         topologyHash: "topo-a",
       }),
     ]);
-    useTelemetryStore.setState({ blocks, chainMiners: [makeChainMiner("A", "CPU")] });
+    useTelemetryStore.setState({ wonBlocks: blocks, chainMiners: [makeChainMiner("A", "CPU")] });
 
     const { types } = renderHook().current;
     const cpu = types.find((t) => t.type === "CPU")!;
@@ -198,7 +198,7 @@ describe("useEnergyDistributionByType", () => {
       makeBlock({ blockHash: "0xb1", substrateBlockNumber: "101", minerId: "B", energy: -15_400 }),
     ]);
     useTelemetryStore.setState({
-      blocks,
+      wonBlocks: blocks,
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "CPU")],
     });
 

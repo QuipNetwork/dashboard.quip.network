@@ -15,7 +15,12 @@ import type {
   TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "@quip/shared/telemetry";
-import { createTelemetryStore, selectTipBlock, type TelemetryState } from "./telemetry-store";
+import {
+  createTelemetryStore,
+  mergeWonBlocks,
+  selectTipBlock,
+  type TelemetryState,
+} from "./telemetry-store";
 
 // ---- Fixtures ----------------------------------------------------------
 
@@ -146,6 +151,7 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
 function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {}): TelemetryState {
   return {
     blocks,
+    wonBlocks: blocks,
     selfAddress: null,
     indexer: null,
     serverTime: null,
@@ -201,9 +207,10 @@ function clientReturning(response: TelemetryResponse): FakeClient {
           exactQpuAccessUs: null,
         },
       ],
+      winners: [],
       history: [],
     }),
-    fetchQblockHistoryDay: async () => [],
+    fetchQblockHistoryDay: async () => ({ rows: [], winners: [] }),
   };
   return client;
 }
@@ -224,8 +231,8 @@ function clientThrowing(error: Error): FakeClient {
     fetchMinerWins: () => new Promise<never>(() => {}),
     fetchNodeSummary: () => new Promise<never>(() => {}),
     fetchMiningHistory: () => new Promise<never>(() => {}),
-    fetchQblocks: async () => ({ rows: [], history: [] }),
-    fetchQblockHistoryDay: async () => [],
+    fetchQblocks: async () => ({ rows: [], winners: [], history: [] }),
+    fetchQblockHistoryDay: async () => ({ rows: [], winners: [] }),
   };
   return client;
 }
@@ -239,16 +246,24 @@ describe("qblock history", () => {
       miningSeconds: 60,
       exactQpuAccessUs: null,
     });
+    const winner = (qblockId: string) =>
+      makeBlock({ blockHash: `0x${qblockId}`, qblockId, substrateBlockNumber: qblockId });
     const loaded: string[] = [];
     const client: FakeClient = {
-      ...clientReturning(makeResponse()),
+      ...clientReturning(makeResponse({ blocks: [winner("3")] })),
       fetchQblocks: async () => ({
         rows: [row("3")],
+        winners: [winner("3")],
         history: ["d2", "d1"],
       }),
       fetchQblockHistoryDay: async (day: string) => {
         loaded.push(day);
-        return day === "d2" ? [row("2"), row("3")] : [row("1"), row("2"), row("3")];
+        return day === "d2"
+          ? { rows: [row("2"), row("3")], winners: [winner("2"), winner("3")] }
+          : {
+              rows: [row("1"), row("2"), row("3")],
+              winners: [winner("1"), winner("2"), winner("3")],
+            };
       },
     };
     const store = createTelemetryStore({ client });
@@ -256,6 +271,44 @@ describe("qblock history", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(loaded).toEqual(["d2", "d1"]);
     expect(store.getState().participationCompute.map((r) => r.qblockId)).toEqual(["1", "2", "3"]);
+    expect(store.getState().blocks.map((b) => b.qblockId)).toEqual(["3"]);
+    expect(store.getState().wonBlocks.map((b) => b.qblockId)).toEqual(["3", "2", "1"]);
+  });
+
+  it("keeps loaded history winners when a later manifest fetch fails", async () => {
+    let manifestFails = false;
+    const client: FakeClient = {
+      ...clientReturning(makeResponse({ blocks: [makeBlock({ blockHash: "0xtip" })] })),
+      fetchQblocks: async () => {
+        if (manifestFails) throw new Error("HTTP 404");
+        return {
+          rows: [],
+          winners: [makeBlock({ blockHash: "0xold", substrateBlockNumber: "7" })],
+          history: [],
+        };
+      },
+    };
+    const store = createTelemetryStore({ client });
+    await store.getState().fetchTelemetry();
+    manifestFails = true;
+    await store.getState().fetchTelemetry();
+    expect(store.getState().wonBlocks.map((b) => b.blockHash)).toEqual(["0xtip", "0xold"]);
+  });
+});
+
+describe("mergeWonBlocks", () => {
+  it("unions by block hash, newest substrate block first, preferring the telemetry copy", () => {
+    const telemetry = makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: true });
+    const merged = mergeWonBlocks(
+      [telemetry],
+      [
+        makeBlock({ blockHash: "0xa", substrateBlockNumber: "9" }),
+        makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: false }),
+        makeBlock({ blockHash: "0xc", substrateBlockNumber: "100" }),
+      ],
+    );
+    expect(merged.map((b) => b.blockHash)).toEqual(["0xc", "0xb", "0xa"]);
+    expect(merged[1]).toBe(telemetry);
   });
 });
 

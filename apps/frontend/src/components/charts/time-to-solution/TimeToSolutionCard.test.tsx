@@ -45,7 +45,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   useTelemetryStore.setState({
-    blocks: [makeBlock()],
+    wonBlocks: [makeBlock()],
     chainMiners: [],
     nodeDescriptors: [],
   });
