@@ -61,12 +61,9 @@ export function buildWorkload(provenance, seed) {
   const chainCalls = provenance.calls.map((c) => ({
     method: c.method,
     params: c.params ?? [],
-    responseBytes:
-      typeof c.responseBytes === "number" ? c.responseBytes : bytesOf(c),
+    responseBytes: typeof c.responseBytes === "number" ? c.responseBytes : bytesOf(c),
     clientBytes:
-      typeof c.clientBytes === "number"
-        ? c.clientBytes
-        : 32 + (c.params ?? []).length * 4,
+      typeof c.clientBytes === "number" ? c.clientBytes : 32 + (c.params ?? []).length * 4,
   }));
 
   // Miner-REST upstream rules from the seed. These are local HTTP requests

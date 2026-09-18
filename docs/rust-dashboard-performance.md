@@ -69,14 +69,14 @@ measurement is never treated as zero, and parity, admitted work, silent
 stalls, and upstream reductions are never inferred from absence. Which
 evidence each assertion requires:
 
-| Assertion | Evidence required |
-| --- | --- |
+| Assertion                   | Evidence required                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------- |
 | API and indexed-data parity | An explicit `parity: true` in the observed upstream evidence. A missing or false parity flag fails. |
-| Max admitted work | A progress field containing the admitted-work value. A real zero passes, and no field fails. |
-| Upstream calls and bytes | Observed call and byte totals plus a recorded baseline. An absent or nonpositive baseline fails. |
-| Steady combined-image RSS | A measured resident-memory value, or the working-set value with true RSS marked unavailable. |
-| Steady combined-image CPU | A measured CPU fraction. A real zero passes. |
-| Silent indexing stalls | A stall indicator field. No field fails, because zero is only claimable when measured. |
+| Max admitted work           | A progress field containing the admitted-work value. A real zero passes, and no field fails.        |
+| Upstream calls and bytes    | Observed call and byte totals plus a recorded baseline. An absent or nonpositive baseline fails.    |
+| Steady combined-image RSS   | A measured resident-memory value, or the working-set value with true RSS marked unavailable.        |
+| Steady combined-image CPU   | A measured CPU fraction. A real zero passes.                                                        |
+| Silent indexing stalls      | A stall indicator field. No field fails, because zero is only claimable when measured.              |
 
 The observed upstream evidence must name an explicit baseline group and
 candidate group in the result meta block. This is the Task 11 matched-baseline
@@ -104,14 +104,14 @@ limit to force a pass.
 
 ## Task 11 assertions
 
-| Assertion | Target |
-| --- | --- |
+| Assertion                   | Target                                      |
+| --------------------------- | ------------------------------------------- |
 | API and indexed-data parity | exact logical match with recorded responses |
-| Max admitted work | at most 64 |
-| Upstream calls and bytes | at most 50 percent of the recorded baseline |
-| Steady combined-image RSS | below 512 MiB |
-| Steady combined-image CPU | below 20 percent of one core |
-| Silent indexing stalls | zero |
+| Max admitted work           | at most 64                                  |
+| Upstream calls and bytes    | at most 50 percent of the recorded baseline |
+| Steady combined-image RSS   | below 512 MiB                               |
+| Steady combined-image CPU   | below 20 percent of one core                |
+| Silent indexing stalls      | zero                                        |
 
 ## How to run
 

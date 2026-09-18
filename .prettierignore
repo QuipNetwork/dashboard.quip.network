@@ -19,3 +19,4 @@ target/
 # Captured wire payloads and fixture manifests retain their recorded bytes.
 crates/**/tests/fixtures/
 deploy/tests/fixtures/
+scripts/benchmark/testdata/
