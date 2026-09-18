@@ -134,39 +134,38 @@ describe("App smoke test", () => {
       // to file-shaped fixtures so the participation-driven charts render.
       if (url.endsWith("/files/qblocks/metadata.json")) {
         return Promise.resolve(
-          new Response(JSON.stringify({ qblocks: ["qblocks/ab/cd/1.json"] }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify({ qblocks: ["qblocks/ab/cd/1.json", "qblocks/ef/01/0.json"] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
         );
       }
-      if (url.includes("/files/qblocks/")) {
+      // Indexer file shape: raw participation plus the winner block. The
+      // client derives miningSeconds from consecutive winner timestamps, so
+      // qblock 0 only anchors the 12-second window of qblock 1.
+      const qblockMatch = /\/files\/qblocks\/.*\/(\d+)\.json$/.exec(url);
+      if (qblockMatch) {
+        const qblockId = qblockMatch[1];
+        const participant = (account: string, kind: string) => ({
+          qblockId,
+          account,
+          kind,
+          blockNumber: "1",
+          budgetSeconds: null,
+        });
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              qblockId: "1",
+              qblockId,
+              winner: {
+                qblockId,
+                minerId: "qpu-miner-1",
+                timestamp: qblockId === "0" ? 988 : 1_000,
+              },
               participation: [
-                {
-                  qblockId: "1",
-                  account: "cpu-miner-1",
-                  kind: "Cpu",
-                  miningSeconds: 12,
-                  exactQpuAccessUs: null,
-                },
-                {
-                  qblockId: "1",
-                  account: "gpu-miner-1",
-                  kind: "Gpu",
-                  miningSeconds: 12,
-                  exactQpuAccessUs: null,
-                },
-                {
-                  qblockId: "1",
-                  account: "qpu-miner-1",
-                  kind: "QpuDwave",
-                  miningSeconds: 12,
-                  exactQpuAccessUs: null,
-                },
+                participant("cpu-miner-1", "Cpu"),
+                participant("gpu-miner-1", "Gpu"),
+                participant("qpu-miner-1", "QpuDwave"),
               ],
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },

@@ -85,6 +85,21 @@ pub(super) async fn miner_wins(State(state): State<HttpState>) -> ApiResult {
     };
     super::response::json(&state, &body)
 }
+pub(super) async fn node_summary(
+    State(state): State<HttpState>,
+    Path(account): Path<String>,
+) -> ApiResult {
+    let summary = state.store.get_node_summary(&account).await?;
+    let last_won_block = match &summary {
+        Some(row) => state.store.get_block(&row.last_won_block_hash).await?,
+        None => None,
+    };
+    let body = dashboard_model::NodeSummaryResponse {
+        summary,
+        last_won_block,
+    };
+    super::response::json(&state, &body)
+}
 fn since(query: &HashMap<String, String>) -> Result<(&str, String), ApiError> {
     let parsed = query.get("since").and_then(|raw| {
         let time = chrono::DateTime::parse_from_rfc3339(raw)

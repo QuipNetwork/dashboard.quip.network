@@ -258,8 +258,9 @@ export interface DifficultyRecord {
  * Per-miner win aggregate over the indexed `blocks` table — the canonical
  * dataset behind every "qblocks won" figure in the UI (leaderboard,
  * rank-adjacent miners, miner info panes), so they all agree by
- * construction. Computed in SQL (`GROUP BY miner_id`), served by
- * `GET /api/miner-wins`.
+ * construction. Stored per node in the `node_summary` table, which the
+ * winner writer updates with each block, and served by `GET /api/miner-wins`
+ * and `GET /api/node/{account}/summary`.
  *
  * Counts only winner blocks the indexer decoded and stored: on a deployment
  * whose backfill hasn't reached the chain's genesis (or where pre-spec-108
@@ -276,6 +277,10 @@ export interface MinerWinsRow {
   avgMiningTime: number;
   // Unix seconds of the miner's most recent stored win (blocks.timestamp).
   lastWonAt: number;
+  // Highest qblock id among the miner's stored wins (decimal string).
+  lastWonQblockId: string;
+  // Winner block hash of that qblock.
+  lastWonBlockHash: string;
 }
 
 /**

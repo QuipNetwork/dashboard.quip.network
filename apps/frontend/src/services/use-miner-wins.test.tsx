@@ -16,8 +16,24 @@ import type { MinerWinsRow } from "@quip/shared/telemetry";
 import { useMinerWins, type MinerWinsState } from "./use-miner-wins";
 
 const ROWS: MinerWinsRow[] = [
-  { minerId: "5A", wins: 12, bestEnergy: -3.5, avgMiningTime: 9, lastWonAt: 1700000200 },
-  { minerId: "5B", wins: 4, bestEnergy: -1.5, avgMiningTime: 14, lastWonAt: 1700000100 },
+  {
+    minerId: "5A",
+    wins: 12,
+    bestEnergy: -3.5,
+    avgMiningTime: 9,
+    lastWonAt: 1700000200,
+    lastWonQblockId: "1",
+    lastWonBlockHash: "0x1",
+  },
+  {
+    minerId: "5B",
+    wins: 4,
+    bestEnergy: -1.5,
+    avgMiningTime: 14,
+    lastWonAt: 1700000100,
+    lastWonQblockId: "1",
+    lastWonBlockHash: "0x1",
+  },
 ];
 
 let container: HTMLDivElement;
@@ -44,6 +60,8 @@ function makeClient(rows: MinerWinsRow[] | Error): { client: TelemetryClient; ca
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
     fetchMiningHistory: () => new Promise<never>(() => {}),
     fetchQblocks: () => new Promise<never>(() => {}),
+    fetchQblockHistoryDay: () => new Promise<never>(() => {}),
+    fetchNodeSummary: () => new Promise<never>(() => {}),
     fetchMinerWins: async () => {
       calls.push(calls.length);
       if (rows instanceof Error) throw rows;

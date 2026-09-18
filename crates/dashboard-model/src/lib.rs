@@ -34,8 +34,8 @@ pub use node::{
 pub use response::{
     DeviceAccessTimeBackfill, DifficultyHistoryResponse, ErrorResponse, IndexerBackfillProgress,
     IndexerObservability, IndexerPluginCoverage, MinerWinsResponse, MiningHistoryResponse,
-    NodeLiveData, ParticipationComputeRow, QPU_ACCESS_TO_WALL_RATIO, TelemetryFiles,
-    TelemetryResponse,
+    NodeLiveData, NodeSummaryResponse, ParticipationComputeRow, QPU_ACCESS_TO_WALL_RATIO,
+    TelemetryFiles, TelemetryResponse,
 };
 
 #[cfg(test)]

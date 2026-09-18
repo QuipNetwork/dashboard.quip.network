@@ -10,7 +10,24 @@ use dashboard_model::{
 };
 use serde_json::{Value, json};
 
+/// Recompute one miner's `node_summary` row from its stored wins.
+const REFRESH_NODE_SUMMARY: &str = "INSERT INTO node_summary(miner_id,wins,best_energy,avg_mining_time,last_won_at,last_won_qblock_id,last_won_block_hash) \
+SELECT a.miner_id,a.wins,a.best_energy,a.avg_mining_time,a.last_won_at,l.qblock_id,l.block_hash \
+FROM (SELECT miner_id,COUNT(*) AS wins,MIN(energy) AS best_energy,AVG(mining_time) AS avg_mining_time,MAX(timestamp) AS last_won_at FROM blocks WHERE miner_id=?1 GROUP BY miner_id) a \
+JOIN blocks l ON l.block_hash=(SELECT x.block_hash FROM blocks x WHERE x.miner_id=a.miner_id ORDER BY length(CAST(x.qblock_id AS TEXT)) DESC,x.qblock_id DESC,x.block_hash DESC LIMIT 1) \
+WHERE TRUE \
+ON CONFLICT(miner_id) DO UPDATE SET wins=excluded.wins,best_energy=excluded.best_energy,avg_mining_time=excluded.avg_mining_time,last_won_at=excluded.last_won_at,last_won_qblock_id=excluded.last_won_qblock_id,last_won_block_hash=excluded.last_won_block_hash";
+
 pub(crate) async fn write_winner(c: &mut Connection, b: &BlockRecord) -> Result<u64, StoreError> {
+    let written = upsert_winner(c, b).await?;
+    if written > 0 {
+        let _ = c
+            .execute(REFRESH_NODE_SUMMARY, &[b.miner_id.as_str().into()])
+            .await?;
+    }
+    Ok(written)
+}
+async fn upsert_winner(c: &mut Connection, b: &BlockRecord) -> Result<u64, StoreError> {
     // Later enrichment may fill topology/device time, but does not erase richer data.
     let rows = c
         .query(
@@ -33,6 +50,16 @@ pub(crate) async fn write_winner(c: &mut Connection, b: &BlockRecord) -> Result<
         return upsert(c, "blocks", &incoming, &["block_hash"], &[], None).await;
     }
     upsert(c, "blocks", b, &["block_hash"], &[], Some("NOTHING")).await
+}
+#[expect(
+    clippy::float_cmp,
+    reason = "Both sides decode the same chain milli-unit integers, so equal chain values are bit-identical"
+)]
+fn same_poll_value(prev: &DifficultyRecord, next: &DifficultyRecord) -> bool {
+    prev.difficulty_energy == next.difficulty_energy
+        && prev.min_diversity == next.min_diversity
+        && prev.min_solutions == next.min_solutions
+        && prev.topology_hash == next.topology_hash
 }
 pub(crate) async fn write_difficulty(
     c: &mut Connection,
@@ -157,12 +184,42 @@ impl Store {
     ) -> Result<Vec<BlockRecord>, StoreError> {
         self.rows("SELECT * FROM blocks WHERE miner_id=?1 ORDER BY length(CAST(substrate_block_number AS TEXT)) DESC,substrate_block_number DESC LIMIT CAST(?2 AS INTEGER)",&[miner.into(),limit.min(1000).into()]).await
     }
-    /// SQL aggregate of indexed wins, sorted by count.
+    /// Winner blocks at or after a Unix-second cutoff, oldest first.
+    ///
+    /// # Errors
+    /// Returns storage, validation, or network identity errors.
+    pub async fn get_blocks_since(&self, since_unix: i64) -> Result<Vec<BlockRecord>, StoreError> {
+        self.rows("SELECT * FROM blocks WHERE timestamp>=CAST(?1 AS BIGINT) ORDER BY length(CAST(substrate_block_number AS TEXT)),substrate_block_number",&[since_unix.into()]).await
+    }
+    /// Stored per-miner win summaries, sorted by count.
     ///
     /// # Errors
     /// Returns storage, validation, or network identity errors.
     pub async fn get_miner_wins(&self) -> Result<Vec<MinerWinsRow>, StoreError> {
-        self.api_rows("SELECT miner_id,COUNT(*) AS wins,MIN(energy) AS best_energy,AVG(mining_time) AS avg_mining_time,MAX(timestamp) AS last_won_at FROM blocks GROUP BY miner_id ORDER BY wins DESC,miner_id",&[]).await
+        self.api_rows(
+            "SELECT * FROM node_summary ORDER BY wins DESC,miner_id",
+            &[],
+        )
+        .await
+    }
+    /// One miner's stored win summary.
+    ///
+    /// # Errors
+    /// Returns storage, validation, or network identity errors.
+    pub async fn get_node_summary(&self, miner: &str) -> Result<Option<MinerWinsRow>, StoreError> {
+        self.api_one(
+            "SELECT * FROM node_summary WHERE miner_id=?1",
+            &[miner.into()],
+        )
+        .await
+    }
+    /// One stored winner block by hash.
+    ///
+    /// # Errors
+    /// Returns storage, validation, or network identity errors.
+    pub async fn get_block(&self, hash: &str) -> Result<Option<BlockRecord>, StoreError> {
+        self.api_one("SELECT * FROM blocks WHERE block_hash=?1", &[hash.into()])
+            .await
     }
     /// Slim chart history, filtered in SQL by Unix-second cutoff.
     ///
@@ -280,7 +337,22 @@ impl Store {
         }
         let mut tx = self.write().await?;
         let _ = crate::store::require_bound(tx.conn()).await?;
-        let _ = write_difficulty(tx.conn(), d).await?;
+        // Record only changes: the poller runs every block, but the value
+        // moves only on retargets and topology switches.
+        let latest = tx
+            .conn()
+            .query(
+                "SELECT * FROM dashboard_poll_difficulty ORDER BY observed_at DESC LIMIT 1",
+                &[],
+            )
+            .await?;
+        let unchanged = match latest.into_iter().next() {
+            Some(row) => same_poll_value(&crate::store::decode(row)?, d),
+            None => false,
+        };
+        if !unchanged {
+            let _ = write_difficulty(tx.conn(), d).await?;
+        }
         tx.commit().await
     }
     /// Recent difficulty ordered by observation time.

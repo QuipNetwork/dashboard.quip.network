@@ -14,6 +14,7 @@ import { NeighborsList } from "@/components/views/MyNode/NeighborsList";
 import { RecentMiningPanel } from "@/components/views/MyNode/RecentMiningPanel";
 import { StatTile } from "@/components/views/MyNode/StatTile";
 import { useMinerWins } from "@/services/use-miner-wins";
+import { useNodeSummary } from "@/services/use-node-summary";
 import { useNode } from "./use-node";
 import { useNodeLiveData } from "./use-node-live-data";
 
@@ -34,7 +35,9 @@ function NodeDetail({ accountId, onBack }: { accountId: string; onBack: () => vo
   // Shared /api/miner-wins dataset — same table as the leaderboard and
   // rank-neighbor rows, so every win count on this page matches them.
   const minerWins = useMinerWins();
-  const node = useNode(accountId, minerWins.rows);
+  // Fetched each time the page opens so the last won qblock is current.
+  const nodeSummary = useNodeSummary(accountId);
+  const node = useNode(accountId, minerWins.rows, nodeSummary.lastWonBlock);
   const live = useNodeLiveData(accountId);
   const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
   const chainHead = useTelemetryStore((s) => s.chainHead);

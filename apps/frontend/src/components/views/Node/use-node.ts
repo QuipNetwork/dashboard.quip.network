@@ -13,7 +13,11 @@ import {
   computeLeaderboard,
   type LeaderboardEntry,
 } from "@/components/charts/leaderboard/use-leaderboard";
-import { qblockNumber, type CurrentRequirements } from "@/components/views/MyNode/use-my-node";
+import {
+  latestWin,
+  qblockNumber,
+  type CurrentRequirements,
+} from "@/components/views/MyNode/use-my-node";
 import { selectTipBlock, useTelemetryStore } from "@/store/telemetry-store";
 
 /**
@@ -46,10 +50,15 @@ const NEIGHBOR_WINDOW = 2;
 
 /**
  * `minerWins` is the shared `/api/miner-wins` dataset (from `useMinerWins()`
- * at the view level — injected, like {@link useMyNode}, so the hook stays a
- * pure store-derived computation).
+ * at the view level) and `summaryLastWon` the node summary's last won block
+ * (from `useNodeSummary()`) — injected, like {@link useMyNode}, so the hook
+ * stays a pure store-derived computation.
  */
-export function useNode(accountId: string, minerWins: readonly MinerWinsRow[] = []): NodeStats {
+export function useNode(
+  accountId: string,
+  minerWins: readonly MinerWinsRow[] = [],
+  summaryLastWon: BlockRecord | null = null,
+): NodeStats {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const blocks = useTelemetryStore((s) => s.blocks);
@@ -60,7 +69,9 @@ export function useNode(accountId: string, minerWins: readonly MinerWinsRow[] = 
     const chainMinerEntry = chainMiners.find((m) => m.accountId === accountId) ?? null;
     const descriptor = nodeDescriptors.find((d) => d.accountId === accountId) ?? null;
     const nodeBlocks = blocks.filter((b) => b.minerId === accountId);
-    const lastWonBlock = nodeBlocks[0] ?? null;
+    // `blocks` holds only the newest few hundred winners; the node summary
+    // covers all indexed history.
+    const lastWonBlock = latestWin(nodeBlocks[0], summaryLastWon);
 
     // Global qblock/solution number = the chain-authoritative qblockId, so the
     // "Sol #" numbering matches local mining_submissions and the rest of the
@@ -139,5 +150,14 @@ export function useNode(accountId: string, minerWins: readonly MinerWinsRow[] = 
       self,
       neighbors,
     };
-  }, [accountId, chainMiners, nodeDescriptors, blocks, minerWins, tipBlock, recentDifficulty]);
+  }, [
+    accountId,
+    chainMiners,
+    nodeDescriptors,
+    blocks,
+    minerWins,
+    summaryLastWon,
+    tipBlock,
+    recentDifficulty,
+  ]);
 }

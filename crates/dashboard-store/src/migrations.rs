@@ -3,7 +3,7 @@ use crate::{
     MigrationStatusRow, Store, StoreError,
     backend::{Connection, now, text},
 };
-pub(crate) const NAMES: [&str; 9] = [
+pub(crate) const NAMES: [&str; 10] = [
     "0001_initial",
     "0002_telemetry_sort_indexes",
     "0003_protocol_v0_2_sync",
@@ -13,6 +13,7 @@ pub(crate) const NAMES: [&str; 9] = [
     "0007_qblock_participation",
     "0008_rust_writer_state",
     "0009_permanent_unavailable",
+    "0010_dedupe_poll_difficulty",
 ];
 macro_rules! sqls {
     ($dir:literal) => {
@@ -57,6 +58,11 @@ macro_rules! sqls {
                 "../migrations/",
                 $dir,
                 "/0009_permanent_unavailable.sql"
+            )),
+            include_str!(concat!(
+                "../migrations/",
+                $dir,
+                "/0010_dedupe_poll_difficulty.sql"
             )),
         ]
     };

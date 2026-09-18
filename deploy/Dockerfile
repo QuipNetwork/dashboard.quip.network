@@ -65,6 +65,20 @@ FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d586
 # The official Caddy stage provides /usr/bin/caddy (v2.11.4) at a pinned
 # digest. Its musl runtime matches the production Alpine base.
 
+# ---- geoip: pinned DB-IP City Lite database ---------------------------------
+# Offline city lookup for the Network tab's node map. DB-IP City Lite is
+# CC BY 4.0 (attribution: "IP Geolocation by DB-IP", https://db-ip.com) and
+# uses the GeoIP2-City schema the backend decodes. Bump the month and the
+# checksum together to refresh it.
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS geoip
+ARG DBIP_CITY_LITE_MONTH=2026-09
+ARG DBIP_CITY_LITE_SHA256=c5d05b35a45c3eea0cadc728c8f5ad751693d4e270529b731442172a73f05954
+WORKDIR /geoip
+RUN wget -q -O dbip-city-lite.mmdb.gz \
+        "https://download.db-ip.com/free/dbip-city-lite-${DBIP_CITY_LITE_MONTH}.mmdb.gz" && \
+    echo "${DBIP_CITY_LITE_SHA256}  dbip-city-lite.mmdb.gz" | sha256sum -c - && \
+    gunzip dbip-city-lite.mmdb.gz
+
 # ---- dev: Bun tooling and the frontend watch server -------------------------
 # ./run overrides the entrypoint with bash and mounts source for one-off tasks.
 # Compose pairs this watch server with the combined production backend.
@@ -109,6 +123,7 @@ COPY deploy/syslog-ng/syslog-ng.conf /config/syslog-ng.conf
 COPY deploy/syslog-ng/rotate.sh /app/deploy/syslog-ng/rotate.sh
 COPY deploy/entrypoint.sh /app/deploy/entrypoint.sh
 COPY --from=frontend /app/apps/frontend/dist /app/frontend
+COPY --from=geoip /geoip/dbip-city-lite.mmdb /usr/share/geoip/dbip-city-lite.mmdb
 
 RUN chmod +x /app/deploy/entrypoint.sh /app/deploy/syslog-ng/rotate.sh
 # Execute both real binaries during the build to catch missing interpreters
@@ -129,6 +144,7 @@ ENV PUID=1000 \
     DATABASE_URL="" \
     QUIP_VALIDATOR_RPC_URLS="ws://quip-validator:9944" \
     QUIP_MINER_REST_URL="http://quip-miner:8086" \
+    GEOIP_DB_PATH="/usr/share/geoip/dbip-city-lite.mmdb" \
     QUIP_HOSTNAME=":20049" \
     CERT_EMAIL="hostmaster@localhost" \
     XDG_DATA_HOME="/data/caddy/data" \

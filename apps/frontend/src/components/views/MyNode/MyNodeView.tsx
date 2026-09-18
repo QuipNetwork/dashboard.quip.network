@@ -5,6 +5,7 @@ import { displayNodeName, formatBalance } from "@/lib/format-chain";
 import { formatNumber } from "@/lib/format";
 import { useServerNowMs, useTelemetryStore } from "@/store/telemetry-store";
 import { useMinerWins } from "@/services/use-miner-wins";
+import { useNodeSummary } from "@/services/use-node-summary";
 import { ChartCard } from "@/components/layout/ChartCard";
 import { CurrentAttemptsPanel } from "./CurrentAttemptsPanel";
 import { LastQBlockCard } from "./LastQBlockCard";
@@ -19,7 +20,10 @@ export function MyNodeView() {
   // rank-neighbor rows count from, injected so every "qblocks won" figure
   // on this page agrees with them.
   const minerWins = useMinerWins();
-  const stats = useMyNode(minerWins.rows);
+  // Fetched each time the page opens so the last won qblock is current.
+  const selfAccount = useTelemetryStore((s) => s.selfAddress);
+  const nodeSummary = useNodeSummary(selfAccount);
+  const stats = useMyNode(minerWins.rows, nodeSummary.lastWonBlock);
   const chainHead = useTelemetryStore((s) => s.chainHead);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);

@@ -75,80 +75,102 @@ export interface TelemetryStoreDeps {
 
 const createTelemetryState =
   (deps: TelemetryStoreDeps): StateCreator<TelemetryState> =>
-  (set, get) => ({
-    blocks: [],
-    selfAddress: null,
-    indexer: null,
-    serverTime: null,
-    chainHead: null,
-    babeEpoch: null,
-    babeAuthorities: [],
-    chainMiners: [],
-    recentDifficulty: [],
-    mineableTopologies: [],
-    validators: [],
-    nodes: null,
-    nodeDescriptors: [],
-    recentMiningSubmissions: [],
-    selfProblemsAttempted: 0,
-    currentDispatch: null,
-    participationCompute: [],
-    loading: true,
-    error: null,
-    fetchTelemetry: async () => {
-      // Only flash the loading screen on the very first load. Subsequent
-      // polling refreshes leave the current UI visible and swap data in place.
-      // In steady state both blocks and selfAddress are populated, so this
-      // never re-enters the loading flash after the first successful fetch.
-      const firstLoad = get().blocks.length === 0 && get().selfAddress === null;
-      if (firstLoad && !get().loading) set({ loading: true });
+  (set, get) => {
+    // Older qblock history loads one day at a time in the background after
+    // the first render. A failed walk stops; the next poll resumes it from
+    // the days the client has not loaded.
+    let historyLoading = false;
+    const loadQblockHistory = async (days: readonly string[]): Promise<void> => {
+      historyLoading = true;
       try {
-        const data = await deps.client.fetchTelemetry();
-        // Participation facts are file-backed: fetch them from the manifest the
-        // slimmed telemetry points at. A missing or unparseable manifest
-        // degrades to an empty participation array ("no data yet").
-        let participationCompute: ParticipationComputeRow[] = [];
-        const manifest = data.files?.qblocksManifest;
-        if (manifest) {
-          try {
-            participationCompute = await deps.client.fetchQblocks(manifest);
-          } catch (e) {
-            // Best-effort: a 404 on the manifest (indexer hasn't written
-            // files yet) must not fail the whole telemetry poll.
-            console.warn("qblock file fetch failed", e);
-          }
+        for (const day of days) {
+          set({ participationCompute: await deps.client.fetchQblockHistoryDay(day) });
         }
-        // Defensive coercion: a rolling deploy (or a stale dev-server that
-        // hasn't been restarted past a schema bump) can return a response
-        // missing newly-added fields. Without these defaults, downstream
-        // hooks crash on `undefined.map` / `undefined.length` instead of
-        // gracefully degrading to "no data yet".
-        set({
-          blocks: data.blocks ?? [],
-          selfAddress: data.selfAddress ?? null,
-          indexer: data.indexer ?? null,
-          serverTime: data.serverTime,
-          chainHead: data.chainHead ?? null,
-          babeEpoch: data.babeEpoch ?? null,
-          babeAuthorities: data.babeAuthorities ?? [],
-          chainMiners: data.chainMiners ?? [],
-          recentDifficulty: data.recentDifficulty ?? [],
-          mineableTopologies: data.mineableTopologies ?? [],
-          validators: data.validators ?? [],
-          nodes: data.nodes ?? null,
-          nodeDescriptors: data.nodeDescriptors ?? [],
-          recentMiningSubmissions: data.recentMiningSubmissions ?? [],
-          selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
-          currentDispatch: data.currentDispatch ?? null,
-          participationCompute,
-          loading: false,
-          error: null,
-        });
       } catch (e) {
-        set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+        console.warn("qblock history fetch failed", e);
+      } finally {
+        historyLoading = false;
       }
-    },
-  });
+    };
+    return {
+      blocks: [],
+      selfAddress: null,
+      indexer: null,
+      serverTime: null,
+      chainHead: null,
+      babeEpoch: null,
+      babeAuthorities: [],
+      chainMiners: [],
+      recentDifficulty: [],
+      mineableTopologies: [],
+      validators: [],
+      nodes: null,
+      nodeDescriptors: [],
+      recentMiningSubmissions: [],
+      selfProblemsAttempted: 0,
+      currentDispatch: null,
+      participationCompute: [],
+      loading: true,
+      error: null,
+      fetchTelemetry: async () => {
+        // Only flash the loading screen on the very first load. Subsequent
+        // polling refreshes leave the current UI visible and swap data in place.
+        // In steady state both blocks and selfAddress are populated, so this
+        // never re-enters the loading flash after the first successful fetch.
+        const firstLoad = get().blocks.length === 0 && get().selfAddress === null;
+        if (firstLoad && !get().loading) set({ loading: true });
+        try {
+          const data = await deps.client.fetchTelemetry();
+          // Participation facts are file-backed: fetch them from the manifest the
+          // slimmed telemetry points at. A missing or unparseable manifest
+          // degrades to an empty participation array ("no data yet").
+          let participationCompute: ParticipationComputeRow[] = [];
+          const manifest = data.files?.qblocksManifest;
+          if (manifest) {
+            try {
+              const snapshot = await deps.client.fetchQblocks(manifest);
+              participationCompute = snapshot.rows;
+              if (!historyLoading && snapshot.history.length > 0) {
+                void loadQblockHistory(snapshot.history);
+              }
+            } catch (e) {
+              // Best-effort: a 404 on the manifest (indexer hasn't written
+              // files yet) must not fail the whole telemetry poll.
+              console.warn("qblock file fetch failed", e);
+            }
+          }
+          // Defensive coercion: a rolling deploy (or a stale dev-server that
+          // hasn't been restarted past a schema bump) can return a response
+          // missing newly-added fields. Without these defaults, downstream
+          // hooks crash on `undefined.map` / `undefined.length` instead of
+          // gracefully degrading to "no data yet".
+          set({
+            blocks: data.blocks ?? [],
+            selfAddress: data.selfAddress ?? null,
+            indexer: data.indexer ?? null,
+            serverTime: data.serverTime,
+            chainHead: data.chainHead ?? null,
+            babeEpoch: data.babeEpoch ?? null,
+            babeAuthorities: data.babeAuthorities ?? [],
+            chainMiners: data.chainMiners ?? [],
+            recentDifficulty: data.recentDifficulty ?? [],
+            mineableTopologies: data.mineableTopologies ?? [],
+            validators: data.validators ?? [],
+            nodes: data.nodes ?? null,
+            nodeDescriptors: data.nodeDescriptors ?? [],
+            recentMiningSubmissions: data.recentMiningSubmissions ?? [],
+            selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
+            currentDispatch: data.currentDispatch ?? null,
+            participationCompute,
+            loading: false,
+            error: null,
+          });
+        } catch (e) {
+          set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+    };
+  };
 
 export const createTelemetryStore = (deps: TelemetryStoreDeps): StoreApi<TelemetryState> =>
   createStore<TelemetryState>(createTelemetryState(deps));

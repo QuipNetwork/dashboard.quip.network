@@ -23,6 +23,8 @@ const idleClient: TelemetryClient = {
   fetchMinerWins: () => new Promise<never>(() => {}),
   fetchMiningHistory: () => new Promise<never>(() => {}),
   fetchQblocks: () => new Promise<never>(() => {}),
+  fetchQblockHistoryDay: () => new Promise<never>(() => {}),
+  fetchNodeSummary: () => new Promise<never>(() => {}),
 };
 
 function SelfAddress() {

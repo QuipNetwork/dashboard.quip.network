@@ -189,16 +189,21 @@ function clientReturning(response: TelemetryResponse): FakeClient {
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
     fetchMinerWins: () => new Promise<never>(() => {}),
+    fetchNodeSummary: () => new Promise<never>(() => {}),
     fetchMiningHistory: () => new Promise<never>(() => {}),
-    fetchQblocks: async () => [
-      {
-        qblockId: "1",
-        account: "5GPP",
-        kind: "Cpu",
-        miningSeconds: 60,
-        exactQpuAccessUs: null,
-      },
-    ],
+    fetchQblocks: async () => ({
+      rows: [
+        {
+          qblockId: "1",
+          account: "5GPP",
+          kind: "Cpu",
+          miningSeconds: 60,
+          exactQpuAccessUs: null,
+        },
+      ],
+      history: [],
+    }),
+    fetchQblockHistoryDay: async () => [],
   };
   return client;
 }
@@ -217,11 +222,42 @@ function clientThrowing(error: Error): FakeClient {
     fetchNodeLive: () => new Promise<never>(() => {}),
     fetchDifficultyHistory: () => new Promise<never>(() => {}),
     fetchMinerWins: () => new Promise<never>(() => {}),
+    fetchNodeSummary: () => new Promise<never>(() => {}),
     fetchMiningHistory: () => new Promise<never>(() => {}),
-    fetchQblocks: async () => [],
+    fetchQblocks: async () => ({ rows: [], history: [] }),
+    fetchQblockHistoryDay: async () => [],
   };
   return client;
 }
+
+describe("qblock history", () => {
+  it("walks history days in the background after the first load", async () => {
+    const row = (qblockId: string) => ({
+      qblockId,
+      account: "5GPP",
+      kind: "Cpu",
+      miningSeconds: 60,
+      exactQpuAccessUs: null,
+    });
+    const loaded: string[] = [];
+    const client: FakeClient = {
+      ...clientReturning(makeResponse()),
+      fetchQblocks: async () => ({
+        rows: [row("3")],
+        history: ["d2", "d1"],
+      }),
+      fetchQblockHistoryDay: async (day: string) => {
+        loaded.push(day);
+        return day === "d2" ? [row("2"), row("3")] : [row("1"), row("2"), row("3")];
+      },
+    };
+    const store = createTelemetryStore({ client });
+    await store.getState().fetchTelemetry();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loaded).toEqual(["d2", "d1"]);
+    expect(store.getState().participationCompute.map((r) => r.qblockId)).toEqual(["1", "2", "3"]);
+  });
+});
 
 describe("fetchTelemetry", () => {
   it("delegates to the injected client exactly once", async () => {

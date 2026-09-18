@@ -216,7 +216,7 @@ pub struct DifficultyRecord {
     pub source: DifficultySource,
 }
 
-/// Per-miner win aggregate over indexed blocks.
+/// Per-miner win summary over indexed blocks, stored in `node_summary`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MinerWinsRow {
@@ -230,6 +230,10 @@ pub struct MinerWinsRow {
     pub avg_mining_time: f64,
     /// Unix seconds of the most recent stored win.
     pub last_won_at: u64,
+    /// Highest qblock id among stored wins.
+    pub last_won_qblock_id: DecimalString,
+    /// Winner block hash of that qblock.
+    pub last_won_block_hash: String,
 }
 
 /// Slim winner-block row for the mining-time chart.

@@ -7,6 +7,7 @@
 // WINNING proof"; this answers "how much compute did the WHOLE field spend",
 // which the Total-Compute pie and Mining-per-QBlock charts need.
 
+import type { BlockRecord } from "./chain";
 import type { MinerCategory } from "./miner";
 
 // QPU wall-clock is not device-access time: a D-Wave submission's real chip
@@ -24,7 +25,8 @@ export const QPU_ACCESS_TO_WALL_RATIO = 74.89;
 /** Map a raw on-chain `MinerKind` variant name to a dashboard `MinerCategory`. */
 export function minerKindToCategory(kind: string): MinerCategory {
   if (kind === "Cpu") return "CPU";
-  if (kind === "Gpu") return "GPU";
+  // Metal is an Apple-silicon GPU backend.
+  if (kind === "Gpu" || kind === "Metal") return "GPU";
   if (kind.startsWith("Qpu")) return "QPU";
   return "OTHER";
 }
@@ -138,4 +140,61 @@ export function aggregateParticipationByQblock(
     byQblock.set(r.qblockId, acc);
   }
   return new Map([...byQblock].map(([q, acc]) => [q, [...acc.values()]]));
+}
+
+/** One raw participation row as the indexer writes it into a qblock file. */
+export interface QblockFileParticipant {
+  account: string;
+  kind: string;
+  qblockId: string;
+  blockNumber: string;
+  budgetSeconds: number | null;
+}
+
+/**
+ * One `/files/qblocks/.../<id>.json` file. `winner` is the winning block, or
+ * null until it commits.
+ */
+export interface QblockFile {
+  qblockId: string;
+  winner: BlockRecord | null;
+  participation: QblockFileParticipant[];
+}
+
+/** The part of a qblock file the interval join reads (winner timestamp in unix seconds). */
+export type QblockTimingFile = Omit<QblockFile, "winner"> & {
+  winner: Pick<BlockRecord, "timestamp"> | null;
+};
+
+/**
+ * Join raw qblock files into `ParticipationComputeRow`s, matching the SQL the
+ * server used before participation moved to files: a qblock's `miningSeconds`
+ * is its winner's timestamp minus the previous (next-lower id) winner's.
+ * Qblocks without a winner, the oldest winner (no predecessor in the window),
+ * and non-positive gaps are dropped. Exact QPU access is not in the files, so
+ * QPU falls back to the wall-clock estimate.
+ */
+export function participationFromQblockFiles(
+  files: readonly QblockTimingFile[],
+): ParticipationComputeRow[] {
+  const won = files
+    .flatMap((f) => (f.winner ? [{ file: f, timestamp: f.winner.timestamp }] : []))
+    .sort((a, b) => (BigInt(a.file.qblockId) < BigInt(b.file.qblockId) ? -1 : 1));
+  const rows: ParticipationComputeRow[] = [];
+  for (const [i, { file, timestamp }] of won.entries()) {
+    const previous = won[i - 1];
+    if (!previous) continue;
+    const miningSeconds = timestamp - previous.timestamp;
+    if (miningSeconds <= 0) continue;
+    for (const p of file.participation) {
+      rows.push({
+        qblockId: file.qblockId,
+        account: p.account,
+        kind: p.kind,
+        miningSeconds,
+        exactQpuAccessUs: null,
+      });
+    }
+  }
+  return rows;
 }

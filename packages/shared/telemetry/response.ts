@@ -99,12 +99,21 @@ export interface DifficultyHistoryResponse {
 }
 
 /**
- * `GET /api/miner-wins`: all-time per-miner win aggregates from the indexed
- * `blocks` table, wins descending. One shared dataset for every "qblocks
+ * `GET /api/miner-wins`: all-time per-miner win summaries from the
+ * `node_summary` table, wins descending. One shared dataset for every "qblocks
  * won" surface in the UI.
  */
 export interface MinerWinsResponse {
   rows: MinerWinsRow[];
+}
+
+/**
+ * `GET /api/node/{account}/summary`: one node's stored win summary and the
+ * winner block of its last won qblock. Both are null before its first win.
+ */
+export interface NodeSummaryResponse {
+  summary: MinerWinsRow | null;
+  lastWonBlock: BlockRecord | null;
 }
 
 /**

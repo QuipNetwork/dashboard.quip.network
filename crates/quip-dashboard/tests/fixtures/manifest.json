@@ -124,6 +124,30 @@
     ]
   },
   {
+    "name": "node-summary-populated",
+    "method": "GET",
+    "path": "/api/node/5A/summary",
+    "status": 200,
+    "bodyFile": "api/node-summary-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "node-summary-unknown",
+    "method": "GET",
+    "path": "/api/node/5Z/summary",
+    "status": 200,
+    "bodyFile": "api/node-summary-unknown.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
     "name": "mining-history-populated",
     "method": "GET",
     "path": "/api/mining-history?since=2026-06-10T00:00:00.000Z",

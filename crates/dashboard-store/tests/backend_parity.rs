@@ -217,8 +217,10 @@ async fn scenario(store: &Store) -> Result<(), Box<dyn Error>> {
     submissions(store).await?;
     authorship(store).await?;
     winner_queries(store).await?;
+    node_summaries(store).await?;
     poll_after_block(store).await?;
     timestamp_order(store).await?;
+    poll_dedup(store).await?;
     observability(store).await?;
     Ok(())
 }
@@ -516,6 +518,39 @@ async fn authorship(store: &Store) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Node summaries follow the winner writes of `winner_queries`.
+async fn node_summaries(store: &Store) -> Result<(), Box<dyn Error>> {
+    let bob = store.get_node_summary("bob").await?.ok_or("bob summary")?;
+    assert_eq!((bob.wins, bob.last_won_qblock_id), (1, 100.into()));
+    assert_eq!(
+        store
+            .get_block(&bob.last_won_block_hash)
+            .await?
+            .ok_or("bob last won block")?
+            .qblock_id,
+        100.into()
+    );
+    // Qblock ids order numerically, so "44" outranks "9".
+    let alice_blocks = store.get_blocks_by_miner("alice", 1000).await?;
+    let alice = store
+        .get_node_summary("alice")
+        .await?
+        .ok_or("alice summary")?;
+    assert_eq!(alice.wins, u64::try_from(alice_blocks.len())?);
+    assert_eq!(
+        alice.last_won_qblock_id,
+        alice_blocks
+            .iter()
+            .map(|b| b.qblock_id.to_string().parse::<u64>())
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .max()
+            .ok_or("alice wins")?
+            .into()
+    );
+    assert!(store.get_node_summary("carol").await?.is_none());
+    Ok(())
+}
 async fn winner_queries(store: &Store) -> Result<(), Box<dyn Error>> {
     let b = batch(9, 1)?;
     let _ = store.commit_block(&b).await?;
@@ -678,6 +713,32 @@ async fn timestamp_order(store: &Store) -> Result<(), Box<dyn Error>> {
             .observed_at,
         "2026-01-03T00:00:00.000Z"
     );
+    Ok(())
+}
+
+async fn poll_dedup(store: &Store) -> Result<(), Box<dyn Error>> {
+    // timestamp_order left a -7.0 poll at block 300; repeating it is a no-op.
+    let mut poll = DifficultyRecord {
+        observed_at_block: 301.into(),
+        difficulty_energy: -7.0,
+        min_diversity: 0.1,
+        min_solutions: 1,
+        observed_at: "2026-01-03T00:00:06.000Z".into(),
+        topology_hash: None,
+        source: DifficultySource::Poll,
+    };
+    store.insert_difficulty_snapshot(&poll).await?;
+    let latest = store.get_recent_difficulty(1).await?;
+    assert_eq!(
+        latest.first().map(|d| d.observed_at_block.to_string()),
+        Some("300".into()),
+        "an unchanged poll must not add a row"
+    );
+    poll.observed_at_block = 302.into();
+    poll.observed_at = "2026-01-03T00:00:12.000Z".into();
+    poll.difficulty_energy = -8.0;
+    store.insert_difficulty_snapshot(&poll).await?;
+    assert_eq!(store.get_recent_difficulty(1).await?.first(), Some(&poll));
     Ok(())
 }
 

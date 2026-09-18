@@ -23,6 +23,8 @@ const wins = (
   bestEnergy: -1,
   avgMiningTime: 10,
   lastWonAt: 1700000000,
+  lastWonQblockId: "1",
+  lastWonBlockHash: "0x1",
   ...overrides,
 });
 

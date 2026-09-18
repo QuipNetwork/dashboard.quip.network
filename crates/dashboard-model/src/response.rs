@@ -135,6 +135,16 @@ pub struct MinerWinsResponse {
     pub rows: Vec<MinerWinsRow>,
 }
 
+/// `GET /api/node/{account}/summary` body.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeSummaryResponse {
+    /// The account's stored win summary, absent before its first win.
+    pub summary: Option<MinerWinsRow>,
+    /// Winner block of the account's last won qblock.
+    pub last_won_block: Option<BlockRecord>,
+}
+
 /// `GET /api/mining-history` body.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MiningHistoryResponse {

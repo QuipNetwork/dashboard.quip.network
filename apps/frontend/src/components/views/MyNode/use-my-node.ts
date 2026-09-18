@@ -93,11 +93,29 @@ export function qblockNumber(block: { qblockId: string }): number | null {
 }
 
 /**
- * `minerWins` is the shared `/api/miner-wins` dataset (from `useMinerWins()`
- * at the view level — injected rather than fetched here so the hook stays a
- * pure store-derived computation and tests don't need a network seam).
+ * The newer of two wins by qblock id. The recent-blocks window shows a new
+ * win before the node summary is fetched again; the summary reaches past
+ * that window.
  */
-export function useMyNode(minerWins: readonly MinerWinsRow[] = []): MyNodeStats {
+export function latestWin(
+  a: BlockRecord | null | undefined,
+  b: BlockRecord | null | undefined,
+): BlockRecord | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return BigInt(b.qblockId) > BigInt(a.qblockId) ? b : a;
+}
+
+/**
+ * `minerWins` is the shared `/api/miner-wins` dataset (from `useMinerWins()`
+ * at the view level) and `summaryLastWon` the node summary's last won block
+ * (from `useNodeSummary()`) — injected rather than fetched here so the hook
+ * stays a pure store-derived computation and tests don't need a network seam.
+ */
+export function useMyNode(
+  minerWins: readonly MinerWinsRow[] = [],
+  summaryLastWon: BlockRecord | null = null,
+): MyNodeStats {
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
@@ -125,7 +143,9 @@ export function useMyNode(minerWins: readonly MinerWinsRow[] = []): MyNodeStats 
       ? (chainMiners.find((m) => m.accountId === selfAddress) ?? null)
       : null;
     const selfBlocks = selfAddress ? blocks.filter((b) => b.minerId === selfAddress) : [];
-    const lastWonBlock = selfBlocks[0] ?? null;
+    // `blocks` holds only the newest few hundred winners; the node summary
+    // covers all indexed history.
+    const lastWonBlock = latestWin(selfBlocks[0], summaryLastWon);
     // The global qblock/solution number for a win is the chain-authoritative
     // `qblockId` (from the BlockWinner event) — the same counter the header's
     // "current problem" (`qblockCount + 1`) and local mining_submissions use.
@@ -275,6 +295,7 @@ export function useMyNode(minerWins: readonly MinerWinsRow[] = []): MyNodeStats 
     chainMiners,
     nodeDescriptors,
     blocks,
+    summaryLastWon,
     minerWins,
     indexer,
     tipBlock,

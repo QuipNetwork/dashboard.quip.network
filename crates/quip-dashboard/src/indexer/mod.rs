@@ -28,10 +28,14 @@ const SPARSE: [Indexable; 3] = [
     Indexable::Participation,
 ];
 const PAGE_SIZE: u32 = 256;
-/// How often the file-backed qblock tree is pruned and the manifest rebuilt.
-const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
-/// Retention window for file-backed qblocks, matching the participation window.
-const RETENTION_DAYS: i64 = 14;
+/// How often missing qblock files are restored and the manifests rebuilt.
+const MAINTAIN_INTERVAL: Duration = Duration::from_secs(3600);
+/// Qblocks listed in `metadata.json` for the client's first load. Older
+/// qblocks stay on disk and are listed in per-day history manifests.
+const RECENT_DAYS: i64 = 14;
+/// Qblocks younger than this are left to the live writer, which may still be
+/// committing their participation pages.
+const RESTORE_MIN_AGE_SECS: u64 = 300;
 
 /// Observable committed progress. An announced head never counts as a committed head.
 #[derive(Clone, Debug, Default)]
@@ -323,30 +327,91 @@ impl Indexer {
             }
         }
     }
-    /// Periodic file maintenance: prune qblock files older than the retention
-    /// window and rebuild the manifest. Runs until the shared `receiver`
+    /// Periodic file maintenance: restore qblock files missing from the tree
+    /// and rebuild the manifests. The first pass restores all history; later
+    /// passes cover the recent window. Runs until the shared `receiver`
     /// closes. Best-effort; errors are logged and retried next interval.
     async fn maintain(&self, mut receiver: watch::Receiver<Target>) -> Result<(), IndexerError> {
-        let mut ticker = tokio::time::interval(PRUNE_INTERVAL);
+        let mut ticker = tokio::time::interval(MAINTAIN_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut restore_since = 0;
         loop {
+            // Only the waits race. The work runs in the tick handler so a new
+            // block (every few seconds) cannot cancel a long restore or rebuild.
             tokio::select! {
                 result = receiver.changed() => {
                     if result.is_err() {
                         return Ok(());
                     }
                 }
-                () = async {
-                    let _ = ticker.tick().await;
+                _ = ticker.tick() => {
                     if let Some(writer) = &self.writer {
-                        let cutoff = chrono::Utc::now().timestamp() - RETENTION_DAYS * 86_400;
-                        if let Err(error) = writer.prune(cutoff).await {
+                        let recent_since = chrono::Utc::now().timestamp() - RECENT_DAYS * 86_400;
+                        // Narrow to the recent window only once a full pass succeeds.
+                        if self.restore_qblock_files(writer, restore_since).await {
+                            restore_since = recent_since;
+                        }
+                        if let Err(error) = writer.rebuild_manifests(recent_since).await {
                             tracing::warn!(%error, "file-backed qblock maintenance failed");
                         }
                     }
-                } => {}
+                }
             }
         }
+    }
+    /// Recreate qblock files missing for winners at or after `since` from the
+    /// store. Covers qblocks indexed before file-backed storage existed and
+    /// best-effort live writes that failed. Errors are logged; returns whether
+    /// every qblock was checked without error.
+    async fn restore_qblock_files(&self, writer: &file_writer::FileWriter, since: i64) -> bool {
+        let winners = match self.store.get_blocks_since(since).await {
+            Ok(winners) => winners,
+            Err(error) => {
+                tracing::warn!(%error, "qblock file restore query failed");
+                return false;
+            }
+        };
+        let mut complete = true;
+        let settled = u64::try_from(chrono::Utc::now().timestamp())
+            .unwrap_or(0)
+            .saturating_sub(RESTORE_MIN_AGE_SECS);
+        let mut restored = 0_usize;
+        for winner in winners.iter().filter(|w| w.timestamp <= settled) {
+            // Most files exist; skip their participation query.
+            match writer.has_qblock(winner.qblock_id.as_str()).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(%error, qblock = winner.qblock_id.as_str(), "qblock file check failed");
+                    complete = false;
+                    continue;
+                }
+            }
+            let participation = match self
+                .store
+                .get_qblock_participation(winner.qblock_id.as_str())
+                .await
+            {
+                Ok(rows) => rows,
+                Err(error) => {
+                    tracing::warn!(%error, qblock = winner.qblock_id.as_str(), "qblock participation query failed");
+                    complete = false;
+                    continue;
+                }
+            };
+            match writer.restore_qblock(winner, &participation).await {
+                Ok(true) => restored += 1,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(%error, qblock = winner.qblock_id.as_str(), "qblock file restore failed");
+                    complete = false;
+                }
+            }
+        }
+        if restored > 0 {
+            tracing::info!(restored, "restored missing qblock files");
+        }
+        complete
     }
     /// Evaluate the shared backfill gate against the live validator state.
     ///

@@ -84,6 +84,7 @@ pub fn router(state: HttpState) -> Router {
         .route("/api/mining-history", get(routes::mining_history))
         .route("/api/difficulty-history", get(routes::difficulty_history))
         .route("/api/node/{account}/live", get(routes::node_live))
+        .route("/api/node/{account}/summary", get(routes::node_summary))
         .route("/api/mining/attempts/{solution}", get(routes::attempts))
         .route("/api/health", get(routes::health))
         .route("/api/live", get(routes::live))

@@ -689,7 +689,9 @@ impl Store {
                 .await?;
             match i {
                 Indexable::Winners => {
-                    tx.conn().batch("DELETE FROM blocks").await?;
+                    tx.conn()
+                        .batch("DELETE FROM blocks; DELETE FROM node_summary")
+                        .await?;
                 }
                 Indexable::Participation => {
                     tx.conn().batch("DELETE FROM qblock_participation").await?;

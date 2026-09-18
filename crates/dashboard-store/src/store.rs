@@ -502,10 +502,10 @@ pub(crate) fn kind(column: &str) -> &'static str {
         | "solution_number"
         | "pow_sequence"
         | "qpu_access_time_us"
-        | "winning_solutions_count" => "numeric",
-        "energy" | "diversity" | "mining_time" | "difficulty_energy" | "min_diversity" => {
-            "double precision"
-        }
+        | "winning_solutions_count"
+        | "last_won_qblock_id" => "numeric",
+        "energy" | "diversity" | "mining_time" | "difficulty_energy" | "min_diversity"
+        | "best_energy" | "avg_mining_time" => "double precision",
         "timestamp"
         | "block_timestamp"
         | "first_block_timestamp"
@@ -514,7 +514,9 @@ pub(crate) fn kind(column: &str) -> &'static str {
         | "threshold_milli"
         | "best_energy_milli"
         | "blocks_authored"
-        | "blocks_authored_with_pow" => "bigint",
+        | "blocks_authored_with_pow"
+        | "wins"
+        | "last_won_at" => "bigint",
         "num_valid_solutions"
         | "num_nodes"
         | "num_edges"
