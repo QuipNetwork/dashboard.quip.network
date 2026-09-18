@@ -50,12 +50,12 @@ export function useEnergyDistributionByType(
   opts: EnergyDistributionByTypeOptions = {},
 ): EnergyDistributionByTypeResult {
   const scope = opts.scope ?? "all";
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useTelemetryStore((s) => s.wonBlocks);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
 
   return useMemo(() => {
-    // blocks ship DESC by substrate_block_number, so blocks[0] is the tip.
+    // wonBlocks is DESC by substrate_block_number, so blocks[0] is the tip.
     const tip = blocks[0] ?? null;
     // When the tip predates the topologyHash migration, tip.topologyHash is
     // null and this filter degrades to the null-cohort (every other

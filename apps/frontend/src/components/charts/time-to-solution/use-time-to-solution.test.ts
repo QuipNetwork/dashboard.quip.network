@@ -78,7 +78,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  useTelemetryStore.setState({ blocks: [], chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], chainMiners: [], nodeDescriptors: [] });
   useUIStore.setState({ aggregationMode: "byType", selectedTypes: ["CPU", "GPU", "QPU"] });
 });
 
@@ -90,7 +90,7 @@ afterEach(() => {
 describe("useTimeToSolution bucketing", () => {
   test("100 falls in the 0-100 bucket, 101 in the 101-200 bucket", () => {
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         makeBlock({ blockHash: "0xa", minerId: "A", miningTime: 100 }),
         makeBlock({ blockHash: "0xb", minerId: "A", miningTime: 101 }),
       ],
@@ -122,7 +122,7 @@ describe("useTimeToSolution 85th-percentile range cap", () => {
       makeBlock({ blockHash: `0xo${i}`, minerId: "A", miningTime: 10_000 }),
     );
     useTelemetryStore.setState({
-      blocks: [...regular, ...outliers],
+      wonBlocks: [...regular, ...outliers],
       chainMiners: [makeChainMiner("A", "CPU")],
     });
 
@@ -141,7 +141,7 @@ describe("useTimeToSolution 85th-percentile range cap", () => {
     const blocks = Array.from({ length: 5 }, (_, i) =>
       makeBlock({ blockHash: `0x${i}`, minerId: "A", miningTime: 100 + i }),
     );
-    useTelemetryStore.setState({ blocks, chainMiners: [makeChainMiner("A", "CPU")] });
+    useTelemetryStore.setState({ wonBlocks: blocks, chainMiners: [makeChainMiner("A", "CPU")] });
 
     const { data } = renderHook().current;
     expect(data.every((row) => !String(row.bin).startsWith(">"))).toBe(true);
@@ -152,7 +152,7 @@ describe("useTimeToSolution node scope", () => {
   test("best narrows each category to its single top winner", () => {
     useUIStore.setState({ aggregationMode: "byNode" });
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         ...Array.from({ length: 5 }, (_, i) =>
           makeBlock({ blockHash: `0xa${i}`, minerId: "A", miningTime: 100 }),
         ),
@@ -172,7 +172,7 @@ describe("useTimeToSolution node scope", () => {
 
   test("defaults to all nodes when scope is omitted (backward-compatible call)", () => {
     useTelemetryStore.setState({
-      blocks: [makeBlock({ blockHash: "0xa", minerId: "A", miningTime: 100 })],
+      wonBlocks: [makeBlock({ blockHash: "0xa", minerId: "A", miningTime: 100 })],
       chainMiners: [makeChainMiner("A", "CPU")],
     });
 

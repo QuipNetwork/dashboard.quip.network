@@ -7,14 +7,17 @@ import {
   aggregateParticipationByCategory,
   aggregateParticipationByQblock,
   minerKindToCategory,
+  participationFromQblockFiles,
   resolveParticipantAccessTime,
   type ParticipationComputeRow,
+  type QblockTimingFile,
 } from "./participation-compute";
 
 describe("minerKindToCategory", () => {
   it("maps raw MinerKind variants to dashboard categories", () => {
     expect(minerKindToCategory("Cpu")).toBe("CPU");
     expect(minerKindToCategory("Gpu")).toBe("GPU");
+    expect(minerKindToCategory("Metal")).toBe("GPU");
     expect(minerKindToCategory("QpuDwave")).toBe("QPU");
     expect(minerKindToCategory("QpuIbm")).toBe("QPU");
     expect(minerKindToCategory("QpuIonq")).toBe("QPU");
@@ -120,5 +123,71 @@ describe("aggregateParticipationByQblock", () => {
     expect(out.get("5")?.map((c) => c.category).sort()).toEqual(["CPU", "GPU"]);
     expect(out.get("6")).toHaveLength(1);
     expect(out.get("6")?.[0]).toMatchObject({ category: "CPU", deviceAccessSeconds: 30 });
+  });
+});
+
+// Shape written by the Rust indexer's qblock file writer (see
+// crates/quip-dashboard/src/indexer/file_writer.rs): raw participation rows
+// plus the winner block, never a precomputed miningSeconds.
+const qblockFile = (
+  qblockId: string,
+  winnerTimestamp: number | null,
+  accounts: [string, string][],
+): QblockTimingFile => ({
+  qblockId,
+  winner: winnerTimestamp === null ? null : { timestamp: winnerTimestamp },
+  participation: accounts.map(([account, kind]) => ({
+    account,
+    kind,
+    qblockId,
+    blockNumber: "1",
+    budgetSeconds: null,
+  })),
+});
+
+describe("participationFromQblockFiles", () => {
+  it("charges each participant the gap since the previous winner", () => {
+    const rows = participationFromQblockFiles([
+      qblockFile("11", 1_300, [["5B", "Gpu"]]),
+      qblockFile("9", 1_000, [["5A", "Cpu"]]),
+      qblockFile("10", 1_060, [
+        ["5A", "Cpu"],
+        ["5Q", "QpuDwave"],
+      ]),
+    ]);
+    expect(rows).toEqual([
+      { qblockId: "10", account: "5A", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
+      { qblockId: "10", account: "5Q", kind: "QpuDwave", miningSeconds: 60, exactQpuAccessUs: null },
+      { qblockId: "11", account: "5B", kind: "Gpu", miningSeconds: 240, exactQpuAccessUs: null },
+    ]);
+  });
+
+  it("compares qblock ids numerically, not lexically", () => {
+    const rows = participationFromQblockFiles([
+      qblockFile("10", 2_000, [["5A", "Cpu"]]),
+      qblockFile("9", 1_000, [["5A", "Cpu"]]),
+    ]);
+    expect(rows).toEqual([
+      { qblockId: "10", account: "5A", kind: "Cpu", miningSeconds: 1_000, exactQpuAccessUs: null },
+    ]);
+  });
+
+  it("skips qblocks without a winner and measures across them", () => {
+    const rows = participationFromQblockFiles([
+      qblockFile("1", 100, []),
+      qblockFile("2", null, [["5A", "Cpu"]]),
+      qblockFile("3", 400, [["5B", "Cpu"]]),
+    ]);
+    expect(rows).toEqual([
+      { qblockId: "3", account: "5B", kind: "Cpu", miningSeconds: 300, exactQpuAccessUs: null },
+    ]);
+  });
+
+  it("drops non-positive gaps", () => {
+    const rows = participationFromQblockFiles([
+      qblockFile("1", 100, []),
+      qblockFile("2", 100, [["5A", "Cpu"]]),
+    ]);
+    expect(rows).toEqual([]);
   });
 });

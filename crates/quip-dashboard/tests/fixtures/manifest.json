@@ -1,0 +1,443 @@
+[
+  {
+    "name": "health-empty",
+    "method": "GET",
+    "path": "/api/health",
+    "status": 200,
+    "bodyFile": "api/health-empty.json",
+    "scenario": "empty",
+    "seed": "empty",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Health before the indexer writes: ok true, heartbeat fields null, chainConnected false."
+  },
+  {
+    "name": "telemetry-empty",
+    "method": "GET",
+    "path": "/api/telemetry",
+    "status": 200,
+    "bodyFile": "api/telemetry-empty.json",
+    "scenario": "empty",
+    "seed": "empty",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "blocks-empty",
+    "method": "GET",
+    "path": "/api/blocks",
+    "status": 200,
+    "bodyFile": "api/blocks-empty.json",
+    "scenario": "empty",
+    "seed": "empty",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "miner-wins-empty",
+    "method": "GET",
+    "path": "/api/miner-wins",
+    "status": 200,
+    "bodyFile": "api/miner-wins-empty.json",
+    "scenario": "empty",
+    "seed": "empty",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-history-empty",
+    "method": "GET",
+    "path": "/api/mining-history?since=2026-06-10T00:00:00.000Z",
+    "status": 200,
+    "bodyFile": "api/mining-history-empty.json",
+    "scenario": "empty",
+    "seed": "empty",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "difficulty-history-empty",
+    "method": "GET",
+    "path": "/api/difficulty-history?since=2026-06-10T00:00:00.000Z",
+    "status": 200,
+    "bodyFile": "api/difficulty-history-empty.json",
+    "scenario": "empty",
+    "seed": "empty",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "health-populated",
+    "method": "GET",
+    "path": "/api/health",
+    "status": 200,
+    "bodyFile": "api/health-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Current health fields: ok, lastStatusFetchAt, lastBlockInsertAt, lastSubstrateEventAt, chainConnected."
+  },
+  {
+    "name": "telemetry-populated",
+    "method": "GET",
+    "path": "/api/telemetry",
+    "status": 200,
+    "bodyFile": "api/telemetry-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Default-topology blocks only. Participation durations 12s and 18s. Local identity 5GPP. Descriptor firstSeen earlier than lastSeen."
+  },
+  {
+    "name": "blocks-populated",
+    "method": "GET",
+    "path": "/api/blocks",
+    "status": 200,
+    "bodyFile": "api/blocks-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Unscoped by topology. Newest first. Default page size 100."
+  },
+  {
+    "name": "miner-wins-populated",
+    "method": "GET",
+    "path": "/api/miner-wins",
+    "status": 200,
+    "bodyFile": "api/miner-wins-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "node-summary-populated",
+    "method": "GET",
+    "path": "/api/node/5A/summary",
+    "status": 200,
+    "bodyFile": "api/node-summary-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "node-summary-unknown",
+    "method": "GET",
+    "path": "/api/node/5Z/summary",
+    "status": 200,
+    "bodyFile": "api/node-summary-unknown.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-history-populated",
+    "method": "GET",
+    "path": "/api/mining-history?since=2026-06-10T00:00:00.000Z",
+    "status": 200,
+    "bodyFile": "api/mining-history-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "difficulty-history-populated",
+    "method": "GET",
+    "path": "/api/difficulty-history?since=2026-06-10T00:00:00.000Z",
+    "status": 200,
+    "bodyFile": "api/difficulty-history-populated.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-attempts-ok",
+    "method": "GET",
+    "path": "/api/mining/attempts/3",
+    "status": 200,
+    "bodyFile": "api/mining-attempts-ok.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Proxy of the existing miner golden envelope. observedAt is stamped at frozen nowIso."
+  },
+  {
+    "name": "node-live-reachable",
+    "method": "GET",
+    "path": "/api/node/5GPeer/live",
+    "status": 200,
+    "bodyFile": "api/node-live-reachable.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "node-live-dispatch",
+    "method": "GET",
+    "path": "/api/node/5GPeer/live?problem=42",
+    "status": 200,
+    "bodyFile": "api/node-live-dispatch.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "blocks-page-1",
+    "method": "GET",
+    "path": "/api/blocks?limit=2&offset=0",
+    "status": 200,
+    "bodyFile": "api/blocks-page-1.json",
+    "scenario": "pagination",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "blocks-page-2",
+    "method": "GET",
+    "path": "/api/blocks?limit=2&offset=2",
+    "status": 200,
+    "bodyFile": "api/blocks-page-2.json",
+    "scenario": "pagination",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "blocks-clamped-query",
+    "method": "GET",
+    "path": "/api/blocks?limit=0&offset=-5",
+    "status": 200,
+    "bodyFile": "api/blocks-clamped-query.json",
+    "scenario": "pagination",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Non-positive limit clamps to 1. Negative offset clamps to 0. Status stays 200."
+  },
+  {
+    "name": "blocks-non-numeric-limit",
+    "method": "GET",
+    "path": "/api/blocks?limit=abc",
+    "status": 200,
+    "bodyFile": "api/blocks-non-numeric-limit.json",
+    "scenario": "pagination",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Non-numeric limit falls back to the default page size of 100."
+  },
+  {
+    "name": "mining-history-missing-since",
+    "method": "GET",
+    "path": "/api/mining-history",
+    "status": 400,
+    "bodyFile": "api/mining-history-missing-since.json",
+    "scenario": "invalid-query",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-history-malformed-since",
+    "method": "GET",
+    "path": "/api/mining-history?since=yesterday",
+    "status": 400,
+    "bodyFile": "api/mining-history-malformed-since.json",
+    "scenario": "invalid-query",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "difficulty-history-missing-since",
+    "method": "GET",
+    "path": "/api/difficulty-history",
+    "status": 400,
+    "bodyFile": "api/difficulty-history-missing-since.json",
+    "scenario": "invalid-query",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "difficulty-history-malformed-since",
+    "method": "GET",
+    "path": "/api/difficulty-history?since=yesterday",
+    "status": 400,
+    "bodyFile": "api/difficulty-history-malformed-since.json",
+    "scenario": "invalid-query",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-attempts-invalid-zero",
+    "method": "GET",
+    "path": "/api/mining/attempts/0",
+    "status": 400,
+    "bodyFile": "api/mining-attempts-invalid-zero.json",
+    "scenario": "invalid-query",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-attempts-invalid-text",
+    "method": "GET",
+    "path": "/api/mining/attempts/abc",
+    "status": 400,
+    "bodyFile": "api/mining-attempts-invalid-text.json",
+    "scenario": "invalid-query",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-history-after-last",
+    "method": "GET",
+    "path": "/api/mining-history?since=2026-07-02T00:00:00.000Z",
+    "status": 200,
+    "bodyFile": "api/mining-history-after-last.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Valid since after the last win: empty rows."
+  },
+  {
+    "name": "difficulty-history-short-window",
+    "method": "GET",
+    "path": "/api/difficulty-history?since=2026-07-02T00:00:00.000Z",
+    "status": 200,
+    "bodyFile": "api/difficulty-history-short-window.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "Empty in-window rows plus the prevailing anchor."
+  },
+  {
+    "name": "difficulty-history-before-first",
+    "method": "GET",
+    "path": "/api/difficulty-history?since=2026-01-01T00:00:00.000Z",
+    "status": 200,
+    "bodyFile": "api/difficulty-history-before-first.json",
+    "scenario": "populated",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ],
+    "notes": "All rows, null anchor."
+  },
+  {
+    "name": "node-live-no-host",
+    "method": "GET",
+    "path": "/api/node/5GNoHost/live",
+    "status": 200,
+    "bodyFile": "api/node-live-no-host.json",
+    "scenario": "unavailable-peer",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "node-live-down",
+    "method": "GET",
+    "path": "/api/node/5GDown/live",
+    "status": 200,
+    "bodyFile": "api/node-live-down.json",
+    "scenario": "unavailable-peer",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "node-live-unknown",
+    "method": "GET",
+    "path": "/api/node/5Unknown/live",
+    "status": 200,
+    "bodyFile": "api/node-live-unknown.json",
+    "scenario": "unavailable-peer",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-attempts-unresolvable",
+    "method": "GET",
+    "path": "/api/mining/attempts/1",
+    "status": 503,
+    "bodyFile": "api/mining-attempts-unresolvable.json",
+    "scenario": "unavailable-peer",
+    "seed": "empty",
+    "validatorRpcUrls": [],
+    "notes": "Empty validatorRpcUrls: miner REST URL cannot be derived, HTTP 503."
+  },
+  {
+    "name": "mining-attempts-not-found",
+    "method": "GET",
+    "path": "/api/mining/attempts/99",
+    "status": 404,
+    "bodyFile": "api/mining-attempts-not-found.json",
+    "scenario": "unavailable-peer",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  },
+  {
+    "name": "mining-attempts-upstream-down",
+    "method": "GET",
+    "path": "/api/mining/attempts/7",
+    "status": 502,
+    "bodyFile": "api/mining-attempts-upstream-down.json",
+    "scenario": "unavailable-peer",
+    "seed": "populated",
+    "validatorRpcUrls": [
+      "ws://test-validator:9944"
+    ]
+  }
+]

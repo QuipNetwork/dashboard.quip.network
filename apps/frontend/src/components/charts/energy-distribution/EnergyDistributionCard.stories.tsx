@@ -4,7 +4,7 @@ import { StoryServices } from "@/testing/services";
 import { sampleTelemetry } from "@/testing/sample-telemetry";
 import { EnergyDistributionCard } from "./EnergyDistributionCard";
 
-// EnergyDistributionCard reads blocks/chainMiners off the Zustand telemetry
+// EnergyDistributionCard reads wonBlocks/chainMiners off the Zustand telemetry
 // store rather than taking props, so stories seed the store through
 // StoryServices — same mechanism Dashboard.stories.tsx uses.
 export const Default: Story = () => (
@@ -16,7 +16,7 @@ export const Default: Story = () => (
 // No blocks at all — all three per-type panels fall into the "No wins yet"
 // empty state (see EnergyDistributionCard.test.tsx).
 export const Empty: Story = () => (
-  <StoryServices telemetry={{ blocks: [], chainMiners: [], nodeDescriptors: [] }}>
+  <StoryServices telemetry={{ wonBlocks: [], chainMiners: [], nodeDescriptors: [] }}>
     <EnergyDistributionCard />
   </StoryServices>
 );

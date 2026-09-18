@@ -54,6 +54,17 @@ describe("HttpTelemetryClient.fetchTelemetry", () => {
     expect(calls[0]?.url).toBe("https://example.test/api/telemetry");
   });
 
+  it("normalizes a configured API base before requesting routes", async () => {
+    const { fetch, calls } = fakeFetch(() => json(TELEMETRY_BODY));
+    const client = new HttpTelemetryClient({ fetch, baseUrl: "https://example.test/" });
+    await client.fetchTelemetry();
+    await client.fetchBlocks(5, 0);
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://example.test/api/telemetry",
+      "https://example.test/api/blocks?limit=5&offset=0",
+    ]);
+  });
+
   it("forwards an AbortSignal when given", async () => {
     const { fetch, calls } = fakeFetch(() => json(TELEMETRY_BODY));
     const client = new HttpTelemetryClient({ fetch });
@@ -126,7 +137,17 @@ describe("HttpTelemetryClient.fetchBlocks", () => {
 
 describe("HttpTelemetryClient.fetchMinerWins", () => {
   it("requests /api/miner-wins and returns the parsed body", async () => {
-    const rows = [{ minerId: "5A", wins: 2, bestEnergy: -2, avgMiningTime: 10, lastWonAt: 1 }];
+    const rows = [
+      {
+        minerId: "5A",
+        wins: 2,
+        bestEnergy: -2,
+        avgMiningTime: 10,
+        lastWonAt: 1,
+        lastWonQblockId: "1",
+        lastWonBlockHash: "0x1",
+      },
+    ];
     const { fetch, calls } = fakeFetch(() => json({ rows }));
     const client = new HttpTelemetryClient({ fetch });
 
@@ -141,5 +162,163 @@ describe("HttpTelemetryClient.fetchMinerWins", () => {
     const client = new HttpTelemetryClient({ fetch });
 
     await expect(client.fetchMinerWins()).rejects.toThrow("HTTP 502");
+  });
+});
+
+describe("HttpTelemetryClient.fetchNodeSummary", () => {
+  it("requests the encoded account's summary and returns the parsed body", async () => {
+    const body = { summary: null, lastWonBlock: null };
+    const { fetch, calls } = fakeFetch(() => json(body));
+    const client = new HttpTelemetryClient({ fetch });
+
+    const out = await client.fetchNodeSummary("5A/B");
+
+    expect(calls[0]?.url).toBe("/api/node/5A%2FB/summary");
+    expect(out).toEqual(body);
+  });
+
+  it("throws `HTTP <status>` on a non-2xx response", async () => {
+    const { fetch } = fakeFetch(() => new Response("nope", { status: 503 }));
+    const client = new HttpTelemetryClient({ fetch });
+
+    await expect(client.fetchNodeSummary("5A")).rejects.toThrow("HTTP 503");
+  });
+});
+
+describe("HttpTelemetryClient.fetchQblocks", () => {
+  it("fetches qblock files from the manifest", async () => {
+    const calls: string[] = [];
+    const client = new HttpTelemetryClient({
+      baseUrl: "http://test",
+      fetch: (async (url: Parameters<typeof globalThis.fetch>[0]) => {
+        const u = typeof url === "string" ? url : url instanceof URL ? url.toString() : "";
+        calls.push(u);
+        if (u === "http://test/files/qblocks/metadata.json") {
+          return new Response(
+            JSON.stringify({ qblocks: ["qblocks/ab/cd/2.json", "qblocks/ef/01/1.json"] }),
+            { status: 200 },
+          );
+        }
+        // Real writer shape: raw participation plus the winner block.
+        const participant = (qblockId: string) => ({
+          account: "A",
+          kind: "Cpu",
+          qblockId,
+          blockNumber: "7",
+          budgetSeconds: null,
+        });
+        if (u === "http://test/files/qblocks/ab/cd/2.json") {
+          return new Response(
+            JSON.stringify({
+              qblockId: "2",
+              winner: { qblockId: "2", minerId: "5W", timestamp: 1_060 },
+              participation: [participant("2")],
+            }),
+            { status: 200 },
+          );
+        }
+        if (u === "http://test/files/qblocks/ef/01/1.json") {
+          return new Response(
+            JSON.stringify({
+              qblockId: "1",
+              winner: { qblockId: "1", minerId: "5W", timestamp: 1_000 },
+              participation: [participant("1")],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response("{}", { status: 404 });
+      }) as typeof globalThis.fetch,
+    });
+    const { rows } = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    expect(calls).toContain("http://test/files/qblocks/metadata.json");
+    expect(rows).toEqual([
+      { qblockId: "2", account: "A", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
+    ]);
+  });
+  it("fetches settled files once and skips files that fail", async () => {
+    const calls: string[] = [];
+    const paths = Array.from({ length: 40 }, (_, i) => `qblocks/00/00/${i}.json`);
+    let inFlight = 0;
+    let peak = 0;
+    const client = new HttpTelemetryClient({
+      baseUrl: "http://test",
+      fetch: (async (url: Parameters<typeof globalThis.fetch>[0]) => {
+        const u = typeof url === "string" ? url : url instanceof URL ? url.toString() : "";
+        calls.push(u);
+        if (u.endsWith("/metadata.json")) return json({ qblocks: paths });
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inFlight -= 1;
+        const id = /\/(\d+)\.json$/.exec(u)?.[1] ?? "";
+        if (id === "7") throw new TypeError("network down");
+        return json({
+          qblockId: id,
+          winner: { qblockId: id, minerId: "5W", timestamp: 1_000 + Number(id) * 60 },
+          participation: [
+            { account: "A", kind: "Cpu", qblockId: id, blockNumber: "1", budgetSeconds: null },
+          ],
+        });
+      }) as typeof globalThis.fetch,
+    });
+    const { rows: first } = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    // 39 files load; every file after the first yields an interval (8 measures from 6).
+    expect(first).toHaveLength(38);
+    expect(peak).toBeLessThanOrEqual(8);
+    calls.length = 0;
+    await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    // Settled files come from the cache; only the failed file is retried.
+    expect(calls).toEqual([
+      "http://test/files/qblocks/metadata.json",
+      "http://test/files/qblocks/00/00/7.json",
+    ]);
+  });
+  it("loads history days on request and measures across the day boundary", async () => {
+    const participant = (qblockId: string) => ({
+      account: "A",
+      kind: "Cpu",
+      qblockId,
+      blockNumber: "1",
+      budgetSeconds: null,
+    });
+    const qblock = (id: string, timestamp: number, minerId: string) =>
+      json({
+        qblockId: id,
+        winner: { qblockId: id, timestamp, minerId },
+        participation: [participant(id)],
+      });
+    const client = new HttpTelemetryClient({
+      baseUrl: "http://test",
+      fetch: (async (url: Parameters<typeof globalThis.fetch>[0]) => {
+        const u = typeof url === "string" ? url : url instanceof URL ? url.toString() : "";
+        if (u.endsWith("/qblocks/metadata.json")) {
+          return json({
+            qblocks: ["qblocks/aa/aa/3.json"],
+            history: ["qblocks/days/2026-09-03.json"],
+          });
+        }
+        if (u.endsWith("/qblocks/days/2026-09-03.json")) {
+          return json({ qblocks: ["qblocks/bb/bb/2.json", "qblocks/cc/cc/1.json"] });
+        }
+        if (u.endsWith("/3.json")) return qblock("3", 1_300, "5Recent");
+        if (u.endsWith("/2.json")) return qblock("2", 1_100, "5Recent");
+        if (u.endsWith("/1.json")) return qblock("1", 1_000, "5Old");
+        return json({}, 404);
+      }) as typeof globalThis.fetch,
+    });
+    const snapshot = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    expect(snapshot.rows).toEqual([]);
+    expect(snapshot.history).toEqual(["qblocks/days/2026-09-03.json"]);
+    expect(snapshot.winners.map((w) => w.qblockId)).toEqual(["3"]);
+    const { rows, winners } = await client.fetchQblockHistoryDay("qblocks/days/2026-09-03.json");
+    expect(winners.map((w) => w.qblockId).sort()).toEqual(["1", "2", "3"]);
+    expect(rows.map((r) => [r.qblockId, r.miningSeconds])).toEqual([
+      ["2", 100],
+      ["3", 200],
+    ]);
+    const again = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    expect(again.history).toEqual([]);
+    expect(again.rows).toHaveLength(2);
   });
 });

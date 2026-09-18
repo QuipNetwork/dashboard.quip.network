@@ -98,7 +98,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  useTelemetryStore.setState({ blocks: [], chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], chainMiners: [], nodeDescriptors: [] });
   useUIStore.setState({ aggregationMode: "byType", selectedTypes: ["CPU", "GPU", "QPU"] });
 });
 
@@ -125,7 +125,7 @@ function hardBlocks(minerId: string, stepSeconds = 120, count = 6): BlockRecord[
 describe("useMiningTimeByDifficulty", () => {
   test("breaks out one series per processor type, ordered by the type selection", () => {
     useTelemetryStore.setState({
-      blocks: [...hardBlocks("B", 60), ...hardBlocks("A", 120)],
+      wonBlocks: [...hardBlocks("B", 60), ...hardBlocks("A", 120)],
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "GPU")],
     });
 
@@ -134,7 +134,7 @@ describe("useMiningTimeByDifficulty", () => {
   });
 
   test("attempts mode yields A(E) = 1/P per type, rising toward harder targets", () => {
-    useTelemetryStore.setState({ blocks: hardBlocks("A"), chainMiners: [makeChainMiner("A")] });
+    useTelemetryStore.setState({ wonBlocks: hardBlocks("A"), chainMiners: [makeChainMiner("A")] });
 
     const { series, units } = renderHook({ units: "attempts", scope: "all" }).current;
     expect(units).toBe("attempts");
@@ -151,7 +151,7 @@ describe("useMiningTimeByDifficulty", () => {
 
   test("time mode scales each type by that type's own cadence", () => {
     useTelemetryStore.setState({
-      blocks: [...hardBlocks("A", 120), ...hardBlocks("B", 60)],
+      wonBlocks: [...hardBlocks("A", 120), ...hardBlocks("B", 60)],
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "GPU")],
     });
 
@@ -180,7 +180,7 @@ describe("useMiningTimeByDifficulty", () => {
     // round-trip + queue), not device time — the label must say so. A true
     // device-time "QPU" series joins once qpu_access_time_us data exists.
     useTelemetryStore.setState({
-      blocks: hardBlocks("Q"),
+      wonBlocks: hardBlocks("Q"),
       chainMiners: [makeChainMiner("Q", "QPU")],
     });
 
@@ -195,7 +195,7 @@ describe("useMiningTimeByDifficulty", () => {
       makeBlock({ blockHash: `0xw${i}`, minerId: "A", energy: d, difficultyEnergy: d }),
     );
     useTelemetryStore.setState({
-      blocks: [...hardBlocks("A"), ...warmup],
+      wonBlocks: [...hardBlocks("A"), ...warmup],
       chainMiners: [makeChainMiner("A")],
     });
 
@@ -206,7 +206,7 @@ describe("useMiningTimeByDifficulty", () => {
   test("best scope narrows each type to its top winner, keeping the type label", () => {
     // CPU: A wins 6, B wins 3 -> best CPU node is A.
     useTelemetryStore.setState({
-      blocks: [...hardBlocks("A"), ...hardBlocks("B", 120, 3)],
+      wonBlocks: [...hardBlocks("A"), ...hardBlocks("B", 120, 3)],
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "CPU")],
     });
 
@@ -227,7 +227,7 @@ describe("useMiningTimeByDifficulty", () => {
   test("honours the global type selection", () => {
     useUIStore.setState({ selectedTypes: ["GPU"] });
     useTelemetryStore.setState({
-      blocks: [...hardBlocks("A"), ...hardBlocks("B", 60)],
+      wonBlocks: [...hardBlocks("A"), ...hardBlocks("B", 60)],
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "GPU")],
     });
 
@@ -237,7 +237,7 @@ describe("useMiningTimeByDifficulty", () => {
 
   test("too few observations returns an explanatory note, no series", () => {
     useTelemetryStore.setState({
-      blocks: hardBlocks("A").slice(0, 2),
+      wonBlocks: hardBlocks("A").slice(0, 2),
       chainMiners: [makeChainMiner("A")],
     });
 

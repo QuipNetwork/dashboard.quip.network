@@ -19,7 +19,6 @@ import type {
   ModeBreakdown,
 } from "./miner";
 import type { NodeDescriptorRecord, NodesSnapshot } from "./node";
-import type { ParticipationComputeRow } from "./participation-compute";
 
 /**
  * Observability snapshot written by the indexer on every successful poll.
@@ -100,12 +99,21 @@ export interface DifficultyHistoryResponse {
 }
 
 /**
- * `GET /api/miner-wins`: all-time per-miner win aggregates from the indexed
- * `blocks` table, wins descending. One shared dataset for every "qblocks
+ * `GET /api/miner-wins`: all-time per-miner win summaries from the
+ * `node_summary` table, wins descending. One shared dataset for every "qblocks
  * won" surface in the UI.
  */
 export interface MinerWinsResponse {
   rows: MinerWinsRow[];
+}
+
+/**
+ * `GET /api/node/{account}/summary`: one node's stored win summary and the
+ * winner block of its last won qblock. Both are null before its first win.
+ */
+export interface NodeSummaryResponse {
+  summary: MinerWinsRow | null;
+  lastWonBlock: BlockRecord | null;
 }
 
 /**
@@ -175,8 +183,7 @@ export interface TelemetryResponse {
   blocks: BlockRecord[];
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
   // Null until the indexer has completed its first successful poll.
-  selfAddress: string | null;
-  // Indexer/node tip observability. null before the indexer has completed
+  selfAddress: string | null;  // Indexer/node tip observability. null before the indexer has completed
   // its first successful /status poll after deploy.
   indexer: IndexerObservability | null;
   // ISO 8601 timestamp the server stamped this response. Lets the UI
@@ -234,14 +241,14 @@ export interface TelemetryResponse {
   // `recentMiningSubmissions` to surface the chain outcome (e.g.
   // chain_error vs submitted_inblock).
   currentDispatch: CurrentDispatch | null;
-  // Participant-level compute facts for the recent window: one row per
-  // (qblock, participant) across every device kind — not winner-only. Joined
-  // server-side from qblock_participation + blocks + mining_submissions (see
-  // db.getParticipationCompute). The frontend reduces these with
-  // aggregateParticipationByCategory / aggregateParticipationByQblock to drive
-  // the Total-Compute pie and Mining-per-QBlock charts. Empty until the
-  // indexer has recorded participation for at least one in-window qblock.
-  participationCompute: ParticipationComputeRow[];
+  // Pointer to file-backed time-series data the client downloads directly
+  // instead of receiving in the telemetry payload. The participation facts
+  // (and other windowed time-series) live under /files on disk; the client
+  // fetches the manifest and reduces it locally.
+  files: {
+    // Absolute static URL of the qblock manifest (`/files/qblocks/metadata.json`).
+    qblocksManifest: string;
+  };
 }
 
 export interface ErrorResponse {

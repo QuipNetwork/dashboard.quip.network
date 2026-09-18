@@ -50,7 +50,15 @@ function makeChainMiner(accountId: string, proofsWon: string): ChainMinerRecord 
 }
 
 function makeWins(minerId: string, count: number): MinerWinsRow {
-  return { minerId, wins: count, bestEnergy: -1, avgMiningTime: 10, lastWonAt: 1_700_000_000 };
+  return {
+    minerId,
+    wins: count,
+    bestEnergy: -1,
+    avgMiningTime: 10,
+    lastWonAt: 1_700_000_000,
+    lastWonQblockId: "1",
+    lastWonBlockHash: "0x1",
+  };
 }
 
 function renderHook(accountId: string, minerWins: MinerWinsRow[] = []): { current: NodeStats } {

@@ -100,16 +100,27 @@ function makeIndexer(overrides: Partial<IndexerObservability> = {}): IndexerObse
 }
 
 function makeWins(minerId: string, count: number): MinerWinsRow {
-  return { minerId, wins: count, bestEnergy: -1, avgMiningTime: 10, lastWonAt: 1_700_000_000 };
+  return {
+    minerId,
+    wins: count,
+    bestEnergy: -1,
+    avgMiningTime: 10,
+    lastWonAt: 1_700_000_000,
+    lastWonQblockId: "1",
+    lastWonBlockHash: "0x1",
+  };
 }
 
 // ---- Render harness ----------------------------------------------------
 
-function renderHook(minerWins: MinerWinsRow[] = []): { current: MyNodeStats | null } {
+function renderHook(
+  minerWins: MinerWinsRow[] = [],
+  summaryLastWon: BlockRecord | null = null,
+): { current: MyNodeStats | null } {
   const result: { current: MyNodeStats | null } = { current: null };
 
   function Probe(): null {
-    result.current = useMyNode(minerWins);
+    result.current = useMyNode(minerWins, summaryLastWon);
     return null;
   }
 
@@ -274,6 +285,34 @@ describe("useMyNode", () => {
 
     const out = renderHook();
     expect(out.current?.lastWonBlock).toBeNull();
+  });
+
+  it("uses the node summary for a win older than the recent blocks", () => {
+    const oldWin = makeBlock({ blockHash: "0xold", minerId: "5GAlice", qblockId: "42" });
+    useTelemetryStore.setState({
+      blocks: [makeBlock({ minerId: "5GBob" })],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+    });
+
+    const out = renderHook([], oldWin);
+    expect(out.current?.lastWonBlock).toBe(oldWin);
+    expect(out.current?.lastWonProblemNumber).toBe(42);
+  });
+
+  it("prefers a recent-block win newer than the fetched node summary", () => {
+    const summaryWin = makeBlock({ blockHash: "0xold", minerId: "5GAlice", qblockId: "9" });
+    const newWin = makeBlock({ blockHash: "0xnew", minerId: "5GAlice", qblockId: "10" });
+    useTelemetryStore.setState({
+      blocks: [newWin],
+      selfAddress: "5GAlice",
+      chainMiners: [],
+      indexer: null,
+    });
+
+    const out = renderHook([], summaryWin);
+    expect(out.current?.lastWonBlock).toBe(newWin);
   });
 
   it("populates currentRequirements from the tip block when blocks exist", () => {

@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Standalone workspace. This crate must not join a parent Cargo workspace.
+[workspace]
+resolver = "2"
+
+[workspace.lints.rust]
+missing-docs = "warn"
+nonstandard-style = "warn"
+redundant-lifetimes = "warn"
+rust-2018-idioms = "deny"
+unreachable-pub = "warn"
+unsafe-code = "deny"
+unused-extern-crates = "warn"
+unused-imports = "warn"
+unused-must-use = "warn"
+unused-qualifications = "warn"
+unused-results = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap-used = "deny"
+expect-used = "warn"
+panic = "deny"
+panic-in-result-fn = "deny"
+unimplemented = "deny"
+indexing-slicing = "warn"
+allow-attributes = "deny"
+dbg-macro = "warn"
+todo = "deny"
+print-stdout = "deny"
+print-stderr = "deny"
+redundant-clone = "warn"
+uninlined-format-args = "warn"
+manual-string-new = "warn"
+use-self = "warn"
+await-holding-lock = "deny"
+large-futures = "deny"
+exit = "deny"
+mem-forget = "deny"
+module-name-repetitions = "allow"
+similar-names = "allow"
+
+[workspace.lints.rustdoc]
+all = "warn"
+
+[package]
+name = "turso-gate"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "AGPL-3.0-or-later"
+publish = false
+description = "Standalone Turso Database qualification suite for the dashboard store"
+
+[lib]
+name = "turso_gate"
+path = "src/lib.rs"
+
+[[bin]]
+name = "turso_crash_writer"
+path = "src/bin/turso_crash_writer.rs"
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util"] }
+turso = { version = "=0.7.2", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "time"] }
+
+[lints]
+workspace = true

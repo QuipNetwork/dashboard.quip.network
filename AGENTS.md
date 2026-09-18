@@ -1,43 +1,79 @@
 # AGENTS.md
 
-Cross-tool agent guidance for the Quip Dashboard monorepo. Human contributors:
-see [`README.md`](README.md) for setup and deployment.
+Cross-tool agent guidance for the Quip Dashboard repository. Human
+contributors: see [`README.md`](README.md) for setup and deployment.
 
 ## Layout & boundaries
 
-Bun-workspaces monorepo — `apps/*` + `packages/*`:
+Bun-workspaces monorepo with a Rust backend. Rust crates live under `crates/`:
 
-- `@quip/shared` (`packages/shared`) — zero-dependency telemetry types; the
-  shared contract every workspace agrees on.
-- `@quip/core` (`packages/core`) — Postgres/Kysely `DatabaseAdapter` + `migrations/`.
-- `@quip/indexer`, `@quip/server`, `@quip/frontend` (`apps/*`) — runnable apps.
+- `@quip/frontend` (`apps/frontend`) — React SPA. Depends on `@quip/shared`
+  and its own Vite toolchain only.
+- `@quip/shared` (`packages/shared`) — shared telemetry types, the contract
+  the Rust model mirrors.
 
-Dependency direction (do not violate): `shared ← core ← {indexer, server}`, and
-**`frontend` depends on `@quip/shared` only**. Never import `@polkadot/*` outside
-`apps/indexer/clients/substrate-client/` — the frontend cannot reach it by design,
-and the `verify:no-polkadot-in-bundle` build guard enforces it. Internal packages
-export TypeScript source directly (no build step).
+Rust dependency direction (do not violate):
+`dashboard-model <- dashboard-store <- quip-dashboard`.
+
+- `dashboard-model` (crates/dashboard-model) — public serde types matching the
+  shared telemetry contract.
+- `dashboard-store` (crates/dashboard-store) — storage over embedded Turso or
+  Postgres plus migrations.
+- `quip-dashboard` (crates/quip-dashboard) — chain reader, indexer, miner
+  service, HTTP router, health, supervisor, and both binaries.
+
+Never import `@polkadot/*` into the frontend. The frontend cannot reach it by
+design, and the `verify:no-polkadot-in-bundle` build guard enforces it.
+
+## Storage model
+
+Two storage backends share the same domain operations and a serialized
+single-writer boundary.
+
+- **Embedded Turso (default).** With no `DATABASE_URL`, the backend opens a
+  local file at `/data/dashboard.db`. A local file lock guards the writer.
+- **Postgres.** A valid `DATABASE_URL` selects Postgres. A Postgres advisory
+  lock guards the writer. API-only mode (`RUN_INDEXER=false`) requires
+  Postgres.
+
+An empty `DATABASE_URL` selects Turso. A valid Postgres URL selects Postgres.
+Any other value fails. An invalid URL never falls back to local storage.
 
 ## Database
 
-Postgres-only, via Kysely. A schema change is a **new additive migration** under
-`packages/core/migrations/` (numbered, registered in `migrations/index.ts`) — there
-is no `SCHEMA_VERSION` / wipe-on-drift. Apply with `bun run migrate`.
+A schema change is a **new additive migration**. Migrations are numbered SQL
+files under `crates/dashboard-store/migrations/{postgres,turso}/`, registered
+in `crates/dashboard-store/src/migrations.rs` in the same order. Each backend
+has its own copy. A change must update both copies consistently. The schema
+has no `SCHEMA_VERSION` or wipe-on-drift. Apply with `quip-dashboard migrate`.
+
+The ledger preserves the historical Kysely migration names and execution
+timestamps so an existing database migrates forward.
 
 ## Commands
 
-The host needs no JS runtime; run via `./run` (`dev`, `build`, `typecheck`, `test`,
-`format`). `./run build` builds the container **image**; the in-image `bun run build`
-builds the **SPA** (`apps/frontend/dist`).
+The host needs no JS, Rust, or network toolchain; run via `./run`:
+
+```sh
+./run dev          # build + start the backend and Vite dev frontend
+./run down [-v]    # stop the dev stack
+./run build        # build the production container image (the published artifact)
+./run rust <cargo ...>   # run a cargo command in the Rust dev image
+```
+
+`./run build` builds the container image. The in-image Bun build produces the
+SPA at `apps/frontend/dist`, which the prod stage installs at `/app/frontend`.
 
 ## Branches
 
-`v0.2` is the long-lived integration branch — target feature MRs at `v0.2`, not `main`.
+`v0.2` is the long-lived integration branch. Target feature MRs at `v0.2`, not
+`main`.
 
 ## Versioning & release tags
 
 Canonical doc: `quip-protocol/docs/VERSIONING.md`. Git release tags use
-**hyphenated SemVer**; package-manifest versions use the toolchain's native format.
+**hyphenated SemVer**; package-manifest versions use the toolchain's native
+format.
 
 | Artifact                                      | Format                   | Example       |
 | --------------------------------------------- | ------------------------ | ------------- |
@@ -47,14 +83,16 @@ Canonical doc: `quip-protocol/docs/VERSIONING.md`. Git release tags use
 
 Rules:
 
-- Pre-release git tags MUST be hyphenated (`-rcN` / `-alphaN` / `-betaN`) — never
-  the no-hyphen PEP 440 form for a git tag. (`quip-node-manager`'s SemVer parser
-  splits the pre-release on the hyphen; a no-hyphen tag collapses the patch + rc
-  number, so every rc compares equal and deployed nodes freeze on an old rc.)
-- Numeric parts (MAJOR.MINOR.PATCH and the rc number) must match between the git
-  tag and the package version; only the separator differs.
-- CI: pre-release tags publish `:<tag>` + the rolling `:vMAJOR.MINOR`, and MUST NOT
-  move `:latest`. Only `main` / a stable `vX.Y.Z` tag moves `:latest`.
+- Pre-release git tags MUST be hyphenated (`-rcN` / `-alphaN` / `-betaN`) —
+  never the no-hyphen PEP 440 form for a git tag. (`quip-node-manager`'s
+  SemVer parser splits the pre-release on the hyphen; a no-hyphen tag collapses
+  the patch + rc number, so every rc compares equal and deployed nodes freeze
+  on an old rc.)
+- Numeric parts (MAJOR.MINOR.PATCH and the rc number) must match between the
+  git tag and the package version; only the separator differs.
+- CI: pre-release tags publish `:<tag>` + the rolling `:vMAJOR.MINOR`, and
+  MUST NOT move `:latest`. Only `main` / a stable `vX.Y.Z` tag moves
+  `:latest`.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
 

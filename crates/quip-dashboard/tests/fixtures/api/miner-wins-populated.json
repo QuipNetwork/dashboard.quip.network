@@ -1,0 +1,22 @@
+{
+  "rows": [
+    {
+      "minerId": "5A",
+      "wins": 3,
+      "bestEnergy": -14.5,
+      "avgMiningTime": 10.020433333333333,
+      "lastWonAt": 1782864030,
+      "lastWonQblockId": "5",
+      "lastWonBlockHash": "0x5a9c562521bae2b7da8a93e62eac1ee9022441671187bca5c45bef70c2a15799"
+    },
+    {
+      "minerId": "5B",
+      "wins": 2,
+      "bestEnergy": -1.5,
+      "avgMiningTime": 9.5,
+      "lastWonAt": 1782864012,
+      "lastWonQblockId": "4",
+      "lastWonBlockHash": "0xa6b9bf0f0ce2599b5c880971132cb8f3a017583163bc1ad341608e8ff4a0c85f"
+    }
+  ]
+}

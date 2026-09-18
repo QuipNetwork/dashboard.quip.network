@@ -62,7 +62,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   useTelemetryStore.setState({
-    blocks: [
+    wonBlocks: [
       block({ minerId: "5GCpu", timestamp: 1_700_000_000 }),
       block({ minerId: "5GCpu", timestamp: 1_700_000_060 }),
     ],
@@ -75,7 +75,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  useTelemetryStore.setState({ blocks: [], chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], chainMiners: [], nodeDescriptors: [] });
   useUIStore.setState({ aggregationMode: "byType" });
 });
 

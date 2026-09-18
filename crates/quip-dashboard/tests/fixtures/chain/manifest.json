@@ -1,0 +1,65 @@
+{
+  "formatVersion": 1,
+  "provenance": "Synthetic fixtures constructed with frame-metadata 23.0.1 and parity-scale-codec 3.7.5. No historical node capture is claimed.",
+  "metadata": {
+    "format": 16,
+    "runtimeVersions": [
+      117,
+      118
+    ],
+    "upgradeBlock": 2,
+    "executionMetadata": "Parent state for non-genesis blocks. Upgrade block 2 uses runtime 117 events and runtime 118 post-state queries.",
+    "extrinsicVersions": [
+      "signed V4 with 1660 signature bytes",
+      "bare V5"
+    ]
+  },
+  "captureAttempt": {
+    "endpoint": "wss://cpu-1.nodes.quip.network/rpc",
+    "outcome": "DNS resolution failed before any chain data was received.",
+    "date": "2026-09-16"
+  },
+  "files": {
+    "bare-v5.scale": {
+      "bytes": 9,
+      "sha256": "9a4bc0b7c5499062b040679c5fe395b4f0cb8ebbc6d84377360a641a8ac67916"
+    },
+    "events-new.scale": {
+      "bytes": 141,
+      "sha256": "819f1e468972a1e84227a23331f6ffef12ba6178b896e483dccee3c30f1103d1"
+    },
+    "events-old.scale": {
+      "bytes": 141,
+      "sha256": "44e4aeee50af53ce48614db9c198b341c1db253da814f23e904f5e5f60dfe552"
+    },
+    "participants.scale": {
+      "bytes": 51,
+      "sha256": "f58897af7c10c74eb3fa39b787499818660d61cf8d6731c41025558c57d7918b"
+    },
+    "runtime-new-v16.scale": {
+      "bytes": 2528,
+      "sha256": "115a13144bc08e3346a17f7aa6db54f56e0e4205f00b226045680fea651f192d"
+    },
+    "runtime-old-v16.scale": {
+      "bytes": 2528,
+      "sha256": "55055056c182607bd1716291a8645b4e9a5a4ccebe8f7ca0c33ac8e59edcf354"
+    },
+    "signed-v4.scale": {
+      "bytes": 1706,
+      "sha256": "3cb85b1068f61c5acc684c39131b35af67ab81b162a23802ab0112bed108a31f"
+    },
+    "topology.scale": {
+      "bytes": 63,
+      "sha256": "275ec9b94108e44eeab5333f1d0d2aebf65b199e00d6b96cd136fac73156d577"
+    },
+    "winning-solution.scale": {
+      "bytes": 213,
+      "sha256": "06287bcc803bb9c48389c2219d80d15aed431f194b87ce34da61328f32061af8"
+    },
+    "runtime-descriptors-v16.scale": {
+      "bytes": 2980,
+      "sha256": "b243784334d2f5c912f0fe2272c2e8c96c3c7adcd69b2a064b0f11a8e5c6bf90",
+      "purpose": "Synthetic descriptor map metadata for page-local provenance and paging-error regression tests."
+    }
+  }
+}

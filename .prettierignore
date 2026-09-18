@@ -14,3 +14,9 @@ telemetry
 # exist locally and make repo-wide `prettier --write .` hang).
 builds/
 cache/
+target/
+
+# Captured wire payloads and fixture manifests retain their recorded bytes.
+crates/**/tests/fixtures/
+deploy/tests/fixtures/
+scripts/benchmark/testdata/

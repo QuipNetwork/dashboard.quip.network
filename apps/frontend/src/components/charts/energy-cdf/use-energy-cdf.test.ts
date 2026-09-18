@@ -90,7 +90,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  useTelemetryStore.setState({ blocks: [], chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], chainMiners: [], nodeDescriptors: [] });
   useUIStore.setState({ aggregationMode: "byType", selectedTypes: ["CPU", "GPU", "QPU"] });
 });
 
@@ -107,7 +107,7 @@ const B_ENERGIES = [-14_100, -14_050];
 describe("useEnergyCdf", () => {
   test("best scope narrows each type to its top winner, keeping the type label", () => {
     useTelemetryStore.setState({
-      blocks: [...blocksFor("A", A_ENERGIES), ...blocksFor("B", B_ENERGIES)],
+      wonBlocks: [...blocksFor("A", A_ENERGIES), ...blocksFor("B", B_ENERGIES)],
       chainMiners: [makeChainMiner("A", "CPU"), makeChainMiner("B", "CPU")],
     });
 
@@ -125,7 +125,7 @@ describe("useEnergyCdf", () => {
   test("best scope in per-miner mode keeps only each type's top winner", () => {
     useUIStore.setState({ aggregationMode: "byNode" });
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         ...blocksFor("A", A_ENERGIES),
         ...blocksFor("B", B_ENERGIES),
         ...blocksFor("G", [-14_300, -14_200]),

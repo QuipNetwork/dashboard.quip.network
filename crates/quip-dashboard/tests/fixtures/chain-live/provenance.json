@@ -1,0 +1,165 @@
+{
+  "formatVersion": 1,
+  "source": "qpu-1.nodes.quip.network / quip-validator / 192.168.96.4:9944 via SSH",
+  "capturedAtUnixSeconds": 1789567335,
+  "finalizedHash": "0x6ce62de2b827cf0acefe3c4818b9d0c0ac8497f9cc42be0e4594d41facfa5899",
+  "blockNumber": 205970,
+  "executionState": "0x26812d05e827687436845e88cbe2eede56085cd138010867b920b5a7394b4f20",
+  "genesis": "0x59e064bddd49a920d1392693c728c3bf9867f2cf3e0f8fea8c2498b389b0c286",
+  "runtimeVersion": {
+    "specName": "quip",
+    "implName": "quip",
+    "authoringVersion": 1,
+    "specVersion": 117,
+    "implVersion": 1,
+    "apis": [
+      [
+        "0x37e397fc7c91f5e4",
+        2
+      ],
+      [
+        "0xfbc577b9d747efd6",
+        1
+      ],
+      [
+        "0xccd9de6396c899ca",
+        1
+      ],
+      [
+        "0xd2bc9897eed08f15",
+        3
+      ],
+      [
+        "0xcbca25e39f142387",
+        2
+      ],
+      [
+        "0xab3c0572291feb8b",
+        2
+      ],
+      [
+        "0xed99c5acb25eedf5",
+        3
+      ],
+      [
+        "0x17f0e16273cf5f3b",
+        2
+      ],
+      [
+        "0x37c8bb1350a9a2a8",
+        4
+      ],
+      [
+        "0xf78b278be53f454c",
+        2
+      ],
+      [
+        "0x8c403e5c4a9fd442",
+        1
+      ],
+      [
+        "0x3107b6d741d617f6",
+        1
+      ],
+      [
+        "0x40fe3ad401f8959a",
+        6
+      ],
+      [
+        "0xbc9d89904f5b923f",
+        1
+      ],
+      [
+        "0x3ab6f66093fb3e09",
+        1
+      ],
+      [
+        "0xdf6acb689907609b",
+        5
+      ],
+      [
+        "0xf3ff14d5ab527059",
+        3
+      ]
+    ],
+    "transactionVersion": 7,
+    "systemVersion": 1,
+    "stateVersion": 1
+  },
+  "runtimeCodeHash": "0x25275c262c4ef5216951d809bdb4bd2425da00a13fa71c66ec0eaca5cd10ec32",
+  "metadataHash": "0x99c9c9078058cfa692872798a1582a56f2c48be3321188ef608b8a61e7c9bf8b",
+  "metadataFormat": 16,
+  "extrinsicCount": 9,
+  "metadataBytes": 173987,
+  "eventsBytes": 1433,
+  "rpcCount": 7,
+  "responseBytes": 381240,
+  "elapsedSeconds": 0.423,
+  "calls": [
+    {
+      "method": "chain_getFinalizedHead",
+      "params": [],
+      "responseBytes": 102
+    },
+    {
+      "method": "chain_getBlock",
+      "params": [
+        "0x6ce62de2b827cf0acefe3c4818b9d0c0ac8497f9cc42be0e4594d41facfa5899"
+      ],
+      "responseBytes": 29400
+    },
+    {
+      "method": "state_getRuntimeVersion",
+      "params": [
+        "0x26812d05e827687436845e88cbe2eede56085cd138010867b920b5a7394b4f20"
+      ],
+      "responseBytes": 618
+    },
+    {
+      "method": "state_getMetadata",
+      "params": [
+        "0x26812d05e827687436845e88cbe2eede56085cd138010867b920b5a7394b4f20"
+      ],
+      "responseBytes": 348012
+    },
+    {
+      "method": "state_getStorage",
+      "params": [
+        "0x26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7",
+        "0x6ce62de2b827cf0acefe3c4818b9d0c0ac8497f9cc42be0e4594d41facfa5899"
+      ],
+      "responseBytes": 2904
+    },
+    {
+      "method": "chain_getBlockHash",
+      "params": [
+        0
+      ],
+      "responseBytes": 102
+    },
+    {
+      "method": "state_getStorageHash",
+      "params": [
+        "0x3a636f6465",
+        "0x26812d05e827687436845e88cbe2eede56085cd138010867b920b5a7394b4f20"
+      ],
+      "responseBytes": 102
+    }
+  ],
+  "sha256": {
+    "metadata.scale": "c50b8e63be528191ca8166612c275f507b600453c651a9c8a829e2678660eafe",
+    "events.scale": "57657aca7882d048c692d315c39b98ca28c463f0117221e9464bdab56e02fb49"
+  },
+  "expected": {
+    "eventCount": 33,
+    "extrinsicCount": 9,
+    "successfulExtrinsics": 1,
+    "failedExtrinsics": 8,
+    "bareV5TimestampCalls": 1,
+    "signedV4ParticipationCalls": 8,
+    "signedSignatureBytes": 1660,
+    "acceptedProofCount": 0,
+    "winner": null,
+    "successfulParticipationChanges": 0
+  }
+}

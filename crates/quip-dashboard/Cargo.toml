@@ -1,0 +1,51 @@
+[package]
+name = "quip-dashboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Quip dashboard application"
+publish = false
+
+[dependencies]
+dashboard-model = { workspace = true }
+dashboard-store = { workspace = true }
+
+subxt-core = "0.44.3"
+subxt-metadata = "0.44.3"
+scale-info = "2.11.6"
+scale-value = "0.18.2"
+parity-scale-codec = { workspace = true, features = ["derive"] }
+jsonrpsee = { workspace = true, features = ["http-client", "ws-client"] }
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+hex = "0.4.3"
+sha2 = "0.10.9"
+blake2 = "0.10.6"
+bs58 = "0.5.1"
+nix = { version = "0.31.3", features = ["signal", "process"] }
+clap = { version = "4.6.7", features = ["derive"] }
+
+reqwest = { workspace = true, features = ["json"] }
+axum.workspace = true
+maxminddb = "0.32.0"
+http-body = "1.0.1"
+tracing-subscriber.workspace = true
+url = "2.5.8"
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+tokio = { workspace = true, features = ["test-util"] }
+frame-metadata = "23.0.1"
+scale-info = { version = "2.11.6", features = ["derive"] }
+jsonrpsee = { workspace = true, features = ["server"] }
+sqlx.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -380,6 +380,7 @@ export function sampleTelemetry(): Partial<TelemetryState> {
   const blocks = buildBlocks(nowSec);
   return {
     blocks,
+    wonBlocks: blocks,
     selfAddress: SELF.account,
     indexer: buildObservability(nowIso),
     serverTime: nowIso,

@@ -63,6 +63,16 @@ export function NodeLocationMap({ nodes, unlocatedCount }: NodeLocationMapProps)
         </ZoomableGroup>
       </ComposableMap>
 
+      {/* DB-IP City Lite (bundled in the image) is CC BY 4.0 and requires this credit. */}
+      <a
+        href="https://db-ip.com"
+        target="_blank"
+        rel="noreferrer"
+        className="absolute left-3 bottom-2 font-accent text-[10px] tracking-wider text-ink-subtle hover:underline"
+      >
+        IP Geolocation by DB-IP
+      </a>
+
       {(unlocatedCount > 0 || !hasAny) && (
         <p className="absolute right-3 bottom-2 font-accent text-[10px] uppercase tracking-wider text-ink-subtle">
           {hasAny

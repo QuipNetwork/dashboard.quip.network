@@ -17,8 +17,8 @@ export const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
  * Whether `node` has been seen recently enough to count toward the
  * network's "live" hardware inventory. `NodeInfo.lastSeen` is a Unix
  * *seconds* timestamp sourced from the most recent `MinerRegistry.
- * NodeDescriptors` block the node re-announced on (see
- * `apps/server/routes/telemetry.ts`'s `projectDescriptorsToSnapshot`); it
+ * NodeDescriptors` block the node re-announced on (see the Rust backend's
+ * descriptor-to-snapshot projection); it
  * is NOT a heartbeat, so "active" here means "re-announced within the
  * window", not "currently online".
  */

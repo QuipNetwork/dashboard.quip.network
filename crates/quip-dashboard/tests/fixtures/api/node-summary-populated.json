@@ -1,0 +1,34 @@
+{
+  "summary": {
+    "minerId": "5A",
+    "wins": 3,
+    "bestEnergy": -14.5,
+    "avgMiningTime": 10.020433333333333,
+    "lastWonAt": 1782864030,
+    "lastWonQblockId": "5",
+    "lastWonBlockHash": "0x5a9c562521bae2b7da8a93e62eac1ee9022441671187bca5c45bef70c2a15799"
+  },
+  "lastWonBlock": {
+    "blockHash": "0x5a9c562521bae2b7da8a93e62eac1ee9022441671187bca5c45bef70c2a15799",
+    "substrateBlockNumber": "5",
+    "substrateBlockHash": "0x373dcddaaa0782c99f7072de447016fedfc7c76e8a5fe0458183d807c6ac3905",
+    "substrateParentHash": "0x87581a9a56638ed9a73af5a1173afe7bc78e98810540499cb220c2c0e104dcfc",
+    "timestamp": 1782864030,
+    "minerId": "5A",
+    "energy": -14.5,
+    "diversity": 0.4,
+    "numValidSolutions": 2,
+    "miningTime": 0.0613,
+    "reward": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    "qblockId": "5",
+    "nonce": "18446744073709551615",
+    "numNodes": 64,
+    "numEdges": 128,
+    "difficultyEnergy": -14.4,
+    "minDiversity": 0.1,
+    "minSolutions": 1,
+    "finalized": true,
+    "topologyHash": "0xf65bd8a6c3930eab0493c054ffbe8a155fcd65f6bc7887cdd4b1b6662060e57b",
+    "deviceAccessTimeUs": 61300
+  }
+}

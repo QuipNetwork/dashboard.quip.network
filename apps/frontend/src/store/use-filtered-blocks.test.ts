@@ -82,7 +82,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   useTelemetryStore.setState({
-    blocks: [],
+    wonBlocks: [],
     chainMiners: [],
   });
   // Default toggle behavior means the UI store never reaches 0 selectedTypes
@@ -100,7 +100,7 @@ afterEach(() => {
 describe("useFilteredBlocks", () => {
   it("returns all blocks when selectedTypes is empty (no filter active)", () => {
     const blocks = [makeBlock({ blockHash: "0xa" }), makeBlock({ blockHash: "0xb" })];
-    useTelemetryStore.setState({ blocks, chainMiners: [] });
+    useTelemetryStore.setState({ wonBlocks: blocks, chainMiners: [] });
     useUIStore.setState({ selectedTypes: [] as MinerCategory[] });
 
     const out = renderHook();
@@ -110,7 +110,7 @@ describe("useFilteredBlocks", () => {
 
   it("returns same array reference (no copy) when filter is inactive", () => {
     const blocks = [makeBlock({ blockHash: "0xa" })];
-    useTelemetryStore.setState({ blocks });
+    useTelemetryStore.setState({ wonBlocks: blocks });
     useUIStore.setState({ selectedTypes: [] as MinerCategory[] });
 
     const out = renderHook();
@@ -124,7 +124,7 @@ describe("useFilteredBlocks", () => {
     // ships with until peer-query/primaryType joining lands.
     const blocks = [makeBlock({ minerId: "5GPP" }), makeBlock({ minerId: "5GQQ" })];
     useTelemetryStore.setState({
-      blocks,
+      wonBlocks: blocks,
       chainMiners: [makeChainMiner({ accountId: "5GPP" })],
     });
     useUIStore.setState({ selectedTypes: ["CPU", "GPU", "QPU"] });
@@ -137,7 +137,7 @@ describe("useFilteredBlocks", () => {
     const known = makeBlock({ minerId: "5GPP", blockHash: "0xa" });
     const unknown = makeBlock({ minerId: "5GZZ", blockHash: "0xb" });
     useTelemetryStore.setState({
-      blocks: [known, unknown],
+      wonBlocks: [known, unknown],
       chainMiners: [makeChainMiner({ accountId: "5GPP" })],
     });
     useUIStore.setState({ selectedTypes: ["OTHER"] });
@@ -150,7 +150,7 @@ describe("useFilteredBlocks", () => {
   it("treats blocks whose minerId isn't in chainMiners as OTHER too", () => {
     const stray = makeBlock({ minerId: "5G-unknown", blockHash: "0xstray" });
     useTelemetryStore.setState({
-      blocks: [stray],
+      wonBlocks: [stray],
       chainMiners: [makeChainMiner({ accountId: "5GPP" })], // different miner
     });
     useUIStore.setState({ selectedTypes: ["OTHER"] });
@@ -162,7 +162,7 @@ describe("useFilteredBlocks", () => {
   it("memoizes: same deps → same array reference across renders of the same tree", () => {
     const blocks = [makeBlock({ minerId: "5GPP" })];
     useTelemetryStore.setState({
-      blocks,
+      wonBlocks: blocks,
       chainMiners: [makeChainMiner({ accountId: "5GPP" })],
     });
     useUIStore.setState({ selectedTypes: ["OTHER"] });

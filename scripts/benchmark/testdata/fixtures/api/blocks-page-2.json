@@ -1,0 +1,50 @@
+{
+  "blocks": [
+    {
+      "blockHash": "0x18b125a76661ab2943e4b9118ab3e292b5dc2ec642ac66355903d2371fe226b5",
+      "substrateBlockNumber": "3",
+      "substrateBlockHash": "0x6a46506098e1d285a9b356277a2984388988a96a53ab34429c36403a0ae2d278",
+      "substrateParentHash": "0xfcd79f4b89faef4b69614c93b525bd1070e6a53298e023dff82456981fd27a48",
+      "timestamp": 1782864000,
+      "minerId": "5A",
+      "energy": -1.5,
+      "diversity": 0.1,
+      "numValidSolutions": 1,
+      "miningTime": 20,
+      "reward": "1000000000000",
+      "qblockId": "3",
+      "nonce": "1",
+      "numNodes": 2,
+      "numEdges": 3,
+      "difficultyEnergy": -1,
+      "minDiversity": 0,
+      "minSolutions": 1,
+      "finalized": true,
+      "topologyHash": "0xf65bd8a6c3930eab0493c054ffbe8a155fcd65f6bc7887cdd4b1b6662060e57b",
+      "deviceAccessTimeUs": null
+    },
+    {
+      "blockHash": "0x7303dd6ad14c58fce6a736b788eca3f50965d381b0094231752c1b0846733c42",
+      "substrateBlockNumber": "2",
+      "substrateBlockHash": "0xfcd79f4b89faef4b69614c93b525bd1070e6a53298e023dff82456981fd27a48",
+      "substrateParentHash": "0x1be92bf6ea9685553dac54b1b85bdfc76d926415965b7d20db869154d75111b3",
+      "timestamp": 1781481600,
+      "minerId": "5B",
+      "energy": -1.5,
+      "diversity": 0.1,
+      "numValidSolutions": 1,
+      "miningTime": 7,
+      "reward": "1000000000000",
+      "qblockId": "2",
+      "nonce": "1",
+      "numNodes": 2,
+      "numEdges": 3,
+      "difficultyEnergy": -1,
+      "minDiversity": 0,
+      "minSolutions": 1,
+      "finalized": true,
+      "topologyHash": "0xc4b45f8df293685fba55923cc44a0ddae7f515b34e1d7d4f30e8ab92db963a5c",
+      "deviceAccessTimeUs": null
+    }
+  ]
+}

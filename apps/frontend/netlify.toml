@@ -1,20 +1,14 @@
-# Netlify is pointed at this file via the site's Package directory = apps/frontend
-# (Base directory = repo root). Relative paths below resolve from apps/frontend,
-# which is why `publish = "dist"` lands on apps/frontend/dist and the function
-# directory is reached with a `../` hop into @quip/server.
+# Static frontend; VITE_API_BASE_URL identifies the separately hosted Rust API.
+# Netlify package directory: apps/frontend. Base directory: repository root.
 [build]
-  command = "bun run build"
+  command = ': "${VITE_API_BASE_URL:?Set VITE_API_BASE_URL to the public Rust API origin}" && bun run build'
   publish = "dist"
 
 [dev]
   command = "vite --host 0.0.0.0"
   targetPort = 5173
 
-[functions]
-  directory = "../server/netlify"
-  node_bundler = "esbuild"
-
 [[redirects]]
-  from = "/api/telemetry*"
-  to = "/.netlify/functions/telemetry/:splat"
+  from = "/*"
+  to = "/index.html"
   status = 200

@@ -8,6 +8,7 @@ import type { BlockRecord, TelemetryResponse } from "@quip/shared/telemetry";
 import { ServicesProvider } from "@/services/services-provider";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
+import { waitFor } from "@/test/wait-for-act";
 
 function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId">): BlockRecord {
   const n = overrides.substrateBlockNumber ?? "0";
@@ -78,33 +79,10 @@ const MOCK_RESPONSE: TelemetryResponse = {
   recentMiningSubmissions: [],
   selfProblemsAttempted: 0,
   currentDispatch: null,
-  // The mining-time and compute-used charts are now driven by participant
-  // compute (aggregateParticipationBy*), not winner blocks — give qblock "1"
-  // (the in-range qblock the mining-history mock bounds) a row per category so
-  // both charts have data to render.
-  participationCompute: [
-    {
-      qblockId: "1",
-      account: "cpu-miner-1",
-      kind: "Cpu",
-      miningSeconds: 12,
-      exactQpuAccessUs: null,
-    },
-    {
-      qblockId: "1",
-      account: "gpu-miner-1",
-      kind: "Gpu",
-      miningSeconds: 12,
-      exactQpuAccessUs: null,
-    },
-    {
-      qblockId: "1",
-      account: "qpu-miner-1",
-      kind: "QpuDwave",
-      miningSeconds: 12,
-      exactQpuAccessUs: null,
-    },
-  ],
+  files: { qblocksManifest: "/files/qblocks/metadata.json" },
+  // The participation facts now ride in the file-backed qblock tree, served
+  // under /files (see the /files route in the fetch mock below). They are no
+  // longer part of the telemetry response.
 };
 
 let container: HTMLDivElement;
@@ -151,6 +129,50 @@ describe("App smoke test", () => {
       // Route by URL: the app fetches /api/miner-wins and /api/mining-history
       // alongside /api/telemetry, and each expects its own response shape.
       const url = String(input);
+      // The store fetches the qblock manifest and qblock files under /files
+      // after the slimmed telemetry response (see fetchQblocks). Route those
+      // to file-shaped fixtures so the participation-driven charts render.
+      if (url.endsWith("/files/qblocks/metadata.json")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ qblocks: ["qblocks/ab/cd/1.json", "qblocks/ef/01/0.json"] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      // Indexer file shape: raw participation plus the winner block. The
+      // client derives miningSeconds from consecutive winner timestamps, so
+      // qblock 0 only anchors the 12-second window of qblock 1.
+      const qblockMatch = /\/files\/qblocks\/.*\/(\d+)\.json$/.exec(url);
+      if (qblockMatch) {
+        const qblockId = qblockMatch[1];
+        const participant = (account: string, kind: string) => ({
+          qblockId,
+          account,
+          kind,
+          blockNumber: "1",
+          budgetSeconds: null,
+        });
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              qblockId,
+              winner: makeBlock({
+                qblockId,
+                substrateBlockNumber: qblockId,
+                minerId: "qpu-miner-1",
+                timestamp: qblockId === "0" ? 988 : 1_000,
+              }),
+              participation: [
+                participant("cpu-miner-1", "Cpu"),
+                participant("gpu-miner-1", "Gpu"),
+                participant("qpu-miner-1", "QpuDwave"),
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
       const body = url.endsWith("/api/miner-wins")
         ? { rows: [] }
         : url.includes("/api/mining-history")
@@ -174,6 +196,7 @@ describe("App smoke test", () => {
     await act(async () => {
       await Promise.resolve();
     });
+    await waitFor(() => container.querySelector('[data-qa="chart-blocks-over-time"]') !== null);
 
     expect(fetchSpy).toHaveBeenCalledWith("/api/telemetry");
     expect(container.querySelector('[data-qa="chart-blocks-over-time"]')).not.toBeNull();
