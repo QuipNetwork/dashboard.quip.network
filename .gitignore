@@ -28,5 +28,6 @@ build/
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
+!deploy/tests/fixtures/data/dashboard.db
 .beads-credential-key
 .beads/proxieddb/
