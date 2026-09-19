@@ -90,9 +90,11 @@ Rules:
   on an old rc.)
 - Numeric parts (MAJOR.MINOR.PATCH and the rc number) must match between the
   git tag and the package version; only the separator differs.
-- CI: pre-release tags publish `:<tag>` + the rolling `:vMAJOR.MINOR`, and
-  MUST NOT move `:latest`. Only `main` / a stable `vX.Y.Z` tag moves
-  `:latest`.
+- CI: every tag publishes `:<tag>` and `:<sha>`. An rc tag reachable from
+  `origin/main` also moves `:beta`. A stable `vX.Y.Z` tag reachable from
+  `origin/main` moves `:latest`, `:vMAJOR.MINOR`, `:stable`, and `:beta`.
+  `:beta` and `:stable` are the channels `nodes.quip.network` pulls through
+  `CHANNEL`. Pre-release tags MUST NOT move `:latest`.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
 
