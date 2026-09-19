@@ -30,4 +30,5 @@ build/
 *.db
 !deploy/tests/fixtures/data/dashboard.db
 .beads-credential-key
-.beads/proxieddb/
+.beads/
+.beads-*/
