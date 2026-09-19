@@ -196,7 +196,9 @@ docker run -d --name "${MOCK}" --pull=never --network "${NET}" \
 remember_container "${MOCK}"
 wait_log "${MOCK}" "mock-upstreams-ready"
 
-mkdir -p "${WORKDIR}/caddy-data" "${WORKDIR}/caddy-config"
+# Pre-create the ACME cert mount point so Docker doesn't auto-vivify it as
+# root when the read-only certificates fixture below is bind-mounted inside.
+mkdir -p "${WORKDIR}/caddy-data/caddy/certificates" "${WORKDIR}/caddy-config"
 docker run -d --name "${CADDY}" --pull=never --network "${NET}" \
 	--user "$(id -u):$(id -g)" \
 	-e QUIP_HOSTNAME=:8080 \
@@ -210,7 +212,11 @@ docker run -d --name "${CADDY}" --pull=never --network "${NET}" \
 	-v "${CADDYFILE}:/etc/caddy/Caddyfile:ro" \
 	-v "${FRONTEND}:/app/frontend:ro" \
 	-v "${DATA}/qblocks:/data/qblocks:ro" \
+	-v "${DATA}/miners:/data/miners:ro" \
+	-v "${DATA}/dashboard.db:/data/dashboard.db:ro" \
+	-v "${DATA}/syslog-ng:/data/syslog-ng:ro" \
 	-v "${WORKDIR}/caddy-data:/data/caddy/data" \
+	-v "${DATA}/caddy/data/caddy/certificates:/data/caddy/data/caddy/certificates:ro" \
 	-v "${WORKDIR}/caddy-config:/data/caddy/config" \
 	-p 127.0.0.1::8080 \
 	"${CADDY_IMAGE}" >/dev/null
@@ -302,6 +308,24 @@ assert_contains "$(header_value Cache-Control)" "public" "files manifest cacheab
 request GET "${BASE}/files/qblocks/missing.json"
 assert_status 404 "missing files entry"
 assert_not_contains "${BODY}" "spa-index" "missing files entry must not be SPA HTML"
+
+request GET "${BASE}/files/miners/5GPP/status.json"
+assert_status 200 "files miners entry"
+assert_contains "${BODY}" '"miner":"5GPP"' "files miners entry body"
+assert_contains "$(header_value Cache-Control)" "public" "files miners entry cacheable"
+
+log "== /files must not expose the private state directory"
+request GET "${BASE}/files/dashboard.db"
+assert_status 404 "files must not expose the index database"
+assert_not_contains "${BODY}" "spa-index" "dashboard.db must not fall through to SPA HTML"
+
+request GET "${BASE}/files/caddy/data/caddy/certificates/acme/example.com/example.com.key"
+assert_status 404 "files must not expose Caddy's ACME key"
+assert_not_contains "${BODY}" "spa-index" "ACME key must not fall through to SPA HTML"
+
+request GET "${BASE}/files/syslog-ng/persist"
+assert_status 404 "files must not expose syslog-ng state"
+assert_not_contains "${BODY}" "spa-index" "syslog-ng state must not fall through to SPA HTML"
 
 log "== WebSocket upgrade through /rpc"
 # curl exits with code 52 when, after receiving the 101, the fixture closes

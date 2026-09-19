@@ -111,13 +111,20 @@
 		reverse_proxy {$QUIP_DASHBOARD_UPSTREAM:127.0.0.1:3001}
 	}
 
-	# Static time-series files written by the indexer (qblocks, miners).
-	# Mapped to /data on disk; short shared cache so refreshes pick up
-	# newly written files promptly.
-	handle_path /files/* {
+	# Static time-series files written by the indexer. Only the two trees
+	# FileWriter produces are public: /data also holds the index database,
+	# Caddy's certificates and ACME keys, and collector state.
+	@public_files path /files/qblocks/* /files/miners/*
+	handle @public_files {
+		uri strip_prefix /files
 		root * /data
 		header Cache-Control "public, max-age=300"
 		file_server
+	}
+	# Everything else under /files is private. Answer 404 rather than fall
+	# through to the SPA.
+	handle /files/* {
+		respond 404
 	}
 
 	# Vite content-hashed files. Missing assets stay 404 instead of SPA HTML.
