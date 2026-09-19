@@ -13,7 +13,7 @@ use axum::{
 };
 use quip_dashboard::miner::{
     MinerService, PeerResolver,
-    parse::{MinerError, PeerHost},
+    parse::{ATTEMPT_TRAIL_LIMIT, MinerError, PeerHost},
 };
 use serde_json::{Value, json};
 use std::{
@@ -67,6 +67,7 @@ struct Upstream {
     padding: AtomicUsize,
     status_padding: AtomicUsize,
     dense_items: AtomicUsize,
+    trail_len: AtomicUsize,
 }
 impl Upstream {
     fn count(&self, path: &str) -> usize {
@@ -122,6 +123,18 @@ async fn handler(
                 .find_map(|part| part.strip_prefix("solution_number="))
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(1);
+            let trail_len = state.trail_len.load(Ordering::SeqCst);
+            if trail_len > 0 {
+                // Shaped like a live miner row: one row per iteration, ts_ns ascending.
+                let attempts: Vec<Value> = (1..=trail_len)
+                    .map(|n| json!({"accepted":false,"best_energy_milli":-14_410_000,"diversity_milli":0,"iter":n,"job_id":"b".repeat(64),"miner_id":"cuda-0","miner_type":"GPU-CUDA","num_valid":0,"qpu_access_time_us":4_344_796,"result_kind":"rejected","solution_number":solution,"submitted":false,"ts_ns":(1_789_786_835_000_000_000_u64 + n as u64).to_string(),"type":"attempt"}))
+                    .collect();
+                return (
+                    StatusCode::OK,
+                    json!({"success":true,"data":{"attempts":attempts,"submission":{"solution_number":solution,"miner_id":"cuda-0","energy_milli":-14_448_000,"diversity_milli":0,"threshold_milli":-14_635_662,"last_proof_block_hash":"0x00","outcome":"rejected"}}})
+                        .to_string(),
+                );
+            }
             let padding = "x".repeat(state.padding.load(Ordering::SeqCst));
             let attempts = json!([{"iter":0,"best_energy_milli":-17,"result_kind":"submit","padding":padding,"dense":vec![0; state.dense_items.load(Ordering::SeqCst)]}]);
             json!({"submission":{"solution_number":solution,"miner_id":"alice","energy_milli":-17,"diversity_milli":0,"threshold_milli":2,"last_proof_block_hash":"0x00","outcome":"won"},"attempts":attempts})
@@ -363,6 +376,41 @@ async fn adjacent_dispatches_share_each_attempt_resource() -> TestResult {
     }
     assert_eq!(upstream.count("/api/v1/status"), 1);
     assert_eq!(upstream.count("/api/v1/mining/attempts"), 3);
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn long_dispatch_trail_keeps_newest_attempts() -> TestResult {
+    let (service, upstream, server) = service().await?;
+    upstream.trail_len.store(6_000, Ordering::SeqCst);
+    let dispatch = service.local_dispatch(42).await?;
+    let attempts = &dispatch
+        .data
+        .as_ref()
+        .ok_or("dispatch trail dropped")?
+        .attempts;
+    assert_eq!(attempts.len(), ATTEMPT_TRAIL_LIMIT);
+    let newest = attempts.iter().map(|attempt| attempt.iter).max();
+    assert_eq!(newest, Some(6_000));
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn long_submission_trail_keeps_newest_attempts_and_full_count() -> TestResult {
+    let (service, upstream, server) = service().await?;
+    upstream.trail_len.store(6_000, Ordering::SeqCst);
+    let response = service.local_attempts(42).await?;
+    assert_eq!(response.data.submission.attempt_count, 6_000);
+    assert_eq!(response.data.attempts.len(), ATTEMPT_TRAIL_LIMIT);
+    let newest = response
+        .data
+        .attempts
+        .iter()
+        .map(|attempt| attempt.iter)
+        .max();
+    assert_eq!(newest, Some(6_000));
     server.abort();
     Ok(())
 }
