@@ -488,6 +488,9 @@ pub fn parse_mining_attempts_api_response(
         qpu_access_time_us: sum_qpu_access_time_us(env.get("attempts")),
         observed_at: String::new(),
     };
+    // Trim only after the summary above has read the full trail.
+    let mut attempts = attempts;
+    keep_newest_attempts(&mut attempts);
     Ok(MiningAttemptsResponse {
         submission,
         attempts,
@@ -501,7 +504,32 @@ pub fn parse_dispatch_attempts_api_response(raw: &Value) -> Vec<MiningAttempt> {
     let Some(obj) = raw.as_object() else {
         return Vec::new();
     };
-    parse_attempts(obj.get("attempts"))
+    let mut attempts = parse_attempts(obj.get("attempts"));
+    keep_newest_attempts(&mut attempts);
+    attempts
+}
+
+/// Newest attempts kept in a returned trail. The miner returns every iteration
+/// for a solution (thousands on a long qblock) with no paging, and the whole
+/// list would exceed the miner cache budget and fail the request.
+pub const ATTEMPT_TRAIL_LIMIT: usize = 500;
+
+fn keep_newest_attempts(attempts: &mut Vec<MiningAttempt>) {
+    if attempts.len() <= ATTEMPT_TRAIL_LIMIT {
+        return;
+    }
+    // Order by ts_ns, not iter: iter restarts at 1 on every re-dispatch
+    // within one solution. Rows without ts_ns sort oldest.
+    attempts.sort_by_key(|attempt| (attempt_ts_ns(attempt), attempt.iter));
+    let _dropped = attempts.drain(..attempts.len() - ATTEMPT_TRAIL_LIMIT);
+}
+
+fn attempt_ts_ns(attempt: &MiningAttempt) -> Option<u128> {
+    match attempt.extra.get("ts_ns")? {
+        Value::String(raw) => raw.parse().ok(),
+        Value::Number(raw) => raw.as_u64().map(u128::from),
+        _ => None,
+    }
 }
 
 /// Build a [`CurrentDispatch`] from current and previous attempt lists.
