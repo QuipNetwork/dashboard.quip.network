@@ -78,7 +78,7 @@ mod postgres {
                 max_connections: 1,
             })
             .await?;
-            assert_eq!(store.migration_status().await?.len(), 10);
+            assert_eq!(store.migration_status().await?.len(), 11);
             if stop > 0 {
                 assert_eq!(
                     store.get_self_address().await?.as_deref(),

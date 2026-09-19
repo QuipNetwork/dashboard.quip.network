@@ -107,7 +107,9 @@ impl FileWriter {
     /// Symlink the miner's own attempt tree at `source` into this writer's
     /// `miners/<account>/mining-attempts` so co-located polls need no network
     /// re-pinning. Creates the link only when the target does not yet exist;
-    /// a pre-existing target (a real link or dir) is left untouched.
+    /// a pre-existing target (a real link or dir) is left untouched. The
+    /// linked tree is the miner's raw layout, keyed by the miner's solution
+    /// number (the chain qblock id minus 1), not the dashboard's chain ids.
     ///
     /// # Errors
     /// Returns an I/O error when the link cannot be read or created.

@@ -30,7 +30,7 @@ async fn turso_inspection_never_changes_files() -> Result<(), Box<dyn Error>> {
     let config = StoreConfig::Turso { path: path.clone() };
     let before = snapshot(directory.path())?;
     let missing = Store::inspect_migrations(config.clone()).await?;
-    assert_eq!(missing.len(), 10);
+    assert_eq!(missing.len(), 11);
     assert!(missing.iter().all(|row| row.executed_at.is_none()));
     assert_eq!(before, snapshot(directory.path())?);
     let database = turso::Builder::new_local(path.to_str().ok_or("path")?)
@@ -58,7 +58,7 @@ async fn turso_inspection_never_changes_files() -> Result<(), Box<dyn Error>> {
     );
     assert_eq!(
         rows.iter().filter(|row| row.executed_at.is_none()).count(),
-        9
+        10
     );
     assert_eq!(live, snapshot(directory.path())?);
     drop(connection);
@@ -156,7 +156,7 @@ async fn postgres_inspection_is_read_only_and_does_not_create_database()
     );
     assert_eq!(
         rows.iter().filter(|row| row.executed_at.is_none()).count(),
-        9
+        10
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM kysely_migration")
         .fetch_one(&mut connection)

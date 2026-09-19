@@ -68,6 +68,7 @@ struct Upstream {
     status_padding: AtomicUsize,
     dense_items: AtomicUsize,
     trail_len: AtomicUsize,
+    last_solution: AtomicUsize,
 }
 impl Upstream {
     fn count(&self, path: &str) -> usize {
@@ -123,6 +124,9 @@ async fn handler(
                 .find_map(|part| part.strip_prefix("solution_number="))
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(1);
+            state
+                .last_solution
+                .store(usize::try_from(solution).unwrap_or(0), Ordering::SeqCst);
             let trail_len = state.trail_len.load(Ordering::SeqCst);
             if trail_len > 0 {
                 // Shaped like a live miner row: one row per iteration, ts_ns ascending.
@@ -264,11 +268,11 @@ async fn different_peer_resources_never_exceed_two_requests() -> TestResult {
     let service = Arc::new(MinerService::new(None, Arc::new(PeerMap(hosts)))?);
     upstream.delay.store(30, Ordering::SeqCst);
     let mut tasks = JoinSet::new();
-    for solution in 1..=20 {
+    for solution in 2..=21 {
         let service = Arc::clone(&service);
         let _ = tasks.spawn(async move {
             service
-                .peer_attempts(&format!("peer-{solution}"), solution)
+                .peer_attempts(&format!("peer-{}", solution - 1), solution)
                 .await
         });
     }
@@ -308,7 +312,7 @@ async fn borrowed_evicted_payloads_still_count_against_six_mib() -> TestResult {
     upstream.padding.store(220_000, Ordering::SeqCst);
     let mut held = Vec::new();
     let mut rejected = false;
-    for solution in 1..=45 {
+    for solution in 2..=46 {
         match service.local_attempts(solution).await {
             Ok(value) => held.push(value),
             Err(MinerError::BodyTooLarge { .. }) => rejected = true,
@@ -331,7 +335,7 @@ async fn oversized_responses_and_attempt_error_statuses_are_preserved() -> TestR
     let (service, upstream, server) = service().await?;
     upstream.padding.store(5 * 1024 * 1024, Ordering::SeqCst);
     assert!(matches!(
-        service.local_attempts(1).await,
+        service.local_attempts(5).await,
         Err(MinerError::BodyTooLarge { .. })
     ));
     upstream.failure.store(404, Ordering::SeqCst);
@@ -339,6 +343,14 @@ async fn oversized_responses_and_attempt_error_statuses_are_preserved() -> TestR
         service.local_attempts(2).await,
         Err(MinerError::NotFound(2))
     ));
+    // Chain qblock 1 predates any accepted qblock: the miner has no number
+    // for it, so the service answers without a request.
+    let calls = upstream.count("/api/v1/mining/attempts");
+    assert!(matches!(
+        service.local_attempts(1).await,
+        Err(MinerError::NotFound(1))
+    ));
+    assert_eq!(upstream.count("/api/v1/mining/attempts"), calls);
     upstream.failure.store(429, Ordering::SeqCst);
     assert!(matches!(
         service.local_attempts(3).await,
@@ -402,6 +414,16 @@ async fn long_submission_trail_keeps_newest_attempts_and_full_count() -> TestRes
     let (service, upstream, server) = service().await?;
     upstream.trail_len.store(6_000, Ordering::SeqCst);
     let response = service.local_attempts(42).await?;
+    // Chain qblock 42 is miner solution 41; the response reports chain ids.
+    assert_eq!(upstream.last_solution.load(Ordering::SeqCst), 41);
+    assert_eq!(response.data.submission.solution_number, 42);
+    assert!(
+        response
+            .data
+            .attempts
+            .iter()
+            .all(|attempt| attempt.extra.get("solution_number") == Some(&json!(42)))
+    );
     assert_eq!(response.data.submission.attempt_count, 6_000);
     assert_eq!(response.data.attempts.len(), ATTEMPT_TRAIL_LIMIT);
     let newest = response
@@ -411,6 +433,26 @@ async fn long_submission_trail_keeps_newest_attempts_and_full_count() -> TestRes
         .map(|attempt| attempt.iter)
         .max();
     assert_eq!(newest, Some(6_000));
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn trail_past_the_whole_body_cap_streams() -> TestResult {
+    let (service, upstream, server) = service().await?;
+    // About 5.7 MB on the wire, over the 4 MB cap that a whole-body read uses.
+    upstream.trail_len.store(16_000, Ordering::SeqCst);
+    let response = service.local_attempts(42).await?;
+    assert_eq!(response.data.submission.attempt_count, 16_000);
+    assert_eq!(response.data.attempts.len(), ATTEMPT_TRAIL_LIMIT);
+    let dispatch = service.local_dispatch(43).await?;
+    assert_eq!(
+        dispatch
+            .data
+            .as_ref()
+            .map(|dispatch| dispatch.attempts.len()),
+        Some(ATTEMPT_TRAIL_LIMIT)
+    );
     server.abort();
     Ok(())
 }
@@ -451,12 +493,12 @@ async fn transport_failure_blocks_new_resources_for_same_host() -> TestResult {
 async fn mutable_attempts_refresh_and_large_valid_attempts_fit() -> TestResult {
     let (service, upstream, server) = service().await?;
     upstream.padding.store(300_000, Ordering::SeqCst);
-    let first = service.local_attempts(1).await?;
+    let first = service.local_attempts(2).await?;
     assert!(first.data.submission.observed_at.ends_with('Z'));
     tokio::time::pause();
     tokio::time::advance(Duration::from_secs(9)).await;
     tokio::time::resume();
-    let second = service.local_attempts(1).await?;
+    let second = service.local_attempts(2).await?;
     assert!(!Arc::ptr_eq(&first, &second));
     assert_eq!(upstream.count("/api/v1/mining/attempts"), 2);
     server.abort();
@@ -479,7 +521,7 @@ async fn stalled_stream_obeys_total_body_deadline() -> TestResult {
     let service = MinerService::new(Some(url.clone()), Arc::new(Resolver { url }))?;
     let started = std::time::Instant::now();
     assert!(matches!(
-        service.local_attempts(1).await,
+        service.local_attempts(2).await,
         Err(MinerError::Unreachable(_))
     ));
     assert!(started.elapsed() < Duration::from_secs(5));
@@ -492,7 +534,7 @@ async fn expired_attempt_cache_cannot_starve_local_status() -> TestResult {
     let (service, upstream, server) = service().await?;
     assert!(service.local_snapshot().await.status.is_ok());
     upstream.padding.store(2_000_000, Ordering::SeqCst);
-    for solution in 1..=3 {
+    for solution in 2..=4 {
         drop(service.local_attempts(solution).await?);
     }
     assert!(service.retained_bytes() > 5_900_000);
@@ -516,7 +558,7 @@ async fn dense_valid_wire_payload_can_exceed_retained_budget() -> TestResult {
     // The response is about 600 KiB on the wire, but its parsed JSON nodes
     // require more than the six MiB reservation limit.
     assert_eq!(
-        service.local_attempts(1).await.err(),
+        service.local_attempts(2).await.err(),
         Some(MinerError::BodyTooLarge {
             cap: 6 * 1024 * 1024
         })
@@ -531,7 +573,7 @@ async fn cross_cache_pruning_preserves_borrowed_observation_charges() -> TestRes
     let (service, upstream, server) = service().await?;
     upstream.padding.store(2_000_000, Ordering::SeqCst);
     let mut held = Vec::new();
-    for solution in 1..=3 {
+    for solution in 2..=4 {
         held.push(service.local_attempts(solution).await?);
     }
     upstream.status_padding.store(500_000, Ordering::SeqCst);

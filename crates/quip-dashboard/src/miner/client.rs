@@ -2,15 +2,20 @@
 //! One bounded HTTP client shared by local polling and peer requests.
 
 use super::parse::{MinerError, unwrap_envelope};
-use reqwest::{Client, Url};
+use super::stream::{self, AttemptsBody};
+use reqwest::{Client, Response, Url};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, io::Read};
 use tokio::{
-    sync::{Mutex, Semaphore},
+    sync::{Mutex, Semaphore, mpsc},
     time::{Duration, Instant},
 };
 
 pub(super) const RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Wire cap for a streamed attempts body. Memory stays bounded by the fold,
+/// so this only bounds download time; it covers roughly 200,000 attempts.
+pub(super) const ATTEMPTS_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) struct MinerClient {
     client: Client,
@@ -44,6 +49,28 @@ impl MinerClient {
         query: &[(&str, String)],
         peer: bool,
     ) -> Result<Value, MinerError> {
+        self.guarded(base, peer, self.read(base, path, query)).await
+    }
+
+    /// Stream `/api/v1/mining/attempts`, folding rows as they arrive.
+    pub(super) async fn attempts(
+        &self,
+        base: &str,
+        query: &[(&str, String)],
+        peer: bool,
+    ) -> Result<AttemptsBody, MinerError> {
+        self.guarded(base, peer, self.read_attempts(base, query))
+            .await
+    }
+
+    /// Run one request under the shared request and peer limits, with the
+    /// per-host negative cache for unreachable peers.
+    async fn guarded<T>(
+        &self,
+        base: &str,
+        peer: bool,
+        request: impl Future<Output = Result<T, MinerError>>,
+    ) -> Result<T, MinerError> {
         // Acquire peer capacity first so queued peer work cannot occupy local slots.
         let _peer = if peer {
             Some(
@@ -72,7 +99,7 @@ impl MinerClient {
                 ));
             }
         }
-        let result = self.read(base, path, query).await;
+        let result = request.await;
         if peer && let Err(error @ MinerError::Unreachable(_)) = &result {
             let mut failures = self.failures.lock().await;
             if failures.len() < 128 {
@@ -85,12 +112,13 @@ impl MinerClient {
         result
     }
 
-    async fn read(
+    async fn send(
         &self,
         base: &str,
         path: &str,
         query: &[(&str, String)],
-    ) -> Result<Value, MinerError> {
+        cap: usize,
+    ) -> Result<Response, MinerError> {
         let mut url = Url::parse(&format!("{}{path}", base.trim_end_matches('/')))
             .map_err(|error| MinerError::Http(error.to_string()))?;
         if !query.is_empty() {
@@ -98,7 +126,7 @@ impl MinerClient {
                 .query_pairs_mut()
                 .extend_pairs(query.iter().map(|(key, value)| (*key, value.as_str())));
         }
-        let mut response = self
+        let response = self
             .client
             .get(url)
             .header("accept", "application/json")
@@ -118,12 +146,20 @@ impl MinerClient {
         }
         if response
             .content_length()
-            .is_some_and(|length| length > RESPONSE_BYTES as u64)
+            .is_some_and(|length| length > cap as u64)
         {
-            return Err(MinerError::BodyTooLarge {
-                cap: RESPONSE_BYTES,
-            });
+            return Err(MinerError::BodyTooLarge { cap });
         }
+        Ok(response)
+    }
+
+    async fn read(
+        &self,
+        base: &str,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<Value, MinerError> {
+        let mut response = self.send(base, path, query, RESPONSE_BYTES).await?;
         let mut bytes = Vec::with_capacity(RESPONSE_BYTES);
         while let Some(chunk) = response.chunk().await.map_err(transport)? {
             if bytes.len().saturating_add(chunk.len()) > RESPONSE_BYTES {
@@ -136,6 +172,95 @@ impl MinerClient {
         let value = serde_json::from_slice(&bytes)
             .map_err(|error| MinerError::Unparsable(error.to_string()))?;
         unwrap_envelope(value)
+    }
+
+    async fn read_attempts(
+        &self,
+        base: &str,
+        query: &[(&str, String)],
+    ) -> Result<AttemptsBody, MinerError> {
+        let mut response = self
+            .send(
+                base,
+                "/api/v1/mining/attempts",
+                query,
+                ATTEMPTS_RESPONSE_BYTES,
+            )
+            .await?;
+        // The decoder runs on a blocking thread and reads chunks from a small
+        // channel, so at most a few chunks and one attempt row are in memory.
+        let (chunks, receiver) = mpsc::channel(16);
+        let decoder =
+            tokio::task::spawn_blocking(move || stream::decode(ChannelReader::new(receiver)));
+        let mut total = 0_usize;
+        let mut failure = None;
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    total = total.saturating_add(chunk.len());
+                    if total > ATTEMPTS_RESPONSE_BYTES {
+                        failure = Some(MinerError::BodyTooLarge {
+                            cap: ATTEMPTS_RESPONSE_BYTES,
+                        });
+                        break;
+                    }
+                    // A closed channel means the decoder already failed.
+                    if chunks.send(chunk.to_vec()).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    failure = Some(transport(error));
+                    break;
+                }
+            }
+        }
+        // Closing the channel ends the decoder's input; a transfer failure
+        // then wins over the decoder's truncated-input error.
+        drop(chunks);
+        let decoded = decoder
+            .await
+            .map_err(|error| MinerError::Http(error.to_string()))?;
+        failure.map_or(decoded, Err)
+    }
+}
+
+/// Blocking reader over body chunks sent from the async request task.
+struct ChannelReader {
+    receiver: mpsc::Receiver<Vec<u8>>,
+    chunk: Vec<u8>,
+    offset: usize,
+}
+
+impl ChannelReader {
+    const fn new(receiver: mpsc::Receiver<Vec<u8>>) -> Self {
+        Self {
+            receiver,
+            chunk: Vec::new(),
+            offset: 0,
+        }
+    }
+}
+
+impl Read for ChannelReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        while self.offset >= self.chunk.len() {
+            match self.receiver.blocking_recv() {
+                Some(chunk) => {
+                    self.chunk = chunk;
+                    self.offset = 0;
+                }
+                None => return Ok(0),
+            }
+        }
+        let available = self.chunk.get(self.offset..).unwrap_or_default();
+        let n = buf.len().min(available.len());
+        if let (Some(target), Some(source)) = (buf.get_mut(..n), available.get(..n)) {
+            target.copy_from_slice(source);
+        }
+        self.offset += n;
+        Ok(n)
     }
 }
 
