@@ -817,7 +817,10 @@ mod tests {
             "write_batch should succeed"
         );
         assert_eq!(
-            results.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            results
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
             vec!["42"],
             "write_batch should report the qblock id it wrote"
         );

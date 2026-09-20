@@ -78,11 +78,12 @@ mod tests {
     async fn a_full_queue_rejects_with_a_readable_body() {
         let slots = Arc::new(Semaphore::new(1));
         let held = Arc::clone(&slots).try_acquire_owned().unwrap();
-        let app = Router::new().route("/", get(|| async { "ok" })).layer(
-            axum::middleware::from_fn(move |request, next| {
-                run(request, next, Arc::clone(&slots))
-            }),
-        );
+        let app =
+            Router::new()
+                .route("/", get(|| async { "ok" }))
+                .layer(axum::middleware::from_fn(move |request, next| {
+                    run(request, next, Arc::clone(&slots))
+                }));
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await
