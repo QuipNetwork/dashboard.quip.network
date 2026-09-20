@@ -151,13 +151,15 @@ impl FileWriter {
     /// the new winner (if any) replaces the old, and the new participant rows
     /// are appended with de-duplication by account. Writes stay atomic.
     ///
-    /// Returns one result per distinct qblock id; callers treat failures as
-    /// best-effort and do not fail the store commit.
+    /// Returns one `(qblock id, result)` pair per distinct qblock id, so a
+    /// caller logging a failure can name which qblock it belongs to.
+    /// Callers treat failures as best-effort and do not fail the store
+    /// commit.
     pub async fn write_batch(
         &self,
         winner: Option<&dashboard_model::BlockRecord>,
         participation: &[QBlockParticipationRecord],
-    ) -> Vec<std::io::Result<()>> {
+    ) -> Vec<(String, std::io::Result<()>)> {
         let mut ids: Vec<String> = Vec::new();
         if let Some(w) = winner {
             ids.push(w.qblock_id.as_str().to_owned());
@@ -180,15 +182,15 @@ impl FileWriter {
                 .join(qblock_rel_path(id.as_str()))
                 .to_string_lossy()
                 .into_owned();
-            results.push(
-                self.write_qblock_merged(&id, id_winner, &id_participation)
-                    .await,
-            );
+            let result = self
+                .write_qblock_merged(&id, id_winner, &id_participation)
+                .await;
+            results.push((id.clone(), result));
             if !written.iter().any(|existing| existing == &rel) {
                 written.push(rel);
             }
         }
-        let all_ok = results.iter().all(Result::is_ok);
+        let all_ok = results.iter().all(|(_, result)| result.is_ok());
         if all_ok && !written.is_empty() {
             // Keep the manifest fresh as qblocks land so the client can
             // discover them without waiting for the hourly rebuild.
@@ -489,7 +491,7 @@ mod tests {
         w.write_batch(Some(&winner), &[part])
             .await
             .into_iter()
-            .collect::<std::io::Result<()>>()?;
+            .try_for_each(|(_, result)| result)?;
         let rel = qblock_rel_path("42");
         let abs = dir.path().join(QBLOCKS_DIR).join(&rel);
         let bytes = tokio::fs::read(&abs).await?;
@@ -593,7 +595,7 @@ mod tests {
         w.write_batch(None, &[part_a])
             .await
             .into_iter()
-            .collect::<std::io::Result<()>>()?;
+            .try_for_each(|(_, result)| result)?;
         // Second commit: winner lands, a new participant joins.
         let part_b = QBlockParticipationRecord {
             qblock_id: dashboard_model::DecimalString::from_str("42")?,
@@ -605,7 +607,7 @@ mod tests {
         w.write_batch(Some(&winner), &[part_b])
             .await
             .into_iter()
-            .collect::<std::io::Result<()>>()?;
+            .try_for_each(|(_, result)| result)?;
         let rel = qblock_rel_path("42");
         let abs = dir.path().join(QBLOCKS_DIR).join(&rel);
         let bytes = tokio::fs::read(&abs).await?;
@@ -811,8 +813,13 @@ mod tests {
         };
         let results = w.write_batch(Some(&winner), &[]).await;
         assert!(
-            results.iter().all(Result::is_ok),
+            results.iter().all(|(_, result)| result.is_ok()),
             "write_batch should succeed"
+        );
+        assert_eq!(
+            results.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["42"],
+            "write_batch should report the qblock id it wrote"
         );
         let manifest_abs = dir.path().join(QBLOCKS_DIR).join("metadata.json");
         let parsed: Value = serde_json::from_slice(&tokio::fs::read(&manifest_abs).await?)?;
