@@ -1,5 +1,4 @@
 {
-  "blocks": [],
   "selfAddress": null,
   "indexer": null,
   "serverTime": "2026-07-01T12:00:00.000Z",
@@ -10,12 +9,11 @@
   "recentDifficulty": [],
   "mineableTopologies": [],
   "validators": [],
-  "nodes": null,
-  "nodeDescriptors": [],
   "recentMiningSubmissions": [],
   "selfProblemsAttempted": 0,
-  "currentDispatch": null,
   "files": {
-    "qblocksManifest": "/files/qblocks/metadata.json"
+    "qblocksManifest": "/files/qblocks/metadata.json",
+    "nodesSnapshot": "/files/nodes/snapshot.json",
+    "minerCurrentDispatch": null
   }
 }

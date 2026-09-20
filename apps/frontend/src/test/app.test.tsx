@@ -37,15 +37,6 @@ function makeBlock(overrides: Partial<BlockRecord> & Pick<BlockRecord, "minerId"
   };
 }
 
-const MOCK_BLOCKS: BlockRecord[] = [
-  makeBlock({ substrateBlockNumber: "5", minerId: "qpu-miner-1" }),
-  makeBlock({ substrateBlockNumber: "4", minerId: "cpu-miner-2" }),
-  makeBlock({ substrateBlockNumber: "3", minerId: "gpu-miner-2" }),
-  makeBlock({ substrateBlockNumber: "2", minerId: "qpu-miner-1" }),
-  makeBlock({ substrateBlockNumber: "1", minerId: "cpu-miner-1" }),
-  makeBlock({ substrateBlockNumber: "0", minerId: "gpu-miner-1" }),
-];
-
 // One in-window win so the mining-time card renders its chart (an empty
 // window shows the "No qblocks in this range yet" notice instead). With no
 // chainMiners the miner resolves to "OTHER", which selectedTypes includes.
@@ -63,7 +54,6 @@ const MOCK_MINING_HISTORY = {
 };
 
 const MOCK_RESPONSE: TelemetryResponse = {
-  blocks: MOCK_BLOCKS,
   selfAddress: null,
   indexer: null,
   serverTime: "2025-01-01T00:00:00Z",
@@ -74,12 +64,13 @@ const MOCK_RESPONSE: TelemetryResponse = {
   recentDifficulty: [],
   mineableTopologies: [],
   validators: [],
-  nodes: null,
-  nodeDescriptors: [],
   recentMiningSubmissions: [],
   selfProblemsAttempted: 0,
-  currentDispatch: null,
-  files: { qblocksManifest: "/files/qblocks/metadata.json" },
+  files: {
+    qblocksManifest: "/files/qblocks/metadata.json",
+    nodesSnapshot: "/files/nodes/snapshot.json",
+    minerCurrentDispatch: null,
+  },
   // The participation facts now ride in the file-backed qblock tree, served
   // under /files (see the /files route in the fetch mock below). They are no
   // longer part of the telemetry response.

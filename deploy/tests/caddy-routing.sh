@@ -213,6 +213,7 @@ docker run -d --name "${CADDY}" --pull=never --network "${NET}" \
 	-v "${FRONTEND}:/app/frontend:ro" \
 	-v "${DATA}/qblocks:/data/qblocks:ro" \
 	-v "${DATA}/miners:/data/miners:ro" \
+	-v "${DATA}/nodes:/data/nodes:ro" \
 	-v "${DATA}/dashboard.db:/data/dashboard.db:ro" \
 	-v "${DATA}/syslog-ng:/data/syslog-ng:ro" \
 	-v "${WORKDIR}/caddy-data:/data/caddy/data" \
@@ -312,7 +313,12 @@ assert_not_contains "${BODY}" "spa-index" "missing files entry must not be SPA H
 request GET "${BASE}/files/miners/5GPP/status.json"
 assert_status 200 "files miners entry"
 assert_contains "${BODY}" '"miner":"5GPP"' "files miners entry body"
-assert_contains "$(header_value Cache-Control)" "public" "files miners entry cacheable"
+assert_contains "$(header_value Cache-Control)" "no-cache" "files miners entry revalidated"
+
+request GET "${BASE}/files/nodes/snapshot.json"
+assert_status 200 "files nodes entry"
+assert_contains "${BODY}" '"nodeDescriptors"' "files nodes entry body"
+assert_contains "$(header_value Cache-Control)" "no-cache" "files nodes entry revalidated"
 
 log "== /files must not expose the private state directory"
 request GET "${BASE}/files/dashboard.db"

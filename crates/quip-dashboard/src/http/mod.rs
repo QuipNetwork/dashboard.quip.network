@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Read-only dashboard API backed by persisted chain data and shared miner probes.
 mod admission;
-mod geo;
+pub mod geo;
 mod response;
 mod routes;
 mod telemetry;
@@ -15,7 +15,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use dashboard_store::Store;
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Shared dependencies for the public read-only API.
@@ -25,7 +25,6 @@ pub struct HttpState {
     miner: Arc<MinerService>,
     health: HealthState,
     operator_account: Option<String>,
-    geo: Arc<geo::GeoIp>,
     clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
     cache: Arc<Mutex<telemetry::SnapshotCache>>,
     response_budget: Arc<tokio::sync::Semaphore>,
@@ -40,7 +39,6 @@ impl HttpState {
             miner,
             health,
             operator_account: None,
-            geo: Arc::new(geo::GeoIp::new(None)),
             clock: Arc::new(Utc::now),
             cache: Arc::new(Mutex::new(telemetry::SnapshotCache::default())),
             response_budget: Arc::new(tokio::sync::Semaphore::new(response::BYTES)),
@@ -50,16 +48,6 @@ impl HttpState {
     #[must_use]
     pub fn with_operator_account(mut self, account: Option<String>) -> Self {
         self.operator_account = account;
-        self
-    }
-    /// Enable optional offline city lookup from a local `MaxMind` database.
-    #[must_use]
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "The consuming builder accepts the owned optional configuration path"
-    )]
-    pub fn with_geoip_path(mut self, path: Option<PathBuf>) -> Self {
-        self.geo = Arc::new(geo::GeoIp::new(path.as_deref()));
         self
     }
     /// Supply a deterministic clock for contract replay.

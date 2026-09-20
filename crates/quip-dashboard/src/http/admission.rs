@@ -2,7 +2,7 @@
 use axum::{
     body::{Body, Bytes},
     extract::Request,
-    http::StatusCode,
+    http::{StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -17,7 +17,17 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub(super) async fn run(request: Request, next: Next, slots: Arc<Semaphore>) -> Response {
     let Ok(permit) = slots.try_acquire_owned() else {
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        // An empty 503 is indistinguishable from an outage. Name the reason
+        // and tell the client when to come back.
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [
+                (header::CONTENT_TYPE, "application/json"),
+                (header::RETRY_AFTER, "1"),
+            ],
+            r#"{"error":"server busy"}"#,
+        )
+            .into_response();
     };
     let response = match tokio::time::timeout(Duration::from_secs(30), next.run(request)).await {
         Ok(response) => response,
@@ -50,5 +60,38 @@ impl HttpBody for AdmittedBody {
     }
     fn size_hint(&self) -> SizeHint {
         self.inner.size_hint()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(
+        clippy::unwrap_used,
+        reason = "a test asserts its own preconditions before unwrapping"
+    )]
+    use super::*;
+    use axum::{Router, body::to_bytes, http::Request, routing::get};
+    use tower::ServiceExt;
+
+    /// A rejected request explains itself instead of returning an empty body.
+    #[tokio::test]
+    async fn a_full_queue_rejects_with_a_readable_body() {
+        let slots = Arc::new(Semaphore::new(1));
+        let held = Arc::clone(&slots).try_acquire_owned().unwrap();
+        let app =
+            Router::new()
+                .route("/", get(|| async { "ok" }))
+                .layer(axum::middleware::from_fn(move |request, next| {
+                    run(request, next, Arc::clone(&slots))
+                }));
+        let response = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers().get("retry-after").unwrap(), "1");
+        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(&bytes[..], br#"{"error":"server busy"}"#);
+        drop(held);
     }
 }

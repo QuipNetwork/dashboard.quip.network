@@ -21,11 +21,12 @@ import type {
 } from "@quip/shared/telemetry";
 
 export interface TelemetryState {
-  // The newest winner blocks from /api/telemetry (at most 500), DESC.
+  // Every winner block known so far, from the qblock manifest and the qblock
+  // files it lists. Same value as `wonBlocks`; DESC by substrate block
+  // number. Grows as qblock history loads, uncapped.
   blocks: BlockRecord[];
-  // Every winner block known: `blocks` plus the winner of each loaded qblock
-  // file, DESC by substrate block number. Grows as qblock history loads, so
-  // charts over it cover every qblock rather than the telemetry window.
+  // Same source and value as `blocks` (kept as a separate field for callers
+  // that name it that way).
   wonBlocks: BlockRecord[];
   selfAddress: string | null;
   indexer: IndexerObservability | null;
@@ -94,9 +95,11 @@ const createTelemetryState =
         for (const day of days) {
           const { rows, winners } = await deps.client.fetchQblockHistoryDay(day);
           fileWinners = winners;
+          const merged = mergeWonBlocks(fileWinners, []);
           set({
             participationCompute: rows,
-            wonBlocks: mergeWonBlocks(get().blocks, fileWinners),
+            blocks: merged,
+            wonBlocks: merged,
           });
         }
       } catch (e) {
@@ -139,19 +142,33 @@ const createTelemetryState =
           // slimmed telemetry points at. A missing or unparseable manifest
           // degrades to an empty participation array ("no data yet").
           let participationCompute: ParticipationComputeRow[] = [];
+          // Every file this poll needs depends only on `data.files`, so they all
+          // go out together and first paint pays one round trip, not three. The
+          // nodes and dispatch documents degrade to null on failure; a 404 on
+          // either (the writer has not run yet) must not fail the poll.
           const manifest = data.files?.qblocksManifest;
-          if (manifest) {
-            try {
-              const snapshot = await deps.client.fetchQblocks(manifest);
-              participationCompute = snapshot.rows;
-              fileWinners = snapshot.winners;
-              if (!historyLoading && snapshot.history.length > 0) {
-                void loadQblockHistory(snapshot.history);
-              }
-            } catch (e) {
-              // Best-effort: a 404 on the manifest (indexer hasn't written
-              // files yet) must not fail the whole telemetry poll.
-              console.warn("qblock file fetch failed", e);
+          const nodesUrl = data.files?.nodesSnapshot;
+          const dispatchUrl = data.files?.minerCurrentDispatch;
+          const [qblockSnapshot, nodesDoc, dispatchDoc] = await Promise.all([
+            manifest
+              ? deps.client.fetchQblocks(manifest).catch((e: unknown) => {
+                  // fetchQblocks throws on a non-ok manifest, and an unhandled
+                  // throw here would reject the whole batch. Best-effort: a 404
+                  // (indexer hasn't written files yet) degrades to "no data yet".
+                  console.warn("qblock file fetch failed", e);
+                  return null;
+                })
+              : Promise.resolve(null),
+            nodesUrl ? deps.client.fetchNodesSnapshot(nodesUrl) : Promise.resolve(null),
+            dispatchUrl
+              ? deps.client.fetchMinerCurrentDispatch(dispatchUrl)
+              : Promise.resolve(null),
+          ]);
+          if (qblockSnapshot) {
+            participationCompute = qblockSnapshot.rows;
+            fileWinners = qblockSnapshot.winners;
+            if (!historyLoading && qblockSnapshot.history.length > 0) {
+              void loadQblockHistory(qblockSnapshot.history);
             }
           }
           // Defensive coercion: a rolling deploy (or a stale dev-server that
@@ -159,10 +176,14 @@ const createTelemetryState =
           // missing newly-added fields. Without these defaults, downstream
           // hooks crash on `undefined.map` / `undefined.length` instead of
           // gracefully degrading to "no data yet".
-          const blocks = data.blocks ?? [];
+          // Blocks come from the qblock files. `fileWinners` persists across polls,
+          // so a failed manifest fetch keeps the blocks already loaded. Merging
+          // against an empty array reuses the existing dedupe and DESC sort, which
+          // the tables rely on; the file walk does not guarantee either.
+          const blocks = mergeWonBlocks(fileWinners, []);
           set({
             blocks,
-            wonBlocks: mergeWonBlocks(blocks, fileWinners),
+            wonBlocks: blocks,
             selfAddress: data.selfAddress ?? null,
             indexer: data.indexer ?? null,
             serverTime: data.serverTime,
@@ -173,11 +194,13 @@ const createTelemetryState =
             recentDifficulty: data.recentDifficulty ?? [],
             mineableTopologies: data.mineableTopologies ?? [],
             validators: data.validators ?? [],
-            nodes: data.nodes ?? null,
-            nodeDescriptors: data.nodeDescriptors ?? [],
+            // The nodes document is file-backed. Keep the last good copy across
+            // polls so a transient 404 does not blank the network views.
+            nodes: nodesDoc?.nodes ?? get().nodes,
+            nodeDescriptors: nodesDoc?.nodeDescriptors ?? get().nodeDescriptors,
             recentMiningSubmissions: data.recentMiningSubmissions ?? [],
             selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
-            currentDispatch: data.currentDispatch ?? null,
+            currentDispatch: dispatchDoc,
             participationCompute,
             loading: false,
             error: null,
@@ -252,9 +275,9 @@ export function useServerNowMs(): number {
 }
 
 /**
- * The tip block, or null when no blocks are loaded. The API ships blocks
- * sorted DESC by substrate_block_number (see api/db/kysely-adapter.ts), so
- * the tip is the first element. Returns a reference
+ * The tip block, or null when no blocks are loaded. `mergeWonBlocks` sorts
+ * `blocks` DESC by substrate block number, so the tip is the first element.
+ * Returns a reference
  * stable between fetches (same BlockRecord identity in the array), so it's
  * safe to pass directly to `useTelemetryStore(selectTipBlock)`. Don't layer a
  * derived-object selector on top: zustand compares by reference and a fresh

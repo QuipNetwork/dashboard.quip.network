@@ -7,6 +7,7 @@ import type {
   IndexerObservability,
   MinerHardwareRecord,
   MinerStats,
+  NodesDocument,
   TelemetryResponse,
 } from "./telemetry";
 
@@ -108,9 +109,8 @@ describe("v6 telemetry types", () => {
     obs.nodesObservedAt;
   });
 
-  test("TelemetryResponse carries nodes (projected from descriptors) + nodeDescriptors", () => {
+  test("TelemetryResponse points at the nodes document instead of inlining it", () => {
     const r: TelemetryResponse = {
-      blocks: [],
       selfAddress: null,
       indexer: null,
       serverTime: "2026-05-19T00:00:00Z",
@@ -121,18 +121,30 @@ describe("v6 telemetry types", () => {
       recentDifficulty: [],
       mineableTopologies: [],
       validators: [],
-      nodes: null,
-      nodeDescriptors: [],
       recentMiningSubmissions: [],
       selfProblemsAttempted: 0,
-      currentDispatch: null,
-      files: { qblocksManifest: "/files/qblocks/metadata.json" },
+      files: {
+        qblocksManifest: "/files/qblocks/metadata.json",
+        nodesSnapshot: "/files/nodes/snapshot.json",
+        minerCurrentDispatch: null,
+      },
     };
+    expect(r.files.nodesSnapshot).toBe("/files/nodes/snapshot.json");
+    // @ts-expect-error - blocks is file-backed now, gone from the wire type
+    r.blocks;
+    // @ts-expect-error - nodes moved to the file at files.nodesSnapshot
+    r.nodes;
+    // @ts-expect-error - nodeDescriptors moved to the same file
+    r.nodeDescriptors;
+  });
+
+  test("NodesDocument is the shape served at files.nodesSnapshot", () => {
     // `nodes` is nullable until the descriptor worker observes its first
     // valid `quip-miner identify` extrinsic. `nodeDescriptors` is the raw
     // per-account record array — empty when nothing has been observed.
-    expect(r.nodes).toBeNull();
-    expect(r.nodeDescriptors).toEqual([]);
+    const d: NodesDocument = { nodes: null, nodeDescriptors: [] };
+    expect(d.nodes).toBeNull();
+    expect(d.nodeDescriptors).toEqual([]);
   });
 
   test("ChainMinerRecord.telemetryNodeAddress now joined from miner_hardware", () => {

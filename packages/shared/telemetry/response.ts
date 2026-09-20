@@ -18,7 +18,6 @@ import type {
   MiningSubmissionRecord,
   ModeBreakdown,
 } from "./miner";
-import type { NodeDescriptorRecord, NodesSnapshot } from "./node";
 
 /**
  * Observability snapshot written by the indexer on every successful poll.
@@ -180,7 +179,6 @@ export interface NodeLiveData {
 }
 
 export interface TelemetryResponse {
-  blocks: BlockRecord[];
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
   // Null until the indexer has completed its first successful poll.
   selfAddress: string | null;  // Indexer/node tip observability. null before the indexer has completed
@@ -206,16 +204,6 @@ export interface TelemetryResponse {
   // Active BABE authority set joined with per-validator authorship counters.
   // Empty when no BABE epoch has been polled yet.
   validators: ValidatorAuthorshipRecord[];
-  // Snapshot of network nodes, projected server-side from the
-  // `node_descriptors` table the indexer populates from
-  // `MinerRegistry.NodeDescriptors`. Null when no descriptor has
-  // been observed yet (fresh chain or pre-deploy operators). Drives the
-  // Compute Available view's TFLOPS/PFLOPS surfaces.
-  nodes: NodesSnapshot | null;
-  // Per-account indexed descriptors — raw signed payloads plus provenance.
-  // Empty when no `quip-miner identify` registry update has been seen. Drives
-  // the Node Identities panel and joins into ChainMinersTable.
-  nodeDescriptors: NodeDescriptorRecord[];
   // Recent submissions by the locally-polled miner, sourced from
   // `/api/v1/mining/attempts?solution_number=N` on the miner. Newest
   // first, capped at `RECENT_MINING_SUBMISSIONS_LIMIT` on the server.
@@ -231,16 +219,6 @@ export interface TelemetryResponse {
   // LastProofBlock won't double-count here. Zero until selfAddress
   // resolves or the indexer's first submission lands.
   selfProblemsAttempted: number;
-  // The miner's work against the current global solution_number — either
-  // the in-flight problem (status "in-flight", `solution_number =
-  // Σ proofsWon + 1`, which the miner is actively grinding) or the
-  // just-finished one (status "completed", `Σ proofsWon`) when the next
-  // hasn't produced iterations yet. Null when the network has no wins
-  // yet, or when both probes failed. The UI uses `status` to label the
-  // panel header and joins `solutionNumber` against
-  // `recentMiningSubmissions` to surface the chain outcome (e.g.
-  // chain_error vs submitted_inblock).
-  currentDispatch: CurrentDispatch | null;
   // Pointer to file-backed time-series data the client downloads directly
   // instead of receiving in the telemetry payload. The participation facts
   // (and other windowed time-series) live under /files on disk; the client
@@ -248,6 +226,24 @@ export interface TelemetryResponse {
   files: {
     // Absolute static URL of the qblock manifest (`/files/qblocks/metadata.json`).
     qblocksManifest: string;
+    // Absolute static URL of the nodes document
+    // (`/files/nodes/snapshot.json`). Holds the network node snapshot
+    // projected server-side from the `node_descriptors` table the indexer
+    // populates from `MinerRegistry.NodeDescriptors`, plus the raw
+    // descriptors themselves. A writer task republishes it every 30
+    // seconds; a missing file means it has not run yet.
+    nodesSnapshot: string;
+    // Absolute static URL of the local miner's current dispatch document
+    // (`/files/miners/<selfAddress>/current-dispatch.json`), or null when
+    // no self address is known. The miner's work against the current
+    // global solution_number — either the in-flight problem (status
+    // "in-flight", `solution_number = Σ proofsWon + 1`, which the miner is
+    // actively grinding) or the just-finished one (status "completed",
+    // `Σ proofsWon`) when the next hasn't produced iterations yet. The UI
+    // uses `status` to label the panel header and joins `solutionNumber`
+    // against `recentMiningSubmissions` to surface the chain outcome (e.g.
+    // chain_error vs submitted_inblock).
+    minerCurrentDispatch: string | null;
   };
 }
 

@@ -321,9 +321,18 @@ impl Indexer {
         let Some(writer) = &self.writer else {
             return;
         };
-        for result in writer.write_batch(winner, participation).await {
+        for (id, result) in writer.write_batch(winner, participation).await {
             if let Err(error) = result {
-                tracing::warn!(%error, "file-backed qblock write failed");
+                let path = writer
+                    .root
+                    .join(crate::qblock_path::QBLOCKS_DIR)
+                    .join(crate::qblock_path::qblock_rel_path(&id));
+                tracing::warn!(
+                    %error,
+                    qblock_id = %id,
+                    path = %path.display(),
+                    "file-backed qblock write failed"
+                );
             }
         }
     }

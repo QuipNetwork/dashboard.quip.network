@@ -110,7 +110,6 @@ mod tests {
     #[test]
     fn telemetry_response_empty_round_trip() -> Result<(), Box<dyn Error>> {
         let body = TelemetryResponse {
-            blocks: Vec::new(),
             self_address: None,
             indexer: None,
             server_time: "2026-05-19T00:00:00Z".to_owned(),
@@ -121,13 +120,12 @@ mod tests {
             recent_difficulty: Vec::new(),
             mineable_topologies: Vec::new(),
             validators: Vec::new(),
-            nodes: None,
-            node_descriptors: Vec::new(),
             recent_mining_submissions: Vec::new(),
             self_problems_attempted: 0,
-            current_dispatch: None,
             files: TelemetryFiles {
                 qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
+                nodes_snapshot: "/files/nodes/snapshot.json".to_owned(),
+                miner_current_dispatch: None,
             },
         };
         let json = serde_json::to_value(&body)?;
@@ -136,11 +134,11 @@ mod tests {
             Some(&serde_json::Value::from("2026-05-19T00:00:00Z"))
         );
         assert_eq!(json.get("selfAddress"), Some(&serde_json::Value::Null));
-        assert_eq!(
-            json.get("blocks")
-                .and_then(serde_json::Value::as_array)
-                .map(Vec::len),
-            Some(0)
+        assert!(json.get("blocks").is_none(), "blocks is no longer inlined");
+        assert!(json.get("nodes").is_none(), "nodes is no longer inlined");
+        assert!(
+            json.get("nodeDescriptors").is_none(),
+            "nodeDescriptors is no longer inlined"
         );
         let parsed: TelemetryResponse = serde_json::from_value(json)?;
         assert_eq!(parsed.server_time, body.server_time);

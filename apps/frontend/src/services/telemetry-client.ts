@@ -4,11 +4,13 @@ import { createContext, useContext } from "react";
 
 import type {
   BlockRecord,
+  CurrentDispatch,
   DifficultyHistoryResponse,
   MinerWinsResponse,
   MiningAttemptsResponse,
   MiningHistoryResponse,
   NodeLiveData,
+  NodesDocument,
   NodeSummaryResponse,
   ParticipationComputeRow,
   QblockFile,
@@ -50,6 +52,10 @@ export interface TelemetryClient {
   // Load one day of older qblocks named in `QblockSnapshot.history`. The data
   // covers every qblock file loaded so far.
   fetchQblockHistoryDay(dayPath: string, signal?: AbortSignal): Promise<QblockData>;
+  // The local miner's current dispatch, or null when the file is missing.
+  fetchMinerCurrentDispatch(url: string, signal?: AbortSignal): Promise<CurrentDispatch | null>;
+  // The nodes document, or null when the file is missing.
+  fetchNodesSnapshot(url: string, signal?: AbortSignal): Promise<NodesDocument | null>;
 }
 
 // What the loaded qblock files hold, across every file loaded so far.
@@ -170,7 +176,10 @@ export class HttpTelemetryClient implements TelemetryClient {
   }
 
   async fetchQblocks(manifestUrl: string, signal?: AbortSignal): Promise<QblockSnapshot> {
-    const manifestRes = await this.fetch(manifestUrl, signal ? { signal } : undefined);
+    const manifestRes = await this.fetch(
+      `${this.baseUrl}${manifestUrl}`,
+      signal ? { signal } : undefined,
+    );
     if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`);
     const manifest = (await manifestRes.json()) as QblockManifest;
     await this.loadQblockFiles(manifest.qblocks, signal);
@@ -229,6 +238,36 @@ export class HttpTelemetryClient implements TelemetryClient {
       );
       if (!res.ok) return null;
       return (await res.json()) as QblockFile;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return null;
+    }
+  }
+
+  // The local miner's current dispatch, or null when the file is missing.
+  // A missing file means the poller has not written one yet; the caller
+  // degrades to "no dispatch" rather than failing the whole poll.
+  async fetchMinerCurrentDispatch(
+    url: string,
+    signal?: AbortSignal,
+  ): Promise<CurrentDispatch | null> {
+    try {
+      const res = await this.fetch(`${this.baseUrl}${url}`, signal ? { signal } : undefined);
+      if (!res.ok) return null;
+      return (await res.json()) as CurrentDispatch;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return null;
+    }
+  }
+
+  // The nodes document, or null when it is unavailable. The writer task
+  // publishes it every 30 seconds; a missing file means it has not run yet.
+  async fetchNodesSnapshot(url: string, signal?: AbortSignal): Promise<NodesDocument | null> {
+    try {
+      const res = await this.fetch(`${this.baseUrl}${url}`, signal ? { signal } : undefined);
+      if (!res.ok) return null;
+      return (await res.json()) as NodesDocument;
     } catch (error) {
       if (signal?.aborted) throw error;
       return null;

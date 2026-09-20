@@ -13,7 +13,6 @@ use crate::chain::{
 };
 use crate::decimal::DecimalString;
 use crate::miner::{CurrentDispatch, MinerStats, MiningSubmissionRecord, ModeBreakdownMap};
-use crate::node::{NodeDescriptorRecord, NodesSnapshot};
 use crate::serde_util::double_option;
 
 /// QPU wall-clock to chip-access ratio used when exact telemetry is absent.
@@ -194,14 +193,17 @@ pub struct NodeLiveData {
 pub struct TelemetryFiles {
     /// Absolute static URL of the qblock manifest (`/files/qblocks/metadata.json`).
     pub qblocks_manifest: String,
+    /// Absolute static URL of the nodes document (`/files/nodes/snapshot.json`).
+    pub nodes_snapshot: String,
+    /// Absolute static URL of the local miner's current dispatch document,
+    /// or `None` when no self address is known.
+    pub miner_current_dispatch: Option<String>,
 }
 
 /// `GET /api/telemetry` body.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TelemetryResponse {
-    /// Recent blocks.
-    pub blocks: Vec<BlockRecord>,
     /// SS58 of the locally polled miner.
     pub self_address: Option<String>,
     /// Indexer observability.
@@ -222,16 +224,10 @@ pub struct TelemetryResponse {
     pub mineable_topologies: Vec<MineableTopologyRecord>,
     /// Authorship joined against the active BABE set.
     pub validators: Vec<ValidatorAuthorshipRecord>,
-    /// Network nodes projected from descriptors.
-    pub nodes: Option<NodesSnapshot>,
-    /// Indexed descriptors.
-    pub node_descriptors: Vec<NodeDescriptorRecord>,
     /// Recent submissions by the locally polled miner.
     pub recent_mining_submissions: Vec<MiningSubmissionRecord>,
     /// Lifetime problems attempted by self.
     pub self_problems_attempted: u64,
-    /// Current dispatch.
-    pub current_dispatch: Option<CurrentDispatch>,
     /// Pointer to file-backed time-series data.
     pub files: TelemetryFiles,
 }

@@ -42,6 +42,8 @@ function clientReturning(impl: TelemetryClient["fetchNodeLive"]): TelemetryClien
     fetchQblockHistoryDay: () => new Promise<never>(() => {}),
     fetchNodeSummary: () => new Promise<never>(() => {}),
     fetchMinerWins: () => new Promise<never>(() => {}),
+    fetchMinerCurrentDispatch: () => new Promise<never>(() => {}),
+    fetchNodesSnapshot: () => new Promise<never>(() => {}),
   };
 }
 

@@ -722,14 +722,19 @@ async fn serve(config: Config) -> CommandResult {
         result = lifecycle::shutdown_signal() => { result?; return Ok(()); }
         result = tokio::time::timeout(Duration::from_secs(config.limits.startup_deadline_sec), open_service_store(&config)) => Arc::new(result.map_err(|_| "database startup exceeded 60 seconds")??),
     };
+    // One database for the whole process: GeoIp holds the whole MaxMind file
+    // in memory and caches host lookups, so the HTTP state and the nodes
+    // writer share this instance instead of each opening their own.
+    let geo = Arc::new(quip_dashboard::http::geo::GeoIp::new(
+        config.geoip_db_path.as_deref(),
+    ));
     let setup = async {
         let miner = Arc::new(MinerService::new(
             Some(config.miner_rest_url.as_str().into()),
             Arc::new(StorePeers(store.clone())),
         )?);
         let state = HttpState::new(store.clone(), miner.clone(), health.clone())
-            .with_operator_account(config.operator_account.clone())
-            .with_geoip_path(config.geoip_db_path.clone());
+            .with_operator_account(config.operator_account.clone());
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.listen_port)).await?;
         Ok::<_, Box<dyn Error + Send + Sync>>((miner, router(state), listener))
     }
@@ -752,6 +757,37 @@ async fn serve(config: Config) -> CommandResult {
     });
     let chain_slot: SharedChain = Arc::default();
     let shutdown_budget = Duration::from_secs(config.limits.shutdown_deadline_sec);
+    // Outside the indexer gate: API-only mode serves the same views, and the
+    // projection needs only the store and the database opened above.
+    // Descriptors change rarely, so a 30-second refresh stays well inside the
+    // staleness the old per-request projection already allowed.
+    tasks.spawn("nodes-writer", {
+        let store = store.clone();
+        let writer = FileWriter::new(config.data_dir.clone());
+        let geo = Arc::clone(&geo);
+        let cancellation = cancellation.clone();
+        async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(30));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    () = cancellation.cancelled() => return Ok(()),
+                    _ = ticker.tick() => {
+                        match quip_dashboard::nodes::build_nodes_document(&store, &geo).await {
+                            Ok(doc) => {
+                                if let Err(error) =
+                                    quip_dashboard::nodes::write_nodes_document(&writer, &doc).await
+                                {
+                                    tracing::warn!(%error, "nodes snapshot write failed");
+                                }
+                            }
+                            Err(error) => tracing::warn!(%error, "nodes snapshot build failed"),
+                        }
+                    }
+                }
+            }
+        }
+    });
     if config.run_indexer {
         let (bound, bound_receiver) = tokio::sync::watch::channel(false);
         let interval = Duration::from_secs(config.limits.miner_poll_interval_sec);

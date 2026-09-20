@@ -287,6 +287,8 @@ describe("RecentBlocksTable server pagination", () => {
       fetchQblockHistoryDay: () => new Promise<never>(() => {}),
       fetchNodeSummary: () => new Promise<never>(() => {}),
       fetchMinerWins: () => new Promise<never>(() => {}),
+      fetchMinerCurrentDispatch: () => new Promise<never>(() => {}),
+      fetchNodesSnapshot: () => new Promise<never>(() => {}),
     };
     return { client, calls: () => n };
   }
