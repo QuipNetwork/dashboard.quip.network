@@ -58,8 +58,17 @@ impl HttpState {
         clippy::needless_pass_by_value,
         reason = "The consuming builder accepts the owned optional configuration path"
     )]
-    pub fn with_geoip_path(mut self, path: Option<PathBuf>) -> Self {
-        self.geo = Arc::new(geo::GeoIp::new(path.as_deref()));
+    pub fn with_geoip_path(self, path: Option<PathBuf>) -> Self {
+        self.with_geo(Arc::new(geo::GeoIp::new(path.as_deref())))
+    }
+    /// Share an already-opened database with the rest of the process.
+    ///
+    /// `GeoIp` holds the whole `MaxMind` file in memory and caches host
+    /// lookups, so every reader must take the same instance rather than
+    /// opening its own.
+    #[must_use]
+    pub fn with_geo(mut self, geo: Arc<geo::GeoIp>) -> Self {
+        self.geo = geo;
         self
     }
     /// Supply a deterministic clock for contract replay.
