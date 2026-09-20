@@ -9,6 +9,7 @@ import type {
   BlockRecord,
   ChainHead,
   ChainMinerRecord,
+  CurrentDispatch,
   DifficultyRecord,
   IndexerObservability,
   MiningAttemptsResponse,
@@ -344,6 +345,37 @@ describe("fetchTelemetry", () => {
     ]);
     expect(s.loading).toBe(false);
     expect(s.error).toBeNull();
+  });
+
+  it("fetches the miner's current dispatch from the file the response points at", async () => {
+    const dispatch: CurrentDispatch = {
+      solutionNumber: 7,
+      status: "in-flight",
+      attempts: [
+        { iter: 1, bestEnergyMilli: -14200, resultKind: "stored", minerType: "CPU", extra: {} },
+      ],
+    };
+    const calls: string[] = [];
+    const client: FakeClient = {
+      ...clientReturning(
+        makeResponse({
+          files: {
+            qblocksManifest: "/files/qblocks/metadata.json",
+            minerCurrentDispatch: "/files/miners/5GPP/current-dispatch.json",
+          },
+        }),
+      ),
+      fetchMinerCurrentDispatch: async (url: string) => {
+        calls.push(url);
+        return dispatch;
+      },
+    };
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+
+    expect(calls).toEqual(["/files/miners/5GPP/current-dispatch.json"]);
+    expect(store.getState().currentDispatch).toEqual(dispatch);
   });
 
   it("exposes nodes (NodesSnapshot | null) but not the deleted telemetryIndex field", () => {
