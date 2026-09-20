@@ -111,14 +111,27 @@
 		reverse_proxy {$QUIP_DASHBOARD_UPSTREAM:127.0.0.1:3001}
 	}
 
-	# Static time-series files written by the indexer. Only the two trees
+	# Static time-series files written by the indexer. Only the three trees
 	# FileWriter produces are public: /data also holds the index database,
-	# Caddy's certificates and ACME keys, and collector state.
-	@public_files path /files/qblocks/* /files/miners/* /files/nodes/*
-	handle @public_files {
+	# Caddy's certificates and ACME keys, and collector state. qblocks settle
+	# once written and never change, so it is safe to cache for five minutes.
+	# miners and nodes are live documents (rewritten on every poll and every
+	# 30 seconds respectively), so they get `no-cache`: the browser
+	# revalidates on every request, and Caddy answers 304 from its `Etag`
+	# when the file has not changed, so the bytes still leave the Rust
+	# process only when the document actually did.
+	@qblock_files path /files/qblocks/*
+	handle @qblock_files {
 		uri strip_prefix /files
 		root * /data
 		header Cache-Control "public, max-age=300"
+		file_server
+	}
+	@live_files path /files/miners/* /files/nodes/*
+	handle @live_files {
+		uri strip_prefix /files
+		root * /data
+		header Cache-Control "no-cache"
 		file_server
 	}
 	# Everything else under /files is private. Answer 404 rather than fall
