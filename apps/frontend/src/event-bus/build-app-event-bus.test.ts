@@ -19,7 +19,7 @@ function fakeClient(response: Partial<TelemetryResponse> = {}): FakeClient {
     calls: 0,
     fetchTelemetry: async () => {
       client.calls += 1;
-      return { blocks: [], selfAddress: "5GPP", ...response } as TelemetryResponse;
+      return { selfAddress: "5GPP", ...response } as TelemetryResponse;
     },
     fetchMiningAttempts: async (): Promise<MiningAttemptsResponse> => {
       throw new Error("not used");

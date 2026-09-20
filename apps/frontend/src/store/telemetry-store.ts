@@ -21,11 +21,12 @@ import type {
 } from "@quip/shared/telemetry";
 
 export interface TelemetryState {
-  // The newest winner blocks from /api/telemetry (at most 500), DESC.
+  // Every winner block known so far, from the qblock manifest and the qblock
+  // files it lists. Same value as `wonBlocks`; DESC by substrate block
+  // number. Grows as qblock history loads, uncapped.
   blocks: BlockRecord[];
-  // Every winner block known: `blocks` plus the winner of each loaded qblock
-  // file, DESC by substrate block number. Grows as qblock history loads, so
-  // charts over it cover every qblock rather than the telemetry window.
+  // Same source and value as `blocks` (kept as a separate field for callers
+  // that name it that way).
   wonBlocks: BlockRecord[];
   selfAddress: string | null;
   indexer: IndexerObservability | null;
@@ -274,9 +275,9 @@ export function useServerNowMs(): number {
 }
 
 /**
- * The tip block, or null when no blocks are loaded. The API ships blocks
- * sorted DESC by substrate_block_number (see api/db/kysely-adapter.ts), so
- * the tip is the first element. Returns a reference
+ * The tip block, or null when no blocks are loaded. `mergeWonBlocks` sorts
+ * `blocks` DESC by substrate block number, so the tip is the first element.
+ * Returns a reference
  * stable between fetches (same BlockRecord identity in the array), so it's
  * safe to pass directly to `useTelemetryStore(selectTipBlock)`. Don't layer a
  * derived-object selector on top: zustand compares by reference and a fresh

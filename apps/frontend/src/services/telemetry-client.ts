@@ -176,7 +176,10 @@ export class HttpTelemetryClient implements TelemetryClient {
   }
 
   async fetchQblocks(manifestUrl: string, signal?: AbortSignal): Promise<QblockSnapshot> {
-    const manifestRes = await this.fetch(manifestUrl, signal ? { signal } : undefined);
+    const manifestRes = await this.fetch(
+      `${this.baseUrl}${manifestUrl}`,
+      signal ? { signal } : undefined,
+    );
     if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`);
     const manifest = (await manifestRes.json()) as QblockManifest;
     await this.loadQblockFiles(manifest.qblocks, signal);

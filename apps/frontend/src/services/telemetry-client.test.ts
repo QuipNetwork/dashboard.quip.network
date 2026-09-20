@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { MiningAttemptsResponse, TelemetryResponse } from "@quip/shared/telemetry";
+import type {
+  CurrentDispatch,
+  MiningAttemptsResponse,
+  NodesDocument,
+  TelemetryResponse,
+} from "@quip/shared/telemetry";
 import { HttpTelemetryClient } from "./telemetry-client";
 
 interface Recorded {
@@ -230,7 +235,7 @@ describe("HttpTelemetryClient.fetchQblocks", () => {
         return new Response("{}", { status: 404 });
       }) as typeof globalThis.fetch,
     });
-    const { rows } = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    const { rows } = await client.fetchQblocks("/files/qblocks/metadata.json");
     expect(calls).toContain("http://test/files/qblocks/metadata.json");
     expect(rows).toEqual([
       { qblockId: "2", account: "A", kind: "Cpu", miningSeconds: 60, exactQpuAccessUs: null },
@@ -262,12 +267,12 @@ describe("HttpTelemetryClient.fetchQblocks", () => {
         });
       }) as typeof globalThis.fetch,
     });
-    const { rows: first } = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    const { rows: first } = await client.fetchQblocks("/files/qblocks/metadata.json");
     // 39 files load; every file after the first yields an interval (8 measures from 6).
     expect(first).toHaveLength(38);
     expect(peak).toBeLessThanOrEqual(8);
     calls.length = 0;
-    await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    await client.fetchQblocks("/files/qblocks/metadata.json");
     // Settled files come from the cache; only the failed file is retried.
     expect(calls).toEqual([
       "http://test/files/qblocks/metadata.json",
@@ -307,7 +312,7 @@ describe("HttpTelemetryClient.fetchQblocks", () => {
         return json({}, 404);
       }) as typeof globalThis.fetch,
     });
-    const snapshot = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    const snapshot = await client.fetchQblocks("/files/qblocks/metadata.json");
     expect(snapshot.rows).toEqual([]);
     expect(snapshot.history).toEqual(["qblocks/days/2026-09-03.json"]);
     expect(snapshot.winners.map((w) => w.qblockId)).toEqual(["3"]);
@@ -317,8 +322,86 @@ describe("HttpTelemetryClient.fetchQblocks", () => {
       ["2", 100],
       ["3", 200],
     ]);
-    const again = await client.fetchQblocks("http://test/files/qblocks/metadata.json");
+    const again = await client.fetchQblocks("/files/qblocks/metadata.json");
     expect(again.history).toEqual([]);
     expect(again.rows).toHaveLength(2);
+  });
+});
+
+describe("HttpTelemetryClient.fetchMinerCurrentDispatch", () => {
+  const DISPATCH_BODY: CurrentDispatch = { solutionNumber: 7, attempts: [], status: "in-flight" };
+  const DISPATCH_URL = "/files/miners/5GPP/current-dispatch.json";
+
+  it("requests the baseUrl-prefixed url and returns the parsed document", async () => {
+    const { fetch, calls } = fakeFetch(() => json(DISPATCH_BODY));
+    const client = new HttpTelemetryClient({ fetch, baseUrl: "https://example.test" });
+
+    const out = await client.fetchMinerCurrentDispatch(DISPATCH_URL);
+
+    expect(calls[0]?.url).toBe(`https://example.test${DISPATCH_URL}`);
+    expect(out).toEqual(DISPATCH_BODY);
+  });
+
+  it("resolves null on a non-ok response", async () => {
+    const { fetch } = fakeFetch(() => new Response("nope", { status: 404 }));
+    const client = new HttpTelemetryClient({ fetch });
+
+    const out = await client.fetchMinerCurrentDispatch(DISPATCH_URL);
+
+    expect(out).toBeNull();
+  });
+
+  it("rethrows when the signal is aborted", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const fetch = (async (
+      _input: Parameters<typeof globalThis.fetch>[0],
+      _init?: RequestInit,
+    ): Promise<Response> => {
+      throw new Error("aborted");
+    }) as typeof globalThis.fetch;
+    const client = new HttpTelemetryClient({ fetch });
+
+    await expect(client.fetchMinerCurrentDispatch(DISPATCH_URL, ac.signal)).rejects.toThrow(
+      "aborted",
+    );
+  });
+});
+
+describe("HttpTelemetryClient.fetchNodesSnapshot", () => {
+  const NODES_BODY: NodesDocument = { nodes: null, nodeDescriptors: [] };
+  const NODES_URL = "/files/nodes/snapshot.json";
+
+  it("requests the baseUrl-prefixed url and returns the parsed document", async () => {
+    const { fetch, calls } = fakeFetch(() => json(NODES_BODY));
+    const client = new HttpTelemetryClient({ fetch, baseUrl: "https://example.test" });
+
+    const out = await client.fetchNodesSnapshot(NODES_URL);
+
+    expect(calls[0]?.url).toBe(`https://example.test${NODES_URL}`);
+    expect(out).toEqual(NODES_BODY);
+  });
+
+  it("resolves null on a non-ok response", async () => {
+    const { fetch } = fakeFetch(() => new Response("nope", { status: 404 }));
+    const client = new HttpTelemetryClient({ fetch });
+
+    const out = await client.fetchNodesSnapshot(NODES_URL);
+
+    expect(out).toBeNull();
+  });
+
+  it("rethrows when the signal is aborted", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const fetch = (async (
+      _input: Parameters<typeof globalThis.fetch>[0],
+      _init?: RequestInit,
+    ): Promise<Response> => {
+      throw new Error("aborted");
+    }) as typeof globalThis.fetch;
+    const client = new HttpTelemetryClient({ fetch });
+
+    await expect(client.fetchNodesSnapshot(NODES_URL, ac.signal)).rejects.toThrow("aborted");
   });
 });
