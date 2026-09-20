@@ -727,8 +727,16 @@ async fn telemetry_preserves_more_than_4096_participation_facts() -> TestResult 
     );
     // This store has no self address, so the pointer is absent rather than a URL.
     assert!(body["files"]["minerCurrentDispatch"].is_null());
-    assert!(bytes.len() < 2 * 1024 * 1024);
-    assert!(bytes.len() < 1024 * 1024, "telemetry should be small");
+    assert_eq!(body["files"]["nodesSnapshot"], "/files/nodes/snapshot.json");
+    // Production measured 1,479,476 bytes before blocks, nodes,
+    // nodeDescriptors and currentDispatch moved to files. The budget is
+    // deliberately tight: the HTTP admission window holds a permit for the
+    // whole body transfer, so payload size sets how many readers fit.
+    assert!(
+        bytes.len() < 128 * 1024,
+        "telemetry grew to {} bytes; the large fields belong in files",
+        bytes.len()
+    );
     assert!(
         body.get("blocks").is_none(),
         "blocks must come from the qblock files, not telemetry"
