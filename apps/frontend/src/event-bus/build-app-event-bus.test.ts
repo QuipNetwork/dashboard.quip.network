@@ -33,6 +33,7 @@ function fakeClient(response: Partial<TelemetryResponse> = {}): FakeClient {
     fetchQblockHistoryDay: () => new Promise<never>(() => {}),
     fetchNodeSummary: () => new Promise<never>(() => {}),
     fetchMinerCurrentDispatch: () => new Promise<never>(() => {}),
+    fetchNodesSnapshot: () => new Promise<never>(() => {}),
   };
   return client;
 }

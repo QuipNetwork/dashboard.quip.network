@@ -3,13 +3,10 @@ use super::{HttpState, routes::ApiError};
 use axum::{
     body::{Body, Bytes},
     extract::State,
-    http::{StatusCode, header},
+    http::header,
     response::{IntoResponse, Response},
 };
-use dashboard_model::{
-    NodeInfo, NodesSnapshot, TelemetryFiles, TelemetryResponse, ValidatorAuthorshipRecord,
-};
-use serde_json::json;
+use dashboard_model::{TelemetryFiles, TelemetryResponse, ValidatorAuthorshipRecord};
 use std::{collections::BTreeMap, time::Duration};
 use tokio::time::Instant;
 #[derive(Default)]
@@ -47,17 +44,6 @@ pub(super) async fn get(State(state): State<HttpState>) -> Result<Response, ApiE
     )
         .into_response())
 }
-fn capacity_error() -> ApiError {
-    ApiError(
-        StatusCode::SERVICE_UNAVAILABLE,
-        json!({"error":"telemetry response capacity exceeded"}),
-    )
-}
-
-#[expect(
-    clippy::too_many_lines,
-    reason = "One snapshot lists the existing telemetry contract and its persisted joins together"
-)]
 async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
     let db = &state.store;
     let (
@@ -70,7 +56,6 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         mut recent_difficulty,
         hardware,
         authorship,
-        node_descriptors,
         mineable_topologies,
     ) = tokio::try_join!(
         db.get_self_address(),
@@ -82,7 +67,6 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         db.get_recent_difficulty(50),
         db.get_all_miner_hardware(),
         db.get_validator_authorship(),
-        db.get_all_node_descriptors(),
         db.get_mineable_topologies(),
     )?;
     let self_address = self_address.or_else(|| state.operator_account.clone());
@@ -125,47 +109,6 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
             }
         })
         .collect();
-    let mut nodes = BTreeMap::new();
-    let mut updated_at = String::new();
-    for record in &node_descriptors {
-        let descriptor = &record.descriptor;
-        let location = if let Some(host) = &descriptor.public_host {
-            state.geo.lookup(host).await
-        } else {
-            None
-        };
-        let node = NodeInfo {
-            address: record.account_id.clone(),
-            status: "active".into(),
-            first_seen: record.first_block_timestamp,
-            last_seen: record.block_timestamp,
-            last_heartbeat: None,
-            ecdsa_public_key_hex: None,
-            node_name: Some(descriptor.node_name.clone()),
-            public_host: descriptor.public_host.clone(),
-            public_port: descriptor.public_port,
-            log_level: descriptor.log_level.clone(),
-            runtime: descriptor.runtime.clone(),
-            miners: descriptor.miners.clone(),
-            system_info: descriptor.system_info.clone(),
-            location,
-        };
-        let _ = nodes.insert(record.account_id.clone(), node);
-        if record.observed_at > updated_at {
-            updated_at.clone_from(&record.observed_at);
-        }
-    }
-    let count = u32::try_from(nodes.len()).map_err(|_| capacity_error())?;
-    let nodes = if nodes.is_empty() {
-        None
-    } else {
-        Some(NodesSnapshot {
-            updated_at,
-            node_count: count,
-            active_count: count,
-            nodes,
-        })
-    };
     if let Some(topology) = mineable_topologies
         .iter()
         .find(|row| row.is_default)
@@ -185,12 +128,11 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         recent_difficulty,
         mineable_topologies,
         validators,
-        nodes,
-        node_descriptors,
         recent_mining_submissions,
         self_problems_attempted,
         files: TelemetryFiles {
             qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
+            nodes_snapshot: "/files/nodes/snapshot.json".to_owned(),
             miner_current_dispatch,
         },
     })

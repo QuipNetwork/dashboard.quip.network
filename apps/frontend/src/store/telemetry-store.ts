@@ -141,27 +141,34 @@ const createTelemetryState =
           // slimmed telemetry points at. A missing or unparseable manifest
           // degrades to an empty participation array ("no data yet").
           let participationCompute: ParticipationComputeRow[] = [];
+          // Every file this poll needs depends only on `data.files`, so they all
+          // go out together and first paint pays one round trip, not three. The
+          // nodes and dispatch documents degrade to null on failure; a 404 on
+          // either (the writer has not run yet) must not fail the poll.
           const manifest = data.files?.qblocksManifest;
-          if (manifest) {
-            try {
-              const snapshot = await deps.client.fetchQblocks(manifest);
-              participationCompute = snapshot.rows;
-              fileWinners = snapshot.winners;
-              if (!historyLoading && snapshot.history.length > 0) {
-                void loadQblockHistory(snapshot.history);
-              }
-            } catch (e) {
-              // Best-effort: a 404 on the manifest (indexer hasn't written
-              // files yet) must not fail the whole telemetry poll.
-              console.warn("qblock file fetch failed", e);
-            }
-          }
-          // The dispatch document is file-backed like the qblock files. A missing
-          // pointer or file degrades to "no dispatch" rather than failing the poll.
-          let currentDispatch: CurrentDispatch | null = null;
+          const nodesUrl = data.files?.nodesSnapshot;
           const dispatchUrl = data.files?.minerCurrentDispatch;
-          if (dispatchUrl) {
-            currentDispatch = await deps.client.fetchMinerCurrentDispatch(dispatchUrl);
+          const [qblockSnapshot, nodesDoc, dispatchDoc] = await Promise.all([
+            manifest
+              ? deps.client.fetchQblocks(manifest).catch((e: unknown) => {
+                  // fetchQblocks throws on a non-ok manifest, and an unhandled
+                  // throw here would reject the whole batch. Best-effort: a 404
+                  // (indexer hasn't written files yet) degrades to "no data yet".
+                  console.warn("qblock file fetch failed", e);
+                  return null;
+                })
+              : Promise.resolve(null),
+            nodesUrl ? deps.client.fetchNodesSnapshot(nodesUrl) : Promise.resolve(null),
+            dispatchUrl
+              ? deps.client.fetchMinerCurrentDispatch(dispatchUrl)
+              : Promise.resolve(null),
+          ]);
+          if (qblockSnapshot) {
+            participationCompute = qblockSnapshot.rows;
+            fileWinners = qblockSnapshot.winners;
+            if (!historyLoading && qblockSnapshot.history.length > 0) {
+              void loadQblockHistory(qblockSnapshot.history);
+            }
           }
           // Defensive coercion: a rolling deploy (or a stale dev-server that
           // hasn't been restarted past a schema bump) can return a response
@@ -186,11 +193,13 @@ const createTelemetryState =
             recentDifficulty: data.recentDifficulty ?? [],
             mineableTopologies: data.mineableTopologies ?? [],
             validators: data.validators ?? [],
-            nodes: data.nodes ?? null,
-            nodeDescriptors: data.nodeDescriptors ?? [],
+            // The nodes document is file-backed. Keep the last good copy across
+            // polls so a transient 404 does not blank the network views.
+            nodes: nodesDoc?.nodes ?? get().nodes,
+            nodeDescriptors: nodesDoc?.nodeDescriptors ?? get().nodeDescriptors,
             recentMiningSubmissions: data.recentMiningSubmissions ?? [],
             selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
-            currentDispatch,
+            currentDispatch: dispatchDoc,
             participationCompute,
             loading: false,
             error: null,

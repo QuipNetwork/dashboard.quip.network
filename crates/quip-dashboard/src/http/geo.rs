@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+//! Offline city lookup for a node's public host, from a local `MaxMind` database.
 use dashboard_model::NodeLocation;
 use maxminddb::Reader;
 use serde::Deserialize;
 use std::{collections::BTreeMap, net::IpAddr, path::Path, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
 
-pub(super) struct GeoIp {
+/// A city database plus a short-lived cache of host lookups.
+pub struct GeoIp {
     reader: Option<Reader<Vec<u8>>>,
     cache: Mutex<BTreeMap<String, (Instant, Option<NodeLocation>)>>,
 }
 impl GeoIp {
-    pub(super) fn new(path: Option<&Path>) -> Self {
+    /// Open the database at `path`. A missing or unreadable file disables lookup.
+    #[must_use]
+    pub fn new(path: Option<&Path>) -> Self {
         let reader = path.and_then(|path| match Reader::open_readfile(path) {
             Ok(reader) => Some(reader),
             Err(error) => {
@@ -23,7 +27,9 @@ impl GeoIp {
             cache: Mutex::new(BTreeMap::new()),
         }
     }
-    pub(super) async fn lookup(&self, host: &str) -> Option<NodeLocation> {
+    /// Resolve `host` to a city, or `None` without a database, a resolvable
+    /// address, or a matching record.
+    pub async fn lookup(&self, host: &str) -> Option<NodeLocation> {
         let reader = self.reader.as_ref()?;
         if host.len() > 253 {
             return None;

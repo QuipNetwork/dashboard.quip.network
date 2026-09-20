@@ -13,6 +13,7 @@ import type {
   DifficultyRecord,
   IndexerObservability,
   MiningAttemptsResponse,
+  NodesDocument,
   TelemetryResponse,
   ValidatorAuthorshipRecord,
 } from "@quip/shared/telemetry";
@@ -126,6 +127,42 @@ const MOCK_INDEXER: IndexerObservability = {
   modes: {},
 };
 
+// The document served at `files.nodesSnapshot`, holding the node projection
+// and the descriptors it came from.
+const NODES_DOCUMENT: NodesDocument = {
+  nodes: {
+    updatedAt: "2026-05-19T12:00:00Z",
+    nodeCount: 1,
+    activeCount: 1,
+    nodes: {
+      "5GPP": {
+        address: "5GPP",
+        status: "active",
+        firstSeen: 1_700_000_000,
+        lastSeen: 1_700_000_100,
+        lastHeartbeat: null,
+        nodeName: "node-5GPP",
+      },
+    },
+  },
+  nodeDescriptors: [
+    {
+      accountId: "5GPP",
+      blockNumber: "100",
+      blockHash: "0xshash",
+      extrinsicIndex: 0,
+      blockTimestamp: 1_700_000_100,
+      firstBlockTimestamp: 1_700_000_000,
+      descriptor: {
+        schema: "quip.node_descriptor.v1",
+        descriptorVersion: 1,
+        nodeName: "node-5GPP",
+      },
+      observedAt: "2026-05-19T12:00:00Z",
+    },
+  ],
+};
+
 function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResponse {
   return {
     selfAddress: "5GPP",
@@ -138,11 +175,13 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     recentDifficulty: [MOCK_DIFFICULTY],
     mineableTopologies: [],
     validators: [MOCK_VALIDATOR],
-    nodes: null,
-    nodeDescriptors: [],
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
-    files: { qblocksManifest: "/files/qblocks/metadata.json", minerCurrentDispatch: null },
+    files: {
+      qblocksManifest: "/files/qblocks/metadata.json",
+      nodesSnapshot: "/files/nodes/snapshot.json",
+      minerCurrentDispatch: null,
+    },
     ...overrides,
   };
 }
@@ -211,6 +250,7 @@ function clientReturning(response: TelemetryResponse): FakeClient {
     }),
     fetchQblockHistoryDay: async () => ({ rows: [], winners: [] }),
     fetchMinerCurrentDispatch: async () => null,
+    fetchNodesSnapshot: async () => null,
   };
   return client;
 }
@@ -234,6 +274,7 @@ function clientThrowing(error: Error): FakeClient {
     fetchQblocks: async () => ({ rows: [], winners: [], history: [] }),
     fetchQblockHistoryDay: async () => ({ rows: [], winners: [] }),
     fetchMinerCurrentDispatch: async () => null,
+    fetchNodesSnapshot: async () => null,
   };
   return client;
 }
@@ -360,6 +401,7 @@ describe("fetchTelemetry", () => {
         makeResponse({
           files: {
             qblocksManifest: "/files/qblocks/metadata.json",
+            nodesSnapshot: "/files/nodes/snapshot.json",
             minerCurrentDispatch: "/files/miners/5GPP/current-dispatch.json",
           },
         }),
@@ -377,12 +419,42 @@ describe("fetchTelemetry", () => {
     expect(store.getState().currentDispatch).toEqual(dispatch);
   });
 
-  it("exposes nodes (NodesSnapshot | null) but not the deleted telemetryIndex field", () => {
-    const store = createTelemetryStore({ client: clientReturning(makeResponse()) });
-    const s = store.getState() as unknown as Record<string, unknown>;
-    expect("nodes" in s).toBe(true);
-    expect(s.nodes).toBeNull();
-    expect("telemetryIndex" in s).toBe(false);
+  it("fills nodes and nodeDescriptors from the file the response points at", async () => {
+    const calls: string[] = [];
+    const client: FakeClient = {
+      ...clientReturning(makeResponse()),
+      fetchNodesSnapshot: async (url: string) => {
+        calls.push(url);
+        return NODES_DOCUMENT;
+      },
+    };
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+
+    expect(calls).toEqual(["/files/nodes/snapshot.json"]);
+    const s = store.getState();
+    expect(s.nodes).toEqual(NODES_DOCUMENT.nodes);
+    expect(s.nodeDescriptors).toEqual(NODES_DOCUMENT.nodeDescriptors);
+    expect("telemetryIndex" in (s as unknown as Record<string, unknown>)).toBe(false);
+  });
+
+  it("keeps the last good nodes document when a later file fetch fails", async () => {
+    // The document lands on the first poll, then the file 404s. The second
+    // poll must not blank the network views.
+    let polls = 0;
+    const client: FakeClient = {
+      ...clientReturning(makeResponse()),
+      fetchNodesSnapshot: async () => (polls++ === 0 ? NODES_DOCUMENT : null),
+    };
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+    await store.getState().fetchTelemetry();
+
+    expect(polls).toBe(2);
+    expect(store.getState().nodes).toEqual(NODES_DOCUMENT.nodes);
+    expect(store.getState().nodeDescriptors).toEqual(NODES_DOCUMENT.nodeDescriptors);
   });
 
   it("sets error and clears loading on HTTP failure", async () => {

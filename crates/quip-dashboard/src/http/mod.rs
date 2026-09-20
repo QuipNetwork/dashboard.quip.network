@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Read-only dashboard API backed by persisted chain data and shared miner probes.
 mod admission;
-mod geo;
+pub mod geo;
 mod response;
 mod routes;
 mod telemetry;

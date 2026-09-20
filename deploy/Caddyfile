@@ -114,7 +114,7 @@
 	# Static time-series files written by the indexer. Only the two trees
 	# FileWriter produces are public: /data also holds the index database,
 	# Caddy's certificates and ACME keys, and collector state.
-	@public_files path /files/qblocks/* /files/miners/*
+	@public_files path /files/qblocks/* /files/miners/* /files/nodes/*
 	handle @public_files {
 		uri strip_prefix /files
 		root * /data

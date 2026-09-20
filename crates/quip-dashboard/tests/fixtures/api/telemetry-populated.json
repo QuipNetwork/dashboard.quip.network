@@ -143,115 +143,6 @@
       "online": false
     }
   ],
-  "nodes": {
-    "updatedAt": "2026-07-01T00:00:00.000Z",
-    "nodeCount": 4,
-    "activeCount": 4,
-    "nodes": {
-      "5GDown": {
-        "address": "5GDown",
-        "status": "active",
-        "firstSeen": 0,
-        "lastSeen": 0,
-        "lastHeartbeat": null,
-        "nodeName": "down",
-        "publicHost": "10.0.0.9",
-        "publicPort": 8088
-      },
-      "5GPP": {
-        "address": "5GPP",
-        "status": "active",
-        "firstSeen": 1780272000,
-        "lastSeen": 1782864000,
-        "lastHeartbeat": null,
-        "nodeName": "local-operator",
-        "publicHost": "127.0.0.1",
-        "publicPort": 8086
-      },
-      "5GNoHost": {
-        "address": "5GNoHost",
-        "status": "active",
-        "firstSeen": 0,
-        "lastSeen": 0,
-        "lastHeartbeat": null,
-        "nodeName": "no-host"
-      },
-      "5GPeer": {
-        "address": "5GPeer",
-        "status": "active",
-        "firstSeen": 0,
-        "lastSeen": 0,
-        "lastHeartbeat": null,
-        "nodeName": "peer",
-        "publicHost": "1.2.3.4",
-        "publicPort": 8088
-      }
-    }
-  },
-  "nodeDescriptors": [
-    {
-      "accountId": "5GDown",
-      "blockNumber": "1",
-      "blockHash": "0x72de068f6d6fdbfbb004185ee28488b6a140d2035777e84087f61b77be838d4e",
-      "extrinsicIndex": 0,
-      "blockTimestamp": 0,
-      "firstBlockTimestamp": 0,
-      "descriptor": {
-        "schema": "quip.node_descriptor.v1",
-        "nodeName": "down",
-        "publicHost": "10.0.0.9",
-        "publicPort": 8088,
-        "descriptorVersion": 1
-      },
-      "observedAt": "2026-06-30T00:00:00.000Z"
-    },
-    {
-      "accountId": "5GPP",
-      "blockNumber": "120",
-      "blockHash": "0xcb9d19be11633a93af9e6e8237fab72a8da315257b36dd7a154c809d42e7f022",
-      "extrinsicIndex": 2,
-      "blockTimestamp": 1782864000,
-      "firstBlockTimestamp": 1780272000,
-      "descriptor": {
-        "schema": "quip.node_descriptor.v1",
-        "nodeName": "local-operator",
-        "publicHost": "127.0.0.1",
-        "publicPort": 8086,
-        "descriptorVersion": 1
-      },
-      "observedAt": "2026-07-01T00:00:00.000Z"
-    },
-    {
-      "accountId": "5GNoHost",
-      "blockNumber": "1",
-      "blockHash": "0x466e6be19a5e1bd8ad9aa60fb8e5b90fb4fc889431445c0f2234b9d043a02cda",
-      "extrinsicIndex": 0,
-      "blockTimestamp": 0,
-      "firstBlockTimestamp": 0,
-      "descriptor": {
-        "schema": "quip.node_descriptor.v1",
-        "nodeName": "no-host",
-        "descriptorVersion": 1
-      },
-      "observedAt": "2026-06-30T00:00:00.000Z"
-    },
-    {
-      "accountId": "5GPeer",
-      "blockNumber": "1",
-      "blockHash": "0x15ebe35e117f2469bbad9e8f3da78ec4c490bd15beefde1b00d587a2f09f28aa",
-      "extrinsicIndex": 0,
-      "blockTimestamp": 0,
-      "firstBlockTimestamp": 0,
-      "descriptor": {
-        "schema": "quip.node_descriptor.v1",
-        "nodeName": "peer",
-        "publicHost": "1.2.3.4",
-        "publicPort": 8088,
-        "descriptorVersion": 1
-      },
-      "observedAt": "2026-06-30T00:00:00.000Z"
-    }
-  ],
   "recentMiningSubmissions": [
     {
       "minerId": "5GPP",
@@ -277,6 +168,7 @@
   "selfProblemsAttempted": 1,
   "files": {
     "qblocksManifest": "/files/qblocks/metadata.json",
+    "nodesSnapshot": "/files/nodes/snapshot.json",
     "minerCurrentDispatch": "/files/miners/5GPP/current-dispatch.json"
   }
 }

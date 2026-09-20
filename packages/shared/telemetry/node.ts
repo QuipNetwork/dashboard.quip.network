@@ -146,3 +146,14 @@ export interface NodeDescriptorRecord {
   descriptor: NodeDescriptor;
   observedAt: string;
 }
+
+/**
+ * The file-backed nodes document served at `/files/nodes/snapshot.json`.
+ * `nodes` is a projection of `nodeDescriptors`, so the two travel together
+ * in one file and the client fetches once. A writer task republishes it
+ * every 30 seconds.
+ */
+export interface NodesDocument {
+  nodes: NodesSnapshot | null;
+  nodeDescriptors: NodeDescriptorRecord[];
+}

@@ -9,12 +9,11 @@
   "recentDifficulty": [],
   "mineableTopologies": [],
   "validators": [],
-  "nodes": null,
-  "nodeDescriptors": [],
   "recentMiningSubmissions": [],
   "selfProblemsAttempted": 0,
   "files": {
     "qblocksManifest": "/files/qblocks/metadata.json",
+    "nodesSnapshot": "/files/nodes/snapshot.json",
     "minerCurrentDispatch": null
   }
 }

@@ -10,6 +10,7 @@ import type {
   MiningAttemptsResponse,
   MiningHistoryResponse,
   NodeLiveData,
+  NodesDocument,
   NodeSummaryResponse,
   ParticipationComputeRow,
   QblockFile,
@@ -53,6 +54,8 @@ export interface TelemetryClient {
   fetchQblockHistoryDay(dayPath: string, signal?: AbortSignal): Promise<QblockData>;
   // The local miner's current dispatch, or null when the file is missing.
   fetchMinerCurrentDispatch(url: string, signal?: AbortSignal): Promise<CurrentDispatch | null>;
+  // The nodes document, or null when the file is missing.
+  fetchNodesSnapshot(url: string, signal?: AbortSignal): Promise<NodesDocument | null>;
 }
 
 // What the loaded qblock files hold, across every file loaded so far.
@@ -249,6 +252,19 @@ export class HttpTelemetryClient implements TelemetryClient {
       const res = await this.fetch(`${this.baseUrl}${url}`, signal ? { signal } : undefined);
       if (!res.ok) return null;
       return (await res.json()) as CurrentDispatch;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return null;
+    }
+  }
+
+  // The nodes document, or null when it is unavailable. The writer task
+  // publishes it every 30 seconds; a missing file means it has not run yet.
+  async fetchNodesSnapshot(url: string, signal?: AbortSignal): Promise<NodesDocument | null> {
+    try {
+      const res = await this.fetch(`${this.baseUrl}${url}`, signal ? { signal } : undefined);
+      if (!res.ok) return null;
+      return (await res.json()) as NodesDocument;
     } catch (error) {
       if (signal?.aborted) throw error;
       return null;

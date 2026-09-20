@@ -120,12 +120,11 @@ mod tests {
             recent_difficulty: Vec::new(),
             mineable_topologies: Vec::new(),
             validators: Vec::new(),
-            nodes: None,
-            node_descriptors: Vec::new(),
             recent_mining_submissions: Vec::new(),
             self_problems_attempted: 0,
             files: TelemetryFiles {
                 qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
+                nodes_snapshot: "/files/nodes/snapshot.json".to_owned(),
                 miner_current_dispatch: None,
             },
         };
@@ -136,6 +135,11 @@ mod tests {
         );
         assert_eq!(json.get("selfAddress"), Some(&serde_json::Value::Null));
         assert!(json.get("blocks").is_none(), "blocks is no longer inlined");
+        assert!(json.get("nodes").is_none(), "nodes is no longer inlined");
+        assert!(
+            json.get("nodeDescriptors").is_none(),
+            "nodeDescriptors is no longer inlined"
+        );
         let parsed: TelemetryResponse = serde_json::from_value(json)?;
         assert_eq!(parsed.server_time, body.server_time);
         Ok(())

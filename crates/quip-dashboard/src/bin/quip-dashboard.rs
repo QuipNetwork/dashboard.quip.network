@@ -769,6 +769,35 @@ async fn serve(config: Config) -> CommandResult {
                 cancellation.clone(),
             ),
         );
+        // Descriptors change rarely, so a 30-second refresh stays well inside
+        // the staleness the old per-request projection already allowed.
+        tasks.spawn("nodes-writer", {
+            let store = store.clone();
+            let writer = FileWriter::new(config.data_dir.clone());
+            let geo = quip_dashboard::http::geo::GeoIp::new(config.geoip_db_path.as_deref());
+            let cancellation = cancellation.clone();
+            async move {
+                let mut ticker = tokio::time::interval(Duration::from_secs(30));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tokio::select! {
+                        () = cancellation.cancelled() => return Ok(()),
+                        _ = ticker.tick() => {
+                            match quip_dashboard::nodes::build_nodes_document(&store, &geo).await {
+                                Ok(doc) => {
+                                    if let Err(error) =
+                                        quip_dashboard::nodes::write_nodes_document(&writer, &doc).await
+                                    {
+                                        tracing::warn!(%error, "nodes snapshot write failed");
+                                    }
+                                }
+                                Err(error) => tracing::warn!(%error, "nodes snapshot build failed"),
+                            }
+                        }
+                    }
+                }
+            }
+        });
         tasks.spawn(
             "indexer",
             run_indexer(

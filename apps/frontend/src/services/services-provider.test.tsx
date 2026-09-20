@@ -26,6 +26,7 @@ const idleClient: TelemetryClient = {
   fetchQblockHistoryDay: () => new Promise<never>(() => {}),
   fetchNodeSummary: () => new Promise<never>(() => {}),
   fetchMinerCurrentDispatch: () => new Promise<never>(() => {}),
+  fetchNodesSnapshot: () => new Promise<never>(() => {}),
 };
 
 function SelfAddress() {
