@@ -500,8 +500,12 @@ async fn telemetry_cache_is_single_flight_and_charges_held_bodies() -> TestResul
     let clock_reads = Arc::new(AtomicUsize::new(0));
     let clock_counter = Arc::clone(&clock_reads);
     let now = chrono::Utc::now();
+    // The operator account also seeds `files.minerCurrentDispatch`, which
+    // embeds the same account a second time, so a single build now spends
+    // roughly double the account length. 1000 KiB keeps one build well
+    // under budget while two of them still exceed it.
     let state = HttpState::new(Arc::clone(&store), miner, HealthState::new(false))
-        .with_operator_account(Some("A".repeat(1100 * 1024)))
+        .with_operator_account(Some("A".repeat(1000 * 1024)))
         .with_clock(Arc::new(move || {
             let _ = clock_counter.fetch_add(1, Ordering::SeqCst);
             now
@@ -717,6 +721,12 @@ async fn telemetry_preserves_more_than_4096_participation_facts() -> TestResult 
         body["files"]["qblocksManifest"],
         "/files/qblocks/metadata.json"
     );
+    assert!(
+        body.get("currentDispatch").is_none(),
+        "currentDispatch must not be inlined in telemetry"
+    );
+    // This store has no self address, so the pointer is absent rather than a URL.
+    assert!(body["files"]["minerCurrentDispatch"].is_null());
     assert!(bytes.len() < 2 * 1024 * 1024);
     assert!(bytes.len() < 1024 * 1024, "telemetry should be small");
     drop(app);

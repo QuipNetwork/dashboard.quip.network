@@ -142,8 +142,7 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
     nodeDescriptors: [],
     recentMiningSubmissions: [],
     selfProblemsAttempted: 0,
-    currentDispatch: null,
-    files: { qblocksManifest: "/files/qblocks/metadata.json" },
+    files: { qblocksManifest: "/files/qblocks/metadata.json", minerCurrentDispatch: null },
     ...overrides,
   };
 }
@@ -211,6 +210,7 @@ function clientReturning(response: TelemetryResponse): FakeClient {
       history: [],
     }),
     fetchQblockHistoryDay: async () => ({ rows: [], winners: [] }),
+    fetchMinerCurrentDispatch: async () => null,
   };
   return client;
 }
@@ -233,6 +233,7 @@ function clientThrowing(error: Error): FakeClient {
     fetchMiningHistory: () => new Promise<never>(() => {}),
     fetchQblocks: async () => ({ rows: [], winners: [], history: [] }),
     fetchQblockHistoryDay: async () => ({ rows: [], winners: [] }),
+    fetchMinerCurrentDispatch: async () => null,
   };
   return client;
 }

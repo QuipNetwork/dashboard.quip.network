@@ -231,16 +231,6 @@ export interface TelemetryResponse {
   // LastProofBlock won't double-count here. Zero until selfAddress
   // resolves or the indexer's first submission lands.
   selfProblemsAttempted: number;
-  // The miner's work against the current global solution_number — either
-  // the in-flight problem (status "in-flight", `solution_number =
-  // Σ proofsWon + 1`, which the miner is actively grinding) or the
-  // just-finished one (status "completed", `Σ proofsWon`) when the next
-  // hasn't produced iterations yet. Null when the network has no wins
-  // yet, or when both probes failed. The UI uses `status` to label the
-  // panel header and joins `solutionNumber` against
-  // `recentMiningSubmissions` to surface the chain outcome (e.g.
-  // chain_error vs submitted_inblock).
-  currentDispatch: CurrentDispatch | null;
   // Pointer to file-backed time-series data the client downloads directly
   // instead of receiving in the telemetry payload. The participation facts
   // (and other windowed time-series) live under /files on disk; the client
@@ -248,6 +238,17 @@ export interface TelemetryResponse {
   files: {
     // Absolute static URL of the qblock manifest (`/files/qblocks/metadata.json`).
     qblocksManifest: string;
+    // Absolute static URL of the local miner's current dispatch document
+    // (`/files/miners/<selfAddress>/current-dispatch.json`), or null when
+    // no self address is known. The miner's work against the current
+    // global solution_number — either the in-flight problem (status
+    // "in-flight", `solution_number = Σ proofsWon + 1`, which the miner is
+    // actively grinding) or the just-finished one (status "completed",
+    // `Σ proofsWon`) when the next hasn't produced iterations yet. The UI
+    // uses `status` to label the panel header and joins `solutionNumber`
+    // against `recentMiningSubmissions` to surface the chain outcome (e.g.
+    // chain_error vs submitted_inblock).
+    minerCurrentDispatch: string | null;
   };
 }
 

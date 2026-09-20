@@ -14,8 +14,8 @@
   "nodeDescriptors": [],
   "recentMiningSubmissions": [],
   "selfProblemsAttempted": 0,
-  "currentDispatch": null,
   "files": {
-    "qblocksManifest": "/files/qblocks/metadata.json"
+    "qblocksManifest": "/files/qblocks/metadata.json",
+    "minerCurrentDispatch": null
   }
 }

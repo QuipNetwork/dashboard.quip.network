@@ -154,6 +154,13 @@ const createTelemetryState =
               console.warn("qblock file fetch failed", e);
             }
           }
+          // The dispatch document is file-backed like the qblock files. A missing
+          // pointer or file degrades to "no dispatch" rather than failing the poll.
+          let currentDispatch: CurrentDispatch | null = null;
+          const dispatchUrl = data.files?.minerCurrentDispatch;
+          if (dispatchUrl) {
+            currentDispatch = await deps.client.fetchMinerCurrentDispatch(dispatchUrl);
+          }
           // Defensive coercion: a rolling deploy (or a stale dev-server that
           // hasn't been restarted past a schema bump) can return a response
           // missing newly-added fields. Without these defaults, downstream
@@ -177,7 +184,7 @@ const createTelemetryState =
             nodeDescriptors: data.nodeDescriptors ?? [],
             recentMiningSubmissions: data.recentMiningSubmissions ?? [],
             selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
-            currentDispatch: data.currentDispatch ?? null,
+            currentDispatch,
             participationCompute,
             loading: false,
             error: null,

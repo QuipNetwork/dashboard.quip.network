@@ -346,20 +346,8 @@
     }
   ],
   "selfProblemsAttempted": 1,
-  "currentDispatch": {
-    "solutionNumber": 6,
-    "attempts": [
-      {
-        "iter": 0,
-        "bestEnergyMilli": -14000,
-        "resultKind": "stored",
-        "minerType": "cpu",
-        "extra": {}
-      }
-    ],
-    "status": "in-flight"
-  },
   "files": {
-    "qblocksManifest": "/files/qblocks/metadata.json"
+    "qblocksManifest": "/files/qblocks/metadata.json",
+    "minerCurrentDispatch": "/files/miners/5GPP/current-dispatch.json"
   }
 }

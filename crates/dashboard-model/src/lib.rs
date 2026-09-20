@@ -125,9 +125,9 @@ mod tests {
             node_descriptors: Vec::new(),
             recent_mining_submissions: Vec::new(),
             self_problems_attempted: 0,
-            current_dispatch: None,
             files: TelemetryFiles {
                 qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
+                miner_current_dispatch: None,
             },
         };
         let json = serde_json::to_value(&body)?;

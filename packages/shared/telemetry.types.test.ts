@@ -125,8 +125,7 @@ describe("v6 telemetry types", () => {
       nodeDescriptors: [],
       recentMiningSubmissions: [],
       selfProblemsAttempted: 0,
-      currentDispatch: null,
-      files: { qblocksManifest: "/files/qblocks/metadata.json" },
+      files: { qblocksManifest: "/files/qblocks/metadata.json", minerCurrentDispatch: null },
     };
     // `nodes` is nullable until the descriptor worker observes its first
     // valid `quip-miner identify` extrinsic. `nodeDescriptors` is the raw

@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-use super::{
-    HttpState,
-    routes::{ApiError, best_effort},
-};
+use super::{HttpState, routes::ApiError};
 use axum::{
     body::{Body, Bytes},
     extract::State,
@@ -108,27 +105,6 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         miner.hardware = hardware.get(&miner.account_id).cloned();
         miner.telemetry_node_address = miner.hardware.as_ref().map(|row| row.node_id.clone());
     }
-    // A configured or historical identity alone does not authorize attaching
-    // current local hardware or dispatch to that account after a failed poll.
-    let current_dispatch = if indexer.as_ref().and_then(|row| row.self_identified) != Some(false)
-        && self_address
-            .as_ref()
-            .and_then(|account| hardware.get(account))
-            .is_some_and(|row| !row.miners.is_empty())
-    {
-        if let Some(number) = chain_head
-            .as_ref()
-            .and_then(|head| head.qblock_count)
-            .and_then(|number| number.checked_add(1))
-            .and_then(|number| i64::try_from(number).ok())
-        {
-            serde_json::from_value(best_effort(state.miner.local_dispatch(number).await)?)?
-        } else {
-            None
-        }
-    } else {
-        None
-    };
     let now = (state.clock)();
     let validators = babe_authorities
         .iter()
@@ -200,6 +176,7 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         blocks.retain(|row| row.topology_hash.as_ref() == Some(topology));
         recent_difficulty.retain(|row| row.topology_hash.as_ref() == Some(topology));
     }
+    let miner_current_dispatch = miner_dispatch_url(self_address.as_deref());
     Ok(TelemetryResponse {
         blocks,
         self_address,
@@ -216,9 +193,29 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         node_descriptors,
         recent_mining_submissions,
         self_problems_attempted,
-        current_dispatch,
         files: TelemetryFiles {
             qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
+            miner_current_dispatch,
         },
     })
+}
+
+/// Static URL of `account`'s dispatch document, or `None` without an account.
+fn miner_dispatch_url(account: Option<&str>) -> Option<String> {
+    account.map(|account| format!("/files/miners/{account}/current-dispatch.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::miner_dispatch_url;
+
+    /// The pointer names the account's file, and is absent without an account.
+    #[test]
+    fn the_dispatch_pointer_follows_the_miner_file_layout() {
+        assert_eq!(
+            miner_dispatch_url(Some("5G8Ack")).as_deref(),
+            Some("/files/miners/5G8Ack/current-dispatch.json")
+        );
+        assert_eq!(miner_dispatch_url(None), None);
+    }
 }

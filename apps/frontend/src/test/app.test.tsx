@@ -78,8 +78,7 @@ const MOCK_RESPONSE: TelemetryResponse = {
   nodeDescriptors: [],
   recentMiningSubmissions: [],
   selfProblemsAttempted: 0,
-  currentDispatch: null,
-  files: { qblocksManifest: "/files/qblocks/metadata.json" },
+  files: { qblocksManifest: "/files/qblocks/metadata.json", minerCurrentDispatch: null },
   // The participation facts now ride in the file-backed qblock tree, served
   // under /files (see the /files route in the fetch mock below). They are no
   // longer part of the telemetry response.

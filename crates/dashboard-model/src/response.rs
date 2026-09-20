@@ -194,6 +194,9 @@ pub struct NodeLiveData {
 pub struct TelemetryFiles {
     /// Absolute static URL of the qblock manifest (`/files/qblocks/metadata.json`).
     pub qblocks_manifest: String,
+    /// Absolute static URL of the local miner's current dispatch document,
+    /// or `None` when no self address is known.
+    pub miner_current_dispatch: Option<String>,
 }
 
 /// `GET /api/telemetry` body.
@@ -230,8 +233,6 @@ pub struct TelemetryResponse {
     pub recent_mining_submissions: Vec<MiningSubmissionRecord>,
     /// Lifetime problems attempted by self.
     pub self_problems_attempted: u64,
-    /// Current dispatch.
-    pub current_dispatch: Option<CurrentDispatch>,
     /// Pointer to file-backed time-series data.
     pub files: TelemetryFiles,
 }
