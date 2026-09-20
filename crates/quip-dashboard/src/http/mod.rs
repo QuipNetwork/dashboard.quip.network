@@ -25,7 +25,6 @@ pub struct HttpState {
     miner: Arc<MinerService>,
     health: HealthState,
     operator_account: Option<String>,
-    geo: Arc<geo::GeoIp>,
     clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
     cache: Arc<Mutex<telemetry::SnapshotCache>>,
     response_budget: Arc<tokio::sync::Semaphore>,
@@ -40,7 +39,6 @@ impl HttpState {
             miner,
             health,
             operator_account: None,
-            geo: Arc::new(geo::GeoIp::new(None)),
             clock: Arc::new(Utc::now),
             cache: Arc::new(Mutex::new(telemetry::SnapshotCache::default())),
             response_budget: Arc::new(tokio::sync::Semaphore::new(response::BYTES)),
@@ -50,16 +48,6 @@ impl HttpState {
     #[must_use]
     pub fn with_operator_account(mut self, account: Option<String>) -> Self {
         self.operator_account = account;
-        self
-    }
-    /// Share an already-opened database with the rest of the process.
-    ///
-    /// `GeoIp` holds the whole `MaxMind` file in memory and caches host
-    /// lookups, so every reader must take the same instance rather than
-    /// opening its own.
-    #[must_use]
-    pub fn with_geo(mut self, geo: Arc<geo::GeoIp>) -> Self {
-        self.geo = geo;
         self
     }
     /// Supply a deterministic clock for contract replay.
