@@ -14,7 +14,7 @@
     },
     "apps/frontend": {
       "name": "@quip/frontend",
-      "version": "0.2.3-rc2",
+      "version": "0.2.3-rc3",
       "dependencies": {
         "@nivo/bar": "^0.88.0",
         "@nivo/core": "^0.88.0",
@@ -46,7 +46,7 @@
     },
     "packages/shared": {
       "name": "@quip/shared",
-      "version": "0.2.3-rc2",
+      "version": "0.2.3-rc3",
     },
   },
   "packages": {

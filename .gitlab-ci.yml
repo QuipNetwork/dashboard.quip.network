@@ -94,6 +94,10 @@ rust:
     - for _attempt in $(seq 1 30); do pg_isready && break; sleep 1; done
     - pg_isready
   script:
+    # Cargo judges workspace crates fresh by file mtime, so a reused host
+    # target dir can serve a stale build of our own crates. Rebuild them every
+    # run; third-party dependencies stay cached. See docs/ci-cache.md.
+    - cargo clean -p dashboard-model -p dashboard-store -p quip-dashboard
     - cargo install cargo-deny --locked --version 0.20.2
     - cargo deny check
     - cargo fmt --all -- --check

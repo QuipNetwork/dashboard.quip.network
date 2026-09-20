@@ -434,7 +434,7 @@
       "host": "test-validator:9944",
       "path": "/api/v1/mining/attempts",
       "query": {
-        "solution_number": "3"
+        "solution_number": "2"
       },
       "status": 200,
       "body": {
@@ -452,7 +452,7 @@
               "num_valid": 6,
               "qpu_access_time_us": 0,
               "result_kind": "submitted",
-              "solution_number": 3,
+              "solution_number": 2,
               "submitted": true,
               "ts_ns": "1700000000000000000",
               "type": "attempt"
@@ -470,7 +470,7 @@
             "num_valid": 6,
             "outcome": "submitted",
             "pow_sequence": null,
-            "solution_number": 3,
+            "solution_number": 2,
             "threshold_milli": 0,
             "ts_ns": "1700000000000000000",
             "type": "submission"
@@ -483,7 +483,7 @@
       "path": "/api/v1/mining/attempts",
       "query": {
         "miner_id": "quip-miner-pow-CPU-1",
-        "solution_number": "6"
+        "solution_number": "5"
       },
       "status": 200,
       "body": {
@@ -505,7 +505,7 @@
       "path": "/api/v1/mining/attempts",
       "query": {
         "miner_id": "quip-miner-pow-CPU-1",
-        "solution_number": "5"
+        "solution_number": "4"
       },
       "status": 200,
       "body": {
@@ -519,7 +519,7 @@
       "host": "test-validator:9944",
       "path": "/api/v1/mining/attempts",
       "query": {
-        "solution_number": "99"
+        "solution_number": "98"
       },
       "status": 404,
       "body": {
@@ -530,7 +530,7 @@
       "host": "test-validator:9944",
       "path": "/api/v1/mining/attempts",
       "query": {
-        "solution_number": "7"
+        "solution_number": "6"
       },
       "error": "ECONNREFUSED"
     },
@@ -569,14 +569,14 @@
       "host": "1.2.3.4:8088",
       "path": "/api/v1/mining/attempts",
       "query": {
-        "solution_number": "42"
+        "solution_number": "41"
       },
       "status": 200,
       "body": {
         "success": true,
         "data": {
           "submission": {
-            "solution_number": 42
+            "solution_number": 41
           },
           "attempts": [
             {
@@ -593,7 +593,7 @@
       "host": "1.2.3.4:8088",
       "path": "/api/v1/mining/attempts",
       "query": {
-        "solution_number": "41"
+        "solution_number": "40"
       },
       "status": 200,
       "body": {

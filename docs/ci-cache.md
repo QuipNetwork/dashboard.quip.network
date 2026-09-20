@@ -72,6 +72,18 @@ directory warm.
 Plan for one target directory per slot per job. With a runner concurrency of
 2, plan for 2 directories.
 
+## Workspace crates rebuild every run
+
+The job starts with `cargo clean -p` for the three workspace crates. Cargo
+decides whether a workspace crate is fresh by comparing file modification
+times. Another pipeline can write a build of an older commit into the shared
+target directory after this job checks out its source. That build looks newer
+than the source, so Cargo uses it. A test that calls a new method then fails
+to compile.
+
+Cleaning the workspace crates makes them rebuild on every run. Third-party
+dependencies take most of the build time, and they stay cached.
+
 ## Pruning
 
 Each host must prune its own cache directory. A scheduled CI job cannot do

@@ -433,13 +433,17 @@ pub fn unwrap_envelope(raw: Value) -> Result<Value, MinerError> {
         return Ok(raw);
     };
     if obj.get("success").and_then(Value::as_bool) == Some(false) {
-        let msg = json_to_string(obj.get("error"), "envelope reported failure");
-        return Err(MinerError::EnvelopeFailure(msg));
+        return Err(envelope_failure(obj.get("error")));
     }
     if let Some(data) = obj.get("data") {
         return Ok(data.clone());
     }
     Ok(raw)
+}
+
+/// The error for an envelope whose `success` is false.
+pub(super) fn envelope_failure(error: Option<&Value>) -> MinerError {
+    MinerError::EnvelopeFailure(json_to_string(error, "envelope reported failure"))
 }
 
 /// Parse `/api/v1/mining/attempts` submission envelope.
@@ -454,10 +458,26 @@ pub fn parse_mining_attempts_api_response(
     let Value::Object(env) = raw else {
         return Err(MinerError::Unparsable("response is not an object".into()));
     };
-    let Some(Value::Object(s)) = env.get("submission") else {
+    mining_attempts_from_parts(
+        env.get("submission"),
+        AttemptTrail::from_raw(env.get("attempts")),
+    )
+}
+
+/// Build the submission response from its `submission` object and a folded
+/// attempt trail. Summary fields cover every attempt, not only the kept rows.
+///
+/// # Errors
+///
+/// Returns [`MinerError::Unparsable`] when required fields are missing or a
+/// required number is outside the safe-integer range.
+pub fn mining_attempts_from_parts(
+    submission: Option<&Value>,
+    trail: AttemptTrail,
+) -> Result<MiningAttemptsResponse, MinerError> {
+    let Some(Value::Object(s)) = submission else {
         return Err(MinerError::Unparsable("missing `submission` field".into()));
     };
-    let attempts = parse_attempts(env.get("attempts"));
     let energy_milli = require_num(s.get("energy_milli"), "energy_milli")?;
     let submission = MiningSubmissionRecord {
         solution_number: require_num(s.get("solution_number"), "solution_number")?,
@@ -482,37 +502,99 @@ pub fn parse_mining_attempts_api_response(
         },
         pow_sequence: optional_num(s.get("pow_sequence")),
         outcome: require_str(s.get("outcome"), "outcome")?,
-        attempt_count: i64::try_from(attempts.len()).unwrap_or(i64::MAX),
-        best_energy_milli: best_energy(&attempts, energy_milli),
-        num_valid: extract_num_valid(s, &attempts, env.get("attempts")),
-        qpu_access_time_us: sum_qpu_access_time_us(env.get("attempts")),
+        attempt_count: trail.count,
+        best_energy_milli: trail.best_energy_milli.unwrap_or(energy_milli),
+        num_valid: optional_num(s.get("num_valid"))
+            .or(trail.submitted_num_valid)
+            .or(trail.fallback_num_valid)
+            .unwrap_or(0),
+        qpu_access_time_us: trail.qpu_access_time_us,
         observed_at: String::new(),
     };
-    // Trim only after the summary above has read the full trail.
-    let mut attempts = attempts;
-    keep_newest_attempts(&mut attempts);
     Ok(MiningAttemptsResponse {
         submission,
-        attempts,
+        attempts: trail.into_newest(),
     })
-}
-
-/// Parse the `?miner_id=&solution_number=` dispatch form. Structural failure
-/// yields an empty list, matching `parseDispatchAttemptsApiResponse`.
-#[must_use]
-pub fn parse_dispatch_attempts_api_response(raw: &Value) -> Vec<MiningAttempt> {
-    let Some(obj) = raw.as_object() else {
-        return Vec::new();
-    };
-    let mut attempts = parse_attempts(obj.get("attempts"));
-    keep_newest_attempts(&mut attempts);
-    attempts
 }
 
 /// Newest attempts kept in a returned trail. The miner returns every iteration
 /// for a solution (thousands on a long qblock) with no paging, and the whole
 /// list would exceed the miner cache budget and fail the request.
 pub const ATTEMPT_TRAIL_LIMIT: usize = 500;
+
+/// Running fold over one solution's raw attempt rows. It keeps the summary
+/// totals for every row and at most `2 * ATTEMPT_TRAIL_LIMIT` parsed rows, so
+/// a streamed trail of any length needs bounded memory.
+#[derive(Debug, Default)]
+pub struct AttemptTrail {
+    count: i64,
+    best_energy_milli: Option<i64>,
+    qpu_access_time_us: i64,
+    /// Productivity of the last submit-kind row that reports one.
+    submitted_num_valid: Option<i64>,
+    /// Productivity fallback from the last parsed row that reports one.
+    fallback_num_valid: Option<i64>,
+    newest: Vec<MiningAttempt>,
+}
+
+impl AttemptTrail {
+    fn from_raw(raw: Option<&Value>) -> Self {
+        let mut trail = Self::default();
+        if let Some(Value::Array(items)) = raw {
+            for item in items {
+                trail.push(item);
+            }
+        }
+        trail
+    }
+
+    /// Fold one raw attempt row. Non-object rows are ignored; rows without a
+    /// safe `iter` or `best_energy_milli` count toward device time only.
+    pub fn push(&mut self, raw: &Value) {
+        let Some(obj) = raw.as_object() else {
+            return;
+        };
+        if let Some(us) = numeric_extra(obj.get("qpu_access_time_us"))
+            && us > 0
+        {
+            self.qpu_access_time_us = self.qpu_access_time_us.saturating_add(us);
+        }
+        let kind = obj
+            .get("result_kind")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if kind.contains("submit")
+            && let Some(n) = productivity_from_raw(obj)
+        {
+            self.submitted_num_valid = Some(n);
+        }
+        let Some(attempt) = parse_attempt(obj) else {
+            return;
+        };
+        self.count = self.count.saturating_add(1);
+        self.best_energy_milli = Some(
+            self.best_energy_milli
+                .map_or(attempt.best_energy_milli, |best| {
+                    best.min(attempt.best_energy_milli)
+                }),
+        );
+        if let Some(n) = fallback_num_valid(&attempt.extra) {
+            self.fallback_num_valid = Some(n);
+        }
+        self.newest.push(attempt);
+        if self.newest.len() >= 2 * ATTEMPT_TRAIL_LIMIT {
+            keep_newest_attempts(&mut self.newest);
+        }
+    }
+
+    /// The newest `ATTEMPT_TRAIL_LIMIT` parsed rows.
+    #[must_use]
+    pub fn into_newest(mut self) -> Vec<MiningAttempt> {
+        keep_newest_attempts(&mut self.newest);
+        self.newest
+    }
+}
 
 fn keep_newest_attempts(attempts: &mut Vec<MiningAttempt>) {
     if attempts.len() <= ATTEMPT_TRAIL_LIMIT {
@@ -591,51 +673,14 @@ pub fn resolve_peer_miner_rest_url(host: Option<&PeerHost>) -> Option<String> {
     }
 }
 
-fn extract_num_valid(
-    submission: &Map<String, Value>,
-    parsed: &[MiningAttempt],
-    raw: Option<&Value>,
-) -> i64 {
-    if let Some(n) = optional_num(submission.get("num_valid")) {
-        return n;
-    }
-    let Some(Value::Array(raw_attempts)) = raw else {
-        return 0;
-    };
-    for r in raw_attempts.iter().rev() {
-        let Some(obj) = r.as_object() else {
-            continue;
-        };
-        let kind = obj
-            .get("result_kind")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if !kind.contains("submit") {
-            continue;
-        }
-        if let Some(n) = productivity_from_raw(obj) {
-            return n;
-        }
-    }
-    for a in parsed.iter().rev() {
-        if let Some(n) = nested_number(&Value::Object(a.extra.clone()), "n_unique_total") {
-            return n;
-        }
-        if let Some(n) = a
-            .extra
-            .get("num_valid")
-            .and_then(|v| numeric_extra(Some(v)))
-        {
-            return n;
-        }
-        if let Some(meta) = a.extra.get("solution_meta")
-            && let Some(n) = nested_number(meta, "n_unique_total")
-        {
-            return n;
-        }
-    }
-    0
+fn fallback_num_valid(extra: &Map<String, Value>) -> Option<i64> {
+    numeric_extra(extra.get("n_unique_total"))
+        .or_else(|| numeric_extra(extra.get("num_valid")))
+        .or_else(|| {
+            extra
+                .get("solution_meta")
+                .and_then(|meta| nested_number(meta, "n_unique_total"))
+        })
 }
 
 fn productivity_from_raw(r: &Map<String, Value>) -> Option<i64> {
@@ -655,79 +700,34 @@ fn nested_number(container: &Value, key: &str) -> Option<i64> {
     numeric_extra(map.get(key))
 }
 
-fn sum_qpu_access_time_us(raw: Option<&Value>) -> i64 {
-    let Some(Value::Array(items)) = raw else {
-        return 0;
-    };
-    let mut total = 0_i64;
-    for a in items {
-        let Some(obj) = a.as_object() else {
-            continue;
-        };
-        if let Some(v) = numeric_extra(obj.get("qpu_access_time_us"))
-            && v > 0
+fn parse_attempt(obj: &Map<String, Value>) -> Option<MiningAttempt> {
+    let iter_n = safe_number(obj.get("iter"))?;
+    let best_n = safe_number(obj.get("best_energy_milli"))?;
+    let mut extra = Map::new();
+    for (k, v) in obj {
+        if k == "type"
+            || k == "iter"
+            || k == "best_energy_milli"
+            || k == "result_kind"
+            || k == "miner_type"
         {
-            total = total.saturating_add(v);
-        }
-    }
-    total
-}
-
-fn parse_attempts(raw: Option<&Value>) -> Vec<MiningAttempt> {
-    let Some(Value::Array(items)) = raw else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for a in items {
-        let Some(obj) = a.as_object() else {
             continue;
-        };
-        let Some(iter_n) = safe_number(obj.get("iter")) else {
-            continue;
-        };
-        let Some(best_n) = safe_number(obj.get("best_energy_milli")) else {
-            continue;
-        };
-        let mut extra = Map::new();
-        for (k, v) in obj {
-            if k == "type"
-                || k == "iter"
-                || k == "best_energy_milli"
-                || k == "result_kind"
-                || k == "miner_type"
-            {
-                continue;
-            }
-            let _prev = extra.insert(k.clone(), v.clone());
         }
-        out.push(MiningAttempt {
-            iter: iter_n,
-            best_energy_milli: best_n,
-            result_kind: match obj.get("result_kind") {
-                Some(Value::String(s)) => s.clone(),
-                _ => String::new(),
-            },
-            miner_type: match obj.get("miner_type") {
-                Some(Value::String(s)) => s.clone(),
-                _ => String::new(),
-            },
-            extra,
-        });
+        let _prev = extra.insert(k.clone(), v.clone());
     }
-    out
-}
-
-fn best_energy(attempts: &[MiningAttempt], fallback: i64) -> i64 {
-    let Some(first) = attempts.first() else {
-        return fallback;
-    };
-    let mut best = first.best_energy_milli;
-    for a in attempts.iter().skip(1) {
-        if a.best_energy_milli < best {
-            best = a.best_energy_milli;
-        }
-    }
-    best
+    Some(MiningAttempt {
+        iter: iter_n,
+        best_energy_milli: best_n,
+        result_kind: match obj.get("result_kind") {
+            Some(Value::String(s)) => s.clone(),
+            _ => String::new(),
+        },
+        miner_type: match obj.get("miner_type") {
+            Some(Value::String(s)) => s.clone(),
+            _ => String::new(),
+        },
+        extra,
+    })
 }
 
 fn require_str(v: Option<&Value>, name: &str) -> Result<String, MinerError> {

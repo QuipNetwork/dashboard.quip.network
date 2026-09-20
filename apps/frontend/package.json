@@ -1,6 +1,6 @@
 {
   "name": "@quip/frontend",
-  "version": "0.2.3-rc2",
+  "version": "0.2.3-rc3",
   "private": true,
   "type": "module",
   "dependencies": {

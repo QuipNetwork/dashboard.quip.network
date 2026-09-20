@@ -4,6 +4,7 @@
 mod cache;
 mod client;
 pub mod parse;
+mod stream;
 
 use cache::Cache;
 pub use cache::Observed;
@@ -220,18 +221,29 @@ impl MinerService {
         if solution == 0 || solution > 9_007_199_254_740_991 {
             return Err(MinerError::InvalidSolutionNumber);
         }
+        let miner_solution = miner_solution_number(solution)?;
         self.attempts
             .get(format!("{}:{solution}", key(base, peer)), peer, || async {
-                let raw = self
+                let body = self
                     .client
-                    .json(
+                    .attempts(
                         base,
-                        "/api/v1/mining/attempts",
-                        &[("solution_number", solution.to_string())],
+                        &[("solution_number", miner_solution.to_string())],
                         peer,
                     )
-                    .await?;
-                let mut parsed = parse::parse_mining_attempts_api_response(&raw)?;
+                    .await
+                    .map_err(|error| chain_numbered(error, solution))?;
+                let mut parsed =
+                    parse::mining_attempts_from_parts(body.submission.as_ref(), body.trail)?;
+                if parsed.submission.solution_number
+                    != i64::try_from(miner_solution).unwrap_or(i64::MAX)
+                {
+                    return Err(MinerError::Unparsable(
+                        "miner returned a different solution number".into(),
+                    ));
+                }
+                parsed.submission.solution_number = i64::try_from(solution).unwrap_or(i64::MAX);
+                chain_number_attempts(&mut parsed.attempts, solution);
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_err(|error| MinerError::Http(error.to_string()))?
@@ -310,27 +322,60 @@ impl MinerService {
         solution: i64,
         peer: bool,
     ) -> Result<Arc<Observed<Vec<parse::MiningAttempt>>>, MinerError> {
+        let solution = u64::try_from(solution).map_err(|_| MinerError::InvalidSolutionNumber)?;
+        let miner_solution = miner_solution_number(solution)?;
         self.dispatch_attempts
             .get(
                 format!("{}:{miner_id}:{solution}", key(base, peer)),
                 peer,
                 || async {
-                    let raw = self
+                    let body = self
                         .client
-                        .json(
+                        .attempts(
                             base,
-                            "/api/v1/mining/attempts",
                             &[
                                 ("miner_id", miner_id.to_owned()),
-                                ("solution_number", solution.to_string()),
+                                ("solution_number", miner_solution.to_string()),
                             ],
                             peer,
                         )
-                        .await?;
-                    Ok(parse::parse_dispatch_attempts_api_response(&raw))
+                        .await
+                        .map_err(|error| chain_numbered(error, solution))?;
+                    let mut attempts = body.trail.into_newest();
+                    chain_number_attempts(&mut attempts, solution);
+                    Ok(attempts)
                 },
             )
             .await
+    }
+}
+
+/// The miner files a solution's attempts under the id of the last accepted
+/// qblock (`QuantumPowApi_latest_qblock_id`), which is one below the chain id
+/// that the solution competes for. The dashboard uses chain ids everywhere
+/// and translates only here. Chain qblock 1 predates any accepted qblock, so
+/// the miner has no number for it.
+fn miner_solution_number(chain_qblock: u64) -> Result<u64, MinerError> {
+    chain_qblock
+        .checked_sub(1)
+        .filter(|number| *number > 0)
+        .ok_or(MinerError::NotFound(chain_qblock))
+}
+
+/// Rewrite each row's miner `solution_number` to the chain qblock id.
+fn chain_number_attempts(attempts: &mut [parse::MiningAttempt], chain_qblock: u64) {
+    for attempt in attempts {
+        if let Some(number) = attempt.extra.get_mut("solution_number") {
+            *number = chain_qblock.into();
+        }
+    }
+}
+
+/// Report a miner 404 under the chain qblock id the caller asked for.
+fn chain_numbered(error: MinerError, chain_qblock: u64) -> MinerError {
+    match error {
+        MinerError::NotFound(_) => MinerError::NotFound(chain_qblock),
+        other => other,
     }
 }
 

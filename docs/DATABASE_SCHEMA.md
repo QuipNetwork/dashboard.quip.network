@@ -252,7 +252,11 @@ account_id)))`, `(coalesce(node_name, account_id), account_id)`.
 
 Per-submission summaries polled from the local miner. Key
 `(miner_id, solution_number)` so polling miners never collides.
-`solution_number` is the global chain solution index, durable across restarts.
+`solution_number` is the chain qblock id that the submission competes for. It
+is durable across restarts. The miner reports a submission under the last
+accepted qblock id, which is 1 lower. The dashboard adds 1 when it reads the
+miner. Migration `0011_chain_numbered_mining_submissions` shifted the rows that
+earlier writers stored with the miner number.
 
 | Column                  | Type        | Null | Description                                     |
 | ----------------------- | ----------- | ---- | ----------------------------------------------- |
