@@ -61,7 +61,6 @@ fn capacity_error() -> ApiError {
 async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
     let db = &state.store;
     let (
-        mut blocks,
         self_address,
         indexer,
         chain_head,
@@ -74,7 +73,6 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         node_descriptors,
         mineable_topologies,
     ) = tokio::try_join!(
-        db.get_recent_blocks(500, 0),
         db.get_self_address(),
         db.get_indexer_observability(),
         db.get_chain_head(),
@@ -173,12 +171,10 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
         .find(|row| row.is_default)
         .map(|row| &row.topology_hash)
     {
-        blocks.retain(|row| row.topology_hash.as_ref() == Some(topology));
         recent_difficulty.retain(|row| row.topology_hash.as_ref() == Some(topology));
     }
     let miner_current_dispatch = miner_dispatch_url(self_address.as_deref());
     Ok(TelemetryResponse {
-        blocks,
         self_address,
         indexer,
         server_time: state.now(),

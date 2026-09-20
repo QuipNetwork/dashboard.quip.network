@@ -180,7 +180,6 @@ export interface NodeLiveData {
 }
 
 export interface TelemetryResponse {
-  blocks: BlockRecord[];
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
   // Null until the indexer has completed its first successful poll.
   selfAddress: string | null;  // Indexer/node tip observability. null before the indexer has completed

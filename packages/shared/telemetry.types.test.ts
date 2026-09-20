@@ -110,7 +110,6 @@ describe("v6 telemetry types", () => {
 
   test("TelemetryResponse carries nodes (projected from descriptors) + nodeDescriptors", () => {
     const r: TelemetryResponse = {
-      blocks: [],
       selfAddress: null,
       indexer: null,
       serverTime: "2026-05-19T00:00:00Z",
@@ -132,6 +131,8 @@ describe("v6 telemetry types", () => {
     // per-account record array — empty when nothing has been observed.
     expect(r.nodes).toBeNull();
     expect(r.nodeDescriptors).toEqual([]);
+    // @ts-expect-error - blocks is file-backed now, gone from the wire type
+    r.blocks;
   });
 
   test("ChainMinerRecord.telemetryNodeAddress now joined from miner_hardware", () => {

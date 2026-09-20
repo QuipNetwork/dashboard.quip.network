@@ -110,7 +110,6 @@ mod tests {
     #[test]
     fn telemetry_response_empty_round_trip() -> Result<(), Box<dyn Error>> {
         let body = TelemetryResponse {
-            blocks: Vec::new(),
             self_address: None,
             indexer: None,
             server_time: "2026-05-19T00:00:00Z".to_owned(),
@@ -136,12 +135,7 @@ mod tests {
             Some(&serde_json::Value::from("2026-05-19T00:00:00Z"))
         );
         assert_eq!(json.get("selfAddress"), Some(&serde_json::Value::Null));
-        assert_eq!(
-            json.get("blocks")
-                .and_then(serde_json::Value::as_array)
-                .map(Vec::len),
-            Some(0)
-        );
+        assert!(json.get("blocks").is_none(), "blocks is no longer inlined");
         let parsed: TelemetryResponse = serde_json::from_value(json)?;
         assert_eq!(parsed.server_time, body.server_time);
         Ok(())

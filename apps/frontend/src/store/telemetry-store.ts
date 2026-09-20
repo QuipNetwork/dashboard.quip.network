@@ -94,9 +94,11 @@ const createTelemetryState =
         for (const day of days) {
           const { rows, winners } = await deps.client.fetchQblockHistoryDay(day);
           fileWinners = winners;
+          const merged = mergeWonBlocks(fileWinners, []);
           set({
             participationCompute: rows,
-            wonBlocks: mergeWonBlocks(get().blocks, fileWinners),
+            blocks: merged,
+            wonBlocks: merged,
           });
         }
       } catch (e) {
@@ -166,10 +168,14 @@ const createTelemetryState =
           // missing newly-added fields. Without these defaults, downstream
           // hooks crash on `undefined.map` / `undefined.length` instead of
           // gracefully degrading to "no data yet".
-          const blocks = data.blocks ?? [];
+          // Blocks come from the qblock files. `fileWinners` persists across polls,
+          // so a failed manifest fetch keeps the blocks already loaded. Merging
+          // against an empty array reuses the existing dedupe and DESC sort, which
+          // the tables rely on; the file walk does not guarantee either.
+          const blocks = mergeWonBlocks(fileWinners, []);
           set({
             blocks,
-            wonBlocks: mergeWonBlocks(blocks, fileWinners),
+            wonBlocks: blocks,
             selfAddress: data.selfAddress ?? null,
             indexer: data.indexer ?? null,
             serverTime: data.serverTime,

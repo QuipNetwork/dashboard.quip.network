@@ -128,7 +128,6 @@ const MOCK_INDEXER: IndexerObservability = {
 
 function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResponse {
   return {
-    blocks: [makeBlock()],
     selfAddress: "5GPP",
     indexer: MOCK_INDEXER,
     serverTime: "2026-05-19T12:00:00Z",
@@ -252,7 +251,7 @@ describe("qblock history", () => {
       makeBlock({ blockHash: `0x${qblockId}`, qblockId, substrateBlockNumber: qblockId });
     const loaded: string[] = [];
     const client: FakeClient = {
-      ...clientReturning(makeResponse({ blocks: [winner("3")] })),
+      ...clientReturning(makeResponse()),
       fetchQblocks: async () => ({
         rows: [row("3")],
         winners: [winner("3")],
@@ -273,14 +272,15 @@ describe("qblock history", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(loaded).toEqual(["d2", "d1"]);
     expect(store.getState().participationCompute.map((r) => r.qblockId)).toEqual(["1", "2", "3"]);
-    expect(store.getState().blocks.map((b) => b.qblockId)).toEqual(["3"]);
+    // blocks and wonBlocks are now the same file-derived list.
+    expect(store.getState().blocks.map((b) => b.qblockId)).toEqual(["3", "2", "1"]);
     expect(store.getState().wonBlocks.map((b) => b.qblockId)).toEqual(["3", "2", "1"]);
   });
 
-  it("keeps loaded history winners when a later manifest fetch fails", async () => {
+  it("keeps loaded winners when a later manifest fetch fails", async () => {
     let manifestFails = false;
     const client: FakeClient = {
-      ...clientReturning(makeResponse({ blocks: [makeBlock({ blockHash: "0xtip" })] })),
+      ...clientReturning(makeResponse()),
       fetchQblocks: async () => {
         if (manifestFails) throw new Error("HTTP 404");
         return {
@@ -294,7 +294,7 @@ describe("qblock history", () => {
     await store.getState().fetchTelemetry();
     manifestFails = true;
     await store.getState().fetchTelemetry();
-    expect(store.getState().wonBlocks.map((b) => b.blockHash)).toEqual(["0xtip", "0xold"]);
+    expect(store.getState().wonBlocks.map((b) => b.blockHash)).toEqual(["0xold"]);
   });
 });
 
@@ -330,7 +330,6 @@ describe("fetchTelemetry", () => {
     await store.getState().fetchTelemetry();
 
     const s = store.getState();
-    expect(s.blocks).toHaveLength(1);
     expect(s.selfAddress).toBe("5GPP");
     expect(s.indexer).toEqual(MOCK_INDEXER);
     expect(s.serverTime).toBe("2026-05-19T12:00:00Z");

@@ -729,6 +729,20 @@ async fn telemetry_preserves_more_than_4096_participation_facts() -> TestResult 
     assert!(body["files"]["minerCurrentDispatch"].is_null());
     assert!(bytes.len() < 2 * 1024 * 1024);
     assert!(bytes.len() < 1024 * 1024, "telemetry should be small");
+    assert!(
+        body.get("blocks").is_none(),
+        "blocks must come from the qblock files, not telemetry"
+    );
+    // The paging route stays the supported way to read blocks directly.
+    let paged = request(&app, "/api/blocks?limit=1").await?;
+    assert_eq!(paged.status(), StatusCode::OK);
+    let paged_bytes = to_bytes(paged.into_body(), 2 * 1024 * 1024).await?;
+    let paged_body: Value = serde_json::from_slice(&paged_bytes)?;
+    assert_eq!(
+        paged_body["blocks"].as_array().map(Vec::len),
+        Some(1),
+        "the paging route still returns blocks"
+    );
     drop(app);
     Arc::try_unwrap(store)
         .map_err(|_| "store still held")?

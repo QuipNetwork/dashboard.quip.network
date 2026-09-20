@@ -203,8 +203,6 @@ pub struct TelemetryFiles {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TelemetryResponse {
-    /// Recent blocks.
-    pub blocks: Vec<BlockRecord>,
     /// SS58 of the locally polled miner.
     pub self_address: Option<String>,
     /// Indexer observability.
