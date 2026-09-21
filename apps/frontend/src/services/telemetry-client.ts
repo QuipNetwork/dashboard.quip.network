@@ -83,9 +83,13 @@ const QBLOCK_SETTLED_SECONDS = 600;
 const QBLOCK_FETCH_CONCURRENCY = 8;
 // Upper bound on a single /files request only. fileSignal() mints a fresh
 // timeout per call, and loadQblockFiles' workers loop sequentially through
-// their share of the list, so a hung walk can take far longer and overlap
-// the next poll. A follow-up issue tracks one deadline for the whole walk.
+// their share of the list.
 const FILE_FETCH_TIMEOUT_MS = 10_000;
+// Upper bound on one whole qblock walk. FILE_FETCH_TIMEOUT_MS bounds a single
+// request, and the walk runs `ceil(N/8)` of them back to back, so without this
+// a stalled file tree holds the first paint for hours. A healthy cold walk of
+// the full first-load window finishes well inside this budget.
+const QBLOCK_WALK_BUDGET_MS = 120_000;
 
 export interface HttpTelemetryClientOptions {
   fetch?: typeof fetch;
@@ -93,12 +97,16 @@ export interface HttpTelemetryClientOptions {
   // Upper bound on any single /files request, in milliseconds. Tests pass a
   // small value so the timeout path is reachable without a real wait.
   fileTimeoutMs?: number;
+  // Upper bound on one whole qblock walk, in milliseconds. Tests pass a
+  // small value so the budget path is reachable without a real wait.
+  qblockWalkBudgetMs?: number;
 }
 
 export class HttpTelemetryClient implements TelemetryClient {
   private readonly fetchImpl?: typeof fetch;
   private readonly baseUrl: string;
   private readonly fileTimeoutMs: number;
+  private readonly qblockWalkBudgetMs: number;
   // Latest copy of every qblock file loaded, by path under /files.
   private readonly qblockFiles = new Map<string, QblockFile>();
   // Paths whose file has settled and is never fetched again.
@@ -110,6 +118,7 @@ export class HttpTelemetryClient implements TelemetryClient {
     this.fetchImpl = options.fetch;
     this.baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
     this.fileTimeoutMs = options.fileTimeoutMs ?? FILE_FETCH_TIMEOUT_MS;
+    this.qblockWalkBudgetMs = options.qblockWalkBudgetMs ?? QBLOCK_WALK_BUDGET_MS;
   }
 
   private fetch(input: string, init?: RequestInit): Promise<Response> {
@@ -203,7 +212,10 @@ export class HttpTelemetryClient implements TelemetryClient {
     });
     if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`);
     const manifest = (await manifestRes.json()) as QblockManifest;
-    await this.loadQblockFiles(manifest.qblocks, signal);
+    // One budget for this walk, minted here so every file in it shares the
+    // same deadline rather than getting a fresh one each.
+    const deadline = AbortSignal.timeout(this.qblockWalkBudgetMs);
+    await this.loadQblockFiles(manifest.qblocks, signal, deadline);
     return {
       ...this.qblockData(),
       history: (manifest.history ?? []).filter((day) => !this.loadedHistoryDays.has(day)),
@@ -216,7 +228,10 @@ export class HttpTelemetryClient implements TelemetryClient {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const day = (await res.json()) as QblockManifest;
-    await this.loadQblockFiles(day.qblocks, signal);
+    // A separate walk deserves its own full budget rather than inheriting
+    // whatever the main walk already spent.
+    const deadline = AbortSignal.timeout(this.qblockWalkBudgetMs);
+    await this.loadQblockFiles(day.qblocks, signal, deadline);
     this.loadedHistoryDays.add(dayPath);
     return this.qblockData();
   }
@@ -230,12 +245,22 @@ export class HttpTelemetryClient implements TelemetryClient {
   }
 
   // Fetch every listed file that has not settled, through a small pool.
-  private async loadQblockFiles(paths: readonly string[], signal?: AbortSignal): Promise<void> {
+  // `deadline` bounds the whole walk. Each request carries its own timeout,
+  // and the workers run them back to back, so only this stops a stalled tree
+  // from costing one timeout per file.
+  private async loadQblockFiles(
+    paths: readonly string[],
+    signal?: AbortSignal,
+    deadline?: AbortSignal,
+  ): Promise<void> {
     const pending = paths.filter((path) => !this.settledQblocks.has(path));
     const settledBefore = Date.now() / 1000 - QBLOCK_SETTLED_SECONDS;
     let next = 0;
     const worker = async (): Promise<void> => {
       for (let path = pending[next++]; path !== undefined; path = pending[next++]) {
+        // Stop cleanly rather than throwing: the files already fetched stay
+        // usable, and the caller's own signal keeps its separate meaning.
+        if (deadline?.aborted) return;
         const file = await this.fetchQblockFile(path, signal);
         if (file === null) continue;
         this.qblockFiles.set(path, file);

@@ -474,4 +474,32 @@ describe("HttpTelemetryClient file fetch timeout", () => {
       expect(call.init?.signal).toBeInstanceOf(AbortSignal);
     }
   });
+
+  it("gives up on the whole qblock walk once the budget elapses", async () => {
+    const manifestPaths = Array.from({ length: 80 }, (_, i) => `qblocks/ab/cd/${i}.json`);
+    const fetchImpl = ((input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+      if (String(input).endsWith("metadata.json")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ qblocks: manifestPaths }), { status: 200 }),
+        );
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    }) as typeof globalThis.fetch;
+
+    const client = new HttpTelemetryClient({
+      fetch: fetchImpl,
+      fileTimeoutMs: 50,
+      qblockWalkBudgetMs: 120,
+    });
+
+    const started = Date.now();
+    await client.fetchQblocks("/files/qblocks/metadata.json");
+    const elapsed = Date.now() - started;
+
+    // Ten sequential waves of 50ms each would be about 500ms with no budget.
+    // The budget stops the walk after about 120ms, plus one in-flight request.
+    expect(elapsed).toBeLessThan(300);
+  });
 });
