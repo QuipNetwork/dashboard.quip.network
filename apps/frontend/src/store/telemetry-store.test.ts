@@ -182,6 +182,7 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
       nodesSnapshot: "/files/nodes/snapshot.json",
       minerCurrentDispatch: null,
     },
+    capabilities: { minerDispatch: true },
     ...overrides,
   };
 }

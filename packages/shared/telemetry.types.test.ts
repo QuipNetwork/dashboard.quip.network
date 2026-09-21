@@ -128,6 +128,7 @@ describe("v6 telemetry types", () => {
         nodesSnapshot: "/files/nodes/snapshot.json",
         minerCurrentDispatch: null,
       },
+      capabilities: { minerDispatch: true },
     };
     expect(r.files.nodesSnapshot).toBe("/files/nodes/snapshot.json");
     // @ts-expect-error - blocks is file-backed now, gone from the wire type

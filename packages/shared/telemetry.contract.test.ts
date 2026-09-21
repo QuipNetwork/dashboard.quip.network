@@ -23,6 +23,7 @@ const TELEMETRY_KEYS = [
   "recentMiningSubmissions",
   "selfProblemsAttempted",
   "files",
+  "capabilities",
 ] as const satisfies readonly (keyof TelemetryResponse)[];
 
 const FILES_KEYS = [
