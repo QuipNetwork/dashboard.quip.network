@@ -23,6 +23,23 @@ use tokio::{
     time::timeout,
 };
 
+/// Test-side deadline for waiting on a real subprocess.
+///
+/// These tests drive real operating-system processes and real pipes, so a
+/// virtual clock does not reach them and the wait is genuine wall-clock time.
+/// The values are generous on purpose: a healthy run satisfies them in
+/// milliseconds, and a broken supervisor never satisfies them at any value, so
+/// a long deadline costs only the failure path. Two pipelines sharing a runner
+/// pushed the old three-second waits over their limit.
+fn io_deadline() -> Duration {
+    Duration::from_secs(
+        std::env::var("SUPERVISOR_TEST_DEADLINE_SECS")
+            .ok()
+            .and_then(|raw| raw.parse().ok())
+            .unwrap_or(30),
+    )
+}
+
 fn script(dir: &Path, name: &str, body: &str) -> std::io::Result<String> {
     let path = dir.join(name);
     fs::write(
@@ -57,11 +74,11 @@ fn start(collector: &str, backend: &str, caddy: &str, address: &str) -> std::io:
 }
 
 async fn output(child: Child) -> Result<std::process::Output, Box<dyn std::error::Error>> {
-    Ok(timeout(Duration::from_secs(5), child.wait_with_output()).await??)
+    Ok(timeout(io_deadline(), child.wait_with_output()).await??)
 }
 
 async fn receive(socket: &UdpSocket, needle: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-    timeout(Duration::from_secs(3), async {
+    timeout(io_deadline(), async {
         let mut bytes = vec![0_u8; 65_535];
         loop {
             let length = socket.recv(&mut bytes).await?;
@@ -154,7 +171,7 @@ async fn signal_drains_services_before_collector_without_forwarding_collector_lo
     // Read readiness from stderr so neither service's UDP datagram can be consumed accidentally.
     let mut stderr = child.stderr.take().ok_or("missing stderr")?;
     let mut captured = Vec::new();
-    timeout(Duration::from_secs(3), async {
+    timeout(io_deadline(), async {
         let mut bytes = [0; 1024];
         while !["backend-ready", "caddy-ready", "collector-private"]
             .iter()
@@ -266,7 +283,7 @@ async fn flood_with_blocked_stderr_and_absent_receiver_does_not_stall_shutdown()
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let mut child = start(&idle, &backend, &idle, "127.0.0.1:9")?;
     // Keep stderr's pipe full while waiting for the producer to finish its flood.
-    timeout(Duration::from_secs(4), async {
+    timeout(io_deadline(), async {
         while !complete.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -277,7 +294,7 @@ async fn flood_with_blocked_stderr_and_absent_receiver_does_not_stall_shutdown()
         Signal::SIGTERM,
     )?;
     assert_eq!(
-        timeout(Duration::from_secs(3), child.wait()).await??.code(),
+        timeout(io_deadline(), child.wait()).await??.code(),
         Some(124)
     );
     Ok(())
@@ -296,7 +313,7 @@ async fn queue_pressure_preserves_exact_drop_counts() -> Result<(), Box<dyn std:
     )?;
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let child = start(&idle, &backend, &idle, "127.0.0.1:9")?;
-    timeout(Duration::from_secs(4), async {
+    timeout(io_deadline(), async {
         while !complete.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
