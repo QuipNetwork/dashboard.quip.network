@@ -141,7 +141,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  useTelemetryStore.setState({ nodes: null, serverTime: null, blocks: [] });
+  useTelemetryStore.setState({ nodes: null, serverTime: null, wonBlocks: [] });
 });
 
 describe("useComputeAvailable — 14-day activity window", () => {

@@ -22,11 +22,8 @@ import type {
 
 export interface TelemetryState {
   // Every winner block known so far, from the qblock manifest and the qblock
-  // files it lists. Same value as `wonBlocks`; DESC by substrate block
-  // number. Grows as qblock history loads, uncapped.
-  blocks: BlockRecord[];
-  // Same source and value as `blocks` (kept as a separate field for callers
-  // that name it that way).
+  // files it lists. DESC by substrate block number. Grows as qblock history
+  // loads, uncapped.
   wonBlocks: BlockRecord[];
   selfAddress: string | null;
   indexer: IndexerObservability | null;
@@ -95,11 +92,10 @@ const createTelemetryState =
         for (const day of days) {
           const { rows, winners } = await deps.client.fetchQblockHistoryDay(day);
           fileWinners = winners;
-          const merged = mergeWonBlocks(fileWinners, []);
+          const wonBlocks = sortWinnersDesc(fileWinners);
           set({
             participationCompute: rows,
-            blocks: merged,
-            wonBlocks: merged,
+            wonBlocks,
           });
         }
       } catch (e) {
@@ -109,7 +105,6 @@ const createTelemetryState =
       }
     };
     return {
-      blocks: [],
       wonBlocks: [],
       selfAddress: null,
       indexer: null,
@@ -132,16 +127,18 @@ const createTelemetryState =
       fetchTelemetry: async () => {
         // Only flash the loading screen on the very first load. Subsequent
         // polling refreshes leave the current UI visible and swap data in place.
-        // In steady state both blocks and selfAddress are populated, so this
+        // In steady state both wonBlocks and selfAddress are populated, so this
         // never re-enters the loading flash after the first successful fetch.
-        const firstLoad = get().blocks.length === 0 && get().selfAddress === null;
+        const firstLoad = get().wonBlocks.length === 0 && get().selfAddress === null;
         if (firstLoad && !get().loading) set({ loading: true });
         try {
           const data = await deps.client.fetchTelemetry();
-          // Participation facts are file-backed: fetch them from the manifest the
-          // slimmed telemetry points at. A missing or unparseable manifest
-          // degrades to an empty participation array ("no data yet").
-          let participationCompute: ParticipationComputeRow[] = [];
+          // Participation facts are file-backed. A failed or timed-out manifest
+          // keeps the rows from the last good poll rather than blanking the
+          // charts: a blank chart reads as "zero participation", which is a
+          // worse lie than slightly stale numbers. The block tables fed by the
+          // same document already behave this way through `fileWinners`.
+          let participationCompute: ParticipationComputeRow[] = get().participationCompute;
           // Every file this poll needs depends only on `data.files`, so they all
           // go out together and first paint pays one round trip, not three. The
           // nodes and dispatch documents degrade to null on failure; a 404 on
@@ -171,19 +168,18 @@ const createTelemetryState =
               void loadQblockHistory(qblockSnapshot.history);
             }
           }
+          // Winner blocks come from the qblock files. `fileWinners` persists
+          // across polls, so a failed manifest fetch keeps the blocks already
+          // loaded. The sort and dedupe are applied here because the file
+          // walk guarantees neither.
+          const wonBlocks = sortWinnersDesc(fileWinners);
           // Defensive coercion: a rolling deploy (or a stale dev-server that
           // hasn't been restarted past a schema bump) can return a response
           // missing newly-added fields. Without these defaults, downstream
           // hooks crash on `undefined.map` / `undefined.length` instead of
           // gracefully degrading to "no data yet".
-          // Blocks come from the qblock files. `fileWinners` persists across polls,
-          // so a failed manifest fetch keeps the blocks already loaded. Merging
-          // against an empty array reuses the existing dedupe and DESC sort, which
-          // the tables rely on; the file walk does not guarantee either.
-          const blocks = mergeWonBlocks(fileWinners, []);
           set({
-            blocks,
-            wonBlocks: blocks,
+            wonBlocks,
             selfAddress: data.selfAddress ?? null,
             indexer: data.indexer ?? null,
             serverTime: data.serverTime,
@@ -200,7 +196,10 @@ const createTelemetryState =
             nodeDescriptors: nodesDoc?.nodeDescriptors ?? get().nodeDescriptors,
             recentMiningSubmissions: data.recentMiningSubmissions ?? [],
             selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
-            currentDispatch: dispatchDoc,
+            // Same rule as `nodes` above: a missing or timed-out dispatch file
+            // keeps the last one rather than emptying the Current Attempts
+            // panel on a single slow response.
+            currentDispatch: dispatchDoc ?? get().currentDispatch,
             participationCompute,
             loading: false,
             error: null,
@@ -212,18 +211,11 @@ const createTelemetryState =
     };
   };
 
-/**
- * Union of the telemetry blocks and the qblock-file winners, one entry per
- * block hash, DESC by substrate block number like `blocks`. A telemetry copy
- * wins over a file copy of the same block, since telemetry is newer.
- */
-export function mergeWonBlocks(
-  blocks: readonly BlockRecord[],
-  fileWinners: readonly BlockRecord[],
-): BlockRecord[] {
+// Deduplicate winner blocks by hash and sort DESC by substrate block number.
+// The qblock file walk guarantees neither, and the block tables rely on both.
+export function sortWinnersDesc(winners: readonly BlockRecord[]): BlockRecord[] {
   const byHash = new Map<string, BlockRecord>();
-  for (const block of fileWinners) byHash.set(block.blockHash, block);
-  for (const block of blocks) byHash.set(block.blockHash, block);
+  for (const block of winners) byHash.set(block.blockHash, block);
   return [...byHash.values()].sort((a, b) => {
     const left = BigInt(a.substrateBlockNumber);
     const right = BigInt(b.substrateBlockNumber);
@@ -275,16 +267,16 @@ export function useServerNowMs(): number {
 }
 
 /**
- * The tip block, or null when no blocks are loaded. `mergeWonBlocks` sorts
- * `blocks` DESC by substrate block number, so the tip is the first element.
- * Returns a reference
- * stable between fetches (same BlockRecord identity in the array), so it's
- * safe to pass directly to `useTelemetryStore(selectTipBlock)`. Don't layer a
- * derived-object selector on top: zustand compares by reference and a fresh
- * `{ ...fields }` each call would loop forever.
+ * The tip block, or null when no blocks are loaded. `sortWinnersDesc` sorts
+ * `wonBlocks` DESC by substrate block number, so the tip is the first
+ * element. Returns a reference stable between fetches (same BlockRecord
+ * identity in the array), so it's safe to pass directly to
+ * `useTelemetryStore(selectTipBlock)`. Don't layer a derived-object selector
+ * on top: zustand compares by reference and a fresh `{ ...fields }` each call
+ * would loop forever.
  */
 export const selectTipBlock = (s: TelemetryState): BlockRecord | null =>
-  s.blocks.length > 0 ? (s.blocks[0] ?? null) : null;
+  s.wonBlocks.length > 0 ? (s.wonBlocks[0] ?? null) : null;
 
 /** Timestamp (ms) of the tip block, or null when no blocks are loaded. */
 export const selectTipBlockTimestampMs = (s: TelemetryState): number | null => {

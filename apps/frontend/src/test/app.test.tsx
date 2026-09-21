@@ -85,7 +85,7 @@ beforeEach(() => {
   root = createRoot(container);
 
   useTelemetryStore.setState({
-    blocks: [],
+    wonBlocks: [],
     selfAddress: null,
     indexer: null,
     serverTime: null,

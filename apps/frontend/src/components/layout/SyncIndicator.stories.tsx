@@ -60,7 +60,7 @@ export const Live: Story = () => (
       loading: false,
       serverTime: new Date(nowMs).toISOString(),
       indexer: observability(),
-      blocks: [recentBlock()],
+      wonBlocks: [recentBlock()],
     }}
   >
     <SyncIndicator />
@@ -73,7 +73,7 @@ export const IndexerOffline: Story = () => (
       loading: false,
       serverTime: new Date(nowMs).toISOString(),
       indexer: observability({ lastStatusFetchAt: iso(7 * 60_000) }),
-      blocks: [recentBlock()],
+      wonBlocks: [recentBlock()],
     }}
   >
     <SyncIndicator />
@@ -85,7 +85,7 @@ export const NodeSyncing: Story = () => (
     telemetry={{
       loading: false,
       serverTime: new Date(nowMs).toISOString(),
-      blocks: [recentBlock()],
+      wonBlocks: [recentBlock()],
       indexer: observability({
         nodeSyncing: true,
         nodeSyncCurrentBlock: "406173",

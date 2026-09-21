@@ -79,7 +79,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   useTelemetryStore.setState({
-    blocks: [],
+    wonBlocks: [],
     chainMiners: [],
     nodeDescriptors: [],
     recentDifficulty: [],
@@ -95,7 +95,7 @@ describe("useNode", () => {
   test("derives wins, last-won and synthetic submissions for the given account", () => {
     // DESC by block number, as the store ships. Bob wins the tip; Alice below.
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         makeBlock({
           blockHash: "0xb2",
           substrateBlockNumber: "102",
@@ -128,7 +128,7 @@ describe("useNode", () => {
 
   test("locates the account's leaderboard rank and neighbors", () => {
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         makeBlock({ blockHash: "0x1", minerId: "5GBob" }),
         makeBlock({ blockHash: "0x2", minerId: "5GBob" }),
         makeBlock({ blockHash: "0x3", minerId: "5GAlice" }),

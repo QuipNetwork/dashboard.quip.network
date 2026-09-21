@@ -139,7 +139,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   useTelemetryStore.setState({
-    blocks: [],
+    wonBlocks: [],
     selfAddress: null,
     indexer: null,
     chainMiners: [],
@@ -157,7 +157,7 @@ afterEach(() => {
 describe("useMyNode", () => {
   it("returns null-shaped output pre-self-discovery (selfAddress null)", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: null,
       indexer: null,
       chainMiners: [],
@@ -184,7 +184,7 @@ describe("useMyNode", () => {
 
   it("returns null chainMinerEntry + blocksMined='0' when self is known but not in chainMiners", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -205,7 +205,7 @@ describe("useMyNode", () => {
     // matching rewards and the leaderboard's ranking counter.
     const miner = makeChainMiner({ accountId: "5GAlice", proofsWon: "7" });
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [miner],
       indexer: null,
@@ -218,7 +218,7 @@ describe("useMyNode", () => {
 
   it("computes self rank and rank-adjacent neighbors from chain proofs_won", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       // Ranks: 5GBig=1, 5GMid=2, 5GAlice=3, 5GSmall=4, 5GTiny=5, 5GFar=6.
       chainMiners: [
@@ -248,7 +248,7 @@ describe("useMyNode", () => {
 
   it("ignores chainMiners rows whose accountId doesn't match self", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [makeChainMiner({ accountId: "5GBob", proofsWon: "999" })],
       indexer: null,
@@ -265,7 +265,7 @@ describe("useMyNode", () => {
     // Store ships blocks DESC by substrateBlockNumber; .find returns the
     // first match, so the first matching row is the "most recent".
     useTelemetryStore.setState({
-      blocks: [myBlock, othersBlock],
+      wonBlocks: [myBlock, othersBlock],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -277,7 +277,7 @@ describe("useMyNode", () => {
 
   it("returns null lastWonBlock when no block was mined by self", () => {
     useTelemetryStore.setState({
-      blocks: [makeBlock({ minerId: "5GBob" })],
+      wonBlocks: [makeBlock({ minerId: "5GBob" })],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -290,7 +290,7 @@ describe("useMyNode", () => {
   it("uses the node summary for a win older than the recent blocks", () => {
     const oldWin = makeBlock({ blockHash: "0xold", minerId: "5GAlice", qblockId: "42" });
     useTelemetryStore.setState({
-      blocks: [makeBlock({ minerId: "5GBob" })],
+      wonBlocks: [makeBlock({ minerId: "5GBob" })],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -305,7 +305,7 @@ describe("useMyNode", () => {
     const summaryWin = makeBlock({ blockHash: "0xold", minerId: "5GAlice", qblockId: "9" });
     const newWin = makeBlock({ blockHash: "0xnew", minerId: "5GAlice", qblockId: "10" });
     useTelemetryStore.setState({
-      blocks: [newWin],
+      wonBlocks: [newWin],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -323,7 +323,7 @@ describe("useMyNode", () => {
       minSolutions: 9,
     });
     useTelemetryStore.setState({
-      blocks: [tip],
+      wonBlocks: [tip],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -339,7 +339,7 @@ describe("useMyNode", () => {
 
   it("returns null currentRequirements pre-first-block (blocks empty)", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -355,7 +355,7 @@ describe("useMyNode", () => {
     // already wrote a row. The card should show the live chain threshold,
     // not "Awaiting first block" indefinitely.
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -387,7 +387,7 @@ describe("useMyNode", () => {
       minSolutions: 99,
     });
     useTelemetryStore.setState({
-      blocks: [tip],
+      wonBlocks: [tip],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -411,7 +411,7 @@ describe("useMyNode", () => {
   it("forwards indexer.minerStats when present", () => {
     const stats = makeMinerStats({ proofsSubmitted: 42 });
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: makeIndexer({ minerStats: stats }),
@@ -423,7 +423,7 @@ describe("useMyNode", () => {
 
   it("returns null minerStats when indexer is null", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -435,7 +435,7 @@ describe("useMyNode", () => {
 
   it("returns null minerStats when indexer is present but minerStats is null", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: makeIndexer({ minerStats: null }),
@@ -452,7 +452,7 @@ describe("useMyNode", () => {
     // qblockId — NOT its position in the loaded window (which breaks once
     // history exceeds the 500-row window).
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         makeBlock({ blockHash: "0x5", substrateBlockNumber: "500", minerId: "5GBob" }),
         makeBlock({ blockHash: "0x4", substrateBlockNumber: "400", minerId: "5GBob" }),
         makeBlock({
@@ -474,7 +474,7 @@ describe("useMyNode", () => {
 
   it("lastWonProblemNumber null when self has no chain wins yet", () => {
     useTelemetryStore.setState({
-      blocks: [makeBlock({ minerId: "5GBob" })],
+      wonBlocks: [makeBlock({ minerId: "5GBob" })],
       selfAddress: "5GAlice",
       chainMiners: [],
       indexer: null,
@@ -488,7 +488,7 @@ describe("useMyNode", () => {
     // Miner reset wiped mining_submissions; chain still has 2 self-wins
     // and 1 unrelated win. The 2 wins should appear as chainOnly rows.
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         makeBlock({
           blockHash: "0xmine2",
           substrateBlockNumber: "200",
@@ -538,7 +538,7 @@ describe("useMyNode", () => {
     // fidelity). The chain block at #200 should NOT spawn a synthetic
     // duplicate. Block #100 has no local match → synthetic row.
     useTelemetryStore.setState({
-      blocks: [
+      wonBlocks: [
         makeBlock({ blockHash: "0xb", substrateBlockNumber: "200", minerId: "5GAlice" }),
         makeBlock({
           blockHash: "0xa",
@@ -594,7 +594,7 @@ describe("useMyNode", () => {
     // lifetime submissions. The floored value carries the chain truth
     // so the headline tile doesn't lie.
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsSubmitted: "5" })],
       indexer: makeIndexer({ minerStats: makeMinerStats({ proofsSubmitted: 1 }) }),
@@ -605,7 +605,7 @@ describe("useMyNode", () => {
 
   it("effectiveProblemsAttempted floors at chain proofsSubmitted", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [makeChainMiner({ accountId: "5GAlice", proofsSubmitted: "8" })],
       indexer: null,
@@ -617,7 +617,7 @@ describe("useMyNode", () => {
 
   it("effectiveMinerStats null when no MinerStats payload has landed yet", () => {
     useTelemetryStore.setState({
-      blocks: [],
+      wonBlocks: [],
       selfAddress: "5GAlice",
       chainMiners: [makeChainMiner({ proofsSubmitted: "5" })],
       indexer: null,

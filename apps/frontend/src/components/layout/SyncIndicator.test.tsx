@@ -64,7 +64,7 @@ beforeEach(() => {
   // function reference so TelemetryState stays satisfied.
   useTelemetryStore.setState((s) => ({
     ...s,
-    blocks: [],
+    wonBlocks: [],
     selfAddress: null,
     indexer: null,
     serverTime: null,
@@ -93,7 +93,7 @@ describe("SyncIndicator", () => {
   test("renders 'Live' when caught up", () => {
     useTelemetryStore.setState((s) => ({
       ...s,
-      blocks: [recentBlock()],
+      wonBlocks: [recentBlock()],
       indexer: baseObs(),
     }));
     render(createElement(SyncIndicator));
@@ -104,7 +104,7 @@ describe("SyncIndicator", () => {
     const oldHeartbeat = new Date(Date.now() - 7 * 60_000).toISOString();
     useTelemetryStore.setState((s) => ({
       ...s,
-      blocks: [recentBlock()],
+      wonBlocks: [recentBlock()],
       indexer: baseObs({ lastStatusFetchAt: oldHeartbeat }),
     }));
     render(createElement(SyncIndicator));
@@ -119,7 +119,7 @@ describe("SyncIndicator", () => {
   test("shows the syncing dot with progress when the validator is in major sync", () => {
     useTelemetryStore.setState((s) => ({
       ...s,
-      blocks: [recentBlock()],
+      wonBlocks: [recentBlock()],
       indexer: baseObs({
         chainConnected: true,
         lastSubstrateEventAt: new Date(Date.now() - 5_000).toISOString(),

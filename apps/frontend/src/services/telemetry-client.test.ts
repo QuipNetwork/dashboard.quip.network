@@ -405,3 +405,73 @@ describe("HttpTelemetryClient.fetchNodesSnapshot", () => {
     await expect(client.fetchNodesSnapshot(NODES_URL, ac.signal)).rejects.toThrow("aborted");
   });
 });
+
+describe("HttpTelemetryClient file fetch timeout", () => {
+  // A fetch that never resolves on its own. It rejects only when the signal
+  // it was handed aborts, which is how a real hung connection behaves once
+  // the client gives up on it.
+  function hangingFetch(): typeof globalThis.fetch {
+    return (async (
+      _input: Parameters<typeof globalThis.fetch>[0],
+      init?: RequestInit,
+    ): Promise<Response> =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      })) as typeof globalThis.fetch;
+  }
+
+  it("resolves the nodes snapshot to null when the timeout elapses", async () => {
+    const client = new HttpTelemetryClient({ fetch: hangingFetch(), fileTimeoutMs: 5 });
+
+    const out = await client.fetchNodesSnapshot("/files/nodes/snapshot.json");
+
+    expect(out).toBeNull();
+  });
+
+  it("resolves the miner dispatch to null when the timeout elapses", async () => {
+    const client = new HttpTelemetryClient({ fetch: hangingFetch(), fileTimeoutMs: 5 });
+
+    const out = await client.fetchMinerCurrentDispatch("/files/miners/5GPP/current-dispatch.json");
+
+    expect(out).toBeNull();
+  });
+
+  it("rejects the qblock manifest when the timeout elapses", async () => {
+    const client = new HttpTelemetryClient({ fetch: hangingFetch(), fileTimeoutMs: 5 });
+
+    await expect(client.fetchQblocks("/files/qblocks/metadata.json")).rejects.toThrow();
+  });
+
+  it("passes a signal on every file request", async () => {
+    const manifestUrl = "/files/qblocks/metadata.json";
+    const { fetch, calls } = fakeFetch((url) => {
+      if (url.endsWith(manifestUrl)) {
+        return json({ qblocks: ["qblocks/ab/cd/2.json"] });
+      }
+      if (url.endsWith("qblocks/ab/cd/2.json")) {
+        // Real writer shape: raw participation plus the winner block, same
+        // as the fetchQblocks describe block above.
+        return json({
+          qblockId: "2",
+          winner: { qblockId: "2", minerId: "5W", timestamp: 1_060 },
+          participation: [
+            { account: "A", kind: "Cpu", qblockId: "2", blockNumber: "7", budgetSeconds: null },
+          ],
+        });
+      }
+      return json({ solutionNumber: 1, attempts: [], status: "in-flight" });
+    });
+    const client = new HttpTelemetryClient({ fetch });
+
+    await client.fetchQblocks(manifestUrl);
+    await client.fetchMinerCurrentDispatch("/files/miners/5GPP/current-dispatch.json");
+
+    // Three requests land: the manifest, the one qblock file it names (the
+    // fetchQblockFile leg, reachable only through fetchQblocks), and the
+    // dispatch file. Every one must carry a signal.
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+});

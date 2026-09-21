@@ -119,7 +119,7 @@ export function useMyNode(
   const selfAddress = useTelemetryStore((s) => s.selfAddress);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useTelemetryStore((s) => s.wonBlocks);
   const indexer = useTelemetryStore((s) => s.indexer);
   const tipBlock = useTelemetryStore(selectTipBlock);
   // Most recent `current_difficulty()` poll. With quip-protocol-rs v0.2 this

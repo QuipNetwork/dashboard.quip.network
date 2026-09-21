@@ -81,15 +81,24 @@ const QBLOCK_SETTLED_SECONDS = 600;
 // Browsers reject thousands of simultaneous requests
 // (ERR_INSUFFICIENT_RESOURCES), so qblock files download through a small pool.
 const QBLOCK_FETCH_CONCURRENCY = 8;
+// Upper bound on a single /files request only. fileSignal() mints a fresh
+// timeout per call, and loadQblockFiles' workers loop sequentially through
+// their share of the list, so a hung walk can take far longer and overlap
+// the next poll. A follow-up issue tracks one deadline for the whole walk.
+const FILE_FETCH_TIMEOUT_MS = 10_000;
 
 export interface HttpTelemetryClientOptions {
   fetch?: typeof fetch;
   baseUrl?: string;
+  // Upper bound on any single /files request, in milliseconds. Tests pass a
+  // small value so the timeout path is reachable without a real wait.
+  fileTimeoutMs?: number;
 }
 
 export class HttpTelemetryClient implements TelemetryClient {
   private readonly fetchImpl?: typeof fetch;
   private readonly baseUrl: string;
+  private readonly fileTimeoutMs: number;
   // Latest copy of every qblock file loaded, by path under /files.
   private readonly qblockFiles = new Map<string, QblockFile>();
   // Paths whose file has settled and is never fetched again.
@@ -100,11 +109,24 @@ export class HttpTelemetryClient implements TelemetryClient {
   constructor(options: HttpTelemetryClientOptions = {}) {
     this.fetchImpl = options.fetch;
     this.baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
+    this.fileTimeoutMs = options.fileTimeoutMs ?? FILE_FETCH_TIMEOUT_MS;
   }
 
   private fetch(input: string, init?: RequestInit): Promise<Response> {
     const f = this.fetchImpl ?? globalThis.fetch.bind(globalThis);
     return init ? f(input, init) : f(input);
+  }
+
+  // A signal that aborts when the caller's signal aborts or the file timeout
+  // elapses, whichever comes first. Three legs — fetchQblockFile,
+  // fetchMinerCurrentDispatch, fetchNodesSnapshot — catch that abort and
+  // check `signal?.aborted` to tell a caller walkaway (rethrow) from a
+  // timeout (degrade to null). The other two, fetchQblocks and
+  // fetchQblockHistoryDay, have no try/catch and simply propagate either
+  // kind of abort to their caller.
+  private fileSignal(signal?: AbortSignal): AbortSignal {
+    const timeout = AbortSignal.timeout(this.fileTimeoutMs);
+    return signal ? AbortSignal.any([signal, timeout]) : timeout;
   }
 
   async fetchTelemetry(signal?: AbortSignal): Promise<TelemetryResponse> {
@@ -176,10 +198,9 @@ export class HttpTelemetryClient implements TelemetryClient {
   }
 
   async fetchQblocks(manifestUrl: string, signal?: AbortSignal): Promise<QblockSnapshot> {
-    const manifestRes = await this.fetch(
-      `${this.baseUrl}${manifestUrl}`,
-      signal ? { signal } : undefined,
-    );
+    const manifestRes = await this.fetch(`${this.baseUrl}${manifestUrl}`, {
+      signal: this.fileSignal(signal),
+    });
     if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`);
     const manifest = (await manifestRes.json()) as QblockManifest;
     await this.loadQblockFiles(manifest.qblocks, signal);
@@ -190,10 +211,9 @@ export class HttpTelemetryClient implements TelemetryClient {
   }
 
   async fetchQblockHistoryDay(dayPath: string, signal?: AbortSignal): Promise<QblockData> {
-    const res = await this.fetch(
-      `${this.baseUrl}/files/${dayPath}`,
-      signal ? { signal } : undefined,
-    );
+    const res = await this.fetch(`${this.baseUrl}/files/${dayPath}`, {
+      signal: this.fileSignal(signal),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const day = (await res.json()) as QblockManifest;
     await this.loadQblockFiles(day.qblocks, signal);
@@ -232,10 +252,9 @@ export class HttpTelemetryClient implements TelemetryClient {
   // is skipped rather than failing the batch; the next poll retries it.
   private async fetchQblockFile(path: string, signal?: AbortSignal): Promise<QblockFile | null> {
     try {
-      const res = await this.fetch(
-        `${this.baseUrl}/files/${path}`,
-        signal ? { signal } : undefined,
-      );
+      const res = await this.fetch(`${this.baseUrl}/files/${path}`, {
+        signal: this.fileSignal(signal),
+      });
       if (!res.ok) return null;
       return (await res.json()) as QblockFile;
     } catch (error) {
@@ -252,7 +271,7 @@ export class HttpTelemetryClient implements TelemetryClient {
     signal?: AbortSignal,
   ): Promise<CurrentDispatch | null> {
     try {
-      const res = await this.fetch(`${this.baseUrl}${url}`, signal ? { signal } : undefined);
+      const res = await this.fetch(`${this.baseUrl}${url}`, { signal: this.fileSignal(signal) });
       if (!res.ok) return null;
       return (await res.json()) as CurrentDispatch;
     } catch (error) {
@@ -265,7 +284,7 @@ export class HttpTelemetryClient implements TelemetryClient {
   // publishes it every 30 seconds; a missing file means it has not run yet.
   async fetchNodesSnapshot(url: string, signal?: AbortSignal): Promise<NodesDocument | null> {
     try {
-      const res = await this.fetch(`${this.baseUrl}${url}`, signal ? { signal } : undefined);
+      const res = await this.fetch(`${this.baseUrl}${url}`, { signal: this.fileSignal(signal) });
       if (!res.ok) return null;
       return (await res.json()) as NodesDocument;
     } catch (error) {

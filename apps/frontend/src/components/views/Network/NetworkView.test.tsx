@@ -59,7 +59,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   useTelemetryStore.setState({
-    blocks: [],
+    wonBlocks: [],
     chainMiners: [],
     recentDifficulty: [],
     nodes: null,

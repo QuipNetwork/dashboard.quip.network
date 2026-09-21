@@ -19,8 +19,8 @@ import type {
 } from "@quip/shared/telemetry";
 import {
   createTelemetryStore,
-  mergeWonBlocks,
   selectTipBlock,
+  sortWinnersDesc,
   type TelemetryState,
 } from "./telemetry-store";
 
@@ -188,7 +188,6 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
 
 function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {}): TelemetryState {
   return {
-    blocks,
     wonBlocks: blocks,
     selfAddress: null,
     indexer: null,
@@ -313,8 +312,6 @@ describe("qblock history", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(loaded).toEqual(["d2", "d1"]);
     expect(store.getState().participationCompute.map((r) => r.qblockId)).toEqual(["1", "2", "3"]);
-    // blocks and wonBlocks are now the same file-derived list.
-    expect(store.getState().blocks.map((b) => b.qblockId)).toEqual(["3", "2", "1"]);
     expect(store.getState().wonBlocks.map((b) => b.qblockId)).toEqual(["3", "2", "1"]);
   });
 
@@ -339,19 +336,16 @@ describe("qblock history", () => {
   });
 });
 
-describe("mergeWonBlocks", () => {
-  it("unions by block hash, newest substrate block first, preferring the telemetry copy", () => {
-    const telemetry = makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: true });
-    const merged = mergeWonBlocks(
-      [telemetry],
-      [
-        makeBlock({ blockHash: "0xa", substrateBlockNumber: "9" }),
-        makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: false }),
-        makeBlock({ blockHash: "0xc", substrateBlockNumber: "100" }),
-      ],
-    );
-    expect(merged.map((b) => b.blockHash)).toEqual(["0xc", "0xb", "0xa"]);
-    expect(merged[1]).toBe(telemetry);
+describe("sortWinnersDesc", () => {
+  it("deduplicates by block hash and sorts newest substrate block first", () => {
+    const sorted = sortWinnersDesc([
+      makeBlock({ blockHash: "0xa", substrateBlockNumber: "9" }),
+      makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: false }),
+      makeBlock({ blockHash: "0xc", substrateBlockNumber: "100" }),
+      makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: true }),
+    ]);
+
+    expect(sorted.map((b) => b.blockHash)).toEqual(["0xc", "0xb", "0xa"]);
   });
 });
 
@@ -363,6 +357,15 @@ describe("fetchTelemetry", () => {
     await store.getState().fetchTelemetry();
 
     expect(client.calls).toBe(1);
+  });
+
+  it("exposes winner blocks under a single field", async () => {
+    const store = createTelemetryStore({ client: clientReturning(makeResponse()) });
+
+    await store.getState().fetchTelemetry();
+
+    expect(store.getState().wonBlocks).toBeInstanceOf(Array);
+    expect(Object.keys(store.getState())).not.toContain("blocks");
   });
 
   it("populates the slim TelemetryResponse shape into state", async () => {
@@ -478,6 +481,47 @@ describe("fetchTelemetry", () => {
   });
 });
 
+describe("file-backed fields on a failed poll", () => {
+  const DISPATCH: CurrentDispatch = { solutionNumber: 7, attempts: [], status: "in-flight" };
+
+  it("keeps the last known dispatch when the dispatch file fails", async () => {
+    const client = clientReturning(
+      makeResponse({
+        files: {
+          qblocksManifest: "/files/qblocks/metadata.json",
+          nodesSnapshot: "/files/nodes/snapshot.json",
+          minerCurrentDispatch: "/files/miners/5GPP/current-dispatch.json",
+        },
+      }),
+    );
+    client.fetchMinerCurrentDispatch = async () => DISPATCH;
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+    expect(store.getState().currentDispatch).toEqual(DISPATCH);
+
+    client.fetchMinerCurrentDispatch = async () => null;
+    await store.getState().fetchTelemetry();
+
+    expect(store.getState().currentDispatch).toEqual(DISPATCH);
+  });
+
+  it("keeps the participation rows when the qblock manifest fails", async () => {
+    const client = clientReturning(makeResponse());
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+    expect(store.getState().participationCompute).toHaveLength(1);
+
+    client.fetchQblocks = async () => {
+      throw new Error("HTTP 504");
+    };
+    await store.getState().fetchTelemetry();
+
+    expect(store.getState().participationCompute).toHaveLength(1);
+  });
+});
+
 // ---- selectTipBlock ----------------------------------------------------
 
 describe("selectTipBlock", () => {
@@ -485,7 +529,7 @@ describe("selectTipBlock", () => {
     expect(selectTipBlock(makeState([]))).toBeNull();
   });
 
-  it("returns blocks[0] — the API ships blocks DESC by substrate block number", () => {
+  it("returns the newest winner block when wonBlocks is populated", () => {
     const state = makeState([
       makeBlock({ substrateBlockNumber: "12" }),
       makeBlock({ substrateBlockNumber: "11" }),

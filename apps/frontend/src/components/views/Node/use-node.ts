@@ -61,7 +61,7 @@ export function useNode(
 ): NodeStats {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useTelemetryStore((s) => s.wonBlocks);
   const tipBlock = useTelemetryStore(selectTipBlock);
   const recentDifficulty = useTelemetryStore((s) => s.recentDifficulty);
 

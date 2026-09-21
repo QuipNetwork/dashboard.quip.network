@@ -101,7 +101,7 @@ export interface ComputeAvailability {
 export function useComputeAvailable(): ComputeAvailability {
   const nodes = useTelemetryStore((s) => s.nodes);
   const lastBlock = useTelemetryStore(selectTipBlock);
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useTelemetryStore((s) => s.wonBlocks);
   // Subscribe to the stable `serverTime` string and resolve "now" inside the
   // memo — NOT via a store selector. `resolveServerNowMs` falls back to
   // `Date.now()` when serverTime is null, which returns a fresh number every
