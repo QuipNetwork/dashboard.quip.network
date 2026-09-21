@@ -520,4 +520,40 @@ describe("HttpTelemetryClient file fetch timeout", () => {
     // The budget stops the walk after about 120ms, plus one in-flight request.
     expect(elapsed).toBeLessThan(300);
   });
+
+  it("keeps a budget-truncated history day in the next poll's history list", async () => {
+    const dayPath = "qblocks/days/2026-09-03.json";
+    const dayPaths = Array.from({ length: 80 }, (_, i) => `qblocks/dd/ee/${i}.json`);
+    const fetchImpl = ((input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("metadata.json")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ qblocks: [], history: [dayPath] }), { status: 200 }),
+        );
+      }
+      if (url.endsWith(dayPath)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ qblocks: dayPaths }), { status: 200 }),
+        );
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    }) as typeof globalThis.fetch;
+
+    const client = new HttpTelemetryClient({
+      fetch: fetchImpl,
+      fileTimeoutMs: 50,
+      qblockWalkBudgetMs: 120,
+    });
+
+    // The budget expires partway through the day's 80 files, so the walk
+    // stops with most of them unattempted.
+    await client.fetchQblockHistoryDay(dayPath);
+    const snapshot = await client.fetchQblocks("/files/qblocks/metadata.json");
+
+    // A truncated day must stay in `history` so a later poll retries it,
+    // rather than being dropped for the life of the client.
+    expect(snapshot.history).toEqual([dayPath]);
+  });
 });

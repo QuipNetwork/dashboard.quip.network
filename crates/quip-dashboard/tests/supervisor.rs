@@ -27,10 +27,14 @@ use tokio::{
 ///
 /// These tests drive real operating-system processes and real pipes, so a
 /// virtual clock does not reach them and the wait is genuine wall-clock time.
-/// The values are generous on purpose: a healthy run satisfies them in
-/// milliseconds, and a broken supervisor never satisfies them at any value, so
-/// a long deadline costs only the failure path. Two pipelines sharing a runner
-/// pushed the old three-second waits over their limit.
+/// The default is generous on purpose, and that generosity is a real
+/// trade-off, not a free one: a healthy run still satisfies it in
+/// milliseconds, and a supervisor that hangs outright still fails at any
+/// value, but a supervisor that merely grows slower now has thirty seconds of
+/// room where it used to have three. A regression that adds seconds to
+/// shutdown would pass here. `SUPERVISOR_TEST_DEADLINE_SECS` is the knob for
+/// hunting that class of regression. Two pipelines sharing a runner pushed the
+/// old three-second wait over its limit, which is why the default grew.
 fn io_deadline() -> Duration {
     Duration::from_secs(
         std::env::var("SUPERVISOR_TEST_DEADLINE_SECS")

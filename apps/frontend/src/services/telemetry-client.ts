@@ -215,6 +215,8 @@ export class HttpTelemetryClient implements TelemetryClient {
     // One budget for this walk, minted here so every file in it shares the
     // same deadline rather than getting a fresh one each.
     const deadline = AbortSignal.timeout(this.qblockWalkBudgetMs);
+    // No completion gate needed here: `settledQblocks` tracks individual
+    // files, so a walk the budget cut short simply resumes on the next poll.
     await this.loadQblockFiles(manifest.qblocks, signal, deadline);
     return {
       ...this.qblockData(),
@@ -231,8 +233,12 @@ export class HttpTelemetryClient implements TelemetryClient {
     // A separate walk deserves its own full budget rather than inheriting
     // whatever the main walk already spent.
     const deadline = AbortSignal.timeout(this.qblockWalkBudgetMs);
-    await this.loadQblockFiles(day.qblocks, signal, deadline);
-    this.loadedHistoryDays.add(dayPath);
+    const complete = await this.loadQblockFiles(day.qblocks, signal, deadline);
+    // A budget expiry returns cleanly with files unattempted (see
+    // loadQblockFiles). Marking the day loaded regardless would drop those
+    // files from every later poll's `history` list permanently, unlike the
+    // main walk, which self-heals through `settledQblocks`.
+    if (complete) this.loadedHistoryDays.add(dayPath);
     return this.qblockData();
   }
 
@@ -247,20 +253,25 @@ export class HttpTelemetryClient implements TelemetryClient {
   // Fetch every listed file that has not settled, through a small pool.
   // `deadline` bounds the whole walk. Each request carries its own timeout,
   // and the workers run them back to back, so only this stops a stalled tree
-  // from costing one timeout per file.
+  // from costing one timeout per file. Returns whether every pending file
+  // was attempted; false means the budget cut the walk short.
   private async loadQblockFiles(
     paths: readonly string[],
     signal?: AbortSignal,
     deadline?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const pending = paths.filter((path) => !this.settledQblocks.has(path));
     const settledBefore = Date.now() / 1000 - QBLOCK_SETTLED_SECONDS;
     let next = 0;
+    let complete = true;
     const worker = async (): Promise<void> => {
       for (let path = pending[next++]; path !== undefined; path = pending[next++]) {
         // Stop cleanly rather than throwing: the files already fetched stay
         // usable, and the caller's own signal keeps its separate meaning.
-        if (deadline?.aborted) return;
+        if (deadline?.aborted) {
+          complete = false;
+          return;
+        }
         const file = await this.fetchQblockFile(path, signal);
         if (file === null) continue;
         this.qblockFiles.set(path, file);
@@ -271,6 +282,7 @@ export class HttpTelemetryClient implements TelemetryClient {
     };
     const workers = Math.min(QBLOCK_FETCH_CONCURRENCY, pending.length);
     await Promise.all(Array.from({ length: workers }, worker));
+    return complete;
   }
 
   // One qblock file, or null when it is unavailable. A missing or failed file
