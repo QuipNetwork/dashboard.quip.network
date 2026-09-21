@@ -32,7 +32,25 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
-const TELEMETRY_BODY = { blocks: [], selfAddress: "5GPP" } as unknown as TelemetryResponse;
+const TELEMETRY_BODY: TelemetryResponse = {
+  selfAddress: "5GPP",
+  indexer: null,
+  serverTime: "2026-05-19T12:00:00Z",
+  chainHead: null,
+  babeEpoch: null,
+  babeAuthorities: [],
+  chainMiners: [],
+  recentDifficulty: [],
+  mineableTopologies: [],
+  validators: [],
+  recentMiningSubmissions: [],
+  selfProblemsAttempted: 0,
+  files: {
+    qblocksManifest: "/files/qblocks/metadata.json",
+    nodesSnapshot: "/files/nodes/snapshot.json",
+    minerCurrentDispatch: null,
+  },
+};
 const ATTEMPTS_BODY = {
   submission: { solutionNumber: 7 },
   attempts: [],
