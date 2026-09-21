@@ -39,12 +39,19 @@ const allTopLevelKeysListed: MissingKeys extends never ? true : never = true;
 type MissingFilesKeys = Exclude<keyof TelemetryResponse["files"], (typeof FILES_KEYS)[number]>;
 const allFilesKeysListed: MissingFilesKeys extends never ? true : never = true;
 
+// These two `it` blocks look tautological — each body is just
+// `expect(...).toBe(true)`. The real assertion is the conditional-type
+// annotation on each const above (`MissingKeys extends never ? true : never`),
+// which fails typecheck if a key goes missing from the list. tsconfig.base.json
+// sets `noUnusedLocals: true`, so deleting these `it` blocks would leave both
+// consts unused and fail the build with TS6133 — the `expect` calls are what
+// keep the compile-time guard alive.
 describe("TELEMETRY_KEYS and FILES_KEYS stay exhaustive at compile time", () => {
   it("lists every top-level TelemetryResponse key", () => {
     expect(allTopLevelKeysListed).toBe(true);
   });
 
-  it("lists every TelemetryResponse[\"files\"] key", () => {
+  it('lists every TelemetryResponse["files"] key', () => {
     expect(allFilesKeysListed).toBe(true);
   });
 });

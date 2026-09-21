@@ -81,8 +81,10 @@ const QBLOCK_SETTLED_SECONDS = 600;
 // Browsers reject thousands of simultaneous requests
 // (ERR_INSUFFICIENT_RESOURCES), so qblock files download through a small pool.
 const QBLOCK_FETCH_CONCURRENCY = 8;
-// Upper bound on a single /files request. Under the 15-second dashboard poll
-// interval (App.tsx), so a hung request cannot overlap the next poll.
+// Upper bound on a single /files request only. fileSignal() mints a fresh
+// timeout per call, and loadQblockFiles' workers loop sequentially through
+// their share of the list, so a hung walk can take far longer and overlap
+// the next poll. A follow-up issue tracks one deadline for the whole walk.
 const FILE_FETCH_TIMEOUT_MS = 10_000;
 
 export interface HttpTelemetryClientOptions {
@@ -116,9 +118,12 @@ export class HttpTelemetryClient implements TelemetryClient {
   }
 
   // A signal that aborts when the caller's signal aborts or the file timeout
-  // elapses, whichever comes first. The caller's own signal stays separately
-  // observable: each leg checks `signal?.aborted` to decide whether to rethrow
-  // (the caller walked away) or degrade (the file was simply not available).
+  // elapses, whichever comes first. Three legs — fetchQblockFile,
+  // fetchMinerCurrentDispatch, fetchNodesSnapshot — catch that abort and
+  // check `signal?.aborted` to tell a caller walkaway (rethrow) from a
+  // timeout (degrade to null). The other two, fetchQblocks and
+  // fetchQblockHistoryDay, have no try/catch and simply propagate either
+  // kind of abort to their caller.
   private fileSignal(signal?: AbortSignal): AbortSignal {
     const timeout = AbortSignal.timeout(this.fileTimeoutMs);
     return signal ? AbortSignal.any([signal, timeout]) : timeout;

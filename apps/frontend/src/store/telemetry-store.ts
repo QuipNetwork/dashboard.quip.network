@@ -168,16 +168,16 @@ const createTelemetryState =
               void loadQblockHistory(qblockSnapshot.history);
             }
           }
-          // Defensive coercion: a rolling deploy (or a stale dev-server that
-          // hasn't been restarted past a schema bump) can return a response
-          // missing newly-added fields. Without these defaults, downstream
-          // hooks crash on `undefined.map` / `undefined.length` instead of
-          // gracefully degrading to "no data yet".
           // Winner blocks come from the qblock files. `fileWinners` persists
           // across polls, so a failed manifest fetch keeps the blocks already
           // loaded. The sort and dedupe are applied here because the file
           // walk guarantees neither.
           const wonBlocks = sortWinnersDesc(fileWinners);
+          // Defensive coercion: a rolling deploy (or a stale dev-server that
+          // hasn't been restarted past a schema bump) can return a response
+          // missing newly-added fields. Without these defaults, downstream
+          // hooks crash on `undefined.map` / `undefined.length` instead of
+          // gracefully degrading to "no data yet".
           set({
             wonBlocks,
             selfAddress: data.selfAddress ?? null,
@@ -269,11 +269,11 @@ export function useServerNowMs(): number {
 /**
  * The tip block, or null when no blocks are loaded. `sortWinnersDesc` sorts
  * `wonBlocks` DESC by substrate block number, so the tip is the first
- * element. Returns a reference
- * stable between fetches (same BlockRecord identity in the array), so it's
- * safe to pass directly to `useTelemetryStore(selectTipBlock)`. Don't layer a
- * derived-object selector on top: zustand compares by reference and a fresh
- * `{ ...fields }` each call would loop forever.
+ * element. Returns a reference stable between fetches (same BlockRecord
+ * identity in the array), so it's safe to pass directly to
+ * `useTelemetryStore(selectTipBlock)`. Don't layer a derived-object selector
+ * on top: zustand compares by reference and a fresh `{ ...fields }` each call
+ * would loop forever.
  */
 export const selectTipBlock = (s: TelemetryState): BlockRecord | null =>
   s.wonBlocks.length > 0 ? (s.wonBlocks[0] ?? null) : null;

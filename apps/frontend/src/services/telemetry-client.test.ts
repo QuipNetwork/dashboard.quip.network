@@ -443,11 +443,35 @@ describe("HttpTelemetryClient file fetch timeout", () => {
   });
 
   it("passes a signal on every file request", async () => {
-    const { fetch, calls } = fakeFetch(() => json({ solutionNumber: 1, attempts: [], status: "in-flight" }));
+    const manifestUrl = "/files/qblocks/metadata.json";
+    const { fetch, calls } = fakeFetch((url) => {
+      if (url.endsWith(manifestUrl)) {
+        return json({ qblocks: ["qblocks/ab/cd/2.json"] });
+      }
+      if (url.endsWith("qblocks/ab/cd/2.json")) {
+        // Real writer shape: raw participation plus the winner block, same
+        // as the fetchQblocks describe block above.
+        return json({
+          qblockId: "2",
+          winner: { qblockId: "2", minerId: "5W", timestamp: 1_060 },
+          participation: [
+            { account: "A", kind: "Cpu", qblockId: "2", blockNumber: "7", budgetSeconds: null },
+          ],
+        });
+      }
+      return json({ solutionNumber: 1, attempts: [], status: "in-flight" });
+    });
     const client = new HttpTelemetryClient({ fetch });
 
+    await client.fetchQblocks(manifestUrl);
     await client.fetchMinerCurrentDispatch("/files/miners/5GPP/current-dispatch.json");
 
-    expect(calls[0]?.init?.signal).toBeInstanceOf(AbortSignal);
+    // Three requests land: the manifest, the one qblock file it names (the
+    // fetchQblockFile leg, reachable only through fetchQblocks), and the
+    // dispatch file. Every one must carry a signal.
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+    }
   });
 });
