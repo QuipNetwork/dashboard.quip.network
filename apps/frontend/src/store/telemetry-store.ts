@@ -95,7 +95,7 @@ const createTelemetryState =
         for (const day of days) {
           const { rows, winners } = await deps.client.fetchQblockHistoryDay(day);
           fileWinners = winners;
-          const merged = mergeWonBlocks(fileWinners, []);
+          const merged = sortWinnersDesc(fileWinners);
           set({
             participationCompute: rows,
             blocks: merged,
@@ -178,11 +178,11 @@ const createTelemetryState =
           // missing newly-added fields. Without these defaults, downstream
           // hooks crash on `undefined.map` / `undefined.length` instead of
           // gracefully degrading to "no data yet".
-          // Blocks come from the qblock files. `fileWinners` persists across polls,
-          // so a failed manifest fetch keeps the blocks already loaded. Merging
-          // against an empty array reuses the existing dedupe and DESC sort, which
-          // the tables rely on; the file walk does not guarantee either.
-          const blocks = mergeWonBlocks(fileWinners, []);
+          // Blocks come from the qblock files. `fileWinners` persists across
+          // polls, so a failed manifest fetch keeps the blocks already loaded.
+          // The sort and dedupe are applied here because the file walk
+          // guarantees neither.
+          const blocks = sortWinnersDesc(fileWinners);
           set({
             blocks,
             wonBlocks: blocks,
@@ -217,18 +217,11 @@ const createTelemetryState =
     };
   };
 
-/**
- * Union of the telemetry blocks and the qblock-file winners, one entry per
- * block hash, DESC by substrate block number like `blocks`. A telemetry copy
- * wins over a file copy of the same block, since telemetry is newer.
- */
-export function mergeWonBlocks(
-  blocks: readonly BlockRecord[],
-  fileWinners: readonly BlockRecord[],
-): BlockRecord[] {
+// Deduplicate winner blocks by hash and sort DESC by substrate block number.
+// The qblock file walk guarantees neither, and the block tables rely on both.
+export function sortWinnersDesc(winners: readonly BlockRecord[]): BlockRecord[] {
   const byHash = new Map<string, BlockRecord>();
-  for (const block of fileWinners) byHash.set(block.blockHash, block);
-  for (const block of blocks) byHash.set(block.blockHash, block);
+  for (const block of winners) byHash.set(block.blockHash, block);
   return [...byHash.values()].sort((a, b) => {
     const left = BigInt(a.substrateBlockNumber);
     const right = BigInt(b.substrateBlockNumber);
@@ -280,7 +273,7 @@ export function useServerNowMs(): number {
 }
 
 /**
- * The tip block, or null when no blocks are loaded. `mergeWonBlocks` sorts
+ * The tip block, or null when no blocks are loaded. `sortWinnersDesc` sorts
  * `blocks` DESC by substrate block number, so the tip is the first element.
  * Returns a reference
  * stable between fetches (same BlockRecord identity in the array), so it's

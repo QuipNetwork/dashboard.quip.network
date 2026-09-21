@@ -19,8 +19,8 @@ import type {
 } from "@quip/shared/telemetry";
 import {
   createTelemetryStore,
-  mergeWonBlocks,
   selectTipBlock,
+  sortWinnersDesc,
   type TelemetryState,
 } from "./telemetry-store";
 
@@ -339,19 +339,16 @@ describe("qblock history", () => {
   });
 });
 
-describe("mergeWonBlocks", () => {
-  it("unions by block hash, newest substrate block first, preferring the telemetry copy", () => {
-    const telemetry = makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: true });
-    const merged = mergeWonBlocks(
-      [telemetry],
-      [
-        makeBlock({ blockHash: "0xa", substrateBlockNumber: "9" }),
-        makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: false }),
-        makeBlock({ blockHash: "0xc", substrateBlockNumber: "100" }),
-      ],
-    );
-    expect(merged.map((b) => b.blockHash)).toEqual(["0xc", "0xb", "0xa"]);
-    expect(merged[1]).toBe(telemetry);
+describe("sortWinnersDesc", () => {
+  it("deduplicates by block hash and sorts newest substrate block first", () => {
+    const sorted = sortWinnersDesc([
+      makeBlock({ blockHash: "0xa", substrateBlockNumber: "9" }),
+      makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: false }),
+      makeBlock({ blockHash: "0xc", substrateBlockNumber: "100" }),
+      makeBlock({ blockHash: "0xb", substrateBlockNumber: "20", finalized: true }),
+    ]);
+
+    expect(sorted.map((b) => b.blockHash)).toEqual(["0xc", "0xb", "0xa"]);
   });
 });
 
