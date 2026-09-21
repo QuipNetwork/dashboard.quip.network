@@ -69,3 +69,42 @@ pub async fn restore_qblock_files(store: &Store, writer: &FileWriter, since: i64
     }
     complete
 }
+
+/// One sweep per hour, matching the indexer's own maintenance cadence.
+const EXPORT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Republish qblock files and manifests from the store until cancelled.
+///
+/// A deployment with no indexer runs this so its file tree matches what the
+/// indexer would have written. Each replica owns its own file tree: only the
+/// database is shared, so two processes never merge the same qblock file.
+///
+/// # Errors
+/// Never returns an error. The signature matches what the task supervisor
+/// accepts; a sweep that fails is logged and retried on the next tick, since
+/// the database being briefly unreachable is not a reason to end the process.
+pub async fn run_qblock_export(
+    store: std::sync::Arc<Store>,
+    writer: FileWriter,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> Result<(), String> {
+    let mut ticker = tokio::time::interval(EXPORT_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Sweep all of history on the first pass, then narrow to the recent
+    // window once a full pass has succeeded, exactly as the indexer does.
+    let mut restore_since = 0;
+    loop {
+        tokio::select! {
+            () = cancellation.cancelled() => return Ok(()),
+            _ = ticker.tick() => {
+                let recent_since = chrono::Utc::now().timestamp() - RECENT_DAYS * 86_400;
+                if restore_qblock_files(&store, &writer, restore_since).await {
+                    restore_since = recent_since;
+                }
+                if let Err(error) = writer.rebuild_manifests(recent_since).await {
+                    tracing::warn!(%error, "qblock manifest rebuild failed");
+                }
+            }
+        }
+    }
+}
