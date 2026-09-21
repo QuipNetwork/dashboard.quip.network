@@ -478,6 +478,47 @@ describe("fetchTelemetry", () => {
   });
 });
 
+describe("file-backed fields on a failed poll", () => {
+  const DISPATCH: CurrentDispatch = { solutionNumber: 7, attempts: [], status: "in-flight" };
+
+  it("keeps the last known dispatch when the dispatch file fails", async () => {
+    const client = clientReturning(
+      makeResponse({
+        files: {
+          qblocksManifest: "/files/qblocks/metadata.json",
+          nodesSnapshot: "/files/nodes/snapshot.json",
+          minerCurrentDispatch: "/files/miners/5GPP/current-dispatch.json",
+        },
+      }),
+    );
+    client.fetchMinerCurrentDispatch = async () => DISPATCH;
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+    expect(store.getState().currentDispatch).toEqual(DISPATCH);
+
+    client.fetchMinerCurrentDispatch = async () => null;
+    await store.getState().fetchTelemetry();
+
+    expect(store.getState().currentDispatch).toEqual(DISPATCH);
+  });
+
+  it("keeps the participation rows when the qblock manifest fails", async () => {
+    const client = clientReturning(makeResponse());
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+    expect(store.getState().participationCompute).toHaveLength(1);
+
+    client.fetchQblocks = async () => {
+      throw new Error("HTTP 504");
+    };
+    await store.getState().fetchTelemetry();
+
+    expect(store.getState().participationCompute).toHaveLength(1);
+  });
+});
+
 // ---- selectTipBlock ----------------------------------------------------
 
 describe("selectTipBlock", () => {

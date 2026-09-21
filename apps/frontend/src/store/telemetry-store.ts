@@ -138,10 +138,12 @@ const createTelemetryState =
         if (firstLoad && !get().loading) set({ loading: true });
         try {
           const data = await deps.client.fetchTelemetry();
-          // Participation facts are file-backed: fetch them from the manifest the
-          // slimmed telemetry points at. A missing or unparseable manifest
-          // degrades to an empty participation array ("no data yet").
-          let participationCompute: ParticipationComputeRow[] = [];
+          // Participation facts are file-backed. A failed or timed-out manifest
+          // keeps the rows from the last good poll rather than blanking the
+          // charts: a blank chart reads as "zero participation", which is a
+          // worse lie than slightly stale numbers. The block tables fed by the
+          // same document already behave this way through `fileWinners`.
+          let participationCompute: ParticipationComputeRow[] = get().participationCompute;
           // Every file this poll needs depends only on `data.files`, so they all
           // go out together and first paint pays one round trip, not three. The
           // nodes and dispatch documents degrade to null on failure; a 404 on
@@ -200,7 +202,10 @@ const createTelemetryState =
             nodeDescriptors: nodesDoc?.nodeDescriptors ?? get().nodeDescriptors,
             recentMiningSubmissions: data.recentMiningSubmissions ?? [],
             selfProblemsAttempted: data.selfProblemsAttempted ?? 0,
-            currentDispatch: dispatchDoc,
+            // Same rule as `nodes` above: a missing or timed-out dispatch file
+            // keeps the last one rather than emptying the Current Attempts
+            // panel on a single slow response.
+            currentDispatch: dispatchDoc ?? get().currentDispatch,
             participationCompute,
             loading: false,
             error: null,
