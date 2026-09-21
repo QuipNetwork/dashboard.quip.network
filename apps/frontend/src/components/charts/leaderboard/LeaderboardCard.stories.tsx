@@ -4,7 +4,7 @@ import { StoryServices } from "@/testing/services";
 import { sampleTelemetry } from "@/testing/sample-telemetry";
 import { LeaderboardCard } from "./LeaderboardCard";
 
-// LeaderboardCard reads blocks/chainMiners/nodeDescriptors/nodes off the
+// LeaderboardCard reads wonBlocks/chainMiners/nodeDescriptors/nodes off the
 // Zustand telemetry store rather than taking props, so stories seed the
 // store through StoryServices — same mechanism Dashboard.stories.tsx uses.
 // (Leaderboard.stories.tsx already covers the presentational <Leaderboard>
@@ -16,7 +16,7 @@ export const Default: Story = () => (
 );
 
 export const Empty: Story = () => (
-  <StoryServices telemetry={{ blocks: [], chainMiners: [], nodeDescriptors: [] }}>
+  <StoryServices telemetry={{ wonBlocks: [], chainMiners: [], nodeDescriptors: [] }}>
     <LeaderboardCard />
   </StoryServices>
 );

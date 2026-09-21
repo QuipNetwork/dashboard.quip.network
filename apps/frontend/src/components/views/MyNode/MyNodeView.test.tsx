@@ -80,7 +80,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   useTelemetryStore.setState({
-    blocks: [],
+    wonBlocks: [],
     selfAddress: null,
     chainMiners: [],
     recentDifficulty: [],
@@ -94,7 +94,7 @@ describe("MyNodeView", () => {
     useTelemetryStore.setState({
       selfAddress: SELF,
       chainMiners: [makeChainMiner()],
-      blocks: [makeBlock()],
+      wonBlocks: [makeBlock()],
     });
     renderView(root);
     const text = container.textContent ?? "";
@@ -106,7 +106,7 @@ describe("MyNodeView", () => {
     useTelemetryStore.setState({
       selfAddress: SELF,
       chainMiners: [makeChainMiner()],
-      blocks: [makeBlock()],
+      wonBlocks: [makeBlock()],
       recentDifficulty: [
         {
           observedAtBlock: "100",
@@ -131,7 +131,7 @@ describe("MyNodeView", () => {
     useTelemetryStore.setState({
       selfAddress: SELF,
       chainMiners: [makeChainMiner()],
-      blocks: [makeBlock()],
+      wonBlocks: [makeBlock()],
     });
     renderView(root);
     const text = container.textContent ?? "";
@@ -145,7 +145,7 @@ describe("MyNodeView", () => {
     useTelemetryStore.setState({
       selfAddress: SELF,
       chainMiners: [makeChainMiner()],
-      blocks: [makeBlock({ qblockId: "42" })],
+      wonBlocks: [makeBlock({ qblockId: "42" })],
     });
     renderView(root);
     const text = container.textContent ?? "";
@@ -158,7 +158,7 @@ describe("MyNodeView", () => {
     useTelemetryStore.setState({
       selfAddress: SELF,
       chainMiners: [makeChainMiner({ proofsWon: "0" })],
-      blocks: [],
+      wonBlocks: [],
     });
     renderView(root);
     const card = findCardByLabel("Last Won QBlock Details");
@@ -181,7 +181,7 @@ describe("MyNodeView", () => {
     useTelemetryStore.setState({
       selfAddress: SELF,
       chainMiners: [makeChainMiner()],
-      blocks: [makeBlock()],
+      wonBlocks: [makeBlock()],
     });
     renderView(root);
     const wonTile = findCardByLabel("QBlocks Won");

@@ -64,7 +64,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   useTelemetryStore.setState({
-    blocks: [],
+    wonBlocks: [],
     ...(originalFetchTelemetry ? { fetchTelemetry: originalFetchTelemetry } : {}),
   });
   originalFetchTelemetry = null;

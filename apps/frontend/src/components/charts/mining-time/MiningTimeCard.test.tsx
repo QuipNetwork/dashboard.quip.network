@@ -23,7 +23,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  useTelemetryStore.setState({ blocks: [], nodes: null, chainMiners: [], nodeDescriptors: [] });
+  useTelemetryStore.setState({ wonBlocks: [], nodes: null, chainMiners: [], nodeDescriptors: [] });
   useUIStore.setState({ selectedTypes: ["CPU", "GPU", "QPU"] });
 });
 

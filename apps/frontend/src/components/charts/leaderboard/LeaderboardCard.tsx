@@ -30,7 +30,7 @@ const SUBTITLES: Record<LeaderboardMode, string> = {
 export function LeaderboardCard() {
   const [mode, setMode] = useState<LeaderboardMode>("byCount");
   const baseEntries = useLeaderboard();
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useTelemetryStore((s) => s.wonBlocks);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const nodes = useTelemetryStore((s) => s.nodes);

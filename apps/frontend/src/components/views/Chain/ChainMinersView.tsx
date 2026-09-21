@@ -61,7 +61,7 @@ export function filterChainMiners(
 export function ChainMinersTable() {
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useTelemetryStore((s) => s.wonBlocks);
   const [query, setQuery] = useState("");
   // Shared identity dialog: resolves the descriptor/miner/live node for an
   // account and wires the "More info →" link to the node detail page. Same

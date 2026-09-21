@@ -32,7 +32,7 @@ export function ComputeAvailableView() {
   // v0.3 substrate worker is the sole writer — all blocks in the store are
   // canonical-by-construction (finalized substrate blocks only). The store
   // ships DESC by substrate_block_number, which is the order the table wants.
-  const blocks = useTelemetryStore((s) => s.blocks);
+  const blocks = useTelemetryStore((s) => s.wonBlocks);
   const indexer = useTelemetryStore((s) => s.indexer);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const chainHead = useTelemetryStore((s) => s.chainHead);

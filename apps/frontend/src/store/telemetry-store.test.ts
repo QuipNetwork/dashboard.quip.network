@@ -188,7 +188,6 @@ function makeResponse(overrides: Partial<TelemetryResponse> = {}): TelemetryResp
 
 function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {}): TelemetryState {
   return {
-    blocks,
     wonBlocks: blocks,
     selfAddress: null,
     indexer: null,
@@ -313,8 +312,6 @@ describe("qblock history", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(loaded).toEqual(["d2", "d1"]);
     expect(store.getState().participationCompute.map((r) => r.qblockId)).toEqual(["1", "2", "3"]);
-    // blocks and wonBlocks are now the same file-derived list.
-    expect(store.getState().blocks.map((b) => b.qblockId)).toEqual(["3", "2", "1"]);
     expect(store.getState().wonBlocks.map((b) => b.qblockId)).toEqual(["3", "2", "1"]);
   });
 
@@ -360,6 +357,15 @@ describe("fetchTelemetry", () => {
     await store.getState().fetchTelemetry();
 
     expect(client.calls).toBe(1);
+  });
+
+  it("exposes winner blocks under a single field", async () => {
+    const store = createTelemetryStore({ client: clientReturning(makeResponse()) });
+
+    await store.getState().fetchTelemetry();
+
+    expect(store.getState().wonBlocks).toBeInstanceOf(Array);
+    expect(Object.keys(store.getState())).not.toContain("blocks");
   });
 
   it("populates the slim TelemetryResponse shape into state", async () => {
@@ -523,7 +529,7 @@ describe("selectTipBlock", () => {
     expect(selectTipBlock(makeState([]))).toBeNull();
   });
 
-  it("returns blocks[0] — the API ships blocks DESC by substrate block number", () => {
+  it("returns the newest winner block when wonBlocks is populated", () => {
     const state = makeState([
       makeBlock({ substrateBlockNumber: "12" }),
       makeBlock({ substrateBlockNumber: "11" }),
