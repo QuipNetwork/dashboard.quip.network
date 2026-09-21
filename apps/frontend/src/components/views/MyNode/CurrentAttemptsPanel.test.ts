@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 
 import type { MiningAttempt } from "@quip/shared/telemetry";
 
 import {
+  CurrentAttemptsPanel,
   STALE_ITERATION_MS,
   isTrailStale,
   newestIterationAgeMs,
@@ -89,5 +92,48 @@ describe("isTrailStale", () => {
 
   test("no parseable ts_ns → cannot conclude stale", () => {
     expect(isTrailStale([attempt(1, null)], "in-flight", NOW_MS)).toBe(false);
+  });
+});
+
+describe("CurrentAttemptsPanel empty state", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  function render(minerDispatch: boolean) {
+    act(() => {
+      root.render(
+        createElement(CurrentAttemptsPanel, {
+          dispatch: null,
+          recentSubmissions: [],
+          problemNumber: null,
+          nowMs: NOW_MS,
+          minerDispatch,
+        }),
+      );
+    });
+  }
+
+  test("promises data is coming when a miner poller runs here", () => {
+    render(true);
+    expect(container.textContent).toContain("No attempts yet");
+  });
+
+  test("says attempts are unavailable when the deployment runs no miner poller", () => {
+    render(false);
+    expect(container.textContent).toContain("not available");
+    expect(container.textContent).not.toContain("No attempts yet");
   });
 });
