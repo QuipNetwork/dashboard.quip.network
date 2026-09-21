@@ -206,6 +206,8 @@ function makeState(blocks: BlockRecord[], overrides: Partial<TelemetryState> = {
     selfProblemsAttempted: 0,
     currentDispatch: null,
     participationCompute: [],
+    capabilities: { minerDispatch: true },
+    hasLoaded: true,
     loading: false,
     error: null,
     fetchTelemetry: async () => {},
@@ -543,6 +545,43 @@ describe("selectTipBlock", () => {
   it("returns a stable reference (same BlockRecord identity across calls)", () => {
     const state = makeState([makeBlock({ substrateBlockNumber: "7" })]);
     expect(selectTipBlock(state)).toBe(selectTipBlock(state));
+  });
+});
+
+describe("capabilities and first load", () => {
+  it("stores the capabilities from the response", async () => {
+    const store = createTelemetryStore({
+      client: clientReturning(makeResponse({ capabilities: { minerDispatch: false } })),
+    });
+
+    await store.getState().fetchTelemetry();
+
+    expect(store.getState().capabilities.minerDispatch).toBe(false);
+  });
+
+  it("does not re-enter the loading flash when a poll returns no blocks", async () => {
+    // selfAddress is overridden to null because makeResponse returns "5GPP".
+    // The old guard was `wonBlocks.length === 0 && selfAddress === null`, so a
+    // non-null address alone would satisfy it and this test would pass without
+    // the fix. A deployment with no operator account configured and no blocks
+    // is exactly the case that flashed the loading screen on every poll.
+    const client = clientReturning(makeResponse({ selfAddress: null }));
+    client.fetchQblocks = async () => ({ rows: [], winners: [], history: [] });
+    const store = createTelemetryStore({ client });
+
+    await store.getState().fetchTelemetry();
+    expect(store.getState().wonBlocks).toHaveLength(0);
+
+    // The flash is a transition, not an end state: the poll sets loading true
+    // on entry and false again on success, so reading loading after the await
+    // reports false either way. Record every value the store publishes during
+    // the second poll instead, which is what a subscribed component renders.
+    const seen: boolean[] = [];
+    const unsubscribe = store.subscribe((state) => seen.push(state.loading));
+    await store.getState().fetchTelemetry();
+    unsubscribe();
+
+    expect(seen).not.toContain(true);
   });
 });
 

@@ -7,6 +7,7 @@ import type {
   BabeAuthorityRecord,
   BabeEpochState,
   BlockRecord,
+  Capabilities,
   ChainHead,
   ChainMinerRecord,
   CurrentDispatch,
@@ -66,6 +67,14 @@ export interface TelemetryState {
   // the Total-Compute pie and Mining-per-QBlock charts. Empty until the
   // indexer has recorded participation for an in-window qblock.
   participationCompute: ParticipationComputeRow[];
+  // What this deployment can serve. A false field means the data will never
+  // arrive here, which panels show differently from data that is merely late.
+  capabilities: Capabilities;
+  // Whether a fetch has finished at least once, successfully or not. Tracked
+  // explicitly rather than inferred from whether data arrived: a deployment
+  // can legitimately have no blocks and no self address, and inferring would
+  // flash the loading screen on every poll forever.
+  hasLoaded: boolean;
   loading: boolean;
   error: string | null;
 
@@ -122,14 +131,14 @@ const createTelemetryState =
       selfProblemsAttempted: 0,
       currentDispatch: null,
       participationCompute: [],
+      capabilities: { minerDispatch: true },
+      hasLoaded: false,
       loading: true,
       error: null,
       fetchTelemetry: async () => {
         // Only flash the loading screen on the very first load. Subsequent
         // polling refreshes leave the current UI visible and swap data in place.
-        // In steady state both wonBlocks and selfAddress are populated, so this
-        // never re-enters the loading flash after the first successful fetch.
-        const firstLoad = get().wonBlocks.length === 0 && get().selfAddress === null;
+        const firstLoad = !get().hasLoaded;
         if (firstLoad && !get().loading) set({ loading: true });
         try {
           const data = await deps.client.fetchTelemetry();
@@ -201,11 +210,21 @@ const createTelemetryState =
             // panel on a single slow response.
             currentDispatch: dispatchDoc ?? get().currentDispatch,
             participationCompute,
+            capabilities: data.capabilities,
+            hasLoaded: true,
             loading: false,
             error: null,
           });
         } catch (e) {
-          set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+          // The error path sets hasLoaded too. After a failed first fetch the
+          // interface has an error to show, so leaving the flag false would
+          // flash the loading screen again on every retry — the same defect
+          // this flag replaces, just reached through the failure path.
+          set({
+            hasLoaded: true,
+            loading: false,
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       },
     };
