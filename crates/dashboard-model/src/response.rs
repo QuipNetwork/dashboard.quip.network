@@ -200,6 +200,18 @@ pub struct TelemetryFiles {
     pub miner_current_dispatch: Option<String>,
 }
 
+/// What this deployment can serve. A field is `false` when the deployment
+/// will never produce that data, which the client shows differently from
+/// data that has simply not arrived yet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Capabilities {
+    /// Whether a miner poller runs here. False in API-only mode, where no
+    /// process contacts a miner, so `files.minerCurrentDispatch` never
+    /// resolves.
+    pub miner_dispatch: bool,
+}
+
 /// `GET /api/telemetry` body.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -230,6 +242,8 @@ pub struct TelemetryResponse {
     pub self_problems_attempted: u64,
     /// Pointer to file-backed time-series data.
     pub files: TelemetryFiles,
+    /// What this deployment can serve.
+    pub capabilities: Capabilities,
 }
 
 /// Error body returned by the HTTP API.

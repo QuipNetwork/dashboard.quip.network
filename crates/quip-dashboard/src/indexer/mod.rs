@@ -9,6 +9,7 @@ mod reconcile;
 pub mod sync_gate;
 
 use crate::chain::{BlockHash, ChainError, ChainReader, WorkClass};
+use crate::qblock_export::RECENT_DAYS;
 use admission::Admission;
 use dashboard_model::{BlockHash as ModelHash, DecimalString};
 use dashboard_store::{CommitResult, GenerationGuard, Indexable, RetainedBlock, Store, StoreError};
@@ -30,12 +31,6 @@ const SPARSE: [Indexable; 3] = [
 const PAGE_SIZE: u32 = 256;
 /// How often missing qblock files are restored and the manifests rebuilt.
 const MAINTAIN_INTERVAL: Duration = Duration::from_secs(3600);
-/// Qblocks listed in `metadata.json` for the client's first load. Older
-/// qblocks stay on disk and are listed in per-day history manifests.
-const RECENT_DAYS: i64 = 14;
-/// Qblocks younger than this are left to the live writer, which may still be
-/// committing their participation pages.
-const RESTORE_MIN_AGE_SECS: u64 = 300;
 
 /// Observable committed progress. An announced head never counts as a committed head.
 #[derive(Clone, Debug, Default)]
@@ -357,7 +352,13 @@ impl Indexer {
                     if let Some(writer) = &self.writer {
                         let recent_since = chrono::Utc::now().timestamp() - RECENT_DAYS * 86_400;
                         // Narrow to the recent window only once a full pass succeeds.
-                        if self.restore_qblock_files(writer, restore_since).await {
+                        if crate::qblock_export::restore_qblock_files(
+                            &self.store,
+                            writer,
+                            restore_since,
+                        )
+                        .await
+                        {
                             restore_since = recent_since;
                         }
                         if let Err(error) = writer.rebuild_manifests(recent_since).await {
@@ -367,60 +368,6 @@ impl Indexer {
                 }
             }
         }
-    }
-    /// Recreate qblock files missing for winners at or after `since` from the
-    /// store. Covers qblocks indexed before file-backed storage existed and
-    /// best-effort live writes that failed. Errors are logged; returns whether
-    /// every qblock was checked without error.
-    async fn restore_qblock_files(&self, writer: &file_writer::FileWriter, since: i64) -> bool {
-        let winners = match self.store.get_blocks_since(since).await {
-            Ok(winners) => winners,
-            Err(error) => {
-                tracing::warn!(%error, "qblock file restore query failed");
-                return false;
-            }
-        };
-        let mut complete = true;
-        let settled = u64::try_from(chrono::Utc::now().timestamp())
-            .unwrap_or(0)
-            .saturating_sub(RESTORE_MIN_AGE_SECS);
-        let mut restored = 0_usize;
-        for winner in winners.iter().filter(|w| w.timestamp <= settled) {
-            // Most files exist; skip their participation query.
-            match writer.has_qblock(winner.qblock_id.as_str()).await {
-                Ok(true) => continue,
-                Ok(false) => {}
-                Err(error) => {
-                    tracing::warn!(%error, qblock = winner.qblock_id.as_str(), "qblock file check failed");
-                    complete = false;
-                    continue;
-                }
-            }
-            let participation = match self
-                .store
-                .get_qblock_participation(winner.qblock_id.as_str())
-                .await
-            {
-                Ok(rows) => rows,
-                Err(error) => {
-                    tracing::warn!(%error, qblock = winner.qblock_id.as_str(), "qblock participation query failed");
-                    complete = false;
-                    continue;
-                }
-            };
-            match writer.restore_qblock(winner, &participation).await {
-                Ok(true) => restored += 1,
-                Ok(false) => {}
-                Err(error) => {
-                    tracing::warn!(%error, qblock = winner.qblock_id.as_str(), "qblock file restore failed");
-                    complete = false;
-                }
-            }
-        }
-        if restored > 0 {
-            tracing::info!(restored, "restored missing qblock files");
-        }
-        complete
     }
     /// Evaluate the shared backfill gate against the live validator state.
     ///

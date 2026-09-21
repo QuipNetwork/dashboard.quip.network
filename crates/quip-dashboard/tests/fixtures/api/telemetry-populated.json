@@ -170,5 +170,8 @@
     "qblocksManifest": "/files/qblocks/metadata.json",
     "nodesSnapshot": "/files/nodes/snapshot.json",
     "minerCurrentDispatch": "/files/miners/5GPP/current-dispatch.json"
+  },
+  "capabilities": {
+    "minerDispatch": true
   }
 }

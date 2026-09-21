@@ -27,6 +27,7 @@ export function MyNodeView() {
   const chainHead = useTelemetryStore((s) => s.chainHead);
   const recentMiningSubmissions = useTelemetryStore((s) => s.recentMiningSubmissions);
   const currentDispatch = useTelemetryStore((s) => s.currentDispatch);
+  const minerDispatch = useTelemetryStore((s) => s.capabilities.minerDispatch);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   // Rig name from the self descriptor; falls back to the short address
   // inside displayNodeName when no descriptor has landed.
@@ -140,6 +141,7 @@ export function MyNodeView() {
           winningSolutionsSolved(chainHead, chainMiners) + 1
         }
         nowMs={Date.now()}
+        minerDispatch={minerDispatch}
       />
 
       {effectiveMinerStats && (

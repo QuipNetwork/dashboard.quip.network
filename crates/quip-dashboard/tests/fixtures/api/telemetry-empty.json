@@ -15,5 +15,8 @@
     "qblocksManifest": "/files/qblocks/metadata.json",
     "nodesSnapshot": "/files/nodes/snapshot.json",
     "minerCurrentDispatch": null
+  },
+  "capabilities": {
+    "minerDispatch": true
   }
 }
