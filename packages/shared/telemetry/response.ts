@@ -181,7 +181,8 @@ export interface NodeLiveData {
 export interface TelemetryResponse {
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
   // Null until the indexer has completed its first successful poll.
-  selfAddress: string | null;  // Indexer/node tip observability. null before the indexer has completed
+  selfAddress: string | null;
+  // Indexer/node tip observability. null before the indexer has completed
   // its first successful /status poll after deploy.
   indexer: IndexerObservability | null;
   // ISO 8601 timestamp the server stamped this response. Lets the UI
