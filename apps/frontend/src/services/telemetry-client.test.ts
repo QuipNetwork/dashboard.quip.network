@@ -50,6 +50,7 @@ const TELEMETRY_BODY: TelemetryResponse = {
     nodesSnapshot: "/files/nodes/snapshot.json",
     minerCurrentDispatch: null,
   },
+  capabilities: { minerDispatch: true },
 };
 const ATTEMPTS_BODY = {
   submission: { solutionNumber: 7 },
