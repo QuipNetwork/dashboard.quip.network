@@ -135,6 +135,9 @@ async fn build(state: &HttpState) -> Result<TelemetryResponse, ApiError> {
             nodes_snapshot: "/files/nodes/snapshot.json".to_owned(),
             miner_current_dispatch,
         },
+        capabilities: dashboard_model::Capabilities {
+            miner_dispatch: state.miner_dispatch,
+        },
     })
 }
 

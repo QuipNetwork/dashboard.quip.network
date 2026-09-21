@@ -734,7 +734,8 @@ async fn serve(config: Config) -> CommandResult {
             Arc::new(StorePeers(store.clone())),
         )?);
         let state = HttpState::new(store.clone(), miner.clone(), health.clone())
-            .with_operator_account(config.operator_account.clone());
+            .with_operator_account(config.operator_account.clone())
+            .with_miner_dispatch(!config.is_api_only());
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.listen_port)).await?;
         Ok::<_, Box<dyn Error + Send + Sync>>((miner, router(state), listener))
     }
