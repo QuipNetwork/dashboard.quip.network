@@ -111,7 +111,6 @@ export async function generateSchedule(opts) {
       name: entry.name,
       status: entry.status,
       scenario: entry.scenario,
-      bodyFile: entry.bodyFile ?? null,
     });
   }
   requests.sort((a, b) => a.tOffsetMs - b.tOffsetMs);
