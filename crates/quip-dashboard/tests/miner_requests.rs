@@ -172,6 +172,66 @@ async fn service() -> Result<
     Ok((miner, state, server))
 }
 
+/// Serve one HTTP/1.1 response whose body arrives in `chunks` pieces, `gap`
+/// apart, and return the base URL plus the server task.
+///
+/// The suite's axum `handler` returns a whole `String`, so it cannot produce a
+/// body that arrives over time, and this crate has no stream combinator crate
+/// to build one with. Writing the bytes by hand needs only tokio.
+async fn trickling_server(
+    body: String,
+    chunks: usize,
+    gap: Duration,
+) -> Result<(String, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    let handle = tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let body = body.clone();
+            drop(tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+                // Read the request head so the client's write completes. The
+                // content is irrelevant: this server answers every path alike.
+                let mut discard = [0_u8; 2048];
+                let _ = socket.read(&mut discard).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                if socket.write_all(head.as_bytes()).await.is_err() {
+                    return;
+                }
+                let bytes = body.into_bytes();
+                let size = bytes.len().div_ceil(chunks.max(1));
+                for (index, piece) in bytes.chunks(size).enumerate() {
+                    if index > 0 {
+                        tokio::time::sleep(gap).await;
+                    }
+                    if socket.write_all(piece).await.is_err() {
+                        return;
+                    }
+                    if socket.flush().await.is_err() {
+                        return;
+                    }
+                }
+            }));
+        }
+    });
+    Ok((url, handle))
+}
+
+/// One attempts response with `trail_len` iterations, shaped like a live miner.
+///
+/// Copied from the `"/api/v1/mining/attempts"` arm of `handler` at `:131-140`.
+/// Keep the two in step: a parser change that breaks one breaks the other.
+fn attempts_body(solution: u64, trail_len: usize) -> String {
+    let attempts: Vec<Value> = (1..=trail_len)
+        .map(|n| json!({"accepted":false,"best_energy_milli":-14_410_000,"diversity_milli":0,"iter":n,"job_id":"b".repeat(64),"miner_id":"cuda-0","miner_type":"GPU-CUDA","num_valid":0,"qpu_access_time_us":4_344_796,"result_kind":"rejected","solution_number":solution,"submitted":false,"ts_ns":(1_789_786_835_000_000_000_u64 + n as u64).to_string(),"type":"attempt"}))
+        .collect();
+    json!({"success":true,"data":{"attempts":attempts,"submission":{"solution_number":solution,"miner_id":"cuda-0","energy_milli":-14_448_000,"diversity_milli":0,"threshold_milli":-14_635_662,"last_proof_block_hash":"0x00","outcome":"rejected"}}})
+        .to_string()
+}
+
 #[tokio::test]
 async fn hundred_local_consumers_share_eight_second_snapshot() -> TestResult {
     let (service, upstream, server) = service().await?;
@@ -452,6 +512,42 @@ async fn trail_past_the_whole_body_cap_streams() -> TestResult {
             .as_ref()
             .map(|dispatch| dispatch.attempts.len()),
         Some(ATTEMPT_TRAIL_LIMIT)
+    );
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_slow_but_progressing_trail_completes() -> TestResult {
+    // Ten pieces 500 ms apart is about five seconds in total, longer than the
+    // four-second whole-request deadline this change removes. Every individual
+    // gap is an eighth of the read timeout, so a loaded machine does not turn
+    // this into the flake it replaces.
+    // `local_attempts` maps chain qblock 42 to miner solution 41 before
+    // querying, then checks the response echoes that miner-side number.
+    let (url, server) =
+        trickling_server(attempts_body(41, 64), 10, Duration::from_millis(500)).await?;
+    let service = MinerService::new(Some(url.clone()), Arc::new(Resolver { url }))?;
+
+    let response = service.local_attempts(42).await?;
+
+    assert_eq!(response.data.attempts.len(), 64);
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stalled_trail_still_fails() -> TestResult {
+    // One gap far longer than the read timeout. Removing the whole-request
+    // deadline must not leave a hung miner able to hold a request open.
+    let (url, server) = trickling_server(attempts_body(42, 64), 2, Duration::from_secs(20)).await?;
+    let service = MinerService::new(Some(url.clone()), Arc::new(Resolver { url }))?;
+
+    let result = service.local_attempts(42).await;
+
+    assert!(
+        matches!(result, Err(MinerError::Unreachable(_))),
+        "a stalled body should report the miner unreachable"
     );
     server.abort();
     Ok(())

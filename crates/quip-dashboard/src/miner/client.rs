@@ -27,7 +27,15 @@ pub(super) struct MinerClient {
 impl MinerClient {
     pub(super) fn new() -> Result<Self, MinerError> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(4))
+            // Not `timeout`, which bounds the whole request including the body
+            // read. The attempts endpoint may return up to
+            // ATTEMPTS_RESPONSE_BYTES, and a whole-request deadline makes that
+            // budget unreachable: a miner with a long iteration trail reports
+            // as unreachable when it is only verbose. `read_timeout` resets
+            // after each successful read, so it catches a stalled connection
+            // without bounding a large one. Total bytes stay bounded by
+            // RESPONSE_BYTES and ATTEMPTS_RESPONSE_BYTES.
+            .read_timeout(Duration::from_secs(4))
             .connect_timeout(Duration::from_secs(3))
             .redirect(reqwest::redirect::Policy::none())
             .pool_max_idle_per_host(1)
