@@ -854,6 +854,7 @@ async fn serve(config: Config) -> CommandResult {
                     "http" => RequiredTask::Http,
                     "indexer" => RequiredTask::Indexer,
                     "miner" => RequiredTask::Miner,
+                    "nodes-writer" | "qblock-export" => RequiredTask::FileWriter,
                     _ => RequiredTask::Watchdog,
                 };
                 health.task_exited(task);
