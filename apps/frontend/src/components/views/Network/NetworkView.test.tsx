@@ -69,11 +69,18 @@ afterEach(() => {
 });
 
 describe("NetworkView", () => {
-  test("renders empty PFLOPS tile when no survey data has arrived", () => {
+  test("renders empty PFLOPS tile when no survey data has arrived", async () => {
     useTelemetryStore.setState({ nodes: null });
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // NodeLocationMap's atlas fetch (stubbed in test/setup.ts) resolves on a
+    // microtask after this act() call returns. The text assertions below
+    // don't change with that resolution (the stub's topology has no
+    // countries to render), so a text-based waitFor predicate would be true
+    // immediately and never drain the pending microtask. Flush it inside an
+    // act scope instead.
+    await act(async () => {});
     const text = container.textContent ?? "";
     expect(text).toContain("Est. PFLOPS");
     // No nodes ⇒ totalPetaflops=0.00. Use the surrounding "Across 0 active
@@ -82,13 +89,16 @@ describe("NetworkView", () => {
     expect(text).toContain("Across 0 active nodes");
   });
 
-  test("aggregates TFLOPS into the PFLOPS tile from NodesSnapshot", () => {
+  test("aggregates TFLOPS into the PFLOPS tile from NodesSnapshot", async () => {
     useTelemetryStore.setState({
       nodes: makeSnapshot({ "5GAlice": makeNode() }),
     });
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     const text = container.textContent ?? "";
     // RTX 4090 is 82.6 TFLOPS + i9 (8 cores × 0.09) = 0.72 TFLOPS → 83.32
     // TFLOPS total = 0.08 PFLOPS. Format is "0.08" with the two-decimal
@@ -97,7 +107,7 @@ describe("NetworkView", () => {
     expect(text).toContain("0.08");
   });
 
-  test("shows hardware breakdown bars in byType mode", () => {
+  test("shows hardware breakdown bars in byType mode", async () => {
     useUIStore.setState({ aggregationMode: "byType" });
     useTelemetryStore.setState({
       nodes: makeSnapshot({ "5GAlice": makeNode() }),
@@ -105,12 +115,15 @@ describe("NetworkView", () => {
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     const text = container.textContent ?? "";
     expect(text).toContain("CPU Model Breakdown");
     expect(text).toContain("GPU Model Breakdown");
   });
 
-  test("shows Node Compute Contribution leaderboard in byNode mode", () => {
+  test("shows Node Compute Contribution leaderboard in byNode mode", async () => {
     useUIStore.setState({ aggregationMode: "byNode" });
     useTelemetryStore.setState({
       nodes: makeSnapshot({
@@ -121,16 +134,22 @@ describe("NetworkView", () => {
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     const text = container.textContent ?? "";
     expect(text).toContain("Node Compute Contribution");
     expect(text).toContain("2 nodes, sorted by contribution");
   });
 
-  test("hosts the node inventory: locations map and on-chain miners table", () => {
+  test("hosts the node inventory: locations map and on-chain miners table", async () => {
     useTelemetryStore.setState({ nodes: null });
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     const text = container.textContent ?? "";
     expect(text).toContain("Node Locations");
     expect(text).toContain("On-chain miners");
@@ -138,31 +157,42 @@ describe("NetworkView", () => {
 
   // ---- relocated compute charts (bead 1o0.1) ------------------------------
 
-  test("hosts Total Compute Used above the On-chain miners table", () => {
+  test("hosts Total Compute Used above the On-chain miners table", async () => {
     useUIStore.setState({ aggregationMode: "byType" });
     useTelemetryStore.setState({ nodes: makeSnapshot({ "5GAlice": makeNode() }) });
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     const text = container.textContent ?? "";
     expect(text).toContain("Total Compute Used");
     // Placement: the relocated chart sits above the On-chain miners section.
     expect(text.indexOf("Total Compute Used")).toBeLessThan(text.indexOf("On-chain miners"));
   });
 
-  test("shows Mining Nodes by Type in byType mode and hides it in byNode mode", () => {
+  test("shows Mining Nodes by Type in byType mode and hides it in byNode mode", async () => {
     useTelemetryStore.setState({ nodes: makeSnapshot({ "5GAlice": makeNode() }) });
 
     useUIStore.setState({ aggregationMode: "byType" });
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     expect(container.textContent ?? "").toContain("Mining Nodes by Type");
 
-    useUIStore.setState({ aggregationMode: "byNode" });
+    // `useUIStore.setState` re-renders the already-mounted NetworkView
+    // synchronously (useSyncExternalStore applies external-store updates
+    // immediately outside a batch), so it has to share an act() scope with
+    // the render call rather than run as a bare statement beforehand.
     act(() => {
+      useUIStore.setState({ aggregationMode: "byNode" });
       root.render(createElement(NetworkView));
     });
+    await act(async () => {});
     expect(container.textContent ?? "").not.toContain("Mining Nodes by Type");
   });
 
@@ -174,7 +204,7 @@ describe("NetworkView", () => {
   const RECENT_SEC = Math.floor((NOW_MS - 3 * DAY_MS) / 1000);
   const STALE_SEC = Math.floor((NOW_MS - 20 * DAY_MS) / 1000);
 
-  test("labels the windowed surfaces with a last-2-weeks qualifier", () => {
+  test("labels the windowed surfaces with a last-2-weeks qualifier", async () => {
     useUIStore.setState({ aggregationMode: "byType" });
     useTelemetryStore.setState({
       serverTime: NOW_ISO,
@@ -183,6 +213,9 @@ describe("NetworkView", () => {
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     const text = container.textContent ?? "";
     expect(text).toContain("Node Locations (last 2 weeks)");
     expect(text).toContain("Total CPUs (last 2 weeks)");
@@ -193,7 +226,7 @@ describe("NetworkView", () => {
     expect(text).toContain("GPU Model Breakdown (last 2 weeks)");
   });
 
-  test("excludes nodes stale for 14+ days from Total CPUs/GPUs/QPUs and hardware breakdowns", () => {
+  test("excludes nodes stale for 14+ days from Total CPUs/GPUs/QPUs and hardware breakdowns", async () => {
     useUIStore.setState({ aggregationMode: "byType" });
     useTelemetryStore.setState({
       serverTime: NOW_ISO,
@@ -225,6 +258,9 @@ describe("NetworkView", () => {
     act(() => {
       root.render(createElement(NetworkView));
     });
+    // Flush the stubbed atlas fetch's microtask inside an act scope (see
+    // comment on the first test above).
+    await act(async () => {});
     const text = container.textContent ?? "";
     // The stale node's 99 declared CPUs must not appear in the total.
     expect(text).not.toContain("103");

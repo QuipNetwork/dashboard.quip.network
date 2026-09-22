@@ -32,10 +32,10 @@ pub use node::{
     NodesSnapshot,
 };
 pub use response::{
-    DeviceAccessTimeBackfill, DifficultyHistoryResponse, ErrorResponse, IndexerBackfillProgress,
-    IndexerObservability, IndexerPluginCoverage, MinerWinsResponse, MiningHistoryResponse,
-    NodeLiveData, NodeSummaryResponse, ParticipationComputeRow, QPU_ACCESS_TO_WALL_RATIO,
-    TelemetryFiles, TelemetryResponse,
+    Capabilities, DeviceAccessTimeBackfill, DifficultyHistoryResponse, ErrorResponse,
+    IndexerBackfillProgress, IndexerObservability, IndexerPluginCoverage, MinerWinsResponse,
+    MiningHistoryResponse, NodeLiveData, NodeSummaryResponse, ParticipationComputeRow,
+    QPU_ACCESS_TO_WALL_RATIO, TelemetryFiles, TelemetryResponse,
 };
 
 #[cfg(test)]
@@ -46,7 +46,7 @@ mod tests {
     )]
 
     use super::{
-        BlockHash, BlockRecord, DecimalString, HealthResponse, IndexerObservability,
+        BlockHash, BlockRecord, Capabilities, DecimalString, HealthResponse, IndexerObservability,
         MiningSubmissionRecord, TelemetryFiles, TelemetryResponse,
     };
     use std::error::Error;
@@ -126,6 +126,9 @@ mod tests {
                 qblocks_manifest: "/files/qblocks/metadata.json".to_owned(),
                 nodes_snapshot: "/files/nodes/snapshot.json".to_owned(),
                 miner_current_dispatch: None,
+            },
+            capabilities: Capabilities {
+                miner_dispatch: true,
             },
         };
         let json = serde_json::to_value(&body)?;

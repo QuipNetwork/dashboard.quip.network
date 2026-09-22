@@ -34,7 +34,8 @@ single-writer boundary.
   local file at `/data/dashboard.db`. A local file lock guards the writer.
 - **Postgres.** A valid `DATABASE_URL` selects Postgres. A Postgres advisory
   lock guards the writer. API-only mode (`RUN_INDEXER=false`) requires
-  Postgres.
+  Postgres. It republishes qblock files from the database every hour into its
+  own `QUIP_DATA_DIR`, and serves no Current Attempts data.
 
 An empty `DATABASE_URL` selects Turso. A valid Postgres URL selects Postgres.
 Any other value fails. An invalid URL never falls back to local storage.

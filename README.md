@@ -39,6 +39,17 @@ or miner worker. Its HTTP API and watchdog tasks remain active. It needs a
 current schema. Use it to serve a shared telemetry database deployed
 elsewhere.
 
+An API-only deployment republishes qblock files from the shared database every
+hour, so Recent Blocks and the participation views work there. Each replica
+writes its own file tree under `QUIP_DATA_DIR`, which defaults to `/data`. The
+replicas share only the database. Do not point two deployments at one file
+volume.
+
+An API-only deployment serves no Current Attempts data. That view comes from
+polling a miner over HTTP, which this mode does not do. The telemetry response
+reports the gap as `capabilities.minerDispatch: false`, and the panel states it
+in the user interface.
+
 ## Components
 
 Three Rust crates form the workspace. Dependency direction is

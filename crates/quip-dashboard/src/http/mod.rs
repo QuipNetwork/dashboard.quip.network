@@ -28,6 +28,7 @@ pub struct HttpState {
     clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
     cache: Arc<Mutex<telemetry::SnapshotCache>>,
     response_budget: Arc<tokio::sync::Semaphore>,
+    miner_dispatch: bool,
 }
 
 impl HttpState {
@@ -42,7 +43,15 @@ impl HttpState {
             clock: Arc::new(Utc::now),
             cache: Arc::new(Mutex::new(telemetry::SnapshotCache::default())),
             response_budget: Arc::new(tokio::sync::Semaphore::new(response::BYTES)),
+            miner_dispatch: true,
         }
+    }
+    /// Declare whether a miner poller runs in this process. False in API-only
+    /// mode, where nothing writes the dispatch document the client would read.
+    #[must_use]
+    pub const fn with_miner_dispatch(mut self, miner_dispatch: bool) -> Self {
+        self.miner_dispatch = miner_dispatch;
+        self
     }
     /// Set the operator identity used before a local status observation is available.
     #[must_use]

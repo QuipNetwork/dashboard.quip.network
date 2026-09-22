@@ -178,6 +178,21 @@ export interface NodeLiveData {
   fetchedAt: string;
 }
 
+/**
+ * What this deployment can serve. A field is false when the deployment will
+ * never produce that data, which the interface shows differently from data
+ * that has simply not arrived yet.
+ */
+export interface Capabilities {
+  /**
+   * Whether a miner poller runs here. False in API-only mode
+   * (`RUN_INDEXER=false`), where no process contacts a miner, so
+   * `files.minerCurrentDispatch` never resolves and Current Attempts stays
+   * empty permanently rather than until the next poll.
+   */
+  minerDispatch: boolean;
+}
+
 export interface TelemetryResponse {
   // SS58 of the locally polled quip-node, sourced from /api/v1/status.
   // Null until the indexer has completed its first successful poll.
@@ -246,6 +261,9 @@ export interface TelemetryResponse {
     // chain_error vs submitted_inblock).
     minerCurrentDispatch: string | null;
   };
+  // What this deployment can serve, so the interface can distinguish data
+  // that has not arrived from data that will never arrive here.
+  capabilities: Capabilities;
 }
 
 export interface ErrorResponse {

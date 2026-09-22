@@ -23,6 +23,27 @@ use tokio::{
     time::timeout,
 };
 
+/// Test-side deadline for waiting on a real subprocess.
+///
+/// These tests drive real operating-system processes and real pipes, so a
+/// virtual clock does not reach them and the wait is genuine wall-clock time.
+/// The default is generous on purpose, and that generosity is a real
+/// trade-off, not a free one: a healthy run still satisfies it in
+/// milliseconds, and a supervisor that hangs outright still fails at any
+/// value, but a supervisor that merely grows slower now has thirty seconds of
+/// room where it used to have three. A regression that adds seconds to
+/// shutdown would pass here. `SUPERVISOR_TEST_DEADLINE_SECS` is the knob for
+/// hunting that class of regression. Two pipelines sharing a runner pushed the
+/// old three-second wait over its limit, which is why the default grew.
+fn io_deadline() -> Duration {
+    Duration::from_secs(
+        std::env::var("SUPERVISOR_TEST_DEADLINE_SECS")
+            .ok()
+            .and_then(|raw| raw.parse().ok())
+            .unwrap_or(30),
+    )
+}
+
 fn script(dir: &Path, name: &str, body: &str) -> std::io::Result<String> {
     let path = dir.join(name);
     fs::write(
@@ -57,11 +78,59 @@ fn start(collector: &str, backend: &str, caddy: &str, address: &str) -> std::io:
 }
 
 async fn output(child: Child) -> Result<std::process::Output, Box<dyn std::error::Error>> {
-    Ok(timeout(Duration::from_secs(5), child.wait_with_output()).await??)
+    Ok(timeout(io_deadline(), child.wait_with_output()).await??)
+}
+
+/// Assert the supervisor's exit code, reporting its own diagnostics on failure.
+///
+/// The supervisor prints `reason=...` to stderr before exiting, and a spawn
+/// failure carries the underlying `io::Error` there, errno included. Comparing
+/// the code alone discards that: a CI run that exited 126 reported only the
+/// number, and 126 covers every spawn error except a missing file, so the
+/// cause was unrecoverable from the failure output.
+fn assert_exit_code(result: &std::process::Output, expected: i32) {
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let tail = match stderr.char_indices().nth_back(4096) {
+        Some((offset, _)) => stderr.get(offset..).unwrap_or(&stderr),
+        None => &stderr,
+    };
+    assert_eq!(
+        result.status.code(),
+        Some(expected),
+        "supervisor stderr (last {} chars):\n{tail}",
+        tail.chars().count()
+    );
+}
+
+/// Assert a descendant was killed by `expected`, waiting for it to be reapable.
+///
+/// `WNOHANG` answers about the instant it is called, and the instant the
+/// supervisor exits is not the instant its killed grandchild is reparented to
+/// this process and becomes reapable. A single probe therefore reports
+/// `StillAlive` on a loaded runner for a descendant the supervisor did kill.
+/// Polling asserts the same property without requiring the kill and the probe
+/// to land in the same moment; a descendant that is never killed still fails,
+/// by exhausting [`io_deadline`].
+async fn assert_killed_by(
+    descendant: Pid,
+    expected: Signal,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let status = timeout(io_deadline(), async {
+        loop {
+            let status = waitpid(descendant, Some(WaitPidFlag::WNOHANG))?;
+            if status != WaitStatus::StillAlive {
+                return Ok::<_, nix::Error>(status);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    assert_eq!(status, WaitStatus::Signaled(descendant, expected, false));
+    Ok(())
 }
 
 async fn receive(socket: &UdpSocket, needle: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-    timeout(Duration::from_secs(3), async {
+    timeout(io_deadline(), async {
         let mut bytes = vec![0_u8; 65_535];
         loop {
             let length = socket.recv(&mut bytes).await?;
@@ -85,7 +154,7 @@ async fn clean_child_exit_fails_and_stops_siblings() -> Result<(), Box<dyn std::
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let exit = script(dir.path(), "exit", "sys.exit(0)")?;
     let result = output(start(&idle, &exit, &idle, "127.0.0.1:9")?).await?;
-    assert_eq!(result.status.code(), Some(1));
+    assert_exit_code(&result, 1);
     assert!(String::from_utf8_lossy(&result.stderr).contains("backend"));
     Ok(())
 }
@@ -95,13 +164,8 @@ async fn collector_exit_is_a_distinct_failure() -> Result<(), Box<dyn std::error
     let dir = TempDir::new()?;
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let exit = script(dir.path(), "exit", "sys.exit(0)")?;
-    assert_eq!(
-        output(start(&exit, &idle, &idle, "127.0.0.1:9")?)
-            .await?
-            .status
-            .code(),
-        Some(70)
-    );
+    let result = output(start(&exit, &idle, &idle, "127.0.0.1:9")?).await?;
+    assert_exit_code(&result, 70);
     Ok(())
 }
 
@@ -114,7 +178,7 @@ async fn missing_executable_returns_127() -> Result<(), Box<dyn std::error::Erro
         "127.0.0.1:9",
     )?)
     .await?;
-    assert_eq!(result.status.code(), Some(127));
+    assert_exit_code(&result, 127);
     Ok(())
 }
 
@@ -130,11 +194,19 @@ async fn signal_drains_services_before_collector_without_forwarding_collector_lo
             "def stop(*args):\n    open({order:?},'a').write('collector\\n')\n    sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nprint('collector-private',file=sys.stderr,flush=True)\nsignal.pause()"
         ),
     )?;
+    // Both writes go through `os.write` rather than `print`. The supervisor
+    // forwards a line as soon as the write syscall lands, which is before
+    // `print` has returned, so the test can signal while the interpreter is
+    // still inside the readiness `print`. Python runs the handler on the main
+    // thread between bytecodes, and a handler that calls `print` on the
+    // BufferedWriter the interrupted call still owns raises `RuntimeError:
+    // reentrant call`. The backend then dies without writing its final line,
+    // failing this test for a reason that has nothing to do with draining.
     let backend = script(
         dir.path(),
         "backend",
         &format!(
-            "def stop(*args):\n    open({order:?},'a').write('backend\\n')\n    print('backend-final',flush=True)\n    sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nprint('backend-ready',flush=True)\nsignal.pause()"
+            "def stop(*args):\n    open({order:?},'a').write('backend\\n')\n    os.write(1,b'backend-final\\n')\n    sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nos.write(1,b'backend-ready\\n')\nsignal.pause()"
         ),
     )?;
     let caddy = script(
@@ -154,7 +226,7 @@ async fn signal_drains_services_before_collector_without_forwarding_collector_lo
     // Read readiness from stderr so neither service's UDP datagram can be consumed accidentally.
     let mut stderr = child.stderr.take().ok_or("missing stderr")?;
     let mut captured = Vec::new();
-    timeout(Duration::from_secs(3), async {
+    timeout(io_deadline(), async {
         let mut bytes = [0; 1024];
         while !["backend-ready", "caddy-ready", "collector-private"]
             .iter()
@@ -177,9 +249,14 @@ async fn signal_drains_services_before_collector_without_forwarding_collector_lo
         let mut rest = Vec::new();
         stderr.read_to_end(&mut rest).await.map(|_| rest)
     });
-    assert_eq!(output(child).await?.status.code(), Some(0));
+    let result = output(child).await?;
+    assert_exit_code(&result, 0);
     captured.extend(drain.await??);
-    assert!(String::from_utf8_lossy(&captured).contains("backend-final"));
+    let forwarded = String::from_utf8_lossy(&captured);
+    assert!(
+        forwarded.contains("backend-final"),
+        "supervisor stderr:\n{forwarded}"
+    );
     let events = fs::read_to_string(order)?;
     assert_eq!(events.lines().last(), Some("collector"));
     let mut datagrams = Vec::new();
@@ -188,8 +265,11 @@ async fn signal_drains_services_before_collector_without_forwarding_collector_lo
         datagrams.extend(bytes.iter().take(count));
     }
     let text = String::from_utf8_lossy(&datagrams);
-    assert!(text.contains("quip-dashboard: backend-final"));
-    assert!(!text.contains("collector-private"));
+    assert!(
+        text.contains("quip-dashboard: backend-final"),
+        "datagrams:\n{text}\nsupervisor stderr:\n{forwarded}"
+    );
+    assert!(!text.contains("collector-private"), "datagrams:\n{text}");
     Ok(())
 }
 
@@ -218,11 +298,8 @@ async fn ignoring_termination_and_descendants_cannot_extend_deadline()
         Signal::SIGINT,
     )?;
     let result = output(child).await?;
-    assert_eq!(result.status.code(), Some(124));
-    assert_eq!(
-        waitpid(Pid::from_raw(descendant), Some(WaitPidFlag::WNOHANG))?,
-        WaitStatus::Signaled(Pid::from_raw(descendant), Signal::SIGKILL, false)
-    );
+    assert_exit_code(&result, 124);
+    assert_killed_by(Pid::from_raw(descendant), Signal::SIGKILL).await?;
     Ok(())
 }
 
@@ -244,7 +321,7 @@ async fn enormous_lines_are_discarded_and_cr_is_sanitized() -> Result<(), Box<dy
         Signal::SIGTERM,
     )?;
     let result = output(child).await?;
-    assert_eq!(result.status.code(), Some(0));
+    assert_exit_code(&result, 0);
     let text = String::from_utf8_lossy(&result.stderr);
     assert!(text.contains("oversized_lines=1"));
     assert!(!text.contains(&"x".repeat(1000)));
@@ -266,7 +343,7 @@ async fn flood_with_blocked_stderr_and_absent_receiver_does_not_stall_shutdown()
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let mut child = start(&idle, &backend, &idle, "127.0.0.1:9")?;
     // Keep stderr's pipe full while waiting for the producer to finish its flood.
-    timeout(Duration::from_secs(4), async {
+    timeout(io_deadline(), async {
         while !complete.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -277,7 +354,7 @@ async fn flood_with_blocked_stderr_and_absent_receiver_does_not_stall_shutdown()
         Signal::SIGTERM,
     )?;
     assert_eq!(
-        timeout(Duration::from_secs(3), child.wait()).await??.code(),
+        timeout(io_deadline(), child.wait()).await??.code(),
         Some(124)
     );
     Ok(())
@@ -296,7 +373,7 @@ async fn queue_pressure_preserves_exact_drop_counts() -> Result<(), Box<dyn std:
     )?;
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let child = start(&idle, &backend, &idle, "127.0.0.1:9")?;
-    timeout(Duration::from_secs(4), async {
+    timeout(io_deadline(), async {
         while !complete.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -307,7 +384,7 @@ async fn queue_pressure_preserves_exact_drop_counts() -> Result<(), Box<dyn std:
         Signal::SIGTERM,
     )?;
     let result = output(child).await?;
-    assert_eq!(result.status.code(), Some(0));
+    assert_exit_code(&result, 0);
     let text = String::from_utf8_lossy(&result.stderr);
     let delivered = text
         .lines()
@@ -330,11 +407,20 @@ async fn exited_leaders_retain_group_ownership_until_descendants_are_killed()
     set_child_subreaper(true)?;
     let dir = TempDir::new()?;
     let pid_file = dir.path().join("pid");
+    let staging = dir.path().join("pid.staging");
+    // The descendant reports its own readiness, and the leader waits for that
+    // report before exiting. The leader's clean exit is what starts the
+    // supervisor's shutdown, so a leader that exits first leaves the supervisor
+    // free to signal the group before the descendant has installed SIG_IGN. The
+    // default disposition then kills the descendant with SIGTERM, where this
+    // test requires the SIGKILL escalation. Writing to a staging path and
+    // renaming keeps the report atomic, so the leader cannot observe a pid file
+    // that exists but is still empty.
     let backend = script(
         dir.path(),
         "backend",
         &format!(
-            "pid=os.fork()\nif pid==0:\n    signal.signal(signal.SIGTERM,signal.SIG_IGN)\n    signal.pause()\nelse:\n    open({pid_file:?},'w').write(str(pid))\n    sys.exit(0)"
+            "pid=os.fork()\nif pid==0:\n    signal.signal(signal.SIGTERM,signal.SIG_IGN)\n    open({staging:?},'w').write(str(os.getpid()))\n    os.rename({staging:?},{pid_file:?})\n    signal.pause()\nelse:\n    while not os.path.exists({pid_file:?}):\n        time.sleep(0.005)\n    sys.exit(0)"
         ),
     )?;
     let idle = script(dir.path(), "idle", "signal.pause()")?;
@@ -344,13 +430,15 @@ async fn exited_leaders_retain_group_ownership_until_descendants_are_killed()
         .kill_on_drop(true)
         .spawn()?;
     for _ in 0..5 {
+        // Each round waits for its own report, so the previous one cannot
+        // satisfy the handshake early and reintroduce the race it closes.
+        if pid_file.exists() {
+            fs::remove_file(&pid_file)?;
+        }
         let result = output(start(&idle, &backend, &idle, "127.0.0.1:9")?).await?;
-        assert_eq!(result.status.code(), Some(1));
+        assert_exit_code(&result, 1);
         let descendant: i32 = fs::read_to_string(&pid_file)?.parse()?;
-        assert_eq!(
-            waitpid(Pid::from_raw(descendant), Some(WaitPidFlag::WNOHANG))?,
-            WaitStatus::Signaled(Pid::from_raw(descendant), Signal::SIGKILL, false)
-        );
+        assert_killed_by(Pid::from_raw(descendant), Signal::SIGKILL).await?;
         assert!(unrelated.try_wait()?.is_none());
     }
     unrelated.kill().await?;

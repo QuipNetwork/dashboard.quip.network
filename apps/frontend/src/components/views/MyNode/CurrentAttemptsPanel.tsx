@@ -34,6 +34,7 @@ export function CurrentAttemptsPanel({
   recentSubmissions,
   problemNumber,
   nowMs,
+  minerDispatch = true,
 }: {
   dispatch: CurrentDispatch | null;
   // For outcome-badge resolution: find the matching submission row by
@@ -44,6 +45,15 @@ export function CurrentAttemptsPanel({
   problemNumber: number | null;
   // Wall-clock for "age" calculations against iteration ts_ns.
   nowMs: number;
+  // Whether this deployment polls a miner at all. False in API-only mode
+  // (`RUN_INDEXER=false`), where nothing writes the dispatch document, so an
+  // empty trail is permanent rather than a gap between dispatches.
+  //
+  // Defaults to true, and NodeView deliberately does not pass it: that panel
+  // shows another node's dispatch fetched by live probe from
+  // `/api/node/{account}/live`, which does not go through the local poller and
+  // works in every mode.
+  minerDispatch?: boolean;
 }) {
   const heading =
     problemNumber != null && problemNumber > 0
@@ -54,10 +64,18 @@ export function CurrentAttemptsPanel({
     return (
       <ChartCard
         title={heading}
-        subtitle="Live iteration trail. Empty between dispatches or while the miner is dialing in on the next qblock."
+        subtitle={
+          minerDispatch
+            ? "Live iteration trail. Empty between dispatches or while the miner is dialing in on the next qblock."
+            : "Live iteration trail. This deployment serves the API only and polls no miner."
+        }
         bodyClassName="h-auto"
       >
-        <p className="font-accent text-xs text-ink-subtle">No attempts yet.</p>
+        <p className="font-accent text-xs text-ink-subtle">
+          {minerDispatch
+            ? "No attempts yet."
+            : "Live attempts are not available on this deployment, which runs no miner poller."}
+        </p>
       </ChartCard>
     );
   }

@@ -734,7 +734,8 @@ async fn serve(config: Config) -> CommandResult {
             Arc::new(StorePeers(store.clone())),
         )?);
         let state = HttpState::new(store.clone(), miner.clone(), health.clone())
-            .with_operator_account(config.operator_account.clone());
+            .with_operator_account(config.operator_account.clone())
+            .with_miner_dispatch(!config.is_api_only());
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.listen_port)).await?;
         Ok::<_, Box<dyn Error + Send + Sync>>((miner, router(state), listener))
     }
@@ -788,6 +789,21 @@ async fn serve(config: Config) -> CommandResult {
             }
         }
     });
+    // Outside the indexer gate for the same reason as the nodes writer: an
+    // API-only deployment serves the same block views, and rebuilding them
+    // needs only the store and this process's own file tree. In full mode the
+    // indexer's own maintenance pass already does this work on the same
+    // schedule, so running both would double the walk for no gain.
+    if config.is_api_only() {
+        tasks.spawn(
+            "qblock-export",
+            quip_dashboard::qblock_export::run_qblock_export(
+                store.clone(),
+                FileWriter::new(config.data_dir.clone()),
+                cancellation.clone(),
+            ),
+        );
+    }
     if config.run_indexer {
         let (bound, bound_receiver) = tokio::sync::watch::channel(false);
         let interval = Duration::from_secs(config.limits.miner_poll_interval_sec);

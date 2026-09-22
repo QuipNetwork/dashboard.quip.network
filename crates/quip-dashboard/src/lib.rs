@@ -4,6 +4,7 @@ pub mod chain;
 pub mod indexer;
 pub mod supervisor;
 
+pub mod qblock_export;
 pub mod qblock_path;
 
 pub mod config;

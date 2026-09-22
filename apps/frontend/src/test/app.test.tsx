@@ -71,6 +71,7 @@ const MOCK_RESPONSE: TelemetryResponse = {
     nodesSnapshot: "/files/nodes/snapshot.json",
     minerCurrentDispatch: null,
   },
+  capabilities: { minerDispatch: true },
   // The participation facts now ride in the file-backed qblock tree, served
   // under /files (see the /files route in the fetch mock below). They are no
   // longer part of the telemetry response.

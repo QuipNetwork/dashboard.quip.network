@@ -42,3 +42,23 @@ Object.defineProperty(globalThis, "ResizeObserver", {
   },
   configurable: true,
 });
+
+// `react-simple-maps` fetches a world atlas from unpkg inside an effect, so
+// any test rendering the node map made a real network request to a
+// third-party CDN. Serve an empty but valid topology instead: the map
+// renders zero country paths, which no assertion depends on.
+const EMPTY_TOPOLOGY = {
+  type: "Topology",
+  arcs: [],
+  objects: { countries: { type: "GeometryCollection", geometries: [] } },
+};
+const realFetch = globalThis.fetch;
+Object.defineProperty(globalThis, "fetch", {
+  value: (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+    if (String(input).includes("world-atlas")) {
+      return Promise.resolve(new Response(JSON.stringify(EMPTY_TOPOLOGY), { status: 200 }));
+    }
+    return realFetch(input as never, init);
+  },
+  configurable: true,
+});

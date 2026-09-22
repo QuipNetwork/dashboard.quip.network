@@ -4,7 +4,6 @@
     "method": "GET",
     "path": "/api/health",
     "status": 200,
-    "bodyFile": "api/health-empty.json",
     "scenario": "empty",
     "seed": "empty",
     "validatorRpcUrls": [
@@ -17,7 +16,6 @@
     "method": "GET",
     "path": "/api/telemetry",
     "status": 200,
-    "bodyFile": "api/telemetry-empty.json",
     "scenario": "empty",
     "seed": "empty",
     "validatorRpcUrls": [
@@ -29,7 +27,6 @@
     "method": "GET",
     "path": "/api/blocks",
     "status": 200,
-    "bodyFile": "api/blocks-empty.json",
     "scenario": "empty",
     "seed": "empty",
     "validatorRpcUrls": [
@@ -41,7 +38,6 @@
     "method": "GET",
     "path": "/api/miner-wins",
     "status": 200,
-    "bodyFile": "api/miner-wins-empty.json",
     "scenario": "empty",
     "seed": "empty",
     "validatorRpcUrls": [
@@ -53,7 +49,6 @@
     "method": "GET",
     "path": "/api/mining-history?since=2026-06-10T00:00:00.000Z",
     "status": 200,
-    "bodyFile": "api/mining-history-empty.json",
     "scenario": "empty",
     "seed": "empty",
     "validatorRpcUrls": [
@@ -65,7 +60,6 @@
     "method": "GET",
     "path": "/api/difficulty-history?since=2026-06-10T00:00:00.000Z",
     "status": 200,
-    "bodyFile": "api/difficulty-history-empty.json",
     "scenario": "empty",
     "seed": "empty",
     "validatorRpcUrls": [
@@ -77,7 +71,6 @@
     "method": "GET",
     "path": "/api/health",
     "status": 200,
-    "bodyFile": "api/health-populated.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -90,7 +83,6 @@
     "method": "GET",
     "path": "/api/telemetry",
     "status": 200,
-    "bodyFile": "api/telemetry-populated.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -103,7 +95,6 @@
     "method": "GET",
     "path": "/api/blocks",
     "status": 200,
-    "bodyFile": "api/blocks-populated.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -116,7 +107,6 @@
     "method": "GET",
     "path": "/api/miner-wins",
     "status": 200,
-    "bodyFile": "api/miner-wins-populated.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -128,7 +118,6 @@
     "method": "GET",
     "path": "/api/mining-history?since=2026-06-10T00:00:00.000Z",
     "status": 200,
-    "bodyFile": "api/mining-history-populated.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -140,7 +129,6 @@
     "method": "GET",
     "path": "/api/difficulty-history?since=2026-06-10T00:00:00.000Z",
     "status": 200,
-    "bodyFile": "api/difficulty-history-populated.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -152,7 +140,6 @@
     "method": "GET",
     "path": "/api/mining/attempts/3",
     "status": 200,
-    "bodyFile": "api/mining-attempts-ok.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -165,7 +152,6 @@
     "method": "GET",
     "path": "/api/node/5GPeer/live",
     "status": 200,
-    "bodyFile": "api/node-live-reachable.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -177,7 +163,6 @@
     "method": "GET",
     "path": "/api/node/5GPeer/live?problem=42",
     "status": 200,
-    "bodyFile": "api/node-live-dispatch.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -189,7 +174,6 @@
     "method": "GET",
     "path": "/api/blocks?limit=2&offset=0",
     "status": 200,
-    "bodyFile": "api/blocks-page-1.json",
     "scenario": "pagination",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -201,7 +185,6 @@
     "method": "GET",
     "path": "/api/blocks?limit=2&offset=2",
     "status": 200,
-    "bodyFile": "api/blocks-page-2.json",
     "scenario": "pagination",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -213,7 +196,6 @@
     "method": "GET",
     "path": "/api/blocks?limit=0&offset=-5",
     "status": 200,
-    "bodyFile": "api/blocks-clamped-query.json",
     "scenario": "pagination",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -226,7 +208,6 @@
     "method": "GET",
     "path": "/api/blocks?limit=abc",
     "status": 200,
-    "bodyFile": "api/blocks-non-numeric-limit.json",
     "scenario": "pagination",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -239,7 +220,6 @@
     "method": "GET",
     "path": "/api/mining-history",
     "status": 400,
-    "bodyFile": "api/mining-history-missing-since.json",
     "scenario": "invalid-query",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -251,7 +231,6 @@
     "method": "GET",
     "path": "/api/mining-history?since=yesterday",
     "status": 400,
-    "bodyFile": "api/mining-history-malformed-since.json",
     "scenario": "invalid-query",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -263,7 +242,6 @@
     "method": "GET",
     "path": "/api/difficulty-history",
     "status": 400,
-    "bodyFile": "api/difficulty-history-missing-since.json",
     "scenario": "invalid-query",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -275,7 +253,6 @@
     "method": "GET",
     "path": "/api/difficulty-history?since=yesterday",
     "status": 400,
-    "bodyFile": "api/difficulty-history-malformed-since.json",
     "scenario": "invalid-query",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -287,7 +264,6 @@
     "method": "GET",
     "path": "/api/mining/attempts/0",
     "status": 400,
-    "bodyFile": "api/mining-attempts-invalid-zero.json",
     "scenario": "invalid-query",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -299,7 +275,6 @@
     "method": "GET",
     "path": "/api/mining/attempts/abc",
     "status": 400,
-    "bodyFile": "api/mining-attempts-invalid-text.json",
     "scenario": "invalid-query",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -311,7 +286,6 @@
     "method": "GET",
     "path": "/api/mining-history?since=2026-07-02T00:00:00.000Z",
     "status": 200,
-    "bodyFile": "api/mining-history-after-last.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -324,7 +298,6 @@
     "method": "GET",
     "path": "/api/difficulty-history?since=2026-07-02T00:00:00.000Z",
     "status": 200,
-    "bodyFile": "api/difficulty-history-short-window.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -337,7 +310,6 @@
     "method": "GET",
     "path": "/api/difficulty-history?since=2026-01-01T00:00:00.000Z",
     "status": 200,
-    "bodyFile": "api/difficulty-history-before-first.json",
     "scenario": "populated",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -350,7 +322,6 @@
     "method": "GET",
     "path": "/api/node/5GNoHost/live",
     "status": 200,
-    "bodyFile": "api/node-live-no-host.json",
     "scenario": "unavailable-peer",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -362,7 +333,6 @@
     "method": "GET",
     "path": "/api/node/5GDown/live",
     "status": 200,
-    "bodyFile": "api/node-live-down.json",
     "scenario": "unavailable-peer",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -374,7 +344,6 @@
     "method": "GET",
     "path": "/api/node/5Unknown/live",
     "status": 200,
-    "bodyFile": "api/node-live-unknown.json",
     "scenario": "unavailable-peer",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -386,7 +355,6 @@
     "method": "GET",
     "path": "/api/mining/attempts/1",
     "status": 503,
-    "bodyFile": "api/mining-attempts-unresolvable.json",
     "scenario": "unavailable-peer",
     "seed": "empty",
     "validatorRpcUrls": [],
@@ -397,7 +365,6 @@
     "method": "GET",
     "path": "/api/mining/attempts/99",
     "status": 404,
-    "bodyFile": "api/mining-attempts-not-found.json",
     "scenario": "unavailable-peer",
     "seed": "populated",
     "validatorRpcUrls": [
@@ -409,7 +376,6 @@
     "method": "GET",
     "path": "/api/mining/attempts/7",
     "status": 502,
-    "bodyFile": "api/mining-attempts-upstream-down.json",
     "scenario": "unavailable-peer",
     "seed": "populated",
     "validatorRpcUrls": [

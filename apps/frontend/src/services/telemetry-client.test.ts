@@ -32,7 +32,26 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
-const TELEMETRY_BODY = { blocks: [], selfAddress: "5GPP" } as unknown as TelemetryResponse;
+const TELEMETRY_BODY: TelemetryResponse = {
+  selfAddress: "5GPP",
+  indexer: null,
+  serverTime: "2026-05-19T12:00:00Z",
+  chainHead: null,
+  babeEpoch: null,
+  babeAuthorities: [],
+  chainMiners: [],
+  recentDifficulty: [],
+  mineableTopologies: [],
+  validators: [],
+  recentMiningSubmissions: [],
+  selfProblemsAttempted: 0,
+  files: {
+    qblocksManifest: "/files/qblocks/metadata.json",
+    nodesSnapshot: "/files/nodes/snapshot.json",
+    minerCurrentDispatch: null,
+  },
+  capabilities: { minerDispatch: true },
+};
 const ATTEMPTS_BODY = {
   submission: { solutionNumber: 7 },
   attempts: [],
@@ -473,5 +492,69 @@ describe("HttpTelemetryClient file fetch timeout", () => {
     for (const call of calls) {
       expect(call.init?.signal).toBeInstanceOf(AbortSignal);
     }
+  });
+
+  it("gives up on the whole qblock walk once the budget elapses", async () => {
+    const manifestPaths = Array.from({ length: 80 }, (_, i) => `qblocks/ab/cd/${i}.json`);
+    const fetchImpl = ((input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+      if (String(input).endsWith("metadata.json")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ qblocks: manifestPaths }), { status: 200 }),
+        );
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    }) as typeof globalThis.fetch;
+
+    const client = new HttpTelemetryClient({
+      fetch: fetchImpl,
+      fileTimeoutMs: 50,
+      qblockWalkBudgetMs: 120,
+    });
+
+    const started = Date.now();
+    await client.fetchQblocks("/files/qblocks/metadata.json");
+    const elapsed = Date.now() - started;
+
+    // Ten sequential waves of 50ms each would be about 500ms with no budget.
+    // The budget stops the walk after about 120ms, plus one in-flight request.
+    expect(elapsed).toBeLessThan(300);
+  });
+
+  it("keeps a budget-truncated history day in the next poll's history list", async () => {
+    const dayPath = "qblocks/days/2026-09-03.json";
+    const dayPaths = Array.from({ length: 80 }, (_, i) => `qblocks/dd/ee/${i}.json`);
+    const fetchImpl = ((input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("metadata.json")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ qblocks: [], history: [dayPath] }), { status: 200 }),
+        );
+      }
+      if (url.endsWith(dayPath)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ qblocks: dayPaths }), { status: 200 }),
+        );
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    }) as typeof globalThis.fetch;
+
+    const client = new HttpTelemetryClient({
+      fetch: fetchImpl,
+      fileTimeoutMs: 50,
+      qblockWalkBudgetMs: 120,
+    });
+
+    // The budget expires partway through the day's 80 files, so the walk
+    // stops with most of them unattempted.
+    await client.fetchQblockHistoryDay(dayPath);
+    const snapshot = await client.fetchQblocks("/files/qblocks/metadata.json");
+
+    // A truncated day must stay in `history` so a later poll retries it,
+    // rather than being dropped for the life of the client.
+    expect(snapshot.history).toEqual([dayPath]);
   });
 });
