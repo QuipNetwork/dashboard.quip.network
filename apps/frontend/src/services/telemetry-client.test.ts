@@ -52,10 +52,29 @@ const TELEMETRY_BODY: TelemetryResponse = {
   },
   capabilities: { minerDispatch: true },
 };
-const ATTEMPTS_BODY = {
-  submission: { solutionNumber: 7 },
+const ATTEMPTS_BODY: MiningAttemptsResponse = {
+  submission: {
+    solutionNumber: 7,
+    minerId: "5GPP",
+    minerType: "CPU",
+    tsNs: "1780000000000000000",
+    energyMilli: -14500,
+    diversityMilli: 400,
+    thresholdMilli: -14400,
+    lastProofBlockHash: "0x00",
+    extrinsicHash: null,
+    chainBlockHash: null,
+    chainBlockNumber: null,
+    powSequence: null,
+    outcome: "submitted_inblock",
+    attemptCount: 0,
+    bestEnergyMilli: -14500,
+    numValid: 1,
+    qpuAccessTimeUs: 0,
+    observedAt: "2026-05-19T12:00:00Z",
+  },
   attempts: [],
-} as unknown as MiningAttemptsResponse;
+};
 
 describe("HttpTelemetryClient.fetchTelemetry", () => {
   it("requests /api/telemetry and returns the parsed body", async () => {
