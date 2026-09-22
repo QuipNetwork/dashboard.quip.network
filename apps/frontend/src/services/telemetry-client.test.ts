@@ -63,8 +63,11 @@ const ATTEMPTS_BODY: MiningAttemptsResponse = {
     thresholdMilli: -14400,
     lastProofBlockHash: "0x00",
     extrinsicHash: null,
-    chainBlockHash: null,
-    chainBlockNumber: null,
+    // A `submitted_inblock` submission has landed on-chain, so it carries a
+    // block. `powSequence` stays null because winners carry `chainBlockNumber`
+    // instead — the two are mutually exclusive by outcome (miner.ts).
+    chainBlockHash: "0xb",
+    chainBlockNumber: "200",
     powSequence: null,
     outcome: "submitted_inblock",
     attemptCount: 0,
