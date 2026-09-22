@@ -498,10 +498,20 @@ def main():
             s1 = json.load(fh)
         with open(os.path.join(tmp, "schedule2.json")) as fh:
             s2 = json.load(fh)
+        # A recorded value, not a second live run. Two live runs change
+        # together when the output shape changes, which is how the removal of
+        # bodyFile from every request passed this check unnoticed. Update this
+        # constant deliberately when the emitted requests are meant to change,
+        # and treat an unexpected mismatch as a regression in schedule.mjs.
+        EXPECTED_SCHEDULE_HASH = "b4c1468b69610691"
         check(
             "schedule is byte-identical across runs",
             s1["requests"] == s2["requests"]
             and s1["scheduleHash"] == s2["scheduleHash"],
+        )
+        check(
+            "schedule hash matches the recorded schedule",
+            s1["scheduleHash"] == EXPECTED_SCHEDULE_HASH,
         )
 
         # Invalid interval/duration rejected by the sampler argument parser.
