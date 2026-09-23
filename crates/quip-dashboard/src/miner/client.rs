@@ -17,6 +17,18 @@ pub(super) const RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 /// so this only bounds download time; it covers roughly 200,000 attempts.
 pub(super) const ATTEMPTS_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
+/// Total deadline for a status-sized request. `poll_miner` runs these in a
+/// loop with no deadline of its own, so a slow host must not park it.
+const RESPONSE_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Total deadline for a streamed attempts request. Longer because the body
+/// is larger and the fetch is user-triggered, not polled. Both deadlines sit
+/// under the 30s admission timeout in `http::admission`: a request that
+/// outlives admission is dropped before it can return `Unreachable`, which
+/// leaves the 60s failure cache below empty and lets a bad host be retried
+/// from scratch every time.
+const ATTEMPTS_DEADLINE: Duration = Duration::from_secs(25);
+
 pub(super) struct MinerClient {
     client: Client,
     requests: Semaphore,
@@ -27,14 +39,13 @@ pub(super) struct MinerClient {
 impl MinerClient {
     pub(super) fn new() -> Result<Self, MinerError> {
         let client = Client::builder()
-            // Not `timeout`, which bounds the whole request including the body
-            // read. The attempts endpoint may return up to
-            // ATTEMPTS_RESPONSE_BYTES, and a whole-request deadline makes that
-            // budget unreachable: a miner with a long iteration trail reports
-            // as unreachable when it is only verbose. `read_timeout` resets
-            // after each successful read, so it catches a stalled connection
-            // without bounding a large one. Total bytes stay bounded by
-            // RESPONSE_BYTES and ATTEMPTS_RESPONSE_BYTES.
+            // Catches a stalled connection without bounding a large one: it
+            // applies per read and resets after each successful one, so a
+            // miner with a long iteration trail is not reported unreachable
+            // merely for being verbose. That was the whole-request `timeout`
+            // bug. It is NOT a total bound — it re-arms per body frame, so a
+            // host trickling one byte under every window would hold the
+            // connection open indefinitely. `send` sets the total deadline.
             .read_timeout(Duration::from_secs(4))
             .connect_timeout(Duration::from_secs(3))
             .redirect(reqwest::redirect::Policy::none())
@@ -134,10 +145,19 @@ impl MinerClient {
                 .query_pairs_mut()
                 .extend_pairs(query.iter().map(|(key, value)| (*key, value.as_str())));
         }
+        // The total bound the client-wide `read_timeout` cannot give. Keyed
+        // off the caller's cap so the polled status path is not held to the
+        // budget the rare 64 MiB attempts fetch needs.
+        let deadline = if cap > RESPONSE_BYTES {
+            ATTEMPTS_DEADLINE
+        } else {
+            RESPONSE_DEADLINE
+        };
         let response = self
             .client
             .get(url)
             .header("accept", "application/json")
+            .timeout(deadline)
             .send()
             .await
             .map_err(transport)?;

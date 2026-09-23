@@ -554,6 +554,36 @@ async fn a_stalled_trail_still_fails() -> TestResult {
 }
 
 #[tokio::test]
+async fn a_host_trickling_under_the_read_timeout_still_hits_a_total_deadline() -> TestResult {
+    // The gap that `read_timeout` alone cannot catch. Every pause is an eighth
+    // of the four-second read timeout, so each individual read succeeds and
+    // re-arms it; only a total deadline ends this. Thirty pieces 500 ms apart
+    // is fifteen seconds of trickle against the ten-second status deadline,
+    // so the request must be cut before the body finishes.
+    let body = json!({"success": true, "data": {"pad": "p".repeat(600)}}).to_string();
+    let (url, server) = trickling_server(body, 30, Duration::from_millis(500)).await?;
+    let service = MinerService::new(Some(url.clone()), Arc::new(Resolver { url }))?;
+
+    let started = std::time::Instant::now();
+    let snapshot = service.local_snapshot().await;
+    let elapsed = started.elapsed();
+
+    assert!(
+        snapshot.status.is_err(),
+        "a host trickling past the total deadline must not report healthy"
+    );
+    // The upper bound is what makes this test falsifiable. Without the
+    // per-request deadline the trickle runs its full fifteen seconds and
+    // succeeds; the margin is generous enough to survive a loaded machine.
+    assert!(
+        elapsed < Duration::from_secs(13),
+        "the deadline should cut the request near ten seconds, took {elapsed:?}"
+    );
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
 async fn transport_failure_blocks_new_resources_for_same_host() -> TestResult {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
