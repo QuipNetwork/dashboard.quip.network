@@ -17,6 +17,18 @@ pub(super) const RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 /// so this only bounds download time; it covers roughly 200,000 attempts.
 pub(super) const ATTEMPTS_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
+/// Total deadline for a status-sized request. `poll_miner` runs these in a
+/// loop with no deadline of its own, so a slow host must not park it.
+const RESPONSE_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Total deadline for a streamed attempts request. Longer because the body
+/// is larger and the fetch is user-triggered, not polled. Both deadlines sit
+/// under the 30s admission timeout in `http::admission`: a request that
+/// outlives admission is dropped before it can return `Unreachable`, which
+/// leaves the 60s failure cache below empty and lets a bad host be retried
+/// from scratch every time.
+const ATTEMPTS_DEADLINE: Duration = Duration::from_secs(25);
+
 pub(super) struct MinerClient {
     client: Client,
     requests: Semaphore,
@@ -27,7 +39,14 @@ pub(super) struct MinerClient {
 impl MinerClient {
     pub(super) fn new() -> Result<Self, MinerError> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(4))
+            // Catches a stalled connection without bounding a large one: it
+            // applies per read and resets after each successful one, so a
+            // miner with a long iteration trail is not reported unreachable
+            // merely for being verbose. That was the whole-request `timeout`
+            // bug. It is NOT a total bound — it re-arms per body frame, so a
+            // host trickling one byte under every window would hold the
+            // connection open indefinitely. `send` sets the total deadline.
+            .read_timeout(Duration::from_secs(4))
             .connect_timeout(Duration::from_secs(3))
             .redirect(reqwest::redirect::Policy::none())
             .pool_max_idle_per_host(1)
@@ -112,12 +131,17 @@ impl MinerClient {
         result
     }
 
+    /// `deadline` is the total bound the client-wide `read_timeout` cannot
+    /// give, and every caller states its own: a byte cap and a time budget
+    /// are different properties, so deriving one from the other would hand a
+    /// later caller with an intermediate cap a deadline nobody chose.
     async fn send(
         &self,
         base: &str,
         path: &str,
         query: &[(&str, String)],
         cap: usize,
+        deadline: Duration,
     ) -> Result<Response, MinerError> {
         let mut url = Url::parse(&format!("{}{path}", base.trim_end_matches('/')))
             .map_err(|error| MinerError::Http(error.to_string()))?;
@@ -130,6 +154,7 @@ impl MinerClient {
             .client
             .get(url)
             .header("accept", "application/json")
+            .timeout(deadline)
             .send()
             .await
             .map_err(transport)?;
@@ -159,7 +184,9 @@ impl MinerClient {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<Value, MinerError> {
-        let mut response = self.send(base, path, query, RESPONSE_BYTES).await?;
+        let mut response = self
+            .send(base, path, query, RESPONSE_BYTES, RESPONSE_DEADLINE)
+            .await?;
         let mut bytes = Vec::with_capacity(RESPONSE_BYTES);
         while let Some(chunk) = response.chunk().await.map_err(transport)? {
             if bytes.len().saturating_add(chunk.len()) > RESPONSE_BYTES {
@@ -185,6 +212,7 @@ impl MinerClient {
                 "/api/v1/mining/attempts",
                 query,
                 ATTEMPTS_RESPONSE_BYTES,
+                ATTEMPTS_DEADLINE,
             )
             .await?;
         // The decoder runs on a blocking thread and reads chunks from a small

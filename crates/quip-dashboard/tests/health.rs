@@ -87,3 +87,20 @@ async fn repeated_cached_miner_timestamp_does_not_refresh_success_age() {
     health.miner_success("2026-09-16T00:00:00.000Z");
     assert!(!health.snapshot().ready);
 }
+#[tokio::test]
+async fn a_dead_file_writer_is_named_in_the_reason() {
+    let health = HealthState::new(false);
+    health.set_phase(Phase::Ready);
+    health.task_exited(RequiredTask::FileWriter);
+    let snapshot = health.snapshot();
+    assert!(
+        snapshot.reasons.iter().any(|r| r.contains("FileWriter")),
+        "a dead file writer should name itself, got {:?}",
+        snapshot.reasons
+    );
+    assert!(
+        !snapshot.reasons.iter().any(|r| r.contains("Watchdog")),
+        "a dead file writer must not be reported as the watchdog, got {:?}",
+        snapshot.reasons
+    );
+}

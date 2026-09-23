@@ -18,6 +18,7 @@ use quip_dashboard::miner::{
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     future::Future,
     pin::Pin,
     sync::{
@@ -129,15 +130,31 @@ async fn handler(
                 .store(usize::try_from(solution).unwrap_or(0), Ordering::SeqCst);
             let trail_len = state.trail_len.load(Ordering::SeqCst);
             if trail_len > 0 {
-                // Shaped like a live miner row: one row per iteration, ts_ns ascending.
-                let attempts: Vec<Value> = (1..=trail_len)
-                    .map(|n| json!({"accepted":false,"best_energy_milli":-14_410_000,"diversity_milli":0,"iter":n,"job_id":"b".repeat(64),"miner_id":"cuda-0","miner_type":"GPU-CUDA","num_valid":0,"qpu_access_time_us":4_344_796,"result_kind":"rejected","solution_number":solution,"submitted":false,"ts_ns":(1_789_786_835_000_000_000_u64 + n as u64).to_string(),"type":"attempt"}))
-                    .collect();
-                return (
-                    StatusCode::OK,
-                    json!({"success":true,"data":{"attempts":attempts,"submission":{"solution_number":solution,"miner_id":"cuda-0","energy_milli":-14_448_000,"diversity_milli":0,"threshold_milli":-14_635_662,"last_proof_block_hash":"0x00","outcome":"rejected"}}})
-                        .to_string(),
+                // Shaped like a live miner row: one row per iteration, ts_ns
+                // ascending. Written as text rather than built as `trail_len`
+                // serde_json::Value maps: each row is a 13-key map with its
+                // own 64-byte String, and in a debug build that construction
+                // dominated this test, taking it past the request deadline
+                // once the rest of the binary competed for the machine. The
+                // bytes on the wire are the same shape either way.
+                let mut body = String::with_capacity(trail_len * 384);
+                body.push_str(r#"{"success":true,"data":{"attempts":["#);
+                let job = "b".repeat(64);
+                for n in 1..=trail_len {
+                    if n > 1 {
+                        body.push(',');
+                    }
+                    let ts = 1_789_786_835_000_000_000_u64 + n as u64;
+                    let _ = write!(
+                        body,
+                        r#"{{"accepted":false,"best_energy_milli":-14410000,"diversity_milli":0,"iter":{n},"job_id":"{job}","miner_id":"cuda-0","miner_type":"GPU-CUDA","num_valid":0,"qpu_access_time_us":4344796,"result_kind":"rejected","solution_number":{solution},"submitted":false,"ts_ns":"{ts}","type":"attempt"}}"#
+                    );
+                }
+                let _ = write!(
+                    body,
+                    r#"],"submission":{{"solution_number":{solution},"miner_id":"cuda-0","energy_milli":-14448000,"diversity_milli":0,"threshold_milli":-14635662,"last_proof_block_hash":"0x00","outcome":"rejected"}}}}}}"#
                 );
+                return (StatusCode::OK, body);
             }
             let padding = "x".repeat(state.padding.load(Ordering::SeqCst));
             let attempts = json!([{"iter":0,"best_energy_milli":-17,"result_kind":"submit","padding":padding,"dense":vec![0; state.dense_items.load(Ordering::SeqCst)]}]);
@@ -170,6 +187,66 @@ async fn service() -> Result<
         Arc::new(Resolver { url }),
     )?);
     Ok((miner, state, server))
+}
+
+/// Serve one HTTP/1.1 response whose body arrives in `chunks` pieces, `gap`
+/// apart, and return the base URL plus the server task.
+///
+/// The suite's axum `handler` returns a whole `String`, so it cannot produce a
+/// body that arrives over time, and this crate has no stream combinator crate
+/// to build one with. Writing the bytes by hand needs only tokio.
+async fn trickling_server(
+    body: String,
+    chunks: usize,
+    gap: Duration,
+) -> Result<(String, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    let handle = tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let body = body.clone();
+            drop(tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+                // Read the request head so the client's write completes. The
+                // content is irrelevant: this server answers every path alike.
+                let mut discard = [0_u8; 2048];
+                let _ = socket.read(&mut discard).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                if socket.write_all(head.as_bytes()).await.is_err() {
+                    return;
+                }
+                let bytes = body.into_bytes();
+                let size = bytes.len().div_ceil(chunks.max(1));
+                for (index, piece) in bytes.chunks(size).enumerate() {
+                    if index > 0 {
+                        tokio::time::sleep(gap).await;
+                    }
+                    if socket.write_all(piece).await.is_err() {
+                        return;
+                    }
+                    if socket.flush().await.is_err() {
+                        return;
+                    }
+                }
+            }));
+        }
+    });
+    Ok((url, handle))
+}
+
+/// One attempts response with `trail_len` iterations, shaped like a live miner.
+///
+/// Copied from the `"/api/v1/mining/attempts"` arm of `handler` at `:131-140`.
+/// Keep the two in step: a parser change that breaks one breaks the other.
+fn attempts_body(solution: u64, trail_len: usize) -> String {
+    let attempts: Vec<Value> = (1..=trail_len)
+        .map(|n| json!({"accepted":false,"best_energy_milli":-14_410_000,"diversity_milli":0,"iter":n,"job_id":"b".repeat(64),"miner_id":"cuda-0","miner_type":"GPU-CUDA","num_valid":0,"qpu_access_time_us":4_344_796,"result_kind":"rejected","solution_number":solution,"submitted":false,"ts_ns":(1_789_786_835_000_000_000_u64 + n as u64).to_string(),"type":"attempt"}))
+        .collect();
+    json!({"success":true,"data":{"attempts":attempts,"submission":{"solution_number":solution,"miner_id":"cuda-0","energy_milli":-14_448_000,"diversity_milli":0,"threshold_milli":-14_635_662,"last_proof_block_hash":"0x00","outcome":"rejected"}}})
+        .to_string()
 }
 
 #[tokio::test]
@@ -452,6 +529,76 @@ async fn trail_past_the_whole_body_cap_streams() -> TestResult {
             .as_ref()
             .map(|dispatch| dispatch.attempts.len()),
         Some(ATTEMPT_TRAIL_LIMIT)
+    );
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_slow_but_progressing_trail_completes() -> TestResult {
+    // Ten pieces 500 ms apart is about five seconds in total, longer than the
+    // four-second whole-request deadline this change removes. Every individual
+    // gap is an eighth of the read timeout, so a loaded machine does not turn
+    // this into the flake it replaces.
+    // `local_attempts` maps chain qblock 42 to miner solution 41 before
+    // querying, then checks the response echoes that miner-side number.
+    let (url, server) =
+        trickling_server(attempts_body(41, 64), 10, Duration::from_millis(500)).await?;
+    let service = MinerService::new(Some(url.clone()), Arc::new(Resolver { url }))?;
+
+    let response = service.local_attempts(42).await?;
+
+    assert_eq!(response.data.attempts.len(), 64);
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stalled_trail_still_fails() -> TestResult {
+    // One gap far longer than the read timeout. Removing the whole-request
+    // deadline must not leave a hung miner able to hold a request open.
+    let (url, server) = trickling_server(attempts_body(42, 64), 2, Duration::from_secs(20)).await?;
+    let service = MinerService::new(Some(url.clone()), Arc::new(Resolver { url }))?;
+
+    let result = service.local_attempts(42).await;
+
+    assert!(
+        matches!(result, Err(MinerError::Unreachable(_))),
+        "a stalled body should report the miner unreachable"
+    );
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_host_trickling_under_the_read_timeout_still_hits_a_total_deadline() -> TestResult {
+    // The gap that `read_timeout` alone cannot catch. Every pause is an eighth
+    // of the four-second read timeout, so each individual read succeeds and
+    // re-arms it; only a total deadline ends this. Sixty pieces 500 ms apart
+    // is thirty seconds of trickle against the ten-second status deadline.
+    // The trickle is deliberately three times the deadline: the fixed build
+    // still stops at ten seconds, so the extra pieces cost no wall clock and
+    // buy a wide gap between a pass and the failure below.
+    let body = json!({"success": true, "data": {"pad": "p".repeat(600)}}).to_string();
+    let (url, server) = trickling_server(body, 60, Duration::from_millis(500)).await?;
+    let service = MinerService::new(Some(url.clone()), Arc::new(Resolver { url }))?;
+
+    let started = std::time::Instant::now();
+    let snapshot = service.local_snapshot().await;
+    let elapsed = started.elapsed();
+
+    assert!(
+        snapshot.status.is_err(),
+        "a host trickling past the total deadline must not report healthy"
+    );
+    // The upper bound is what makes this test falsifiable. Without the
+    // per-request deadline the trickle runs its full thirty seconds and
+    // succeeds. The bound sits halfway between the two, so neither a loaded
+    // machine nor a near-miss can decide the result: the deadline is one
+    // timer firing on wall clock, which load does not erode.
+    assert!(
+        elapsed < Duration::from_secs(15),
+        "the deadline should cut the request near ten seconds, took {elapsed:?}"
     );
     server.abort();
     Ok(())

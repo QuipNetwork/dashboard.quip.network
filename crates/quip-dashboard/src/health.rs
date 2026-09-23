@@ -19,6 +19,10 @@ pub enum RequiredTask {
     Miner,
     /// Independent scheduler watchdog.
     Watchdog,
+    /// Background file writers: the nodes snapshot and the qblock export.
+    /// Their death stops the file tree updating while the API keeps serving,
+    /// so they fail liveness like any other required task and say which one.
+    FileWriter,
 }
 /// Local startup and verified service phases.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -126,7 +130,11 @@ impl HealthState {
     /// Record an unexpected required-task exit, including successful exits.
     pub fn task_exited(&self, task: RequiredTask) {
         let mut state = self.state();
-        if state.indexing || task == RequiredTask::Http || task == RequiredTask::Watchdog {
+        if state.indexing
+            || task == RequiredTask::Http
+            || task == RequiredTask::Watchdog
+            || task == RequiredTask::FileWriter
+        {
             let _ = state.dead.insert(task);
         }
     }

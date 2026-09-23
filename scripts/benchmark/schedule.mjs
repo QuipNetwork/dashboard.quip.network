@@ -115,8 +115,13 @@ export async function generateSchedule(opts) {
   }
   requests.sort((a, b) => a.tOffsetMs - b.tOffsetMs);
 
+  // Hash what the field names: the generated requests, plus the parameters
+  // that shape them. The manifest PATH is deliberately absent — it is
+  // absolute, so including it made the hash differ between two checkouts of
+  // the same commit. An output change now changes the hash, which is what
+  // lets tool_test.py detect one.
   const digest = createHash("sha256")
-    .update(JSON.stringify({ manifest: manifestPath, rate, duration, seed: opts.seed }))
+    .update(JSON.stringify({ rate, duration, seed: opts.seed, requests }))
     .digest("hex")
     .slice(0, 16);
 
