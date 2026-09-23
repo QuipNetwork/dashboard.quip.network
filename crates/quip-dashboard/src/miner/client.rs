@@ -131,12 +131,17 @@ impl MinerClient {
         result
     }
 
+    /// `deadline` is the total bound the client-wide `read_timeout` cannot
+    /// give, and every caller states its own: a byte cap and a time budget
+    /// are different properties, so deriving one from the other would hand a
+    /// later caller with an intermediate cap a deadline nobody chose.
     async fn send(
         &self,
         base: &str,
         path: &str,
         query: &[(&str, String)],
         cap: usize,
+        deadline: Duration,
     ) -> Result<Response, MinerError> {
         let mut url = Url::parse(&format!("{}{path}", base.trim_end_matches('/')))
             .map_err(|error| MinerError::Http(error.to_string()))?;
@@ -145,14 +150,6 @@ impl MinerClient {
                 .query_pairs_mut()
                 .extend_pairs(query.iter().map(|(key, value)| (*key, value.as_str())));
         }
-        // The total bound the client-wide `read_timeout` cannot give. Keyed
-        // off the caller's cap so the polled status path is not held to the
-        // budget the rare 64 MiB attempts fetch needs.
-        let deadline = if cap > RESPONSE_BYTES {
-            ATTEMPTS_DEADLINE
-        } else {
-            RESPONSE_DEADLINE
-        };
         let response = self
             .client
             .get(url)
@@ -187,7 +184,9 @@ impl MinerClient {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<Value, MinerError> {
-        let mut response = self.send(base, path, query, RESPONSE_BYTES).await?;
+        let mut response = self
+            .send(base, path, query, RESPONSE_BYTES, RESPONSE_DEADLINE)
+            .await?;
         let mut bytes = Vec::with_capacity(RESPONSE_BYTES);
         while let Some(chunk) = response.chunk().await.map_err(transport)? {
             if bytes.len().saturating_add(chunk.len()) > RESPONSE_BYTES {
@@ -213,6 +212,7 @@ impl MinerClient {
                 "/api/v1/mining/attempts",
                 query,
                 ATTEMPTS_RESPONSE_BYTES,
+                ATTEMPTS_DEADLINE,
             )
             .await?;
         // The decoder runs on a blocking thread and reads chunks from a small
