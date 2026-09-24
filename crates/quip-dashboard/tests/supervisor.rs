@@ -63,6 +63,15 @@ fn script(dir: &Path, name: &str, body: &str) -> std::io::Result<String> {
 }
 
 fn start(collector: &str, backend: &str, caddy: &str, address: &str) -> std::io::Result<Child> {
+    // Act as Tini for this binary and reap orphans instead of leaving zombies
+    // with the host's PID 1. The attribute is process-wide and inherited across
+    // fork, so setting it inside individual tests made every later supervisor
+    // depend on which tests had already run, and all nine share one process.
+    // Every test spawns through here and the prctl is idempotent, so setting it
+    // here is uniform regardless of test order. Tests that wait on a descendant
+    // still name an explicit pid, which is what keeps them from consuming
+    // another test's child.
+    set_child_subreaper(true).map_err(std::io::Error::from)?;
     Command::new(env!("CARGO_BIN_EXE_quip-dashboard-supervisor"))
         .args([
             "--collector-program",
@@ -284,9 +293,6 @@ async fn signal_drains_services_before_collector_without_forwarding_collector_lo
 #[tokio::test]
 async fn ignoring_termination_and_descendants_cannot_extend_deadline()
 -> Result<(), Box<dyn std::error::Error>> {
-    // Act as Tini for this test and reap the orphan instead of leaving a zombie
-    // with the host's PID 1. The explicit pid prevents consuming another test's child.
-    set_child_subreaper(true)?;
     let dir = TempDir::new()?;
     let pid_file = dir.path().join("pid");
     let backend = script(
@@ -415,7 +421,6 @@ async fn queue_pressure_preserves_exact_drop_counts() -> Result<(), Box<dyn std:
 #[tokio::test]
 async fn exited_leaders_retain_group_ownership_until_descendants_are_killed()
 -> Result<(), Box<dyn std::error::Error>> {
-    set_child_subreaper(true)?;
     let dir = TempDir::new()?;
     let pid_file = dir.path().join("pid");
     let staging = dir.path().join("pid.staging");
