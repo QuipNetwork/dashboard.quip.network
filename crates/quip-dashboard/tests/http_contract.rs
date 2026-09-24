@@ -480,6 +480,66 @@ fn json_equal(a: &Value, b: &Value) -> bool {
     }
 }
 
+/// Peer proxying reaches a third party, so its latency is not ours. An
+/// admission permit lives in the response body, so held proxy responses used to
+/// consume the pool every other data route shares.
+#[tokio::test]
+async fn peer_proxying_cannot_exhaust_the_data_route_pool() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let store = Arc::new(
+        Store::open(StoreConfig::Turso {
+            path: directory.path().join("proxy.db"),
+        })
+        .await?,
+    );
+    let miner = Arc::new(MinerService::new(
+        None,
+        Arc::new(Peers {
+            store: Arc::clone(&store),
+            // Port 1 is not listening, so the proxy resolves and fails fast.
+            // This test is about slot occupancy, not about peer latency.
+            peer: "127.0.0.1:1".parse()?,
+        }),
+    )?);
+    let health = HealthState::new(true);
+    let app = router(HttpState::new(Arc::clone(&store), miner, health));
+
+    // Hold every proxy response. Each keeps its permit until its body is read
+    // or dropped. Distinct accounts, so no per-host failure cache collapses
+    // them into one.
+    let mut held = Vec::new();
+    for account in 0..8_u32 {
+        held.push(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/api/node/5Peer{account}/live"))
+                        .body(Body::empty())?,
+                )
+                .await?,
+        );
+    }
+
+    // The point of the split: an unrelated data route is still servable.
+    let blocks = app
+        .clone()
+        .oneshot(Request::builder().uri("/api/blocks").body(Body::empty())?)
+        .await?;
+    assert_eq!(
+        blocks.status(),
+        StatusCode::OK,
+        "held peer-proxy responses must not starve the data routes"
+    );
+    drop(blocks);
+    drop(held);
+    drop(app);
+    Arc::try_unwrap(store)
+        .map_err(|_| "health still holds store")?
+        .close()
+        .await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn telemetry_cache_is_single_flight_and_charges_held_bodies() -> TestResult {
     use std::sync::atomic::{AtomicUsize, Ordering};
