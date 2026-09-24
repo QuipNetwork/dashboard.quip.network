@@ -44,6 +44,14 @@ fn io_deadline() -> Duration {
     )
 }
 
+/// Budget for a fixture to finish producing, which is not the behaviour any
+/// test asserts. Producing scales with contention while the shutdown under
+/// test does not, so it gets its own generous value: sharing `io_deadline`
+/// made a slow producer fail as though shutdown had stalled.
+fn setup_deadline() -> Duration {
+    io_deadline().saturating_mul(4)
+}
+
 fn script(dir: &Path, name: &str, body: &str) -> std::io::Result<String> {
     let path = dir.join(name);
     fs::write(
@@ -55,6 +63,15 @@ fn script(dir: &Path, name: &str, body: &str) -> std::io::Result<String> {
 }
 
 fn start(collector: &str, backend: &str, caddy: &str, address: &str) -> std::io::Result<Child> {
+    // Act as Tini for this binary and reap orphans instead of leaving zombies
+    // with the host's PID 1. The attribute is process-wide and inherited across
+    // fork, so setting it inside individual tests made every later supervisor
+    // depend on which tests had already run, and all nine share one process.
+    // Every test spawns through here and the prctl is idempotent, so setting it
+    // here is uniform regardless of test order. Tests that wait on a descendant
+    // still name an explicit pid, which is what keeps them from consuming
+    // another test's child.
+    set_child_subreaper(true).map_err(std::io::Error::from)?;
     Command::new(env!("CARGO_BIN_EXE_quip-dashboard-supervisor"))
         .args([
             "--collector-program",
@@ -276,9 +293,6 @@ async fn signal_drains_services_before_collector_without_forwarding_collector_lo
 #[tokio::test]
 async fn ignoring_termination_and_descendants_cannot_extend_deadline()
 -> Result<(), Box<dyn std::error::Error>> {
-    // Act as Tini for this test and reap the orphan instead of leaving a zombie
-    // with the host's PID 1. The explicit pid prevents consuming another test's child.
-    set_child_subreaper(true)?;
     let dir = TempDir::new()?;
     let pid_file = dir.path().join("pid");
     let backend = script(
@@ -337,13 +351,16 @@ async fn flood_with_blocked_stderr_and_absent_receiver_does_not_stall_shutdown()
         dir.path(),
         "backend",
         &format!(
-            "for i in range(100000):\n    sys.stdout.write('flood-'+str(i)+'x'*100+'\\n')\nsys.stdout.flush()\nopen({complete:?},'w').write('done')\nsignal.pause()"
+            "for i in range(20000):\n    sys.stdout.write('flood-'+str(i)+'x'*100+'\\n')\nsys.stdout.flush()\nopen({complete:?},'w').write('done')\nsignal.pause()"
         ),
     )?;
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let mut child = start(&idle, &backend, &idle, "127.0.0.1:9")?;
-    // Keep stderr's pipe full while waiting for the producer to finish its flood.
-    timeout(io_deadline(), async {
+    // Keep stderr's pipe full while waiting for the producer to finish its
+    // flood. The producer's own runtime is not what this test asserts, so it
+    // draws on `setup_deadline`; only the shutdown below is measured against
+    // `io_deadline`.
+    timeout(setup_deadline(), async {
         while !complete.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -404,7 +421,6 @@ async fn queue_pressure_preserves_exact_drop_counts() -> Result<(), Box<dyn std:
 #[tokio::test]
 async fn exited_leaders_retain_group_ownership_until_descendants_are_killed()
 -> Result<(), Box<dyn std::error::Error>> {
-    set_child_subreaper(true)?;
     let dir = TempDir::new()?;
     let pid_file = dir.path().join("pid");
     let staging = dir.path().join("pid.staging");

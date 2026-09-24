@@ -39,6 +39,15 @@ use tokio::{
 const MAX_LINE: usize = 64 * 1024;
 const MAX_DATAGRAM: usize = 65_507;
 
+/// Linux refuses `execve` on a file another process still holds open for
+/// writing, and reports `ETXTBSY`. The window is short and clears itself: a
+/// deploy rewriting a binary, or a sibling thread that forked between this
+/// process opening a file and closing it. Retrying briefly turns a spurious
+/// 126 into a normal start. A missing program is permanent and is not retried,
+/// so it still fails at once and still maps to 127.
+const SPAWN_BUSY_ATTEMPTS: u32 = 10;
+const SPAWN_BUSY_BACKOFF: Duration = Duration::from_millis(20);
+
 /// Executable and arguments for one of the three fixed child roles.
 #[derive(Clone, Debug)]
 pub struct ChildSpec {
@@ -414,15 +423,29 @@ impl Logs {
     }
 }
 
-fn spawn(role: &'static str, spec: &ChildSpec, logs: &Logs) -> io::Result<OwnedChild> {
-    let child = Command::new(&spec.program)
-        .args(&spec.args)
-        .process_group(0)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()?;
+async fn spawn(role: &'static str, spec: &ChildSpec, logs: &Logs) -> io::Result<OwnedChild> {
+    let mut attempt = 0_u32;
+    let child = loop {
+        match Command::new(&spec.program)
+            .args(&spec.args)
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+        {
+            Ok(child) => break child,
+            Err(error) => {
+                attempt += 1;
+                let busy = error.raw_os_error() == Some(nix::libc::ETXTBSY);
+                if !busy || attempt >= SPAWN_BUSY_ATTEMPTS {
+                    return Err(error);
+                }
+                tokio::time::sleep(SPAWN_BUSY_BACKOFF).await;
+            }
+        }
+    };
     let pid = child
         .id()
         .ok_or_else(|| io::Error::other("spawned child has no pid"))?;
@@ -551,7 +574,7 @@ pub async fn run(config: Config, counters: Arc<LogCounters>) -> io::Result<Repor
         ("backend", &config.backend),
         ("caddy", &config.caddy),
     ] {
-        match spawn(role, spec, &logs) {
+        match spawn(role, spec, &logs).await {
             Ok(child) => children.push(child),
             Err(error) => {
                 reason = Some(ExitReason::SpawnFailed { role, error });
@@ -621,4 +644,78 @@ pub async fn run(config: Config, counters: Arc<LogCounters>) -> io::Result<Repor
         timed_out,
         logs: counters.snapshot(),
     })
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "test assertions report spawn-retry regressions"
+)]
+mod tests {
+    use super::{ChildSpec, Config, LogCounters, Logs, spawn};
+    use std::{
+        fs, io, os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc, time::Duration,
+    };
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// A real executable, because the busy window only exists for a file the
+    /// kernel would otherwise be willing to exec.
+    fn executable(dir: &std::path::Path, name: &str) -> io::Result<PathBuf> {
+        let path = dir.join(name);
+        fs::write(&path, "#!/bin/sh\nexit 0\n")?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+        Ok(path)
+    }
+
+    fn logs() -> io::Result<Logs> {
+        let (logs, _finished) = Logs::start(&Config::default(), Arc::new(LogCounters::default()))?;
+        Ok(logs)
+    }
+
+    #[tokio::test]
+    async fn spawn_retries_while_the_program_is_still_open_for_writing() -> TestResult {
+        let dir = tempfile::tempdir()?;
+        let program = executable(dir.path(), "busy")?;
+        // An open write handle is precisely what makes execve report ETXTBSY.
+        let writer = fs::OpenOptions::new().write(true).open(&program)?;
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            drop(writer);
+        });
+
+        let spec = ChildSpec {
+            program,
+            args: vec![],
+        };
+        let child = spawn("backend", &spec, &logs()?).await?;
+
+        drop(child);
+        assert!(release.join().is_ok(), "release thread should finish");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn spawn_does_not_retry_a_missing_program() -> TestResult {
+        let dir = tempfile::tempdir()?;
+        let spec = ChildSpec {
+            program: dir.path().join("absent"),
+            args: vec![],
+        };
+
+        let started = std::time::Instant::now();
+        let result = spawn("backend", &spec, &logs()?).await;
+
+        assert!(
+            matches!(&result, Err(error) if error.kind() == io::ErrorKind::NotFound),
+            "a missing program must fail with NotFound"
+        );
+        // A missing program is permanent. Retrying it would only delay the 127.
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "NotFound should fail at once, took {:?}",
+            started.elapsed()
+        );
+        Ok(())
+    }
 }

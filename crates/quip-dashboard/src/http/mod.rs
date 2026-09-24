@@ -70,10 +70,19 @@ impl HttpState {
     }
 }
 
-/// Build the seven data routes and independent health endpoints.
+/// Build the eight data routes and independent health endpoints.
+///
+/// Three admission pools, not one. The health endpoints keep their own so
+/// liveness and readiness stay answerable while the data routes are saturated.
+/// Peer proxying keeps its own because it waits on a third party.
 pub fn router(state: HttpState) -> Router {
     let slots = Arc::new(tokio::sync::Semaphore::new(8));
     let health_slots = Arc::new(tokio::sync::Semaphore::new(2));
+    // Proxying reaches a third party, so its latency is not ours. A permit is
+    // held for the whole handler, including time queued on the miner client's
+    // own limits, so sharing the data pool let a few slow descriptors starve
+    // every unrelated route. Its own pool bounds the harm to this route.
+    let proxy_slots = Arc::new(tokio::sync::Semaphore::new(4));
     Router::new()
         .route("/api/telemetry", get(telemetry::get))
         .route("/api/blocks", get(routes::blocks))
@@ -88,9 +97,12 @@ pub fn router(state: HttpState) -> Router {
         .with_state(state)
         .layer(middleware::from_fn(
             move |request: axum::extract::Request, next| {
-                let admission_slots = if matches!(request.uri().path(), "/api/live" | "/api/health")
-                {
+                let path = request.uri().path();
+                let admission_slots = if matches!(path, "/api/live" | "/api/health") {
                     Arc::clone(&health_slots)
+                } else if path.starts_with("/api/node/") && path.ends_with("/live") {
+                    // Matched by shape: the account segment varies.
+                    Arc::clone(&proxy_slots)
                 } else {
                     Arc::clone(&slots)
                 };
