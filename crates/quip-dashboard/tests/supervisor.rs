@@ -44,6 +44,14 @@ fn io_deadline() -> Duration {
     )
 }
 
+/// Budget for a fixture to finish producing, which is not the behaviour any
+/// test asserts. Producing scales with contention while the shutdown under
+/// test does not, so it gets its own generous value: sharing `io_deadline`
+/// made a slow producer fail as though shutdown had stalled.
+fn setup_deadline() -> Duration {
+    io_deadline().saturating_mul(4)
+}
+
 fn script(dir: &Path, name: &str, body: &str) -> std::io::Result<String> {
     let path = dir.join(name);
     fs::write(
@@ -337,13 +345,16 @@ async fn flood_with_blocked_stderr_and_absent_receiver_does_not_stall_shutdown()
         dir.path(),
         "backend",
         &format!(
-            "for i in range(100000):\n    sys.stdout.write('flood-'+str(i)+'x'*100+'\\n')\nsys.stdout.flush()\nopen({complete:?},'w').write('done')\nsignal.pause()"
+            "for i in range(20000):\n    sys.stdout.write('flood-'+str(i)+'x'*100+'\\n')\nsys.stdout.flush()\nopen({complete:?},'w').write('done')\nsignal.pause()"
         ),
     )?;
     let idle = script(dir.path(), "idle", "signal.pause()")?;
     let mut child = start(&idle, &backend, &idle, "127.0.0.1:9")?;
-    // Keep stderr's pipe full while waiting for the producer to finish its flood.
-    timeout(io_deadline(), async {
+    // Keep stderr's pipe full while waiting for the producer to finish its
+    // flood. The producer's own runtime is not what this test asserts, so it
+    // draws on `setup_deadline`; only the shutdown below is measured against
+    // `io_deadline`.
+    timeout(setup_deadline(), async {
         while !complete.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
