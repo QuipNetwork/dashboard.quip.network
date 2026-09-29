@@ -57,8 +57,10 @@ Memory stayed at 150–190 MiB and CPU near 1% of a core. Disk extrapolates to
 roughly 0.5 GB once history is complete, plus ~20 MB a day, so `hdd: 20` lasts
 years.
 
-⚠ **Every 15 min the indexer re-reads all node descriptors, and live commits
-wait until it finishes.** That pass is ~2,000 sequential RPC calls. Locally it
-took 8.5 min, and `lastCommittedHeight` fell ~55 blocks behind before catching
-up in one step. The spec places the app in Europe and reads bootnode-3 first to
-keep that pass short. The indexing-lag monitor in observe allows for it.
+⚠ **The indexer re-reads all node descriptors 15 min after the previous pass
+ends, and live commits wait until it finishes.** That pass is ~2,000
+sequential RPC calls. Locally the two passes took 8.5 and 10 min. During the
+second, `lastCommittedHeight` and `chainHead` in `/api/telemetry` froze
+outright, ~100 blocks behind, then caught up in one step. The spec places the
+app in Europe and reads bootnode-3 first to keep that pass short. The
+indexing-lag monitor in observe allows for a short one.
