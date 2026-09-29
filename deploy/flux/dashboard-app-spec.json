@@ -1,0 +1,35 @@
+{
+  "version": 8,
+  "name": "quipdashboard",
+  "description": "Quip aglais dashboard: full-mode indexer and public telemetry API (reads the aglais bootnode archive RPC).",
+  "owner": "1H18UuAxugZihfoagL8xNT1Rpxn55dZtZ3",
+  "contacts": ["F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/462269223879898"],
+  "expire": 88000,
+  "instances": 1,
+  "geolocation": ["acEU", "a!cEU_RU"],
+  "nodes": [],
+  "staticip": false,
+  "enterprise": "",
+  "compose": [
+    {
+      "name": "dashboard",
+      "description": "Rust indexer + Caddy + SPA. Plain HTTP on 20049; FDM terminates TLS.",
+      "repotag": "registry.gitlab.com/quip.network/dashboard.quip.network:v0.2.3-rc5@sha256:4534e3474d10a03509124cfd31132d50c84d94db7e9e7357fdb856c27efd5b65",
+      "ports": [20052],
+      "domains": [""],
+      "containerPorts": [20049],
+      "containerData": "/data",
+      "environmentParameters": [
+        "QUIP_VALIDATOR_RPC_URLS=wss://bootnode-3.aglais.quip.network:20049/rpc,wss://bootnode-2.aglais.quip.network:20049/rpc,wss://bootnode-1.aglais.quip.network:20049/rpc",
+        "QUIP_MINER_REST_URL=http://127.0.0.1:9",
+        "RUN_INDEXER=true",
+        "QUIP_HOSTNAME=:20049"
+      ],
+      "commands": [],
+      "cpu": 1,
+      "ram": 2000,
+      "hdd": 20,
+      "repoauth": ""
+    }
+  ]
+}
