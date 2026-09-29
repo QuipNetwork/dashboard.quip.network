@@ -1,13 +1,14 @@
-# Flux deployment: quipdashboard
+# Flux deployment: quipindexer
 
-This branch (`deploy/flux`) holds the Flux spec for the public aglais dashboard
+This branch (`deploy/flux`) holds the Flux spec for the public aglais indexer
 and telemetry API. It is deploy packaging only: the image is the one upstream CI
 publishes for a release tag, pinned by digest, with no local changes.
 
-- App: `quipdashboard`, 1 instance, non-enterprise
-- URL: <https://quipdashboard.app.runonflux.io/> (the full dashboard) and
-  `/api/telemetry` (CORS `*`)
-- Spec: [`dashboard-app-spec.json`](dashboard-app-spec.json). The copy exported
+- App: `quipindexer`, 1 instance, non-enterprise
+- URL: <https://indexer.aglais.quip.network/> (a CNAME to
+  `quipindexer.app.runonflux.io`, which also answers). It serves `/api/*`
+  (CORS `*`), `/files/*` (no CORS header) and the full dashboard at `/`.
+- Spec: [`indexer-app-spec.json`](indexer-app-spec.json). The copy exported
   from the Flux dashboard is canonical. If the two differ, the export wins.
 
 ## Settings that are not obvious

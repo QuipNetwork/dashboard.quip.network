@@ -1,7 +1,7 @@
 {
   "version": 8,
-  "name": "quipdashboard",
-  "description": "Quip aglais dashboard: full-mode indexer and public telemetry API (reads the aglais bootnode archive RPC).",
+  "name": "quipindexer",
+  "description": "Quip aglais indexer: full-mode dashboard indexer and public telemetry API (reads the aglais bootnode archive RPC).",
   "owner": "1H18UuAxugZihfoagL8xNT1Rpxn55dZtZ3",
   "contacts": ["F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/462269223879898"],
   "expire": 88000,
@@ -16,7 +16,7 @@
       "description": "Rust indexer + Caddy + SPA. Plain HTTP on 20049; FDM terminates TLS.",
       "repotag": "registry.gitlab.com/quip.network/dashboard.quip.network:v0.2.3-rc5@sha256:4534e3474d10a03509124cfd31132d50c84d94db7e9e7357fdb856c27efd5b65",
       "ports": [20052],
-      "domains": [""],
+      "domains": ["indexer.aglais.quip.network"],
       "containerPorts": [20049],
       "containerData": "/data",
       "environmentParameters": [
