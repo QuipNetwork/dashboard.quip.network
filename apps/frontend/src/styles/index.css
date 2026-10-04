@@ -2,6 +2,7 @@
 
 @source "../";
 @source "../../.ladle";
+@source "../../index.html";
 
 @font-face {
   font-family: "ABC Favorit";
