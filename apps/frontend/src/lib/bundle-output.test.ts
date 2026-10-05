@@ -25,11 +25,12 @@ describe("frontend production bundle", () => {
     const html = readFileSync(join(DIST, "index.html"), "utf8");
     const { document } = new JSDOM(html).window;
     const root = document.getElementById("root")!;
-    expect(root.innerHTML).toBe(renderToStaticMarkup(createElement(DashboardIntro)));
+    expect(document.querySelectorAll("#root").length).toBe(1);
+    expect(document.body.firstElementChild).toBe(root);
+    expect(root.innerHTML.trim()).toBe(renderToStaticMarkup(createElement(DashboardIntro)));
     expect(document.querySelectorAll("#dashboard-title").length).toBe(1);
     expect(root.querySelector("h1")?.textContent).toBe("Quip Mining Telemetry Dashboard");
     expect(root.textContent).toContain("Enable JavaScript to load live charts");
-    expect(html).not.toContain("<!--dashboard-intro-->");
     expect(document.querySelector('meta[name="description"]')?.getAttribute("content")).toContain(
       "View Quip network block counts and mining times",
     );

@@ -14,28 +14,28 @@ export default defineConfig({
     tailwindcss(),
     {
       name: "dashboard-seo",
-      transformIndexHtml(html) {
-        return {
+      transformIndexHtml() {
+        return [
           // Preserve crawlable/no-JS content inside the app root. createRoot
           // replaces it with the same component when the dashboard mounts.
-          html: html.replace(
-            "<!--dashboard-intro-->",
-            renderToStaticMarkup(createElement(DashboardIntro)),
-          ),
-          tags: [
-            { tag: "link", attrs: { rel: "canonical", href: siteUrl } },
-            {
-              tag: "script",
-              attrs: { type: "application/ld+json" },
-              children: JSON.stringify({
-                "@context": "https://schema.org",
-                "@type": "WebSite",
-                name: "Quip Mining Telemetry Dashboard",
-                url: siteUrl,
-              }),
-            },
-          ],
-        };
+          {
+            tag: "div",
+            attrs: { id: "root" },
+            children: renderToStaticMarkup(createElement(DashboardIntro)),
+            injectTo: "body-prepend",
+          },
+          { tag: "link", attrs: { rel: "canonical", href: siteUrl } },
+          {
+            tag: "script",
+            attrs: { type: "application/ld+json" },
+            children: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "Quip Mining Telemetry Dashboard",
+              url: siteUrl,
+            }),
+          },
+        ];
       },
       generateBundle() {
         this.emitFile({
