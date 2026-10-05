@@ -18,7 +18,9 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 
+import { DashboardIntro } from "./components/layout/DashboardIntro";
 import { ServicesProvider } from "./services/services-provider";
 import { useTelemetryStore } from "./store/telemetry-store";
 
@@ -73,6 +75,24 @@ afterEach(() => {
 });
 
 describe("App visibility fetch behavior (audit #1)", () => {
+  test("replaces the initial introduction with one React-owned copy and mounts the dashboard", async () => {
+    const intro = renderToStaticMarkup(createElement(DashboardIntro));
+    container.innerHTML = intro;
+    useTelemetryStore.setState({ fetchTelemetry: async () => {} });
+
+    const App = (await import("./App")).default;
+    await act(async () => {
+      root.render(createElement(ServicesProvider, null, createElement(App)));
+    });
+
+    expect(container.querySelectorAll("#dashboard-title").length).toBe(1);
+    expect(container.firstElementChild?.outerHTML).toBe(intro);
+    expect(container.querySelector("main")).not.toBeNull();
+
+    act(() => root.render(null));
+    expect(container.innerHTML).toBe("");
+  });
+
   test("fires fetch immediately on mount when visible", async () => {
     let fetchCount = 0;
     spyOn(useTelemetryStore.getState(), "fetchTelemetry").mockImplementation(async () => {

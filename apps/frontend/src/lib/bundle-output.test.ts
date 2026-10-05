@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { JSDOM } from "jsdom";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
+import { DashboardIntro } from "../components/layout/DashboardIntro";
 import { computeReachability, distExists, loadManifest, measureBuild } from "./asset-manifest";
 
 const DIST = join(import.meta.dir, "../../dist");
@@ -17,6 +21,37 @@ const NETWORK_MODULE = "src/components/views/Network/NetworkView.tsx";
 const COMPUTE_MODULE = "src/components/views/ComputeAvailable/ComputeAvailableView.tsx";
 
 describe("frontend production bundle", () => {
+  it("serves the React introduction inside the app root before JavaScript runs", () => {
+    const html = readFileSync(join(DIST, "index.html"), "utf8");
+    const { document } = new JSDOM(html).window;
+    const root = document.getElementById("root")!;
+    expect(root.innerHTML).toBe(renderToStaticMarkup(createElement(DashboardIntro)));
+    expect(document.querySelectorAll("#dashboard-title").length).toBe(1);
+    expect(root.querySelector("h1")?.textContent).toBe("Quip Mining Telemetry Dashboard");
+    expect(root.textContent).toContain("Enable JavaScript to load live charts");
+    expect(html).not.toContain("<!--dashboard-intro-->");
+    expect(document.querySelector('meta[name="description"]')?.getAttribute("content")).toContain(
+      "View Quip network block counts and mining times",
+    );
+    expect(document.querySelector('link[rel="canonical"]')?.getAttribute("href")).toBe(
+      "https://dashboard.quip.network/",
+    );
+    expect(
+      JSON.parse(document.querySelector('script[type="application/ld+json"]')!.textContent!),
+    ).toEqual({
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "Quip Mining Telemetry Dashboard",
+      url: "https://dashboard.quip.network/",
+    });
+    expect(readFileSync(join(DIST, "robots.txt"), "utf8")).toContain(
+      "Sitemap: https://dashboard.quip.network/sitemap.xml",
+    );
+    expect(readFileSync(join(DIST, "sitemap.xml"), "utf8")).toContain(
+      "<loc>https://dashboard.quip.network/</loc>",
+    );
+  });
+
   it("requires a Vite dist tree with an emitted manifest from bun run --filter @quip/frontend build", () => {
     expect(distExists(DIST)).toBe(true);
     expect(existsSync(join(DIST, ".vite", "manifest.json"))).toBe(true);
