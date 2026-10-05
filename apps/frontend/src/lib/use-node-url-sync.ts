@@ -39,9 +39,14 @@ export function useNodeUrlSync(): void {
 
   useEffect(() => {
     const desired = nodeSearch(viewMode === "node" ? selectedNodeId : null);
+    const { pathname, hash } = window.location;
     if (desired !== window.location.search) {
-      const { pathname, hash } = window.location;
       window.history.pushState(null, "", `${pathname}${desired}${hash}`);
+    }
+
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (canonical) {
+      canonical.href = new URL(`${pathname}${desired}`, canonical.href).href;
     }
   }, [viewMode, selectedNodeId]);
 }

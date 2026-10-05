@@ -1,5 +1,6 @@
 import { useEventBus } from "@vaaas/rx-react/event-bus";
 import { useEffect } from "react";
+import { DashboardIntro } from "./components/layout/DashboardIntro";
 import { FetchTelemetry } from "./event-bus/fetch-telemetry";
 import { useNodeUrlSync } from "./lib/use-node-url-sync";
 import { Dashboard } from "./pages/Dashboard";
@@ -43,5 +44,10 @@ export default function App() {
     };
   }, [bus]);
 
-  return <Dashboard />;
+  return (
+    <>
+      <DashboardIntro />
+      <Dashboard />
+    </>
+  );
 }
