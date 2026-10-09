@@ -27,6 +27,7 @@ import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 import {
   QPU_ACCESS_TO_WALL_RATIO,
+  QPU_RESERVED_SECONDS_PER_QBLOCK,
   type ChainMinerRecord,
   type MinerHardwareRecord,
   type MiningHistoryRow,
@@ -276,12 +277,17 @@ describe("useMiningTime", () => {
     expect(result.current.series).toEqual([{ id: "All", data: [{ x: 1, y: expected }] }]);
   });
 
-  test("energy = QPU system watts × exact access seconds", async () => {
+  test("energy = QPU system watts × reserved seconds, never chip access", async () => {
+    // Exact chip access of 42 s is irrelevant to energy: the QPU is charged
+    // its reserved window, capped by the 999 s block-active window.
     setParticipation([part(1, "Q", "Qpu", 999, 42_000_000)]);
     const { client } = makeClient([historyRow(1, "5GQpu")]);
     const result = renderHook(client, "24h", "all", "energy");
     await settle();
-    const expected = estimateEnergyJoules(estimateDeviceWatts("QPU", null), 42);
+    const expected = estimateEnergyJoules(
+      estimateDeviceWatts("QPU", null),
+      QPU_RESERVED_SECONDS_PER_QBLOCK,
+    );
     expect(result.current.series).toEqual([{ id: "All", data: [{ x: 1, y: expected }] }]);
   });
 

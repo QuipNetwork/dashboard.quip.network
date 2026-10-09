@@ -8,7 +8,7 @@
 // type selection), "all" one aggregate line across every type, "normalized"
 // the fixed-composition shares from charts/common/normalized-composition. The
 // metric is either device access time (seconds) or its estimated electrical
-// energy (joules = device watts × seconds).
+// energy (joules = device watts × energy seconds: the block-active window for CPU/GPU, the reserved window for the QPU).
 //
 // PARTICIPATION: the per-qblock per-type value is now the TOTAL device time of
 // every node that raced the qblock — not just the winner. It comes from
@@ -180,10 +180,10 @@ export function useMiningTime(
     const byQblock = aggregateParticipationByQblock(participationCompute);
 
     // A category's metric value on a qblock: device seconds, or the joules
-    // those seconds imply at the category's default device watts.
+    // its rated watts draw over energySeconds (see participation-compute.ts).
     const metricForCategory = (c: CategoryCompute): number => {
       if (metric === "time") return c.deviceAccessSeconds;
-      return estimateEnergyJoules(estimateDeviceWatts(c.category, null), c.deviceAccessSeconds);
+      return estimateEnergyJoules(estimateDeviceWatts(c.category, null), c.energySeconds);
     };
 
     // The fetched winner rows bound the range and order the x-axis; join each
