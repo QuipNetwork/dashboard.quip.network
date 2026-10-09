@@ -30,6 +30,11 @@ export const GPU_FLOPS_TABLE: GpuEntry[] = [
   { pattern: /h100/i, tflops: 67.0, watts: 700, canonical: "NVIDIA H100" },
   { pattern: /a100/i, tflops: 19.5, watts: 400, canonical: "NVIDIA A100" },
   { pattern: /\ba40\b/i, tflops: 37.4, watts: 300, canonical: "NVIDIA A40" },
+  // Ampere workstation cards. The A4000 is the most efficient GPU seen on
+  // the network (140 W board power; D-Wave sync 2026-09-15).
+  { pattern: /rtx\s*a6000/i, tflops: 38.7, watts: 300, canonical: "NVIDIA RTX A6000" },
+  { pattern: /rtx\s*a5000/i, tflops: 27.8, watts: 230, canonical: "NVIDIA RTX A5000" },
+  { pattern: /rtx\s*a4000/i, tflops: 19.2, watts: 140, canonical: "NVIDIA RTX A4000" },
   { pattern: /rtx\s*5090/i, tflops: 104.8, watts: 575, canonical: "NVIDIA RTX 5090" },
   { pattern: /rtx\s*5060/i, tflops: 23.7, watts: 145, canonical: "NVIDIA RTX 5060" },
   { pattern: /rtx\s*4090/i, tflops: 82.6, watts: 450, canonical: "NVIDIA RTX 4090" },
