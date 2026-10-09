@@ -6,11 +6,17 @@ export function formatSeconds(s: number): string {
   return `${(s / 3600).toFixed(1)}h`;
 }
 
-/** J → kJ → MJ laddering, mirroring formatSeconds' unit steps. */
+/**
+ * J → kJ → kWh laddering, mirroring formatDuration's "never show two units"
+ * idiom. kWh is the unit readers know for electricity, and a QPU's reserved
+ * window alone (12 kW × 60 s = 720 kJ) reaches it after a handful of qblocks.
+ */
 export function formatJoules(j: number): string {
-  if (j < 1_000) return `${j.toFixed(1)} J`;
-  if (j < 1_000_000) return `${(j / 1_000).toFixed(1)} kJ`;
-  return `${(j / 1_000_000).toFixed(1)} MJ`;
+  if (!Number.isFinite(j)) return "—";
+  const abs = Math.abs(j);
+  if (abs < 1_000) return `${j.toFixed(0)} J`;
+  if (abs < 1_000_000) return `${(j / 1_000).toFixed(1)} kJ`;
+  return `${(j / 3_600_000).toFixed(2)} kWh`;
 }
 
 export function formatNumber(n: number): string {

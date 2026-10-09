@@ -7,10 +7,10 @@ import { useNodeIdentityModal } from "@/components/common/use-node-identity-moda
 import { SERIES_COLORS } from "@/lib/colors";
 import { labelForCategoryWith, useQpuDisplayLabel } from "@/components/charts/common/qpu-label";
 import { displayNodeName, formatEnergy } from "@/lib/format-chain";
-import { formatDuration, formatSeconds, formatNumber } from "@/lib/format";
+import { formatDuration, formatSeconds, formatNumber, formatJoules } from "@/lib/format";
 import { useTableSort, type SortAccessors } from "@/lib/table-sort";
 import { useMinerColors } from "@/store/miner-colors";
-import { formatEnergyJoules, type LeaderboardMode } from "./leaderboard-modes";
+import type { LeaderboardMode } from "./leaderboard-modes";
 import { filterLeaderboardEntries, type LeaderboardEntry } from "./use-leaderboard";
 
 type LeaderboardSortColumn =
@@ -254,7 +254,7 @@ export function Leaderboard({ data, mode = "byCount" }: LeaderboardProps) {
                             ? formatDuration(entry.totalMiningSeconds * 1000)
                             : "—"
                           : entry.totalEnergyJoules != null
-                            ? formatEnergyJoules(entry.totalEnergyJoules)
+                            ? formatJoules(entry.totalEnergyJoules)
                             : "—"}
                         {entry.estimated && (
                           <span

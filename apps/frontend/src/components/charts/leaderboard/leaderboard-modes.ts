@@ -126,15 +126,3 @@ export function applyLeaderboardMode(
       share: total > 0 ? (metricFor(e, mode) ?? 0) / total : 0,
     }));
 }
-
-// J → kJ → kWh scaling, mirroring formatDuration's "never show three units"
-// idiom (lib/format.ts). A single QPU win alone (12 kW × ~62ms) lands around
-// 744 J, so kJ covers the CPU/GPU per-win range while kWh keeps the eventual
-// large totals (many wins, or QPU's constant 12kW draw) in familiar units.
-export function formatEnergyJoules(joules: number): string {
-  if (!Number.isFinite(joules)) return "—";
-  const abs = Math.abs(joules);
-  if (abs < 1_000) return `${joules.toFixed(0)} J`;
-  if (abs < 1_000_000) return `${(joules / 1_000).toFixed(2)} kJ`;
-  return `${(joules / 3_600_000).toFixed(2)} kWh`;
-}

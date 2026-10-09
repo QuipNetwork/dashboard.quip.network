@@ -14,7 +14,6 @@ import type {
 import {
   applyLeaderboardMode,
   computeMinerTimeEnergyTotals,
-  formatEnergyJoules,
   withTimeEnergyTotals,
 } from "./leaderboard-modes";
 import { computeLeaderboard, type LeaderboardEntry } from "./use-leaderboard";
@@ -268,17 +267,5 @@ describe("applyLeaderboardMode", () => {
     ];
     const base = computeLeaderboard(miners, []);
     expect(applyLeaderboardMode(base, "byCount")).toEqual(base);
-  });
-});
-
-describe("formatEnergyJoules", () => {
-  test("scales J -> kJ -> kWh, never showing more than one unit", () => {
-    expect(formatEnergyJoules(744)).toBe("744 J");
-    expect(formatEnergyJoules(50_000)).toBe("50.00 kJ");
-    expect(formatEnergyJoules(7_200_000)).toBe("2.00 kWh");
-  });
-
-  test("non-finite input renders the placeholder dash", () => {
-    expect(formatEnergyJoules(NaN)).toBe("—");
   });
 });
