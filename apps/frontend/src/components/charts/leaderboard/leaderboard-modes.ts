@@ -12,11 +12,12 @@
 import { resolveDeviceAccessTime } from "@/lib/device-access-time";
 import { estimateDeviceWatts, estimateEnergyJoules } from "@/lib/hardware-power";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
-import type {
-  BlockRecord,
-  ChainMinerRecord,
-  NodeDescriptorRecord,
-  NodesSnapshot,
+import {
+  energySecondsFor,
+  type BlockRecord,
+  type ChainMinerRecord,
+  type NodeDescriptorRecord,
+  type NodesSnapshot,
 } from "@quip/shared/telemetry";
 import type { LeaderboardEntry } from "./use-leaderboard";
 
@@ -37,9 +38,11 @@ export interface MinerTimeEnergyTotals {
 }
 
 /**
- * Sum per-miner device-access time and energy across the indexed `blocks`
- * window — one block is one win, so every block contributes exactly one
- * term. `nodes` resolves a miner's own hardware for the wattage estimate via
+ * Sum per-miner device-access time and electrical energy across the indexed
+ * `blocks` window — one block is one win, so every block contributes exactly
+ * one term. Time is chip seconds (`resolveDeviceAccessTime`). Energy is rated
+ * watts × `energySecondsFor` seconds, so the two totals are on different time
+ * bases by design. `nodes` resolves a miner's own hardware for the wattage estimate via
  * `ChainMinerRecord.telemetryNodeAddress`; miners with no joined node fall
  * back to `estimateDeviceWatts`'s category default.
  */
@@ -61,7 +64,10 @@ export function computeMinerTimeEnergyTotals(
     const category = categoryFor(block.minerId, catIndex);
     const { seconds, estimated } = resolveDeviceAccessTime(block, category);
     const watts = estimateDeviceWatts(category, nodeByAccount.get(block.minerId));
-    const joules = estimateEnergyJoules(watts, seconds);
+    // Time is device access (chip seconds). Energy is rated power over the
+    // seconds the device draws it — the block-active window for CPU/GPU, the
+    // reserved window for the QPU. See energySecondsFor.
+    const joules = estimateEnergyJoules(watts, energySecondsFor(category, block.miningTime));
     const prev = totals.get(block.minerId);
     totals.set(block.minerId, {
       totalSeconds: (prev?.totalSeconds ?? 0) + seconds,

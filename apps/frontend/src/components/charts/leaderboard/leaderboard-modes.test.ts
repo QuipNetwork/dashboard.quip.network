@@ -4,11 +4,12 @@ import { describe, expect, test } from "bun:test";
 
 import { QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN } from "@/lib/device-access-time";
 import { estimateCpuWatts, estimateEnergyJoules, QPU_SYSTEM_WATTS } from "@/lib/hardware-power";
-import type {
-  BlockRecord,
-  ChainMinerRecord,
-  MinerHardwareRecord,
-  NodesSnapshot,
+import {
+  energySecondsFor,
+  type BlockRecord,
+  type ChainMinerRecord,
+  type MinerHardwareRecord,
+  type NodesSnapshot,
 } from "@quip/shared/telemetry";
 
 import {
@@ -127,15 +128,39 @@ describe("computeMinerTimeEnergyTotals", () => {
     const cpuWatts = estimateCpuWatts({ brand: "AMD EPYC 7763", physicalCores: 64 });
     const cpu = totals.get("5CPU");
     expect(cpu?.totalSeconds).toBeCloseTo(5); // 2s + 3s, self-reported
-    expect(cpu?.totalJoules).toBeCloseTo(estimateEnergyJoules(cpuWatts, 5));
+    // Energy charges the block-active window (miningTime: 60 per fixture
+    // block), never the self-reported chip access the time total uses.
+    expect(cpu?.totalJoules).toBeCloseTo(estimateEnergyJoules(cpuWatts, 60 * 2));
     expect(cpu?.estimated).toBe(false);
 
     const qpu = totals.get("5QPU");
     expect(qpu?.totalSeconds).toBeCloseTo(QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN * 3);
     expect(qpu?.totalJoules).toBeCloseTo(
-      estimateEnergyJoules(QPU_SYSTEM_WATTS, QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN * 3),
+      estimateEnergyJoules(QPU_SYSTEM_WATTS, energySecondsFor("QPU", 60) * 3),
     );
     expect(qpu?.estimated).toBe(true);
+  });
+
+  test("a QPU win is charged its reserved window, so it no longer ranks below every GPU", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const gpuMiner = makeChainMiner("5GPU", {
+      hardware: {
+        ...hardwareFor("5GPU", "5GPU", "CPU"),
+        primaryType: "GPU",
+        miners: [{ id: "5GPU-1", type: "GPU" }],
+      },
+    });
+    const blocks = [
+      makeBlock({ minerId: "5QPU", miningTime: 300 }),
+      makeBlock({ minerId: "5GPU", miningTime: 300 }),
+    ];
+    const totals = computeMinerTimeEnergyTotals(blocks, [qpuMiner, gpuMiner], [], null);
+    const qpu = totals.get("5QPU")?.totalJoules ?? 0;
+    const gpu = totals.get("5GPU")?.totalJoules ?? 0;
+    // 12 kW × 60 s = 720 kJ against 250 W (table default) × 300 s = 75 kJ.
+    expect(qpu).toBeCloseTo(QPU_SYSTEM_WATTS * 60);
+    expect(gpu).toBeCloseTo(250 * 300);
+    expect(qpu).toBeGreaterThan(gpu);
   });
 
   test("unknown hardware miner falls back to the category default watts, no NaN", () => {
