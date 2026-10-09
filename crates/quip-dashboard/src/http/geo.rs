@@ -30,7 +30,8 @@ enum Candidate {
 /// resolver: an IP literal, or a DNS name of valid labels with an alphabetic
 /// top label. Anything else returns `None` before any lookup.
 fn candidate(host: &str) -> Option<Candidate> {
-    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    let host = host.trim().to_ascii_lowercase();
+    let host = host.strip_suffix('.').unwrap_or(&host).to_owned();
     if host.is_empty() || host.len() > 253 {
         return None;
     }
@@ -53,11 +54,11 @@ fn candidate(host: &str) -> Option<Candidate> {
     if !labels.iter().all(|label| valid(label)) {
         return None;
     }
-    // A numeric top label is a malformed address such as `442.224.551`,
-    // never a DNS name.
-    if labels
+    // A top label must contain an ASCII letter, rejecting malformed addresses
+    // and labels such as `1-2` while allowing punycode such as `xn--p1ai`.
+    if !labels
         .last()
-        .is_some_and(|label| label.bytes().all(|byte| byte.is_ascii_digit()))
+        .is_some_and(|label| label.bytes().any(|byte| byte.is_ascii_alphabetic()))
     {
         return None;
     }
@@ -79,10 +80,14 @@ fn is_public(ip: IpAddr) -> bool {
                 || shared)
         }
         IpAddr::V6(v6) => {
+            let [first, second, ..] = v6.segments();
+            let documentation = (first == 0x2001 && second == 0x0db8)
+                || (first == 0x3fff && (second & 0xf000) == 0);
             !(v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_unique_local()
-                || v6.is_unicast_link_local())
+                || v6.is_unicast_link_local()
+                || documentation)
         }
     }
 }
@@ -220,6 +225,8 @@ mod tests {
             "-bad.example",
             "bad-.example",
             "a..b",
+            "example.com..",
+            "example.1-2",
             "ex ample.com",
             "under_score.example",
             long.as_str(),
@@ -237,6 +244,10 @@ mod tests {
         assert_eq!(
             candidate(" Example.COM. "),
             Some(Candidate::Name("example.com".into()))
+        );
+        assert_eq!(
+            candidate("example.xn--p1ai"),
+            Some(Candidate::Name("example.xn--p1ai".into()))
         );
         assert_eq!(
             candidate("somewhere-example-vegetables-workshop.trycloudflare.com"),
@@ -273,6 +284,8 @@ mod tests {
             "::",
             "fd00::1",
             "fe80::1",
+            "2001:db8::1",
+            "3fff::1",
         ] {
             assert!(!is_public(ip.parse()?), "{ip} must not be public");
         }
