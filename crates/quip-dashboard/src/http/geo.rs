@@ -71,30 +71,42 @@ fn is_public(ip: IpAddr) -> bool {
         IpAddr::V4(v4) => {
             let [first, second, ..] = v4.octets();
             let shared = first == 100 && (64..=127).contains(&second);
+            let benchmarking = first == 198 && (second & 0xfe) == 18;
             !(v4.is_private()
                 || v4.is_loopback()
                 || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_unspecified()
+                || v4.is_multicast()
                 || v4.is_documentation()
+                || first == 0
+                || first >= 240
+                || benchmarking
                 || shared)
         }
         IpAddr::V6(v6) => {
-            let [first, second, ..] = v6.segments();
+            let [first, second, third, ..] = v6.segments();
             let documentation = (first == 0x2001 && second == 0x0db8)
                 || (first == 0x3fff && (second & 0xf000) == 0);
+            let benchmarking = first == 0x2001 && second == 0x0002 && third == 0;
             !(v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
-                || documentation)
+                || v6.is_multicast()
+                || documentation
+                || benchmarking)
         }
     }
 }
 
+/// Make a DNS name absolute without adding a second root dot.
+fn absolute_name(name: &str) -> String {
+    format!("{}.", name.strip_suffix('.').unwrap_or(name))
+}
+
 /// First address for a validated DNS name, or `None` on failure or timeout.
 async fn resolve(name: &str) -> Option<IpAddr> {
-    match tokio::time::timeout(DNS_TIMEOUT, tokio::net::lookup_host((name, 0))).await {
+    let query = absolute_name(name);
+    match tokio::time::timeout(DNS_TIMEOUT, tokio::net::lookup_host((query.as_str(), 0))).await {
         Ok(Ok(mut addresses)) => addresses.next().map(|address| address.ip()),
         Ok(Err(error)) => {
             tracing::debug!(%error, host = name, "GeoIP DNS lookup failed");
@@ -209,7 +221,7 @@ impl CityRecord {
 
 #[cfg(test)]
 mod tests {
-    use super::{Candidate, GeoIp, candidate, is_public};
+    use super::{Candidate, GeoIp, absolute_name, candidate, is_public};
     use std::net::IpAddr;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -264,6 +276,12 @@ mod tests {
     }
 
     #[test]
+    fn dns_query_names_are_absolute() {
+        assert_eq!(absolute_name("example.com"), "example.com.");
+        assert_eq!(absolute_name("example.com."), "example.com.");
+    }
+
+    #[test]
     #[expect(
         clippy::panic_in_result_fn,
         reason = "assertions classify parsed addresses while propagating parse failures"
@@ -286,10 +304,26 @@ mod tests {
             "fe80::1",
             "2001:db8::1",
             "3fff::1",
+            "224.0.0.1",
+            "0.0.0.1",
+            "240.0.0.1",
+            "198.18.0.1",
+            "198.19.255.254",
+            "ff02::1",
+            "2001:2::1",
         ] {
             assert!(!is_public(ip.parse()?), "{ip} must not be public");
         }
-        for ip in ["89.160.20.128", "8.8.8.8", "100.63.255.255", "2001:218::1"] {
+        for ip in [
+            "89.160.20.128",
+            "8.8.8.8",
+            "100.63.255.255",
+            "2001:218::1",
+            "198.17.255.254",
+            "198.20.0.1",
+            "223.255.255.254",
+            "2001:3::1",
+        ] {
             assert!(is_public(ip.parse()?), "{ip} must be public");
         }
         Ok(())
