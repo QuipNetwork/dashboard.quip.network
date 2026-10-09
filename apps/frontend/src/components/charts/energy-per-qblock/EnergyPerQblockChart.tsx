@@ -14,6 +14,10 @@ export interface EnergyPerQblockChartProps {
   data: EnergySeries[];
 }
 
+export function showPoints(data: EnergySeries[]): boolean {
+  return data.every((series) => series.data.length <= 1);
+}
+
 export function EnergyPerQblockChart({ data }: EnergyPerQblockChartProps) {
   const qpuLabel = useQpuDisplayLabel();
   if (data.length === 0) return null;
@@ -41,7 +45,8 @@ export function EnergyPerQblockChart({ data }: EnergyPerQblockChartProps) {
         curve="monotoneX"
         enableArea={true}
         areaOpacity={0.35}
-        enablePoints={false}
+        enablePoints={showPoints(data)}
+        pointSize={8}
         lineWidth={1}
         axisBottom={{
           legend: "QBlock",

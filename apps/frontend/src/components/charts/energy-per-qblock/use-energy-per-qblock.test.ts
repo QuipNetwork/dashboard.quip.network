@@ -9,7 +9,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import { estimateDeviceWatts, estimateEnergyJoules } from "@/lib/hardware-power";
+import { estimateDeviceWatts, estimateEnergyJoules, QPU_SYSTEM_WATTS } from "@/lib/hardware-power";
 import { ServicesProvider } from "@/services/services-provider";
 import type { TelemetryClient } from "@/services/telemetry-client";
 import { idleTelemetryClient } from "@/testing/services";
@@ -123,6 +123,19 @@ describe("useEnergyPerQblock", () => {
       { id: "QPU", data: [{ x: 1, y: qpuJoules() }] },
     ]);
     expect(result.current.totalJoules).toBeCloseTo(cpuJoules(15) + qpuJoules());
+  });
+
+  test("charges the block-active window for a QPU qblock shorter than its reservation", async () => {
+    const miningSeconds = 10;
+    useTelemetryStore.setState({
+      participationCompute: [part(1, "Q", "QpuDwave", miningSeconds)],
+    });
+    const { client } = makeClient([historyRow(1)]);
+    const result = renderHook(client);
+    await settle();
+    const joules = QPU_SYSTEM_WATTS * miningSeconds;
+    expect(result.current.series).toEqual([{ id: "QPU", data: [{ x: 1, y: joules }] }]);
+    expect(result.current.totalJoules).toBe(joules);
   });
 
   test("a type absent from a qblock keeps a zero point so the stacks align", async () => {
