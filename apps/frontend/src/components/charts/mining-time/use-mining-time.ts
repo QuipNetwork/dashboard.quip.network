@@ -20,24 +20,23 @@
 // point. Energy uses the category's default device watts (no per-participant
 // node is available in the aggregate).
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { bandByKey, censusUnitCounts } from "@/components/charts/common/band-by-key";
 import {
   buildNormalizedComposition,
   type PerfPoint,
 } from "@/components/charts/common/normalized-composition";
-import { sinceForRange, type TimeRange } from "@/components/charts/common/time-range";
+import type { TimeRange } from "@/components/charts/common/time-range";
+import { useMiningHistory } from "@/components/charts/common/use-mining-history";
 import { estimateDeviceWatts, estimateEnergyJoules } from "@/lib/hardware-power";
 import { buildMinerCategoryIndex } from "@/lib/miner-category";
-import { useTelemetryClient } from "@/services/telemetry-client";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useUIStore } from "@/store/ui-store";
 import {
   aggregateParticipationByQblock,
   type CategoryCompute,
   type MinerCategory,
-  type MiningHistoryRow,
 } from "@quip/shared/telemetry";
 
 export type MiningTimeGrouping = "all" | "byType" | "normalized";
@@ -71,7 +70,6 @@ export interface MiningTimeState {
   isEmpty: boolean;
 }
 
-const REFRESH_MS = 60_000;
 export const AGGREGATE_SERIES_ID = "All";
 
 // Same banding granularity as Win Rate by Difficulty's normalized mode.
@@ -130,49 +128,11 @@ export function useMiningTime(
   metric: MiningMetric = "time",
   opts: { now?: () => number; refreshMs?: number } = {},
 ): MiningTimeState {
-  const client = useTelemetryClient();
+  const fetched = useMiningHistory(range, opts);
   const participationCompute = useTelemetryStore((s) => s.participationCompute);
   const chainMiners = useTelemetryStore((s) => s.chainMiners);
   const nodeDescriptors = useTelemetryStore((s) => s.nodeDescriptors);
   const selectedTypes = useUIStore((s) => s.selectedTypes);
-  const now = opts.now ?? Date.now;
-  const refreshMs = opts.refreshMs ?? REFRESH_MS;
-
-  const [fetched, setFetched] = useState<{
-    rows: MiningHistoryRow[];
-    loading: boolean;
-    error: string | null;
-  }>({ rows: [], loading: true, error: null });
-
-  useEffect(() => {
-    const ac = new AbortController();
-    let cancelled = false;
-
-    const load = async (): Promise<void> => {
-      const since = sinceForRange(range, now());
-      try {
-        const resp = await client.fetchMiningHistory(since, ac.signal);
-        if (cancelled) return;
-        setFetched({ rows: resp.rows, loading: false, error: null });
-      } catch (err) {
-        if (cancelled || ac.signal.aborted) return;
-        setFetched((prev) => ({
-          ...prev,
-          loading: false,
-          error: err instanceof Error ? err.message : String(err),
-        }));
-      }
-    };
-
-    setFetched((prev) => ({ ...prev, loading: true, error: null }));
-    void load();
-    const timer = setInterval(() => void load(), refreshMs);
-    return () => {
-      cancelled = true;
-      ac.abort();
-      clearInterval(timer);
-    };
-  }, [client, range, refreshMs]); // eslint-disable-line react-hooks/exhaustive-deps -- `now` is a stable test seam
 
   return useMemo(() => {
     // Per-qblock per-category totals across every participant (all device
