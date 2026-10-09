@@ -11,6 +11,7 @@ import { BlocksOverTimeCard } from "@/components/charts/blocks-over-time/BlocksO
 import { CumulativeBlocksThresholdChart } from "@/components/charts/cumulative-blocks-threshold/CumulativeBlocksThresholdChart";
 import { EnergyCdfChart } from "@/components/charts/energy-cdf/EnergyCdfChart";
 import { EnergyDistributionCard } from "@/components/charts/energy-distribution/EnergyDistributionCard";
+import { EnergyPerQblockCard } from "@/components/charts/energy-per-qblock/EnergyPerQblockCard";
 import { LeaderboardCard } from "@/components/charts/leaderboard/LeaderboardCard";
 import { MiningTimeCard } from "@/components/charts/mining-time/MiningTimeCard";
 import { MiningTimeByDifficultyChart } from "@/components/charts/mining-time-by-difficulty/MiningTimeByDifficultyChart";
@@ -101,6 +102,10 @@ export function ComputeAvailableView() {
 
         <MiningTimeCard />
       </div>
+
+      {/* Full width like DifficultyChart below: a range-windowed time series
+          needs the horizontal room. */}
+      <EnergyPerQblockCard />
 
       {/* Full width per docs/ui-layout.md — the range-windowed time series
           needs the horizontal room; a half-column squashes the x-axis. */}
