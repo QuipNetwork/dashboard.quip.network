@@ -22,6 +22,24 @@ import type { MinerCategory } from "./miner";
 // dedicated submission is not the realistic regime.
 export const QPU_ACCESS_TO_WALL_RATIO = 74.89;
 
+// The D-Wave QPU draws its full system power regardless of duty cycle
+// (cryogenics dominate), and a qblock reserves it for a 60-second window
+// (D-Wave <> PostQuant sync, 2026-09-15). Electrical energy is therefore
+// charged for the reserved wall-clock window, never for the ~62 ms of chip
+// access that QPU_ACCESS_TO_WALL_RATIO and exactQpuAccessUs describe.
+export const QPU_RESERVED_SECONDS_PER_QBLOCK = 60;
+
+/**
+ * Seconds a participant's device draws its rated power while racing one
+ * qblock — the time half of energy = power × time. CPU/GPU/OTHER run for the
+ * whole block-active window. QPU is charged its reserved window, capped at
+ * the window itself for qblocks shorter than the reservation.
+ */
+export function energySecondsFor(category: MinerCategory, miningSeconds: number): number {
+  if (category === "QPU") return Math.min(miningSeconds, QPU_RESERVED_SECONDS_PER_QBLOCK);
+  return miningSeconds;
+}
+
 /** Map a raw on-chain `MinerKind` variant name to a dashboard `MinerCategory`. */
 export function minerKindToCategory(kind: string): MinerCategory {
   if (kind === "Cpu") return "CPU";
@@ -95,6 +113,10 @@ export interface CategoryCompute {
   // Σ per-participant raw block-active wall clock — recorded distinctly from
   // deviceAccessSeconds so QPU's wall vs. chip-time gap stays visible.
   miningSeconds: number;
+  // Σ per-participant energySecondsFor(category, miningSeconds): the time
+  // half of the electrical-energy estimate. Distinct from deviceAccessSeconds
+  // (chip time) and miningSeconds (raw wall clock).
+  energySeconds: number;
   // True when any contribution to this category was estimated.
   estimated: boolean;
 }
@@ -111,11 +133,13 @@ function foldRow(acc: Map<MinerCategory, CategoryCompute>, r: ParticipationCompu
     participantCount: 0,
     deviceAccessSeconds: 0,
     miningSeconds: 0,
+    energySeconds: 0,
     estimated: false,
   };
   cur.participantCount += 1;
   cur.deviceAccessSeconds += deviceAccessSeconds;
   cur.miningSeconds += r.miningSeconds;
+  cur.energySeconds += energySecondsFor(category, r.miningSeconds);
   cur.estimated = cur.estimated || estimated;
   acc.set(category, cur);
 }
