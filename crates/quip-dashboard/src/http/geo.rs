@@ -356,6 +356,24 @@ mod tests {
         assert_eq!(hit.city.as_deref(), Some("Linköping"));
         assert!(hit.lat.is_some() && hit.lng.is_some());
 
+        let miss_ip: IpAddr = "8.8.8.8".parse()?;
+        assert!(
+            !geo.reader
+                .as_ref()
+                .ok_or("fixture database unavailable")?
+                .lookup(miss_ip)?
+                .has_data()
+        );
+        let miss = geo.inspect("8.8.8.8").await;
+        assert_eq!(miss.candidate.as_deref(), Some("8.8.8.8"));
+        assert_eq!(miss.ip, Some(miss_ip));
+        assert!(miss.public);
+        assert_eq!(miss.country, None);
+        assert_eq!(miss.registered_country, None);
+        assert_eq!(miss.city, None);
+        assert_eq!(miss.lat, None);
+        assert_eq!(miss.lng, None);
+
         let private = geo.inspect("10.0.0.1").await;
         assert_eq!(private.candidate.as_deref(), Some("10.0.0.1"));
         assert_eq!(private.ip, Some("10.0.0.1".parse()?));
