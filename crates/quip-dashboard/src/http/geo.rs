@@ -3,7 +3,7 @@
 //! in the GeoIP2-City schema (DB-IP City Lite in the image, `MaxMind` in tests).
 use dashboard_model::NodeLocation;
 use maxminddb::Reader;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, net::IpAddr, path::Path, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
 
@@ -17,6 +17,29 @@ const DNS_TIMEOUT: Duration = Duration::from_secs(1);
 pub struct GeoIp {
     reader: Option<Reader<Vec<u8>>>,
     cache: Mutex<BTreeMap<String, (Instant, Option<NodeLocation>)>>,
+}
+
+/// Every stage of one host lookup, for the `geoip-lookup` command.
+#[derive(Debug, Serialize)]
+pub struct Inspection {
+    /// The host as given.
+    pub host: String,
+    /// The normalized candidate, or `None` when the syntax gate rejected it.
+    pub candidate: Option<String>,
+    /// The address the candidate parsed or resolved to.
+    pub ip: Option<IpAddr>,
+    /// Whether that address passed the public-address gate.
+    pub public: bool,
+    /// Country code in the database record.
+    pub country: Option<String>,
+    /// Registered country code in the database record.
+    pub registered_country: Option<String>,
+    /// English city name in the database record.
+    pub city: Option<String>,
+    /// Latitude in degrees, when present in the database record.
+    pub lat: Option<f64>,
+    /// Longitude in degrees, when present in the database record.
+    pub lng: Option<f64>,
 }
 
 /// What `lookup` is willing to resolve.
@@ -179,6 +202,52 @@ impl GeoIp {
         let _ = cache.insert(key, (Instant::now() + CACHE_TTL, location.clone()));
         location
     }
+
+    /// Resolve and decode `host` without the cache, reporting every stage.
+    /// Private addresses are reported but not decoded, matching `lookup`.
+    pub async fn inspect(&self, host: &str) -> Inspection {
+        let mut out = Inspection {
+            host: host.to_owned(),
+            candidate: None,
+            ip: None,
+            public: false,
+            country: None,
+            registered_country: None,
+            city: None,
+            lat: None,
+            lng: None,
+        };
+        let Some(candidate) = candidate(host) else {
+            return out;
+        };
+        out.candidate = Some(match &candidate {
+            Candidate::Ip(ip) => ip.to_string(),
+            Candidate::Name(name) => name.clone(),
+        });
+        let ip = match candidate {
+            Candidate::Ip(ip) => Some(ip),
+            Candidate::Name(name) => resolve(&name).await,
+        };
+        let Some(ip) = ip else {
+            return out;
+        };
+        out.ip = Some(ip);
+        out.public = is_public(ip);
+        if !out.public {
+            return out;
+        }
+        let Some(reader) = self.reader.as_ref() else {
+            return out;
+        };
+        if let Some(record) = decode(reader, ip) {
+            out.country = record.country.iso_code;
+            out.registered_country = record.registered_country.iso_code;
+            out.city = record.city.names.get("en").cloned();
+            out.lat = record.location.latitude;
+            out.lng = record.location.longitude;
+        }
+        out
+    }
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -225,6 +294,43 @@ mod tests {
     use std::net::IpAddr;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[tokio::test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "The test asserts every inspection stage while propagating IO failures"
+    )]
+    async fn inspect_reports_every_stage() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let database = directory.path().join("city.mmdb");
+        std::fs::write(&database, include_bytes!("testdata/GeoIP2-City-Test.mmdb"))?;
+        let geo = GeoIp::new(Some(&database));
+
+        let hit = geo.inspect("89.160.20.128").await;
+        assert_eq!(hit.candidate.as_deref(), Some("89.160.20.128"));
+        assert_eq!(hit.ip, Some("89.160.20.128".parse()?));
+        assert!(hit.public);
+        assert_eq!(hit.country.as_deref(), Some("SE"));
+        assert_eq!(hit.city.as_deref(), Some("Linköping"));
+        assert!(hit.lat.is_some() && hit.lng.is_some());
+
+        let private = geo.inspect("10.0.0.1").await;
+        assert_eq!(private.candidate.as_deref(), Some("10.0.0.1"));
+        assert_eq!(private.ip, Some("10.0.0.1".parse()?));
+        assert!(!private.public);
+        assert_eq!(private.country, None);
+
+        let malformed = geo.inspect("y").await;
+        assert_eq!(malformed.host, "y");
+        assert_eq!(malformed.candidate, None);
+        assert_eq!(malformed.ip, None);
+        assert!(!malformed.public);
+
+        let json = serde_json::to_value(&hit)?;
+        assert_eq!(json.get("country"), Some(&serde_json::json!("SE")));
+        assert!(json.get("registered_country").is_some());
+        Ok(())
+    }
 
     #[test]
     fn malformed_hosts_are_not_candidates() {

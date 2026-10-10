@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use dashboard_model::DecimalString;
 use dashboard_store::{Indexable, Store};
 use quip_dashboard::{config::Config, indexer::file_writer::FileWriter, lifecycle};
+use std::path::PathBuf;
 use std::{
     error::Error,
     io::{self, Write},
@@ -45,6 +46,15 @@ enum Command {
         /// Local backend base URL. PORT selects the default loopback port.
         #[arg(long)]
         url: Option<String>,
+    },
+    /// Print every stage of the geo-IP lookup for each host, one JSON object per line.
+    GeoipLookup {
+        /// City database path. Defaults to `GEOIP_DB_PATH`.
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Hosts as operators publish them: IP literals or DNS names.
+        #[arg(required = true)]
+        hosts: Vec<String>,
     },
 }
 #[derive(Clone, Copy, ValueEnum)]
@@ -105,6 +115,9 @@ fn main() -> ExitCode {
 async fn execute(command: Command) -> CommandResult {
     if let Command::Healthcheck { url } = command {
         return healthcheck(url).await;
+    }
+    if let Command::GeoipLookup { db, hosts } = command {
+        return geoip_lookup(db, hosts).await;
     }
     let config = Config::from_env()?;
     if let Command::Serve = command {
@@ -198,7 +211,7 @@ async fn administer(command: Command, config: &Config, store: Arc<Store>) -> Com
                 "reconstructed first-seen records: {count}"
             )?;
         }
-        Command::Serve | Command::Healthcheck { .. } => {
+        Command::Serve | Command::Healthcheck { .. } | Command::GeoipLookup { .. } => {
             return Err("command must run before opening administrative storage".into());
         }
     }
@@ -227,6 +240,19 @@ async fn healthcheck(url: Option<String>) -> CommandResult {
         .status();
     if status != reqwest::StatusCode::OK {
         return Err(format!("backend liveness returned HTTP {status}").into());
+    }
+    Ok(())
+}
+
+async fn geoip_lookup(db: Option<PathBuf>, hosts: Vec<String>) -> CommandResult {
+    let path = db
+        .or_else(|| std::env::var_os("GEOIP_DB_PATH").map(PathBuf::from))
+        .ok_or("GEOIP_DB_PATH is not set and --db was not given")?;
+    let geo = quip_dashboard::http::geo::GeoIp::new(Some(&path));
+    let mut out = io::stdout().lock();
+    for host in hosts {
+        let line = serde_json::to_string(&geo.inspect(&host).await)?;
+        writeln!(out, "{line}")?;
     }
     Ok(())
 }
@@ -547,7 +573,7 @@ async fn poll_miner(
     interval: Duration,
     chain_slot: SharedChain,
     writer: Option<FileWriter>,
-    miner_attempts_dir: Option<std::path::PathBuf>,
+    miner_attempts_dir: Option<PathBuf>,
     cancellation: tokio_util::sync::CancellationToken,
 ) -> Result<(), String> {
     let mut ticks = tokio::time::interval(interval);
