@@ -32,14 +32,26 @@ export const ENERGY_BASIS_NOTE =
  */
 export function EnergyPerQblockCard() {
   const [range, setRange] = useState<TimeRange>("24h");
-  const { series, totalJoules, error, isEmpty } = useEnergyPerQblock(range);
+  const { series, totalJoules, bucketSize, plottedQblocks, rangeQblocks, loading, error, isEmpty } =
+    useEnergyPerQblock(range);
   const hasError = error !== null;
-  const subtitle = "Every participant, stacked by processor type";
+  let subtitle = "Every participant, stacked by processor type";
+  if (loading) {
+    subtitle += " · loading…";
+  } else if (!hasError) {
+    const total = formatJoules(totalJoules);
+    const coverage =
+      plottedQblocks > 0 && plottedQblocks < rangeQblocks
+        ? `${total} across ${plottedQblocks} of ${rangeQblocks} qblocks`
+        : `${total} in range`;
+    subtitle += ` · ${coverage}`;
+    if (bucketSize > 1) subtitle += ` · averaged over ${bucketSize}-qblock groups`;
+  }
 
   return (
     <ChartCard
       title="Estimated Energy per QBlock"
-      subtitle={hasError ? subtitle : `${subtitle} · ${formatJoules(totalJoules)} in range`}
+      subtitle={subtitle}
       bodyClassName="flex h-80 flex-col"
       actions={
         <SegmentedControl

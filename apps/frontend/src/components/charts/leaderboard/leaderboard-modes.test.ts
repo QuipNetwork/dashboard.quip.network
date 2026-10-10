@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN } from "@/lib/device-access-time";
 import { estimateCpuWatts, estimateEnergyJoules, QPU_SYSTEM_WATTS } from "@/lib/hardware-power";
 import {
+  QPU_RESERVED_SECONDS_PER_QBLOCK,
   energySecondsFor,
   type BlockRecord,
   type ChainMinerRecord,
@@ -161,6 +162,82 @@ describe("computeMinerTimeEnergyTotals", () => {
     expect(qpu).toBeCloseTo(QPU_SYSTEM_WATTS * 60);
     expect(gpu).toBeCloseTo(250 * 300);
     expect(qpu).toBeGreaterThan(gpu);
+  });
+
+  test("reported QPU chip time stays in By Time while energy charges a long wall-clock window", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+    const previous = makeBlock({ qblockId: "1", timestamp: winner.timestamp - 300 });
+
+    const totals = computeMinerTimeEnergyTotals([winner, previous], [qpuMiner]);
+    expect(totals.get("5QPU")).toEqual({
+      totalSeconds: 0.062,
+      totalJoules: QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+      estimated: false,
+    });
+  });
+
+  test("reported QPU chip time falls back to the reservation when the previous winner is absent", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+
+    const totals = computeMinerTimeEnergyTotals([winner], [qpuMiner]);
+    expect(totals.get("5QPU")?.totalJoules).toBe(
+      QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+    );
+    expect(totals.get("5QPU")?.totalSeconds).toBe(0.062);
+  });
+
+  test("reported QPU energy charges only ten seconds for a short wall-clock window", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+    const previous = makeBlock({ qblockId: "1", timestamp: winner.timestamp - 10 });
+
+    const totals = computeMinerTimeEnergyTotals([previous, winner], [qpuMiner]);
+    expect(totals.get("5QPU")?.totalJoules).toBe(QPU_SYSTEM_WATTS * 10);
+    expect(totals.get("5QPU")?.totalSeconds).toBe(0.062);
+  });
+
+  test("reported QPU energy falls back to the reservation for non-positive winner spacing", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+    for (const offset of [0, 10]) {
+      const previous = makeBlock({ qblockId: "1", timestamp: winner.timestamp + offset });
+      const totals = computeMinerTimeEnergyTotals([previous, winner], [qpuMiner]);
+      expect(totals.get("5QPU")?.totalJoules).toBe(
+        QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+      );
+    }
+  });
+
+  test("reported QPU access beside a wall-clock miningTime fixture still charges the reservation", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({ minerId: "5QPU", deviceAccessTimeUs: 62_000, miningTime: 60 });
+    const totals = computeMinerTimeEnergyTotals([winner], [qpuMiner]);
+    expect(totals.get("5QPU")?.totalJoules).toBe(
+      QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+    );
+    expect(totals.get("5QPU")?.totalSeconds).toBe(0.062);
   });
 
   test("unknown hardware miner falls back to the category default watts, no NaN", () => {

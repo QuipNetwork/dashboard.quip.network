@@ -15,7 +15,7 @@ import { QPU_RESERVED_SECONDS_PER_QBLOCK, type MiningHistoryRow } from "@quip/sh
 
 import { EnergyPerQblockCard } from "./EnergyPerQblockCard";
 
-const historyRows: MiningHistoryRow[] = [
+const historyRows: [MiningHistoryRow] = [
   {
     qblockId: "1",
     substrateBlockNumber: "1",
@@ -109,6 +109,104 @@ describe("EnergyPerQblockCard", () => {
     await settle();
     // 12 kW × 60 s = 720 kJ.
     expect(container.textContent).toContain("720.0 kJ in range");
+  });
+
+  test("shows loading instead of an initial zero total", () => {
+    render({ ...idleTelemetryClient, fetchMiningHistory: () => new Promise(() => {}) });
+    expect(container.querySelector("h2 + p")?.textContent).toBe(
+      "Every participant, stacked by processor type · loading…",
+    );
+  });
+
+  test("hides the retained total until the selected range's deferred fetch resolves", async () => {
+    const nextRows: MiningHistoryRow[] = [{ ...historyRows[0], qblockId: "2" }];
+    useTelemetryStore.setState({
+      participationCompute: [
+        { qblockId: "1", account: "A", kind: "Cpu", miningSeconds: 10, exactQpuAccessUs: null },
+        { qblockId: "2", account: "A", kind: "Cpu", miningSeconds: 20, exactQpuAccessUs: null },
+      ],
+    });
+    let resolveNext!: (value: Awaited<ReturnType<TelemetryClient["fetchMiningHistory"]>>) => void;
+    const nextFetch = new Promise<Awaited<ReturnType<TelemetryClient["fetchMiningHistory"]>>>(
+      (resolve) => {
+        resolveNext = resolve;
+      },
+    );
+    let fetchCount = 0;
+    render({
+      ...idleTelemetryClient,
+      fetchMiningHistory: async (since) => {
+        fetchCount += 1;
+        if (fetchCount === 1) return { since, rows: historyRows };
+        return nextFetch;
+      },
+    });
+    await settle();
+    const previousTotal = formatJoules(estimateDeviceWatts("CPU", null) * 10);
+    expect(container.querySelector("h2 + p")?.textContent).toContain(`${previousTotal} in range`);
+
+    const button = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[aria-label="Energy range"] button'),
+    ).find((b) => b.textContent === "1H")!;
+    act(() => button.click());
+    await settle();
+    expect(fetchCount).toBe(2);
+    expect(container.querySelector("h2 + p")?.textContent).toBe(
+      "Every participant, stacked by processor type · loading…",
+    );
+    expect(container.querySelector("h2 + p")?.textContent).not.toContain(previousTotal);
+
+    await act(async () => {
+      resolveNext({ since: "2026-10-09T00:00:00.000Z", rows: nextRows });
+      await Promise.resolve();
+    });
+    const nextTotal = formatJoules(estimateDeviceWatts("CPU", null) * 20);
+    expect(container.querySelector("h2 + p")?.textContent).toContain(`${nextTotal} in range`);
+    expect(container.querySelector("h2 + p")?.textContent).not.toContain("loading");
+    expect(container.querySelector("h2 + p")?.textContent).not.toContain(previousTotal);
+  });
+
+  test("discloses partial participation coverage beside the subtotal", async () => {
+    useTelemetryStore.setState({
+      participationCompute: [
+        { qblockId: "1", account: "A", kind: "Cpu", miningSeconds: 10, exactQpuAccessUs: null },
+      ],
+    });
+    render({
+      ...idleTelemetryClient,
+      fetchMiningHistory: async (since) => ({
+        since,
+        rows: [...historyRows, { ...historyRows[0], qblockId: "2" }],
+      }),
+    });
+    await settle();
+    const total = formatJoules(estimateDeviceWatts("CPU", null) * 10);
+    expect(container.querySelector("h2 + p")?.textContent).toBe(
+      `Every participant, stacked by processor type · ${total} across 1 of 2 qblocks`,
+    );
+    expect(container.querySelector('[data-qa="chart-energy-per-qblock"]')).not.toBeNull();
+  });
+
+  test("discloses bucket size while showing the exact range total", async () => {
+    const rows = Array.from({ length: 601 }, (_, i) => ({
+      ...historyRows[0],
+      qblockId: String(i + 1),
+    }));
+    useTelemetryStore.setState({
+      participationCompute: rows.map((row) => ({
+        qblockId: row.qblockId,
+        account: "A",
+        kind: "Cpu",
+        miningSeconds: 10,
+        exactQpuAccessUs: null,
+      })),
+    });
+    render({ ...idleTelemetryClient, fetchMiningHistory: async (since) => ({ since, rows }) });
+    await settle();
+    const total = formatJoules(estimateDeviceWatts("CPU", null) * 10 * rows.length);
+    expect(container.querySelector("h2 + p")?.textContent).toBe(
+      `Every participant, stacked by processor type · ${total} in range · averaged over 2-qblock groups`,
+    );
   });
 
   test("replaces retained estimates with an error and hides the total after a range fetch fails", async () => {

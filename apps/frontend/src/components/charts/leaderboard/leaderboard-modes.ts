@@ -13,9 +13,11 @@ import { resolveDeviceAccessTime } from "@/lib/device-access-time";
 import { estimateDeviceWatts, estimateEnergyJoules } from "@/lib/hardware-power";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
 import {
+  QPU_RESERVED_SECONDS_PER_QBLOCK,
   energySecondsFor,
   type BlockRecord,
   type ChainMinerRecord,
+  type MinerCategory,
   type NodeDescriptorRecord,
   type NodesSnapshot,
 } from "@quip/shared/telemetry";
@@ -35,6 +37,20 @@ export interface MinerTimeEnergyTotals {
   // True when at least one contributing win's device-access time was
   // estimated rather than self-reported — see resolveDeviceAccessTime.
   estimated: boolean;
+}
+
+/** Recover QPU wall clock when miningTime holds reported chip-access seconds. */
+export function blockActiveSeconds(
+  block: BlockRecord,
+  category: MinerCategory,
+  previousWinnerTimestamp: number | undefined,
+): number {
+  if (category !== "QPU" || block.deviceAccessTimeUs == null) return block.miningTime;
+  if (previousWinnerTimestamp !== undefined) {
+    const seconds = block.timestamp - previousWinnerTimestamp;
+    if (seconds > 0) return seconds;
+  }
+  return QPU_RESERVED_SECONDS_PER_QBLOCK;
 }
 
 /**
@@ -58,16 +74,21 @@ export function computeMinerTimeEnergyTotals(
       .filter((m) => m.telemetryNodeAddress != null)
       .map((m) => [m.accountId, nodes?.nodes[m.telemetryNodeAddress as string]]),
   );
+  const winnerTimestampByQblock = new Map(blocks.map((block) => [block.qblockId, block.timestamp]));
 
   const totals = new Map<string, MinerTimeEnergyTotals>();
   for (const block of blocks) {
     const category = categoryFor(block.minerId, catIndex);
     const { seconds, estimated } = resolveDeviceAccessTime(block, category);
     const watts = estimateDeviceWatts(category, nodeByAccount.get(block.minerId));
-    // Time is device access (chip seconds). Energy is rated power over the
-    // seconds the device draws it — the block-active window for CPU/GPU, the
-    // reserved window for the QPU. See energySecondsFor.
-    const joules = estimateEnergyJoules(watts, energySecondsFor(category, block.miningTime));
+    // Time stays device access (chip seconds). Energy uses the block-active
+    // wall clock, capped at the QPU reservation by energySecondsFor.
+    const activeSeconds = blockActiveSeconds(
+      block,
+      category,
+      winnerTimestampByQblock.get((BigInt(block.qblockId) - 1n).toString()),
+    );
+    const joules = estimateEnergyJoules(watts, energySecondsFor(category, activeSeconds));
     const prev = totals.get(block.minerId);
     totals.set(block.minerId, {
       totalSeconds: (prev?.totalSeconds ?? 0) + seconds,

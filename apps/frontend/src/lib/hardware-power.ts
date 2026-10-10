@@ -3,7 +3,7 @@
 // Estimated electrical power draw for common CPUs/GPUs, riding the same
 // hand-maintained tables as hardware-flops.ts, plus the QPU's fixed system
 // draw. Used to estimate energy per mining win: watts(device) ×
-// device_access_time_seconds — see estimateEnergyJoules.
+// energy-seconds — see energySecondsFor and estimateEnergyJoules.
 
 import type { MinerCategory, NodeInfo, NodeSystemCpu, NodeSystemGpu } from "@quip/shared/telemetry";
 import {

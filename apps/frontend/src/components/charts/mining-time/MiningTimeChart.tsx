@@ -99,7 +99,7 @@ export function MiningTimeChart({
           legendPosition: "middle",
         }}
         axisLeft={{
-          // Joule ticks carry their own unit ladder (J/kJ/MJ).
+          // Joule ticks carry their own unit ladder (J/kJ/kWh).
           format: !normalized && metric === "energy" ? (v) => formatJoules(Number(v)) : undefined,
           legend: axisLegend,
           legendOffset: -50,

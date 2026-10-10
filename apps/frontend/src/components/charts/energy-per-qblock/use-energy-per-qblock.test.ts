@@ -170,6 +170,39 @@ describe("useEnergyPerQblock", () => {
     await settle();
     expect(result.current.series).toEqual([{ id: "CPU", data: [{ x: 2, y: cpuJoules(10) }] }]);
     expect(result.current.isEmpty).toBe(false);
+    expect(result.current.plottedQblocks).toBe(1);
+    expect(result.current.rangeQblocks).toBe(2);
+    expect(result.current.bucketSize).toBe(1);
+    expect(result.current.totalJoules).toBe(cpuJoules(10));
+  });
+
+  test("bounds 5,000 plotted qblocks per series while retaining the exact unbucketed total", async () => {
+    const rows = Array.from({ length: 5_000 }, (_, i) => historyRow(i + 1));
+    useTelemetryStore.setState({
+      participationCompute: rows.flatMap((row) => [
+        part(Number(row.qblockId), "A", "Cpu", Number(row.qblockId)),
+        part(Number(row.qblockId), "G", "Gpu", 7),
+      ]),
+    });
+    const { client } = makeClient(rows);
+    const result = renderHook(client);
+    await settle();
+
+    expect(result.current.series).toHaveLength(2);
+    for (const series of result.current.series) {
+      expect(series.data.length).toBeLessThanOrEqual(600);
+      expect(series.data[0]?.x).toBe(9);
+      expect(series.data.at(-1)?.x).toBe(5_000);
+    }
+    expect(result.current.series[0]?.data[0]?.y).toBe(cpuJoules(5));
+    const rawTotal = rows.reduce(
+      (sum, row) => sum + cpuJoules(Number(row.qblockId)) + gpuJoules(7),
+      0,
+    );
+    expect(result.current.totalJoules).toBe(rawTotal);
+    expect(result.current.bucketSize).toBe(9);
+    expect(result.current.plottedQblocks).toBe(5_000);
+    expect(result.current.rangeQblocks).toBe(5_000);
   });
 
   test("no rows in range is empty with a zero total", async () => {
@@ -179,5 +212,8 @@ describe("useEnergyPerQblock", () => {
     expect(result.current.series).toEqual([]);
     expect(result.current.totalJoules).toBe(0);
     expect(result.current.isEmpty).toBe(true);
+    expect(result.current.bucketSize).toBe(1);
+    expect(result.current.plottedQblocks).toBe(0);
+    expect(result.current.rangeQblocks).toBe(0);
   });
 });

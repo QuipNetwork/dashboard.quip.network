@@ -142,6 +142,19 @@ describe("aggregateParticipationByCategory", () => {
 });
 
 describe("aggregateParticipationByQblock", () => {
+  it("charges each long-window QPU participant its own reservation in the same qblock", () => {
+    const out = aggregateParticipationByQblock([
+      row({ qblockId: "5", account: "5Q1", kind: "QpuDwave", miningSeconds: 300 }),
+      row({ qblockId: "5", account: "5Q2", kind: "QpuIbm", miningSeconds: 300 }),
+    ]);
+    expect(out.get("5")).toHaveLength(1);
+    expect(out.get("5")?.[0]).toMatchObject({
+      category: "QPU",
+      participantCount: 2,
+      energySeconds: 2 * QPU_RESERVED_SECONDS_PER_QBLOCK,
+    });
+  });
+
   it("groups per qblock then per category", () => {
     const out = aggregateParticipationByQblock([
       row({ qblockId: "5", account: "5A", kind: "Cpu", miningSeconds: 60 }),
