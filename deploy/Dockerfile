@@ -76,7 +76,8 @@ ARG DBIP_CITY_LITE_SHA256=c839d407f85a1e0bddba354cef16b2c398182d1c34ed8d985555dc
 WORKDIR /geoip
 RUN wget -q -O dbip-city-lite.mmdb.gz \
         "https://download.db-ip.com/free/dbip-city-lite-${DBIP_CITY_LITE_MONTH}.mmdb.gz" && \
-    echo "${DBIP_CITY_LITE_SHA256}  dbip-city-lite.mmdb.gz" | sha256sum -c - && \
+    printf '%s  %s\n' "${DBIP_CITY_LITE_SHA256}" dbip-city-lite.mmdb.gz > dbip.sha256 && \
+    sha256sum -c dbip.sha256 && \
     gunzip dbip-city-lite.mmdb.gz
 
 # ---- dev: Bun tooling and the frontend watch server -------------------------
