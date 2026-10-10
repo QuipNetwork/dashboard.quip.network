@@ -160,13 +160,27 @@ impl GeoIp {
     /// Open the database at `path`. A missing or unreadable file disables lookup.
     #[must_use]
     pub fn new(path: Option<&Path>) -> Self {
-        let reader = path.and_then(|path| match Reader::open_readfile(path) {
-            Ok(reader) => Some(reader),
-            Err(error) => {
-                tracing::warn!(%error,"local GeoIP database unavailable");
-                None
+        if let Some(path) = path {
+            match Self::open(path) {
+                Ok(geo) => return geo,
+                Err(error) => {
+                    tracing::warn!(%error,"local GeoIP database unavailable");
+                }
             }
-        });
+        }
+        Self::from_reader(None)
+    }
+
+    /// Open the database at `path` for lookup.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file cannot be read or is not a valid database.
+    pub fn open(path: &Path) -> Result<Self, maxminddb::MaxMindDbError> {
+        Ok(Self::from_reader(Some(Reader::open_readfile(path)?)))
+    }
+
+    fn from_reader(reader: Option<Reader<Vec<u8>>>) -> Self {
         Self {
             reader,
             cache: Mutex::new(BTreeMap::new()),
@@ -295,6 +309,33 @@ mod tests {
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+    #[test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "The test asserts database-open errors while propagating setup failures"
+    )]
+    fn open_rejects_missing_database() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let database = directory.path().join("missing.mmdb");
+        assert!(GeoIp::open(&database).is_err());
+        assert!(GeoIp::new(Some(&database)).reader.is_none());
+        Ok(())
+    }
+
+    #[test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "The test asserts database-open errors while propagating IO failures"
+    )]
+    fn open_rejects_corrupt_database() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let database = directory.path().join("corrupt.mmdb");
+        std::fs::write(&database, b"not a database")?;
+        assert!(GeoIp::open(&database).is_err());
+        assert!(GeoIp::new(Some(&database)).reader.is_none());
+        Ok(())
+    }
+
     #[tokio::test]
     #[expect(
         clippy::panic_in_result_fn,
@@ -311,6 +352,7 @@ mod tests {
         assert_eq!(hit.ip, Some("89.160.20.128".parse()?));
         assert!(hit.public);
         assert_eq!(hit.country.as_deref(), Some("SE"));
+        assert_eq!(hit.registered_country.as_deref(), Some("DE"));
         assert_eq!(hit.city.as_deref(), Some("Linköping"));
         assert!(hit.lat.is_some() && hit.lng.is_some());
 
@@ -328,7 +370,10 @@ mod tests {
 
         let json = serde_json::to_value(&hit)?;
         assert_eq!(json.get("country"), Some(&serde_json::json!("SE")));
-        assert!(json.get("registered_country").is_some());
+        assert_eq!(
+            json.get("registered_country"),
+            Some(&serde_json::json!("DE"))
+        );
         Ok(())
     }
 

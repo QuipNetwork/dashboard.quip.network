@@ -248,7 +248,8 @@ async fn geoip_lookup(db: Option<PathBuf>, hosts: Vec<String>) -> CommandResult 
     let path = db
         .or_else(|| std::env::var_os("GEOIP_DB_PATH").map(PathBuf::from))
         .ok_or("GEOIP_DB_PATH is not set and --db was not given")?;
-    let geo = quip_dashboard::http::geo::GeoIp::new(Some(&path));
+    let geo = quip_dashboard::http::geo::GeoIp::open(&path)
+        .map_err(|error| format!("cannot open GeoIP database {}: {error}", path.display()))?;
     let mut out = io::stdout().lock();
     for host in hosts {
         let line = serde_json::to_string(&geo.inspect(&host).await)?;
@@ -898,4 +899,32 @@ async fn serve(config: Config) -> CommandResult {
         )
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandResult, geoip_lookup};
+
+    #[tokio::test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "The test asserts command errors while propagating setup and IO failures"
+    )]
+    async fn geoip_lookup_reports_database_open_errors() -> CommandResult {
+        let directory = tempfile::tempdir()?;
+        let missing = directory.path().join("missing.mmdb");
+        let corrupt = directory.path().join("corrupt.mmdb");
+        std::fs::write(&corrupt, b"not a database")?;
+
+        for path in [missing, corrupt] {
+            let error = geoip_lookup(Some(path.clone()), vec!["89.160.20.128".into()])
+                .await
+                .err()
+                .ok_or("geoip-lookup succeeded with an unavailable database")?;
+            let message = error.to_string();
+            assert!(message.contains("cannot open GeoIP database"));
+            assert!(message.contains(&path.display().to_string()));
+        }
+        Ok(())
+    }
 }
