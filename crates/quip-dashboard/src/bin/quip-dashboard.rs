@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use dashboard_model::DecimalString;
 use dashboard_store::{Indexable, Store};
 use quip_dashboard::{config::Config, indexer::file_writer::FileWriter, lifecycle};
+use std::path::PathBuf;
 use std::{
     error::Error,
     io::{self, Write},
@@ -45,6 +46,15 @@ enum Command {
         /// Local backend base URL. PORT selects the default loopback port.
         #[arg(long)]
         url: Option<String>,
+    },
+    /// Print every stage of the geo-IP lookup for each host, one JSON object per line.
+    GeoipLookup {
+        /// City database path. Defaults to `GEOIP_DB_PATH`.
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Hosts as operators publish them: IP literals or DNS names.
+        #[arg(required = true)]
+        hosts: Vec<String>,
     },
 }
 #[derive(Clone, Copy, ValueEnum)]
@@ -105,6 +115,9 @@ fn main() -> ExitCode {
 async fn execute(command: Command) -> CommandResult {
     if let Command::Healthcheck { url } = command {
         return healthcheck(url).await;
+    }
+    if let Command::GeoipLookup { db, hosts } = command {
+        return geoip_lookup(db, hosts).await;
     }
     let config = Config::from_env()?;
     if let Command::Serve = command {
@@ -198,7 +211,7 @@ async fn administer(command: Command, config: &Config, store: Arc<Store>) -> Com
                 "reconstructed first-seen records: {count}"
             )?;
         }
-        Command::Serve | Command::Healthcheck { .. } => {
+        Command::Serve | Command::Healthcheck { .. } | Command::GeoipLookup { .. } => {
             return Err("command must run before opening administrative storage".into());
         }
     }
@@ -227,6 +240,20 @@ async fn healthcheck(url: Option<String>) -> CommandResult {
         .status();
     if status != reqwest::StatusCode::OK {
         return Err(format!("backend liveness returned HTTP {status}").into());
+    }
+    Ok(())
+}
+
+async fn geoip_lookup(db: Option<PathBuf>, hosts: Vec<String>) -> CommandResult {
+    let path = db
+        .or_else(|| std::env::var_os("GEOIP_DB_PATH").map(PathBuf::from))
+        .ok_or("GEOIP_DB_PATH is not set and --db was not given")?;
+    let geo = quip_dashboard::http::geo::GeoIp::open(&path)
+        .map_err(|error| format!("cannot open GeoIP database {}: {error}", path.display()))?;
+    let mut out = io::stdout().lock();
+    for host in hosts {
+        let line = serde_json::to_string(&geo.inspect(&host).await)?;
+        writeln!(out, "{line}")?;
     }
     Ok(())
 }
@@ -547,7 +574,7 @@ async fn poll_miner(
     interval: Duration,
     chain_slot: SharedChain,
     writer: Option<FileWriter>,
-    miner_attempts_dir: Option<std::path::PathBuf>,
+    miner_attempts_dir: Option<PathBuf>,
     cancellation: tokio_util::sync::CancellationToken,
 ) -> Result<(), String> {
     let mut ticks = tokio::time::interval(interval);
@@ -872,4 +899,32 @@ async fn serve(config: Config) -> CommandResult {
         )
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandResult, geoip_lookup};
+
+    #[tokio::test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "The test asserts command errors while propagating setup and IO failures"
+    )]
+    async fn geoip_lookup_reports_database_open_errors() -> CommandResult {
+        let directory = tempfile::tempdir()?;
+        let missing = directory.path().join("missing.mmdb");
+        let corrupt = directory.path().join("corrupt.mmdb");
+        std::fs::write(&corrupt, b"not a database")?;
+
+        for path in [missing, corrupt] {
+            let error = geoip_lookup(Some(path.clone()), vec!["89.160.20.128".into()])
+                .await
+                .err()
+                .ok_or("geoip-lookup succeeded with an unavailable database")?;
+            let message = error.to_string();
+            assert!(message.contains("cannot open GeoIP database"));
+            assert!(message.contains(&path.display().to_string()));
+        }
+        Ok(())
+    }
 }
