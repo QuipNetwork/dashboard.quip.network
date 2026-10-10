@@ -71,8 +71,8 @@ FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d586
 # uses the GeoIP2-City schema the backend decodes. Bump the month and the
 # checksum together to refresh it.
 FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS geoip
-ARG DBIP_CITY_LITE_MONTH=2026-09
-ARG DBIP_CITY_LITE_SHA256=c5d05b35a45c3eea0cadc728c8f5ad751693d4e270529b731442172a73f05954
+ARG DBIP_CITY_LITE_MONTH=2026-10
+ARG DBIP_CITY_LITE_SHA256=c839d407f85a1e0bddba354cef16b2c398182d1c34ed8d985555dce134b36b14
 WORKDIR /geoip
 RUN wget -q -O dbip-city-lite.mmdb.gz \
         "https://download.db-ip.com/free/dbip-city-lite-${DBIP_CITY_LITE_MONTH}.mmdb.gz" && \
