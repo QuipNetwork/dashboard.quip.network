@@ -62,13 +62,15 @@ export interface NodeMinerEntry {
 }
 
 /**
- * Geo-IP enrichment for a node's `publicHost`. Resolved server-side at
- * /api/telemetry time via DNS → MaxMind GeoLite2 (bundled or
- * GEOIP_DB_PATH override). Null/absent when:
+ * Geo-IP enrichment for a node's `publicHost`, resolved by the Rust server
+ * each time it writes `nodes/snapshot.json` (every 30 seconds): host syntax
+ * gate → DNS → city database at GEOIP_DB_PATH (DB-IP City Lite in the
+ * image, GeoIP2-City schema). Null/absent when:
  *   - `publicHost` is missing on the descriptor
+ *   - `publicHost` is not an IP literal or a DNS name (never queried)
  *   - DNS resolution fails (NXDOMAIN, timeout)
- *   - The resolved IP isn't in the geo database (private ranges,
- *     reserved blocks, MMDB miss)
+ *   - The resolved IP is private, loopback, link-local, or not in the
+ *     database
  * `country` is an ISO-3166 alpha-2 code; "??" is a sentinel for "we got
  * a record but no country was set" (rare, but the MMDB schema permits it).
  */
@@ -94,8 +96,8 @@ export interface NodeInfo {
   miners?: Record<string, NodeMinerEntry>;
   systemInfo?: NodeSystemInfo;
   // Geo-IP enrichment of `publicHost`. Absent when the lookup failed or
-  // when geo is disabled (no geoip-lite + no GEOIP_DB_PATH). The UI's
-  // map silently omits markers for nodes without location.
+  // when geo is disabled (no GEOIP_DB_PATH). The UI's map silently omits
+  // markers for nodes without location.
   location?: NodeLocation;
 }
 
