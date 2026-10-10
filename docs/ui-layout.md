@@ -42,17 +42,18 @@ until the indexer has produced chain data; **Node** is a detail page reached by
 3. Mining Leaderboard (`Leaderboard`) — table, sortable — default rank asc, search — By Count | By Energy | By Time toggle (default By Count)
 4. QBlocks Mined Over Time — line chart — cumulative per miner/type — By Type | Normalized toggle (By Type mode only)
 5. Mining per QBlock — chart — range toggle 1H…ALL, grouping All | By Type | Normalized toggle (default By Type), metric Time | Energy toggle, x-axis = qblock id
-6. Difficulty over time (`DifficultyChart`) — step line chart — range toggle 1H…ALL — full width
-7. Total Compute Used — bar chart — reported or estimated device time per win
-8. Mining Nodes by Type — chart — _By Type mode only_
-9. Energy Distribution — three per-type (CPU/GPU/QPU) mini histograms, each normalised against itself — All Nodes | Best Nodes toggle
-10. Time to QBlock — histogram, fixed 100s-wide buckets — All Nodes | Best Nodes toggle
-11. Probability of Meeting Difficulty — CDF chart — All Nodes | Best Nodes toggle (best = each type's top winner, in both aggregation modes)
-12. Win Rate by Difficulty — chart — All Nodes | Best Nodes | Normalized toggle — _By Type mode only_
-13. Mining Cost by Difficulty — chart — CPU/GPU/QPU lines; All Nodes | Best Nodes and Time | Attempts toggles; in Time mode the QPU line is labeled QPUWC (wall clock — a device-time QPU line joins it once qpu_access_time data lands)
-14. Cumulative QBlocks by Threshold — chart — All Nodes | Best Nodes toggle (best = each type's top winner, in both aggregation modes)
+6. Estimated Energy per QBlock (`EnergyPerQblockCard`) — stacked area chart — range toggle 1H…ALL — every participant's estimated joules by processor type, in-range total in the subtitle, measurement-basis note under the chart — full width
+7. Difficulty over time (`DifficultyChart`) — step line chart — range toggle 1H…ALL — full width
+8. Total Compute Used — bar chart — reported or estimated device time per win
+9. Mining Nodes by Type — chart — _By Type mode only_
+10. Energy Distribution — three per-type (CPU/GPU/QPU) mini histograms, each normalised against itself — All Nodes | Best Nodes toggle
+11. Time to QBlock — histogram, fixed 100s-wide buckets — All Nodes | Best Nodes toggle
+12. Probability of Meeting Difficulty — CDF chart — All Nodes | Best Nodes toggle (best = each type's top winner, in both aggregation modes)
+13. Win Rate by Difficulty — chart — All Nodes | Best Nodes | Normalized toggle — _By Type mode only_
+14. Mining Cost by Difficulty — chart — CPU/GPU/QPU lines; All Nodes | Best Nodes and Time | Attempts toggles; in Time mode the QPU line is labeled QPUWC (wall clock — a device-time QPU line joins it once qpu_access_time data lands)
+15. Cumulative QBlocks by Threshold — chart — All Nodes | Best Nodes toggle (best = each type's top winner, in both aggregation modes)
 
-(4–5 and 7–14 render in 2-column grids; 6 spans full width between them. Grid
+(4–5 and 8–15 render in 2-column grids. 6 and 7 span full width between them. Grid
 order is left-to-right, top-to-bottom.)
 
 ## Chain

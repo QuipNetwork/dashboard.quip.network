@@ -37,6 +37,13 @@ describe("estimateGpuWatts", () => {
     expect(estimateGpuWatts(gpu("Tesla T4"))).toBe(70);
   });
 
+  test("Ampere workstation cards match their own rows, not A40 or RTX 40-series", () => {
+    expect(estimateGpuWatts(gpu("NVIDIA RTX A4000"))).toBe(140);
+    expect(estimateGpuWatts(gpu("NVIDIA RTX A5000"))).toBe(230);
+    expect(estimateGpuWatts(gpu("NVIDIA RTX A6000"))).toBe(300);
+    expect(estimateGpuWatts(gpu("NVIDIA A40"))).toBe(300);
+  });
+
   test("unknown GPU model falls back to DEFAULT_GPU_WATTS", () => {
     expect(estimateGpuWatts(gpu("Some Future GPU"))).toBe(DEFAULT_GPU_WATTS);
   });

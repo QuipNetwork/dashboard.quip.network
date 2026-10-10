@@ -4,17 +4,18 @@ import { describe, expect, test } from "bun:test";
 
 import { QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN } from "@/lib/device-access-time";
 import { estimateCpuWatts, estimateEnergyJoules, QPU_SYSTEM_WATTS } from "@/lib/hardware-power";
-import type {
-  BlockRecord,
-  ChainMinerRecord,
-  MinerHardwareRecord,
-  NodesSnapshot,
+import {
+  QPU_RESERVED_SECONDS_PER_QBLOCK,
+  energySecondsFor,
+  type BlockRecord,
+  type ChainMinerRecord,
+  type MinerHardwareRecord,
+  type NodesSnapshot,
 } from "@quip/shared/telemetry";
 
 import {
   applyLeaderboardMode,
   computeMinerTimeEnergyTotals,
-  formatEnergyJoules,
   withTimeEnergyTotals,
 } from "./leaderboard-modes";
 import { computeLeaderboard, type LeaderboardEntry } from "./use-leaderboard";
@@ -128,15 +129,115 @@ describe("computeMinerTimeEnergyTotals", () => {
     const cpuWatts = estimateCpuWatts({ brand: "AMD EPYC 7763", physicalCores: 64 });
     const cpu = totals.get("5CPU");
     expect(cpu?.totalSeconds).toBeCloseTo(5); // 2s + 3s, self-reported
-    expect(cpu?.totalJoules).toBeCloseTo(estimateEnergyJoules(cpuWatts, 5));
+    // Energy charges the block-active window (miningTime: 60 per fixture
+    // block), never the self-reported chip access the time total uses.
+    expect(cpu?.totalJoules).toBeCloseTo(estimateEnergyJoules(cpuWatts, 60 * 2));
     expect(cpu?.estimated).toBe(false);
 
     const qpu = totals.get("5QPU");
     expect(qpu?.totalSeconds).toBeCloseTo(QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN * 3);
     expect(qpu?.totalJoules).toBeCloseTo(
-      estimateEnergyJoules(QPU_SYSTEM_WATTS, QPU_ESTIMATED_ACCESS_SECONDS_PER_WIN * 3),
+      estimateEnergyJoules(QPU_SYSTEM_WATTS, energySecondsFor("QPU", 60) * 3),
     );
     expect(qpu?.estimated).toBe(true);
+  });
+
+  test("a QPU win is charged its reserved window, so it no longer ranks below every GPU", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const gpuMiner = makeChainMiner("5GPU", {
+      hardware: {
+        ...hardwareFor("5GPU", "5GPU", "CPU"),
+        primaryType: "GPU",
+        miners: [{ id: "5GPU-1", type: "GPU" }],
+      },
+    });
+    const blocks = [
+      makeBlock({ minerId: "5QPU", miningTime: 300 }),
+      makeBlock({ minerId: "5GPU", miningTime: 300 }),
+    ];
+    const totals = computeMinerTimeEnergyTotals(blocks, [qpuMiner, gpuMiner], [], null);
+    const qpu = totals.get("5QPU")?.totalJoules ?? 0;
+    const gpu = totals.get("5GPU")?.totalJoules ?? 0;
+    // 12 kW × 60 s = 720 kJ against 250 W (table default) × 300 s = 75 kJ.
+    expect(qpu).toBeCloseTo(QPU_SYSTEM_WATTS * 60);
+    expect(gpu).toBeCloseTo(250 * 300);
+    expect(qpu).toBeGreaterThan(gpu);
+  });
+
+  test("reported QPU chip time stays in By Time while energy charges a long wall-clock window", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+    const previous = makeBlock({ qblockId: "1", timestamp: winner.timestamp - 300 });
+
+    const totals = computeMinerTimeEnergyTotals([winner, previous], [qpuMiner]);
+    expect(totals.get("5QPU")).toEqual({
+      totalSeconds: 0.062,
+      totalJoules: QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+      estimated: false,
+    });
+  });
+
+  test("reported QPU chip time falls back to the reservation when the previous winner is absent", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+
+    const totals = computeMinerTimeEnergyTotals([winner], [qpuMiner]);
+    expect(totals.get("5QPU")?.totalJoules).toBe(
+      QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+    );
+    expect(totals.get("5QPU")?.totalSeconds).toBe(0.062);
+  });
+
+  test("reported QPU energy charges only ten seconds for a short wall-clock window", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+    const previous = makeBlock({ qblockId: "1", timestamp: winner.timestamp - 10 });
+
+    const totals = computeMinerTimeEnergyTotals([previous, winner], [qpuMiner]);
+    expect(totals.get("5QPU")?.totalJoules).toBe(QPU_SYSTEM_WATTS * 10);
+    expect(totals.get("5QPU")?.totalSeconds).toBe(0.062);
+  });
+
+  test("reported QPU energy falls back to the reservation for non-positive winner spacing", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({
+      qblockId: "2",
+      minerId: "5QPU",
+      deviceAccessTimeUs: 62_000,
+      miningTime: 0.062,
+    });
+    for (const offset of [0, 10]) {
+      const previous = makeBlock({ qblockId: "1", timestamp: winner.timestamp + offset });
+      const totals = computeMinerTimeEnergyTotals([previous, winner], [qpuMiner]);
+      expect(totals.get("5QPU")?.totalJoules).toBe(
+        QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+      );
+    }
+  });
+
+  test("reported QPU access beside a wall-clock miningTime fixture still charges the reservation", () => {
+    const qpuMiner = makeChainMiner("5QPU", { hardware: hardwareFor("5QPU", "5QPU", "QPU") });
+    const winner = makeBlock({ minerId: "5QPU", deviceAccessTimeUs: 62_000, miningTime: 60 });
+    const totals = computeMinerTimeEnergyTotals([winner], [qpuMiner]);
+    expect(totals.get("5QPU")?.totalJoules).toBe(
+      QPU_SYSTEM_WATTS * QPU_RESERVED_SECONDS_PER_QBLOCK,
+    );
+    expect(totals.get("5QPU")?.totalSeconds).toBe(0.062);
   });
 
   test("unknown hardware miner falls back to the category default watts, no NaN", () => {
@@ -268,17 +369,5 @@ describe("applyLeaderboardMode", () => {
     ];
     const base = computeLeaderboard(miners, []);
     expect(applyLeaderboardMode(base, "byCount")).toEqual(base);
-  });
-});
-
-describe("formatEnergyJoules", () => {
-  test("scales J -> kJ -> kWh, never showing more than one unit", () => {
-    expect(formatEnergyJoules(744)).toBe("744 J");
-    expect(formatEnergyJoules(50_000)).toBe("50.00 kJ");
-    expect(formatEnergyJoules(7_200_000)).toBe("2.00 kWh");
-  });
-
-  test("non-finite input renders the placeholder dash", () => {
-    expect(formatEnergyJoules(NaN)).toBe("—");
   });
 });

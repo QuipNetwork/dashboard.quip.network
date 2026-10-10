@@ -4,8 +4,10 @@ import { describe, expect, it } from "bun:test";
 
 import {
   QPU_ACCESS_TO_WALL_RATIO,
+  QPU_RESERVED_SECONDS_PER_QBLOCK,
   aggregateParticipationByCategory,
   aggregateParticipationByQblock,
+  energySecondsFor,
   minerKindToCategory,
   participationFromQblockFiles,
   resolveParticipantAccessTime,
@@ -70,6 +72,22 @@ describe("resolveParticipantAccessTime", () => {
   });
 });
 
+describe("energySecondsFor", () => {
+  it("charges CPU, GPU, and OTHER the full block-active window", () => {
+    expect(energySecondsFor("CPU", 300)).toBe(300);
+    expect(energySecondsFor("GPU", 300)).toBe(300);
+    expect(energySecondsFor("OTHER", 300)).toBe(300);
+  });
+
+  it("charges QPU its reserved window, not chip access", () => {
+    expect(energySecondsFor("QPU", 300)).toBe(QPU_RESERVED_SECONDS_PER_QBLOCK);
+  });
+
+  it("caps the QPU reservation at the window for short qblocks", () => {
+    expect(energySecondsFor("QPU", 20)).toBe(20);
+  });
+});
+
 const row = (o: Partial<ParticipationComputeRow> = {}): ParticipationComputeRow => ({
   qblockId: "5",
   account: "5A",
@@ -102,6 +120,11 @@ describe("aggregateParticipationByCategory", () => {
     expect(qpu.participantCount).toBe(1);
     expect(qpu.deviceAccessSeconds).toBeCloseTo(1, 6);
     expect(qpu.miningSeconds).toBeCloseTo(74.89, 6);
+    // Energy seconds: CPU/GPU take the window; QPU takes the reservation,
+    // which is shorter than its 74.89 s window here.
+    expect(byCat.get("CPU")?.energySeconds).toBe(100);
+    expect(byCat.get("GPU")?.energySeconds).toBe(30);
+    expect(qpu.energySeconds).toBe(QPU_RESERVED_SECONDS_PER_QBLOCK);
   });
 
   it("flags a category estimated when any contribution was estimated, exact otherwise", () => {
@@ -109,11 +132,29 @@ describe("aggregateParticipationByCategory", () => {
       row({ kind: "QpuDwave", account: "5A", miningSeconds: 100, exactQpuAccessUs: 500_000 }),
     ]);
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ category: "QPU", estimated: false, deviceAccessSeconds: 0.5 });
+    expect(out[0]).toMatchObject({
+      category: "QPU",
+      estimated: false,
+      deviceAccessSeconds: 0.5,
+      energySeconds: QPU_RESERVED_SECONDS_PER_QBLOCK,
+    });
   });
 });
 
 describe("aggregateParticipationByQblock", () => {
+  it("charges each long-window QPU participant its own reservation in the same qblock", () => {
+    const out = aggregateParticipationByQblock([
+      row({ qblockId: "5", account: "5Q1", kind: "QpuDwave", miningSeconds: 300 }),
+      row({ qblockId: "5", account: "5Q2", kind: "QpuIbm", miningSeconds: 300 }),
+    ]);
+    expect(out.get("5")).toHaveLength(1);
+    expect(out.get("5")?.[0]).toMatchObject({
+      category: "QPU",
+      participantCount: 2,
+      energySeconds: 2 * QPU_RESERVED_SECONDS_PER_QBLOCK,
+    });
+  });
+
   it("groups per qblock then per category", () => {
     const out = aggregateParticipationByQblock([
       row({ qblockId: "5", account: "5A", kind: "Cpu", miningSeconds: 60 }),

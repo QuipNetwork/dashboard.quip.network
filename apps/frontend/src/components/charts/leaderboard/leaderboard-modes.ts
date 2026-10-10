@@ -12,11 +12,14 @@
 import { resolveDeviceAccessTime } from "@/lib/device-access-time";
 import { estimateDeviceWatts, estimateEnergyJoules } from "@/lib/hardware-power";
 import { buildMinerCategoryIndex, categoryFor } from "@/lib/miner-category";
-import type {
-  BlockRecord,
-  ChainMinerRecord,
-  NodeDescriptorRecord,
-  NodesSnapshot,
+import {
+  QPU_RESERVED_SECONDS_PER_QBLOCK,
+  energySecondsFor,
+  type BlockRecord,
+  type ChainMinerRecord,
+  type MinerCategory,
+  type NodeDescriptorRecord,
+  type NodesSnapshot,
 } from "@quip/shared/telemetry";
 import type { LeaderboardEntry } from "./use-leaderboard";
 
@@ -36,10 +39,26 @@ export interface MinerTimeEnergyTotals {
   estimated: boolean;
 }
 
+/** Recover QPU wall clock when miningTime holds reported chip-access seconds. */
+export function blockActiveSeconds(
+  block: BlockRecord,
+  category: MinerCategory,
+  previousWinnerTimestamp: number | undefined,
+): number {
+  if (category !== "QPU" || block.deviceAccessTimeUs == null) return block.miningTime;
+  if (previousWinnerTimestamp !== undefined) {
+    const seconds = block.timestamp - previousWinnerTimestamp;
+    if (seconds > 0) return seconds;
+  }
+  return QPU_RESERVED_SECONDS_PER_QBLOCK;
+}
+
 /**
- * Sum per-miner device-access time and energy across the indexed `blocks`
- * window — one block is one win, so every block contributes exactly one
- * term. `nodes` resolves a miner's own hardware for the wattage estimate via
+ * Sum per-miner device-access time and electrical energy across the indexed
+ * `blocks` window — one block is one win, so every block contributes exactly
+ * one term. Time is chip seconds (`resolveDeviceAccessTime`). Energy is rated
+ * watts × `energySecondsFor` seconds, so the two totals are on different time
+ * bases by design. `nodes` resolves a miner's own hardware for the wattage estimate via
  * `ChainMinerRecord.telemetryNodeAddress`; miners with no joined node fall
  * back to `estimateDeviceWatts`'s category default.
  */
@@ -55,13 +74,21 @@ export function computeMinerTimeEnergyTotals(
       .filter((m) => m.telemetryNodeAddress != null)
       .map((m) => [m.accountId, nodes?.nodes[m.telemetryNodeAddress as string]]),
   );
+  const winnerTimestampByQblock = new Map(blocks.map((block) => [block.qblockId, block.timestamp]));
 
   const totals = new Map<string, MinerTimeEnergyTotals>();
   for (const block of blocks) {
     const category = categoryFor(block.minerId, catIndex);
     const { seconds, estimated } = resolveDeviceAccessTime(block, category);
     const watts = estimateDeviceWatts(category, nodeByAccount.get(block.minerId));
-    const joules = estimateEnergyJoules(watts, seconds);
+    // Time stays device access (chip seconds). Energy uses the block-active
+    // wall clock, capped at the QPU reservation by energySecondsFor.
+    const activeSeconds = blockActiveSeconds(
+      block,
+      category,
+      winnerTimestampByQblock.get((BigInt(block.qblockId) - 1n).toString()),
+    );
+    const joules = estimateEnergyJoules(watts, energySecondsFor(category, activeSeconds));
     const prev = totals.get(block.minerId);
     totals.set(block.minerId, {
       totalSeconds: (prev?.totalSeconds ?? 0) + seconds,
@@ -125,16 +152,4 @@ export function applyLeaderboardMode(
       rank: i + 1,
       share: total > 0 ? (metricFor(e, mode) ?? 0) / total : 0,
     }));
-}
-
-// J → kJ → kWh scaling, mirroring formatDuration's "never show three units"
-// idiom (lib/format.ts). A single QPU win alone (12 kW × ~62ms) lands around
-// 744 J, so kJ covers the CPU/GPU per-win range while kWh keeps the eventual
-// large totals (many wins, or QPU's constant 12kW draw) in familiar units.
-export function formatEnergyJoules(joules: number): string {
-  if (!Number.isFinite(joules)) return "—";
-  const abs = Math.abs(joules);
-  if (abs < 1_000) return `${joules.toFixed(0)} J`;
-  if (abs < 1_000_000) return `${(joules / 1_000).toFixed(2)} kJ`;
-  return `${(joules / 3_600_000).toFixed(2)} kWh`;
 }

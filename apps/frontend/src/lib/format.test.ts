@@ -46,9 +46,30 @@ describe("formatDuration", () => {
 });
 
 describe("formatJoules", () => {
-  it("ladders J → kJ → MJ", () => {
-    expect(formatJoules(999)).toBe("999.0 J");
-    expect(formatJoules(1_500)).toBe("1.5 kJ");
-    expect(formatJoules(2_500_000)).toBe("2.5 MJ");
+  it("switches from J to kJ exactly at 1,000 joules", () => {
+    expect(formatJoules(999)).toBe("999 J");
+    expect(formatJoules(1_000)).toBe("1.0 kJ");
+  });
+
+  it("switches from kJ to kWh exactly at the 1,000,000-joule threshold", () => {
+    expect(formatJoules(999_999)).toBe("1000.0 kJ");
+    expect(formatJoules(1_000_000)).toBe("0.28 kWh");
+  });
+
+  it("preserves the sign while choosing units by magnitude", () => {
+    expect(formatJoules(-1_500)).toBe("-1.5 kJ");
+  });
+
+  it("ladders J → kJ → kWh, never showing more than one unit", () => {
+    expect(formatJoules(0)).toBe("0 J");
+    expect(formatJoules(744)).toBe("744 J");
+    expect(formatJoules(50_000)).toBe("50.0 kJ");
+    expect(formatJoules(2_500_000)).toBe("0.69 kWh");
+    expect(formatJoules(7_200_000)).toBe("2.00 kWh");
+  });
+
+  it("renders the placeholder dash for non-finite input", () => {
+    expect(formatJoules(NaN)).toBe("—");
+    expect(formatJoules(Infinity)).toBe("—");
   });
 });
