@@ -14,7 +14,7 @@
     {
       "name": "dashboard",
       "description": "Rust indexer + Caddy + SPA. Plain HTTP on 20049; FDM terminates TLS.",
-      "repotag": "registry.gitlab.com/quip.network/dashboard.quip.network:v0.2.3-rc5@sha256:4534e3474d10a03509124cfd31132d50c84d94db7e9e7357fdb856c27efd5b65",
+      "repotag": "registry.gitlab.com/quip.network/dashboard.quip.network:v0.2.3-rc5-cacerts-67e2d1f@sha256:575adb7e749e1f891d43a4ce6f3f018a5a2e11c0f8d35ed658a8b7b8799ce33d",
       "ports": [20052],
       "domains": ["indexer.aglais.quip.network"],
       "containerPorts": [20049],

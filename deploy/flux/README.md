@@ -1,8 +1,12 @@
 # Flux deployment: quipindexer
 
 This branch (`deploy/flux`) holds the Flux spec for the public aglais indexer
-and telemetry API. It is deploy packaging only: the image is the one upstream CI
-publishes for a release tag, pinned by digest, with no local changes.
+and telemetry API. It is deploy packaging only. The image is the one upstream CI
+publishes for a release tag, plus one thin layer: [`Dockerfile`](Dockerfile)
+installs a CA bundle without the forged eMudhra roots, because v0.2.3-rc5 pins
+one that still trusts them. Nothing else changes, and the binaries are the
+release's. Drop the layer once a release ships ca-certificates 20261020-r0 or
+later. Tag the layered image `<release>-cacerts-<commit>`.
 
 - App: `quipindexer`, 1 instance, non-enterprise
 - URL: <https://indexer.aglais.quip.network/> (a CNAME to
