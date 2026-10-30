@@ -852,7 +852,7 @@ dependencies = [
 
 [[package]]
 name = "dashboard-model"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "dashboard-store"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "dashboard-model",
@@ -2727,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "quip-dashboard"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "axum",
  "blake2",

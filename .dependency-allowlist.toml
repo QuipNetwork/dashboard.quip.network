@@ -1,0 +1,22 @@
+# Prereleases with no stable release. Each entry covers one exact version.
+
+[[allow]]
+ecosystem = "npm"
+name = "gensync"
+version = "1.0.0-beta.2"
+commit = "a182868db47da283a1a044cb15bfd388697a632f"
+reason = "No stable gensync release exists; 1.0.0-beta.2 is the latest tag. Required by @babel/core (dev only, via @ladle/react and @vitejs/plugin-react)."
+
+[[allow]]
+ecosystem = "npm"
+name = "pg-gateway"
+version = "0.3.0-beta.4"
+commit = "c7ccafbc0c63d3edf2d04b44066cf448c44db363"
+reason = "No stable pg-gateway release exists; 0.3.0-beta.4 is the latest tag. Pinned exactly by @netlify/db-dev (dev only, via netlify-cli)."
+
+[[allow]]
+ecosystem = "npm"
+name = "resolve"
+version = "2.0.0-next.7"
+commit = "261538fc13c55f7ddc0358e48db47647aa765ed6"
+reason = "No stable resolve 2.x release exists. Required by @netlify/build and @netlify/zip-it-and-ship-it (dev only, via netlify-cli)."
