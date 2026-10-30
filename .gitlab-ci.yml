@@ -15,6 +15,11 @@
 #                             v0.2.1-rc18 — see AGENTS.md "Versioning & release
 #                             tags" / quip-protocol/docs/VERSIONING.md)
 
+include:
+  - project: quip.network/ci-templates
+    ref: v1.1.0
+    file: templates/dependency-gate.yml
+
 stages:
   - test
   - build
@@ -206,7 +211,9 @@ build-image-arm64:
 
 resolve-floating-tags:
   stage: build
-  needs: []
+  needs:
+    - job: dependency-gate
+      optional: true
   image:
     name: alpine/git:latest
     entrypoint: [""]
@@ -246,6 +253,8 @@ manifest:
     entrypoint: [""]
   tags: [linux, amd64]
   needs:
+    - job: dependency-gate
+      optional: true
     - build-image-amd64
     - build-image-arm64
     - resolve-floating-tags
