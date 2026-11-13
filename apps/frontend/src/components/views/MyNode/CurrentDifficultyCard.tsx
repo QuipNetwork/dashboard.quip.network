@@ -2,12 +2,39 @@
 
 import { decaysApplied } from "@/lib/decays";
 import { formatNumber } from "@/lib/format";
-import { formatEnergy } from "@/lib/format-chain";
-import type { BlockRecord, ChainHead, DifficultyRecord } from "@quip/shared/telemetry";
+import { energyBandPosition, useDefaultTopology } from "@/lib/difficulty-curve";
+import {
+  formatBandPosition,
+  formatEnergy,
+  formatEnergyBand,
+  formatFamily,
+} from "@/lib/format-chain";
+import type {
+  BlockRecord,
+  ChainHead,
+  DifficultyRecord,
+  MineableTopologyRecord,
+} from "@quip/shared/telemetry";
 import { BlockDetailCard, type DetailRow } from "./BlockDetailCard";
 import type { CurrentRequirements } from "./use-my-node";
 
 const PRIOR_ENERGY_ROWS = 3;
+
+// Rows describing the default topology when it is a family topology: its
+// generator and the energy band the difficulty moves inside. The legacy curve
+// ratio does not apply, so the target is placed in the band instead.
+function familyRows(targetEnergy: number, topology: MineableTopologyRecord | null): DetailRow[] {
+  if (topology?.family == null) return [];
+  const rows: DetailRow[] = [{ label: "Family", value: formatFamily(topology.family) }];
+  if (topology.energyBand != null) {
+    rows.push({ label: "Energy Band", value: formatEnergyBand(topology.energyBand) });
+    const position = energyBandPosition(targetEnergy, topology.energyBand);
+    if (position != null) {
+      rows.push({ label: "Band Position", value: formatBandPosition(position) });
+    }
+  }
+  return rows;
+}
 
 export function CurrentDifficultyCard({
   currentRequirements,
@@ -20,6 +47,7 @@ export function CurrentDifficultyCard({
   chainHead: ChainHead | null;
   tipBlock: BlockRecord | null;
 }) {
+  const defaultTopology = useDefaultTopology();
   if (currentRequirements == null) {
     return (
       <BlockDetailCard
@@ -49,6 +77,7 @@ export function CurrentDifficultyCard({
 
   const rows: DetailRow[] = [
     { label: "Target Energy", value: `≤ ${formatEnergy(currentRequirements.difficultyEnergy)}` },
+    ...familyRows(currentRequirements.difficultyEnergy, defaultTopology),
     {
       label: "Min Diversity",
       value:

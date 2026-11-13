@@ -4,6 +4,7 @@
 // so callers fall back to showing raw energy.
 
 import { useTelemetryStore } from "@/store/telemetry-store";
+import type { EnergyBand, MineableTopologyRecord } from "@quip/shared/telemetry";
 
 // The by-difficulty charts (mining time, win rate) only have meaningful data
 // once targets reach the hard regime. Easier "warmup" targets that kick off
@@ -31,6 +32,18 @@ export function energyToCurveRatio(energy: number, k: number | null): number | n
   return -energy / k;
 }
 
+// Where an energy sits inside a family topology's energy band, as a plain
+// fraction: 0 at the hard (most negative) end, 1 at the easy end. Values
+// outside the band fall outside 0..1 — the decay or a hard floor can carry a
+// target past an end, and clamping would hide that. Null without a usable
+// band. The legacy curve ratio does not apply to a family topology.
+export function energyBandPosition(energy: number, band: EnergyBand | null): number | null {
+  if (band == null) return null;
+  const span = band.easyEnergy - band.hardEnergy;
+  if (!(span > 0)) return null;
+  return (energy - band.hardEnergy) / span;
+}
+
 // Tick label: "0.747 (−14559)" when K is known, else "−14559". Energies are
 // large integers (units), so no decimal place. Too wide to sit flat on an
 // axis — charts rotate their bottom ticks instead of shortening the label.
@@ -50,4 +63,13 @@ export function useDifficultyCurveK(): number | null {
   return (
     useTelemetryStore((s) => s.mineableTopologies).find((t) => t.isDefault)?.curveConstant ?? null
   );
+}
+
+/**
+ * The chain's default topology, or null before the first poll or on a chain
+ * without the runtime APIs. Callers read `family` / `energyBand` from it to
+ * describe a family topology.
+ */
+export function useDefaultTopology(): MineableTopologyRecord | null {
+  return useTelemetryStore((s) => s.mineableTopologies).find((t) => t.isDefault) ?? null;
 }

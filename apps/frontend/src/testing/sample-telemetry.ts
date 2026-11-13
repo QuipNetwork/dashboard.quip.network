@@ -336,6 +336,8 @@ function buildMineableTopologies(): MineableTopologyRecord[] {
       nodeCount: 120,
       edgeCount: 240,
       curveConstant: 21000,
+      family: null,
+      energyBand: null,
     },
     {
       topologyHash: "0xtopo-alt",
@@ -346,6 +348,8 @@ function buildMineableTopologies(): MineableTopologyRecord[] {
       nodeCount: 64,
       edgeCount: 128,
       curveConstant: 19000,
+      family: null,
+      energyBand: null,
     },
   ];
 }

@@ -93,6 +93,18 @@ describe("buildSeriesPoints", () => {
     expect(points[points.length - 1]).toEqual({ x: new Date(NOW), y: -14_530 });
   });
 
+  test("the genesis poll stored at the Unix epoch is not plotted, as anchor or as a row", () => {
+    const genesis = row("1970-01-01T00:00:00.000Z", -1_200);
+    const first = row("2026-11-13T09:23:06.000Z", -4_850);
+    const anchored = buildSeriesPoints({ since, anchor: genesis, rows: [first] }, NOW);
+    expect(anchored[0]).toEqual({ x: new Date(first.observedAt), y: -4_850 });
+    const all = buildSeriesPoints(
+      { since: "1970-01-01T00:00:00.000Z", anchor: null, rows: [genesis, first] },
+      NOW,
+    );
+    expect(all).toEqual([{ x: new Date(first.observedAt), y: -4_850 }]);
+  });
+
   test("no data at all → empty", () => {
     expect(buildSeriesPoints({ since, anchor: null, rows: [] }, NOW)).toEqual([]);
   });

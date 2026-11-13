@@ -163,8 +163,29 @@ export interface MineableTopologyRecord {
   // position). Lets the UI render a proof's difficulty as a curve position
   // `‰ = -energy * 1000 / K` instead of raw negative energy. Null when the
   // chain doesn't expose the topology's field/coupling specs (pre-v0.2) or they
-  // can't be evaluated. Derived from `expected_gse`: see the indexer.
+  // can't be evaluated, and always null for a family topology: its difficulty
+  // does not follow the legacy curve. Derived from `expected_gse`: see the
+  // indexer.
   curveConstant: number | null;
+  // Family descriptor identity (runtime 120+), null for a legacy topology.
+  family: TopologyFamily | null;
+  // Root-set energy band a family topology's difficulty eases and hardens
+  // inside, null for a legacy topology.
+  energyBand: EnergyBand | null;
+}
+
+/** Canonical generator behind a family topology, e.g. `quip/twisted-ice-dimer` revision 1. */
+export interface TopologyFamily {
+  familyId: string;
+  revision: number;
+}
+
+/** Energy band in units; `hardEnergy < easyEnergy` (both negative). */
+export interface EnergyBand {
+  // Hardest (most negative) end of the band.
+  hardEnergy: number;
+  // Easiest (least negative) end of the band.
+  easyEnergy: number;
 }
 
 /**

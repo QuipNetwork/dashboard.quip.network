@@ -4,6 +4,8 @@
 // balances (need decimal scaling). Kept separate from `format.ts` so the
 // chain-specific concerns don't bleed into shared utilities.
 
+import type { EnergyBand, TopologyFamily } from "@quip/shared/telemetry";
+
 /**
  * quip-protocol-rs uses 12 decimal places for the native token (standard
  * substrate convention). 1 UNIT = 10^12 base units, so a `deposit` of
@@ -20,6 +22,24 @@ const TOKEN_SYMBOL = "AGLS";
  */
 export function formatEnergy(energyUnits: number): string {
   return String(Math.round(energyUnits));
+}
+
+/** Render a topology family as `family_id@revision`, e.g. `quip/twisted-ice-dimer@1`. */
+export function formatFamily(family: TopologyFamily): string {
+  return `${family.familyId}@${family.revision}`;
+}
+
+/** Render an energy band hard-to-easy, e.g. `-5100 … -4800`. */
+export function formatEnergyBand(band: EnergyBand): string {
+  return `${formatEnergy(band.hardEnergy)} … ${formatEnergy(band.easyEnergy)}`;
+}
+
+/**
+ * Render a band position (0 = hard end, 1 = easy end) to three decimals,
+ * like the curve ratio. A plain fraction, not a probability.
+ */
+export function formatBandPosition(position: number): string {
+  return position.toFixed(3);
 }
 
 /**

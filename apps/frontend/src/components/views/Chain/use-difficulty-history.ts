@@ -11,11 +11,20 @@ import { useEffect, useState } from "react";
 
 import { sinceForRange, type TimeRange } from "@/components/charts/common/time-range";
 import { useTelemetryClient } from "@/services/telemetry-client";
-import type { DifficultyHistoryResponse } from "@quip/shared/telemetry";
+import type { DifficultyHistoryResponse, DifficultyRecord } from "@quip/shared/telemetry";
 
 export interface SeriesPoint {
   x: Date;
   y: number;
+}
+
+// The genesis block carries no timestamp, so the indexer stores its poll
+// (the runtime's built-in default threshold, from before any topology is
+// registered) at the Unix epoch. It is not an observation of the live chain:
+// plotted, it stretches the ALL range back to 1970 and, as the anchor of a
+// shorter range, opens the line at a threshold the chain never mined at.
+function isObserved(r: DifficultyRecord): boolean {
+  return Date.parse(r.observedAt) > 0;
 }
 
 /**
@@ -25,8 +34,12 @@ export interface SeriesPoint {
  */
 export function buildSeriesPoints(resp: DifficultyHistoryResponse, nowMs: number): SeriesPoint[] {
   const points: SeriesPoint[] = [];
-  if (resp.anchor) points.push({ x: new Date(resp.since), y: resp.anchor.difficultyEnergy });
-  for (const r of resp.rows) points.push({ x: new Date(r.observedAt), y: r.difficultyEnergy });
+  if (resp.anchor && isObserved(resp.anchor)) {
+    points.push({ x: new Date(resp.since), y: resp.anchor.difficultyEnergy });
+  }
+  for (const r of resp.rows) {
+    if (isObserved(r)) points.push({ x: new Date(r.observedAt), y: r.difficultyEnergy });
+  }
   const last = points[points.length - 1];
   if (last && last.x.getTime() < nowMs) points.push({ x: new Date(nowMs), y: last.y });
   return points;
