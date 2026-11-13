@@ -457,20 +457,23 @@ pub(super) fn decode_value(
     if !input.is_empty() {
         return Err(ChainError::Invalid("trailing SCALE bytes".into()));
     }
-    Ok(normalize_value(value, metadata))
+    Ok(normalize_value(value, metadata.types()))
 }
 
-pub(super) fn normalize_value(mut value: Value<u32>, metadata: &Metadata) -> Value<u32> {
+pub(super) fn normalize_value(
+    mut value: Value<u32>,
+    types: &scale_info::PortableRegistry,
+) -> Value<u32> {
     // SCALE values retain tuple-struct newtypes. Remove only metadata-declared
     // wrappers, never a one-element Vec or tuple, whose cardinality is meaningful.
     match &mut value.value {
-        scale_value::ValueDef::Composite(composite) => normalize_composite(composite, metadata),
+        scale_value::ValueDef::Composite(composite) => normalize_composite(composite, types),
         scale_value::ValueDef::Variant(variant) => {
-            normalize_composite(&mut variant.values, metadata);
+            normalize_composite(&mut variant.values, types);
         }
         scale_value::ValueDef::Primitive(_) | scale_value::ValueDef::BitSequence(_) => {}
     }
-    let wrapper = metadata.types().resolve(value.context).is_some_and(|ty| {
+    let wrapper = types.resolve(value.context).is_some_and(|ty| {
         if let scale_info::TypeDef::Composite(c) = &ty.type_def {
             c.fields.len() == 1 && c.fields.first().is_some_and(|f| f.name.is_none())
         } else {
@@ -487,20 +490,23 @@ pub(super) fn normalize_value(mut value: Value<u32>, metadata: &Metadata) -> Val
     }
     value
 }
-fn normalize_composite(composite: &mut scale_value::Composite<u32>, metadata: &Metadata) {
+fn normalize_composite(
+    composite: &mut scale_value::Composite<u32>,
+    types: &scale_info::PortableRegistry,
+) {
     match composite {
         scale_value::Composite::Named(fields) => {
             for (_, value) in fields {
                 let placeholder = Value::u128(0).map_context(|()| 0);
                 let old = std::mem::replace(value, placeholder);
-                *value = normalize_value(old, metadata);
+                *value = normalize_value(old, types);
             }
         }
         scale_value::Composite::Unnamed(values) => {
             for value in values {
                 let placeholder = Value::u128(0).map_context(|()| 0);
                 let old = std::mem::replace(value, placeholder);
-                *value = normalize_value(old, metadata);
+                *value = normalize_value(old, types);
             }
         }
     }

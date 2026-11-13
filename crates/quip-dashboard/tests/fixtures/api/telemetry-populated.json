@@ -104,7 +104,9 @@
       "minSolutions": 1,
       "nodeCount": 2,
       "edgeCount": 3,
-      "curveConstant": null
+      "curveConstant": null,
+      "family": null,
+      "energyBand": null
     },
     {
       "topologyHash": "0xc4b45f8df293685fba55923cc44a0ddae7f515b34e1d7d4f30e8ab92db963a5c",
@@ -114,7 +116,15 @@
       "minSolutions": 1,
       "nodeCount": 2,
       "edgeCount": 3,
-      "curveConstant": null
+      "curveConstant": null,
+      "family": {
+        "familyId": "quip/twisted-ice-dimer",
+        "revision": 1
+      },
+      "energyBand": {
+        "hardEnergy": -5100,
+        "easyEnergy": -4800
+      }
     }
   ],
   "validators": [

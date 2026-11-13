@@ -12,9 +12,9 @@ pub use decode::{
 };
 pub use metadata::{BlockContexts, MetadataRecord, RuntimeContext, RuntimeVersionInfo};
 pub use snapshots::{
-    BabeEpochInfo, ChainMinerInfo, DescriptorEntry, MineableTopologyInfo, MinerPage,
-    ParticipantCursor, ParticipantPage, QBlockParticipant, TopologySummary, WinnerCursor,
-    WinnerPage,
+    BabeEpochInfo, ChainMinerInfo, DescriptorEntry, EnergyBandInfo, FamilyInfo,
+    MineableTopologyInfo, MinerPage, ParticipantCursor, ParticipantPage, QBlockParticipant,
+    TopologySummary, WinnerCursor, WinnerPage,
 };
 pub use transport::{HeadReceivers, MethodMetrics, RpcMetrics, WorkClass};
 

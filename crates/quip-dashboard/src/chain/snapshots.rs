@@ -116,8 +116,27 @@ pub struct TopologySummary {
     pub node_count: u32,
     /// Number of topology edges without retaining their values.
     pub edge_count: u32,
-    /// Optional scalar energy-curve constant.
+    /// Optional scalar energy-curve constant. Always absent for a family
+    /// topology, whose difficulty does not follow the legacy curve.
     pub curve_constant: Option<f64>,
+    /// Family descriptor identity, absent for a legacy topology.
+    pub family: Option<FamilyInfo>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Identity of the canonical generator behind a family topology.
+pub struct FamilyInfo {
+    /// Family id as the generator crate defines it.
+    pub family_id: String,
+    /// Family revision.
+    pub revision: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Root-set energy band of a family topology, in milli-energy units.
+pub struct EnergyBandInfo {
+    /// Hardest (most negative) end of the band.
+    pub hard_milli: i64,
+    /// Easiest (least negative) end of the band.
+    pub easy_milli: i64,
 }
 #[derive(Clone, Debug)]
 /// Static topology scalars with dynamic per-head difficulty.
@@ -128,6 +147,8 @@ pub struct MineableTopologyInfo {
     pub is_default: bool,
     /// Difficulty gates at the queried state or winning proof.
     pub difficulty: Option<DifficultyInfo>,
+    /// Energy band the difficulty controller runs on, for a family topology.
+    pub energy_band: Option<EnergyBandInfo>,
 }
 #[derive(Clone, Debug)]
 /// Normalized descriptor with original update provenance.
@@ -566,7 +587,13 @@ impl ChainReader {
                     class,
                 )
                 .await?;
-            let (nodes, edges, h, j) = topology_scalars(&bytes, ty, &metadata)?;
+            let TopologyScalars {
+                nodes,
+                edges,
+                h,
+                j,
+                family,
+            } = topology_scalars(&bytes, ty, metadata.types())?;
             let node_count = nodes;
             let edge_count = edges;
             let degree = if nodes > 0 {
@@ -574,7 +601,9 @@ impl ChainReader {
             } else {
                 0.0
             };
-            let curve_constant = if degree > 0.0 {
+            // A family topology draws its couplings through the generator, so
+            // the allowed h/J means say nothing about its difficulty range.
+            let curve_constant = if degree > 0.0 && family.is_none() {
                 h.zip(j).map(|(h, j)| {
                     j * degree.sqrt() * f64::from(node_count)
                         + 0.88 * h * f64::from(node_count) / degree.sqrt()
@@ -587,10 +616,42 @@ impl ChainReader {
                 node_count,
                 edge_count,
                 curve_constant: curve_constant.filter(|k| *k > 0.0),
+                family,
             })
         })
         .await
         .cloned()
+    }
+    /// Reads the root-set energy band of a family topology.
+    ///
+    /// # Errors
+    /// Returns typed RPC, pruning, capability, or malformed-data errors,
+    /// including a missing band, which the runtime forbids for a mineable
+    /// family topology.
+    pub async fn energy_band(
+        &self,
+        at: BlockHash,
+        hash: BlockHash,
+        class: WorkClass,
+    ) -> Result<EnergyBandInfo, ChainError> {
+        let value = self
+            .optional_storage(
+                at,
+                "QuantumPow",
+                "TopologyEnergyBand",
+                vec![Value::from_bytes(hash.0)],
+                class,
+            )
+            .await?
+            .ok_or_else(|| ChainError::Invalid("family topology has no energy band".into()))?;
+        let band = EnergyBandInfo {
+            hard_milli: decode::signed(field(&value, "hard_milli")?)?,
+            easy_milli: decode::signed(field(&value, "easy_milli")?)?,
+        };
+        if band.hard_milli >= band.easy_milli {
+            return Err(ChainError::Invalid("energy band is not ordered".into()));
+        }
+        Ok(band)
     }
     /// Combines cached topology scalars with fresh per-head difficulty.
     ///
@@ -624,10 +685,19 @@ impl ChainReader {
                 )
                 .await?;
             let difficulty = decode::option(&raw)?.map(decode::difficulty).transpose()?;
+            let topology = self.topology_summary(at, hash, class).await?;
+            // Root can replace a band after registration, so it is read per
+            // head instead of being cached with the static topology scalars.
+            let energy_band = if topology.family.is_some() {
+                Some(self.energy_band(at, hash, class).await?)
+            } else {
+                None
+            };
             result.push(MineableTopologyInfo {
-                topology: self.topology_summary(at, hash, class).await?,
+                topology,
                 is_default: default == Some(hash),
                 difficulty,
+                energy_band,
             });
         }
         Ok(result)
@@ -969,6 +1039,13 @@ fn blake_concat(hashers: &[subxt_metadata::StorageHasher]) -> bool {
     }
 }
 
+struct TopologyScalars {
+    nodes: u32,
+    edges: u32,
+    h: Option<f64>,
+    j: Option<f64>,
+    family: Option<FamilyInfo>,
+}
 #[expect(
     clippy::too_many_lines,
     reason = "One metadata cursor validates and skips the topology fields in wire order."
@@ -976,14 +1053,13 @@ fn blake_concat(hashers: &[subxt_metadata::StorageHasher]) -> bool {
 fn topology_scalars(
     bytes: &[u8],
     ty: u32,
-    metadata: &subxt_core::Metadata,
-) -> Result<(u32, u32, Option<f64>, Option<f64>), ChainError> {
+    types: &scale_info::PortableRegistry,
+) -> Result<TopologyScalars, ChainError> {
     use parity_scale_codec::{Compact, Decode};
     use scale_info::TypeDef;
     let mut input = bytes;
     let index = u8::decode(&mut input).map_err(invalid)?;
-    let option = metadata
-        .types()
+    let option = types
         .resolve(ty)
         .ok_or_else(|| ChainError::Invalid("missing topology Option type".into()))?;
     let TypeDef::Variant(variants) = &option.type_def else {
@@ -1004,8 +1080,7 @@ fn topology_scalars(
     let [some] = variant.fields.as_slice() else {
         return Err(ChainError::Invalid("malformed topology Option".into()));
     };
-    let ty = metadata
-        .types()
+    let ty = types
         .resolve(some.ty.id)
         .ok_or_else(|| ChainError::Invalid("missing topology type".into()))?;
     let TypeDef::Composite(composite) = &ty.type_def else {
@@ -1015,13 +1090,13 @@ fn topology_scalars(
     let mut edges = None;
     let mut h = None;
     let mut j = None;
+    let mut family = None;
     for field in &composite.fields {
         let name = field.name.as_deref();
         if name == Some("nodes") || name == Some("edges") {
             let mut id = field.ty.id;
             loop {
-                let ty = metadata
-                    .types()
+                let ty = types
                     .resolve(id)
                     .ok_or_else(|| ChainError::Invalid("missing topology vector type".into()))?;
                 match &ty.type_def {
@@ -1048,7 +1123,7 @@ fn topology_scalars(
             subxt_core::ext::scale_decode::visitor::decode_with_visitor(
                 &mut input,
                 field.ty.id,
-                metadata.types(),
+                types,
                 subxt_core::ext::scale_decode::visitor::IgnoreVisitor::new(),
             )
             .map_err(invalid)?;
@@ -1058,20 +1133,24 @@ fn topology_scalars(
                 edges = Some(count);
             }
         } else if name == Some("allowed_h_values") || name == Some("allowed_j_values") {
-            let value =
-                scale_value::scale::decode_as_type(&mut input, field.ty.id, metadata.types())
-                    .map_err(invalid)?;
-            let value = super::metadata::normalize_value(value, metadata);
+            let value = scale_value::scale::decode_as_type(&mut input, field.ty.id, types)
+                .map_err(invalid)?;
+            let value = super::metadata::normalize_value(value, types);
             if name == Some("allowed_h_values") {
                 h = Some(mean_abs(&value)?);
             } else {
                 j = Some(mean_abs(&value)?);
             }
+        } else if name == Some("family") {
+            let value = scale_value::scale::decode_as_type(&mut input, field.ty.id, types)
+                .map_err(invalid)?;
+            let value = super::metadata::normalize_value(value, types);
+            family = family_info(&value)?;
         } else {
             subxt_core::ext::scale_decode::visitor::decode_with_visitor(
                 &mut input,
                 field.ty.id,
-                metadata.types(),
+                types,
                 subxt_core::ext::scale_decode::visitor::IgnoreVisitor::new(),
             )
             .map_err(invalid)?;
@@ -1080,12 +1159,26 @@ fn topology_scalars(
     if !input.is_empty() {
         return Err(ChainError::Invalid("trailing topology bytes".into()));
     }
-    Ok((
-        nodes.ok_or_else(|| ChainError::Invalid("topology lacks nodes".into()))?,
-        edges.ok_or_else(|| ChainError::Invalid("topology lacks edges".into()))?,
-        h.ok_or_else(|| ChainError::Invalid("topology lacks h spec".into()))?,
-        j.ok_or_else(|| ChainError::Invalid("topology lacks j spec".into()))?,
-    ))
+    Ok(TopologyScalars {
+        nodes: nodes.ok_or_else(|| ChainError::Invalid("topology lacks nodes".into()))?,
+        edges: edges.ok_or_else(|| ChainError::Invalid("topology lacks edges".into()))?,
+        h: h.ok_or_else(|| ChainError::Invalid("topology lacks h spec".into()))?,
+        j: j.ok_or_else(|| ChainError::Invalid("topology lacks j spec".into()))?,
+        family,
+    })
+}
+/// Projects the `Option<FamilyDescriptor>` of a topology, dropping the opaque
+/// parameter bytes.
+fn family_info(value: &Value<u32>) -> Result<Option<FamilyInfo>, ChainError> {
+    let Some(descriptor) = decode::option(value)? else {
+        return Ok(None);
+    };
+    let family_id =
+        String::from_utf8(decode::bytes(field(descriptor, "family_id")?)?).map_err(invalid)?;
+    Ok(Some(FamilyInfo {
+        family_id,
+        revision: decode::u32_field(descriptor, "revision")?,
+    }))
 }
 
 fn miner_info(account: &[u8], value: &Value<u32>) -> Result<ChainMinerInfo, ChainError> {
@@ -1296,4 +1389,129 @@ fn numbers(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FamilyInfo, TopologyScalars, topology_scalars};
+    use parity_scale_codec::Encode;
+    use scale_info::{MetaType, PortableRegistry, Registry, TypeInfo};
+
+    #[derive(TypeInfo)]
+    enum Spec {
+        Set(Vec<i32>),
+    }
+    impl Encode for Spec {
+        fn encode_to<O: parity_scale_codec::Output + ?Sized>(&self, dest: &mut O) {
+            let Self::Set(values) = self;
+            dest.push_byte(0);
+            values.encode_to(dest);
+        }
+    }
+    #[derive(Encode, TypeInfo)]
+    struct Descriptor {
+        family_id: Vec<u8>,
+        revision: u32,
+        params: Vec<u8>,
+    }
+    #[derive(Encode, TypeInfo)]
+    struct FamilyTopology {
+        nodes: Vec<u32>,
+        edges: Vec<(u32, u32)>,
+        allowed_h_values: Spec,
+        allowed_j_values: Spec,
+        allowed_spin_values: Spec,
+        family: Option<Descriptor>,
+        registered_at: u32,
+    }
+    #[derive(Encode, TypeInfo)]
+    struct LegacyTopology {
+        nodes: Vec<u32>,
+        edges: Vec<(u32, u32)>,
+        allowed_h_values: Spec,
+        allowed_j_values: Spec,
+        allowed_spin_values: Spec,
+        registered_at: u32,
+    }
+
+    fn register<T: TypeInfo + 'static>() -> (PortableRegistry, u32) {
+        let mut registry = Registry::new();
+        let id = registry.register_type(&MetaType::new::<T>()).id;
+        (registry.into(), id)
+    }
+    fn scalars<T: Encode + TypeInfo + 'static>(
+        topology: T,
+    ) -> Result<TopologyScalars, super::ChainError> {
+        let (types, id) = register::<Option<T>>();
+        topology_scalars(&Some(topology).encode(), id, &types)
+    }
+    fn family_topology(family: Option<Descriptor>) -> FamilyTopology {
+        FamilyTopology {
+            nodes: vec![0, 1, 2],
+            edges: vec![(0, 1), (1, 2)],
+            allowed_h_values: Spec::Set(vec![0]),
+            allowed_j_values: Spec::Set(vec![-1000, 1000]),
+            allowed_spin_values: Spec::Set(vec![-1000, 1000]),
+            family,
+            registered_at: 7,
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Assertions report fixture mismatches through the test runner."
+    )]
+    fn family_topology_reports_family_identity() -> Result<(), super::ChainError> {
+        let found = scalars(family_topology(Some(Descriptor {
+            family_id: b"quip/twisted-ice-dimer".to_vec(),
+            revision: 1,
+            params: vec![9, 9, 9],
+        })))?;
+        assert_eq!((found.nodes, found.edges), (3, 2));
+        assert_eq!(
+            found.family,
+            Some(FamilyInfo {
+                family_id: "quip/twisted-ice-dimer".into(),
+                revision: 1,
+            })
+        );
+        Ok(())
+    }
+    #[test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Assertions report fixture mismatches through the test runner."
+    )]
+    fn topology_without_family_descriptor_has_no_family() -> Result<(), super::ChainError> {
+        assert_eq!(scalars(family_topology(None))?.family, None);
+        Ok(())
+    }
+    #[test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Assertions report fixture mismatches through the test runner."
+    )]
+    fn pre_family_topology_layout_has_no_family() -> Result<(), super::ChainError> {
+        let found = scalars(LegacyTopology {
+            nodes: vec![0, 1, 2],
+            edges: vec![(0, 1), (1, 2)],
+            allowed_h_values: Spec::Set(vec![0]),
+            allowed_j_values: Spec::Set(vec![-1000, 1000]),
+            allowed_spin_values: Spec::Set(vec![-1000, 1000]),
+            registered_at: 7,
+        })?;
+        assert_eq!(found.family, None);
+        assert_eq!((found.h, found.j), (Some(0.0), Some(1.0)));
+        Ok(())
+    }
+    #[test]
+    fn family_id_that_is_not_utf8_is_rejected() {
+        let result = scalars(family_topology(Some(Descriptor {
+            family_id: vec![0xff, 0xfe, 0xfd],
+            revision: 1,
+            params: vec![],
+        })));
+        assert!(result.is_err());
+    }
 }

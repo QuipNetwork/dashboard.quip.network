@@ -134,8 +134,35 @@ pub struct MineableTopologyRecord {
     pub node_count: u32,
     /// Edge count.
     pub edge_count: u32,
-    /// Energy-curve constant K.
+    /// Energy-curve constant K. Absent for a family topology, whose
+    /// difficulty does not follow the legacy curve.
     pub curve_constant: Option<f64>,
+    /// Family descriptor identity, absent for a legacy topology.
+    #[serde(default)]
+    pub family: Option<TopologyFamily>,
+    /// Energy band a family topology's difficulty moves inside.
+    #[serde(default)]
+    pub energy_band: Option<EnergyBand>,
+}
+
+/// Identity of the canonical generator behind a family topology.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopologyFamily {
+    /// Family id as the generator crate defines it.
+    pub family_id: String,
+    /// Family revision.
+    pub revision: u32,
+}
+
+/// Root-set energy band of a family topology, in energy units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnergyBand {
+    /// Hardest (most negative) end of the band.
+    pub hard_energy: f64,
+    /// Easiest (least negative) end of the band.
+    pub easy_energy: f64,
 }
 
 /// Substrate BABE epoch state.

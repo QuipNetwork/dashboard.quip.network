@@ -13,8 +13,9 @@ mod serde_util;
 
 pub use chain::{
     BabeAuthorityRecord, BabeEpochState, BlockRecord, ChainHead, ChainMinerRecord,
-    DifficultyRecord, DifficultySource, MineableTopologyRecord, MinerWinsRow, MiningHistoryRow,
-    QBlockParticipationRecord, RuntimeVersion, ValidatorAuthorshipRecord,
+    DifficultyRecord, DifficultySource, EnergyBand, MineableTopologyRecord, MinerWinsRow,
+    MiningHistoryRow, QBlockParticipationRecord, RuntimeVersion, TopologyFamily,
+    ValidatorAuthorshipRecord,
 };
 pub use decimal::{DecimalString, DecimalStringError, DecimalToU64Error};
 /// Exact block height on the wire. Protocol arithmetic uses the checked `to_u64` conversion.

@@ -4,7 +4,8 @@ use super::{Indexer, IndexerError, PAGE_SIZE, Target, decimal, iso_timestamp, mo
 use crate::chain::{ChainError, ChainMinerInfo, DecodedBlock, DescriptorEntry, WorkClass};
 use dashboard_model::{
     BabeAuthorityRecord, BabeEpochState, ChainHead, ChainMinerRecord, DifficultyRecord,
-    DifficultySource, MineableTopologyRecord, NodeDescriptorRecord, RuntimeVersion,
+    DifficultySource, EnergyBand, MineableTopologyRecord, NodeDescriptorRecord, RuntimeVersion,
+    TopologyFamily,
 };
 use std::time::Duration;
 use tokio::{sync::watch, time::Instant};
@@ -46,6 +47,14 @@ impl Indexer {
                 node_count: t.topology.node_count,
                 edge_count: t.topology.edge_count,
                 curve_constant: t.topology.curve_constant,
+                family: t.topology.family.map(|f| TopologyFamily {
+                    family_id: f.family_id,
+                    revision: f.revision,
+                }),
+                energy_band: t.energy_band.map(|b| EnergyBand {
+                    hard_energy: milli_energy(b.hard_milli),
+                    easy_energy: milli_energy(b.easy_milli),
+                }),
             });
         }
         self.store.set_mineable_topologies(&records).await?;
